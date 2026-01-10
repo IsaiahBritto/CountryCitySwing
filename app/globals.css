@@ -1,0 +1,164 @@
+@import "tailwindcss";
+
+/* -------------------------------------------------------
+   Dark-mode-only global styles
+------------------------------------------------------- */
+html,
+body {
+  background-color: var(--color-neutral-900);
+  color: var(--color-neutral-100);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Navbar */
+nav {
+  background-color: #111218;            /* deep charcoal */
+  border-bottom: 1px solid #2a2a2a;
+  box-shadow: 0 2px 8px rgba(242, 201, 76, 0.25);
+}
+
+/* Links */
+a {
+  color: var(--color-primary, #F2C94C);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+a:hover {
+  color: #ffe375;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-primary);
+  margin-bottom: 0.75rem;
+}
+h1 { font-size: 2.25rem; }
+h2 { font-size: 1.875rem; }
+
+/* Buttons */
+.btn {
+  display: inline-block;
+  padding: 0.5rem 1.25rem;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.btn-primary {
+  background-color: var(--color-primary);
+  color: black;
+}
+.btn-primary:hover {
+  background-color: #ffe375;
+  box-shadow: 0 0 25px rgba(242, 201, 76, 0.55);
+}
+.btn-accent {
+  background-color: var(--color-accent, #BB86FC);
+  color: #000;
+}
+.btn-accent:hover {
+  background-color: #CF9FFF;
+  box-shadow: 0 0 20px rgba(187, 134, 252, 0.45);
+}
+/* Specific brighter button for homepage */
+.home-events-btn {
+  background-color: #FFD84E;           /* brighter gold */
+  color: #000;
+  box-shadow: 0 0 20px rgba(255, 216, 78, 0.4);
+}
+
+.home-events-btn:hover {
+  background-color: #FFE375;           /* lighter on hover */
+  box-shadow: 0 0 30px rgba(255, 216, 78, 0.6);
+}
+
+/* Footer */
+footer {
+  background-color: #111218;
+  border-top: 1px solid #2a2a2a;
+  color: var(--color-neutral-100);
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 1.5rem 0;
+}
+
+/* Utility */
+img {
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.shadow-glow {
+  box-shadow: 0 0 25px rgba(242, 201, 76, 0.45);
+}
+
+/* -------------------------------------------------------
+   Gold wave animation (inside text)
+------------------------------------------------------- */
+@keyframes goldWave {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.gold-wave {
+  background-image: linear-gradient(
+    270deg,
+    #f2c94c,
+    #f3dc97,
+    #fafaf8,
+    #f3dc97,
+    #f2c94c
+  );
+  background-size: 300% 300%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: goldWave 8s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(242, 201, 76, 0.4));
+  text-shadow: 0 0 4px rgba(242, 201, 76, 0.25);
+  line-height: 1.2;
+}
+
+/* optional global transition helpers */
+.transition-opacity {
+  transition: opacity 1s ease-in-out;
+}
+.transition-all {
+  transition: all 1s ease-in-out;
+}
+
+@keyframes goldPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(242, 201, 76, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(242, 201, 76, 0.8);
+  }
+}
+
+.gold-glow {
+  animation: goldPulse 4s ease-in-out infinite;
+}
+
+@keyframes purplePulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(187, 134, 252, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(187, 134, 252, 0.9);
+  }
+}
+
+.animate-purplePulse {
+  animation: purplePulse 4s ease-in-out infinite;
+}

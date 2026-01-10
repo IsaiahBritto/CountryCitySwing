@@ -1,0 +1,47 @@
+[
+  {
+    "id": 107,
+    "title": "Nashville Country Swing Nights!",
+    "date": "2026-01-07",
+    "location": "1900 Church St, Nashville, TN",
+    "signupLink": "https://docs.google.com/forms/d/e/1FAIpQLSdQYQcAGAszCzp9X6oYFX3Ocj1fkPcnZBojL5zXdTr4bJ7fBA/viewform",
+    "description": "This is your one stop shop for weekly country swing fun! Malissa and Isaiah will be instructing the upper level class while our team of amazing beginner instructors lead the beginner class scheduled weeks!",
+    "type": "Class"
+  },
+  {
+    "id": 114,
+    "title": "Nashville Country Swing Nights!",
+    "date": "2026-01-14",
+    "location": "1900 Church St, Nashville, TN",
+    "signupLink": "https://docs.google.com/forms/d/e/1FAIpQLSdQYQcAGAszCzp9X6oYFX3Ocj1fkPcnZBojL5zXdTr4bJ7fBA/viewform",
+    "description": "This is your one stop shop for weekly country swing fun! Malissa and Isaiah will be instructing the upper level class while our team of amazing beginner instructors lead the beginner class scheduled weeks!",
+    "type": "Class"
+  },
+  {
+    "id": 121,
+    "title": "Nashville Country Swing Nights!",
+    "date": "2026-01-21",
+    "location": "1900 Church St, Nashville, TN",
+    "signupLink": "https://docs.google.com/forms/d/e/1FAIpQLSdQYQcAGAszCzp9X6oYFX3Ocj1fkPcnZBojL5zXdTr4bJ7fBA/viewform",
+    "description": "This is your one stop shop for weekly country swing fun! Malissa and Isaiah will be instructing the upper level class while our team of amazing beginner instructors lead the beginner class scheduled weeks!",
+    "type": "Class"
+  },
+  {
+    "id": 128,
+    "title": "Nashville Country Swing Nights!",
+    "date": "2026-01-28",
+    "location": "1900 Church St, Nashville, TN",
+    "signupLink": "https://docs.google.com/forms/d/e/1FAIpQLSdQYQcAGAszCzp9X6oYFX3Ocj1fkPcnZBojL5zXdTr4bJ7fBA/viewform",
+    "description": "This is your one stop shop for weekly country swing fun! Malissa and Isaiah will be instructing the upper level class while our team of amazing beginner instructors lead the beginner class scheduled weeks!",
+    "type": "Class"
+  },
+  {
+    "id": 27,
+    "title": "Workshop by Juan Agguire",
+    "date": "2026-02-07",
+    "location": "Dance Nashville: 630 Rundle Ave, Nashville, TN",
+    "signupLink": "https://docs.google.com/forms/d/e/1FAIpQLSdiB8u6K829c5riDWnOhGqqQnJDfCQS092OX3bmsu5HHPwGFA/viewform",
+    "description": "Take your dance to the next level with dynamic turns, dips, and style variations!",
+    "type": "Workshop"
+  }
+]

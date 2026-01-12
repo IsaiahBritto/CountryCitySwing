@@ -162,3 +162,27 @@ img {
 .animate-purplePulse {
   animation: purplePulse 4s ease-in-out infinite;
 }
+
+@keyframes yellowPulse {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(242, 201, 76, 0.4),
+                0 0 20px rgba(242, 201, 76, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(242, 201, 76, 0.7),
+                0 0 15px rgba(242, 201, 76, 0.5);
+  }
+}
+
+/* Universal “Sign Up” button style */
+.btn-signup {
+  @apply font-semibold px-5 py-2 rounded-md  text-yellow-400 bg-transparent
+    transition-all duration-300 ease-in-out;
+  animation: yellowPulse 4s ease-in-out infinite;
+}
+
+/* Hover and focus states */
+.btn-signup:hover,
+.btn-signup:focus {
+  @apply bg-yellow-400/25 text-yellow-400 shadow-[0_0_20px_rgba(242,201,76,0.8)];
+}

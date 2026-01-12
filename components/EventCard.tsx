@@ -12,7 +12,12 @@ export default function EventCard({ event }: { event: Event }) {
     <div className="border border-neutral-700 rounded-lg p-5 hover:border-primary transition">
       <h3 className="text-xl font-bold text-primary mb-1">{event.title}</h3>
       <p className="text-gray-400 text-sm">
-        📅 {new Date(event.date).toLocaleDateString()} — 📍 {event.location}
+        📅 {new Date(event.date + "T00:00:00").toLocaleDateString(undefined, {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })} — 📍 {event.location}
       </p>
       <p className="mt-3 text-gray-300">{event.description}</p>
       <a

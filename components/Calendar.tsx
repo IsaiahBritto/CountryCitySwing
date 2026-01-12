@@ -1,10 +1,12 @@
 "use client";
+
 import { useState } from "react";
 import dayjs from "dayjs";
 import weekday from "dayjs/plugin/weekday";
 import isoWeek from "dayjs/plugin/isoWeek";
 import advancedFormat from "dayjs/plugin/advancedFormat";
 import { StarIcon, XMarkIcon } from "@heroicons/react/24/solid";
+import EventSignupModal from "@/components/EventSignupModal";
 
 dayjs.extend(weekday);
 dayjs.extend(isoWeek);
@@ -17,6 +19,8 @@ interface CalendarEvent {
   location: string;
   signupLink: string;
   description: string;
+  cost?: number;
+  time?: string;
   type?: string;
 }
 
@@ -30,10 +34,11 @@ export default function Calendar({ events = [] }: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(dayjs());
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const [showSignup, setShowSignup] = useState(false);
 
   const daysInMonth = currentMonth.daysInMonth();
   const firstDayOfMonth = currentMonth.startOf("month").day();
-  const startDayIndex = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
+  const startDayIndex = firstDayOfMonth;
 
   // build weeks
   const weeks: (number | null)[][] = [];
@@ -63,8 +68,13 @@ export default function Calendar({ events = [] }: CalendarProps) {
 
   const closeEvent = () => {
     setIsVisible(false);
-    // wait for fade-out before clearing
     setTimeout(() => setSelectedEvent(null), 200);
+  };
+
+  const closeAll = () => {
+    setIsVisible(false);
+    setShowSignup(false);
+    setSelectedEvent(null);
   };
 
   return (
@@ -91,7 +101,7 @@ export default function Calendar({ events = [] }: CalendarProps) {
 
         {/* Weekday labels */}
         <div className="grid grid-cols-7 gap-2 text-center font-semibold mb-2">
-          {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
             <div key={day} className="text-sm text-gray-300">
               {day}
             </div>
@@ -103,7 +113,6 @@ export default function Calendar({ events = [] }: CalendarProps) {
           {weeks.map((week, wi) =>
             week.map((day, di) => {
               const event = day ? getEventForDay(day) : null;
-
               return (
                 <div
                   key={`${wi}-${di}`}
@@ -112,22 +121,20 @@ export default function Calendar({ events = [] }: CalendarProps) {
                   }}
                   className={`group h-16 flex flex-col justify-center items-center rounded-md transition cursor-pointer overflow-hidden
                     ${
-                    event
+                      event
                         ? event.type === "Workshop"
-                        ? "bg-yellow-400/50 text-black hover:bg-yellow-400"
-                        : "bg-primary text-black hover:bg-yellow-400"
+                          ? "bg-yellow-400/50 text-black hover:bg-yellow-400"
+                          : "bg-primary text-black hover:bg-yellow-400"
                         : "bg-neutral-900 text-gray-300"
                     }
                     ${
-                    day && currentMonth.date(day).format("YYYY-MM-DD") === today
-                        ? "ring-2 ring-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)]" // 👈 highlight today
+                      day &&
+                      currentMonth.date(day).format("YYYY-MM-DD") === today
+                        ? "ring-2 ring-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)]"
                         : ""
                     }`}
                 >
-                  {day && (
-                    <span className="font-medium text-base">{day}</span>
-                  )}
-
+                  {day && <span className="font-medium text-base">{day}</span>}
                   {event && (
                     <StarIcon className="w-4 h-4 mt-1 transition-colors text-yellow-400 group-hover:text-black" />
                   )}
@@ -138,8 +145,8 @@ export default function Calendar({ events = [] }: CalendarProps) {
         </div>
       </div>
 
-      {/* MODAL */}
-      {selectedEvent && (
+      {/* MODAL for event details */}
+      {selectedEvent && !showSignup && (
         <div
           className={`fixed inset-0 flex items-center justify-center z-50 transition-opacity duration-200 
             ${isVisible ? "opacity-100" : "opacity-0"} 
@@ -164,6 +171,7 @@ export default function Calendar({ events = [] }: CalendarProps) {
             </h3>
             <p className="text-gray-400 mb-2">
               {dayjs(selectedEvent.date).format("dddd, MMMM D, YYYY")}
+              {selectedEvent.time && ` • ${selectedEvent.time}`}
             </p>
             <p className="text-gray-300 mb-4 italic">
               📍 {selectedEvent.location}
@@ -174,24 +182,34 @@ export default function Calendar({ events = [] }: CalendarProps) {
 
             {/* Signup button or Closed state */}
             {dayjs(selectedEvent.date).isBefore(dayjs(), "day") ? (
-            <button
+              <button
                 disabled
                 className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"
-            >
+              >
                 Closed
-            </button>
+              </button>
             ) : (
-            <a
-                href={selectedEvent.signupLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block bg-primary text-black font-semibold px-5 py-2 rounded-md hover:bg-yellow-400 transition-colors shadow-glow"
-            >
+              <button
+                onClick={() => {
+                  setIsVisible(false);   // close event details
+                  setShowSignup(true);   // open signup modal
+                }}
+                className="btn-signup inline-block"
+              >
                 Sign Up
-            </a>
+              </button>
             )}
           </div>
         </div>
+      )}
+
+      {/* --- Event Signup Modal --- */}
+      {selectedEvent && (
+        <EventSignupModal
+          event={selectedEvent}
+          open={showSignup}
+          onClose={closeAll}
+        />
       )}
     </>
   );

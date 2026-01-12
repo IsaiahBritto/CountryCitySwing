@@ -3,7 +3,7 @@ import Image from "next/image";
 const team = [
   {
     name: "Isaiah",
-    role: "Founder & Head Instructor",
+    role: "Owner & Head Instructor",
     image: "/media/Isaiah_CCS.jpg",
   },
   {
@@ -11,6 +11,76 @@ const team = [
     role: "Head Instructor",
     image: "/media/Malissa_CCS.jpg",
   },
+  {
+    name: "Brandon Haas",
+    role: "Assistant Instructor",
+    image: "/media/Malissa_CCS.jpg",
+  },
+  {
+    name: "Brittney McGetrick",
+    role: "Assistant Instructor",
+    image: "/media/Brittney_McGetrick_CCS.jpg",
+  },
+  {
+    name: "Catherine Cerroni",
+    role: "Assistant Instructor",
+    image: "/media/Malissa_CCS.jpg",
+  },
+  {
+    name: "Catherine Husman",
+    role: "Assistant Instructor",
+    image: "/media/Catherine_Husman_CCS.jpg",
+  },
+  {
+    name: "Corrine DeRosa",
+    role: "Assistant Instructor",
+    image: "/media/Malissa_CCS.jpg",
+  },
+  {
+    name: "Dakota Kimble",
+    role: "Assistant Instructor",
+    image: "/media/Malissa_CCS.jpg",
+  },
+  {
+    name: "Davis Schmidt",
+    role: "Assistant Instructor",
+    image: "/media/Malissa_CCS.jpg",
+  },
+  {
+    name: "Emma Eagle",
+    role: "Assistant Instructor",
+    image: "/media/Emma_Eagle_CCS.jpg",
+  },
+  {
+    name: "Joey Becks",
+    role: "Assistant Instructor",
+    image: "/media/Malissa_CCS.jpg",
+  },
+  {
+    name: "Jacob Meiland",
+    role: "Assistant Instructor",
+    image: "/media/Jacob_Meiland_CCS.jpg",
+  },
+  {
+    name: "Mike Reich",
+    role: "Assistant Instructor",
+    image: "/media/Mike_Reich_CCS.jpg",
+  },
+  {
+    name: "Nicole Maxson",
+    role: "Assistant Instructor",
+    image: "/media/Nicole_Maxson_CCS.jpg",
+  },
+  {
+    name: "Rhi Goodman",
+    role: "Assistant Instructor",
+    image: "/media/Rhi_Goodman_CCS.jpg",
+  },
+  {
+    name: "Seth Vink",
+    role: "Assistant Instructor",
+    image: "/media/Malissa_CCS.jpg",
+  }
 ];
 
 export default function Team() {

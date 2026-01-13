@@ -32,9 +32,9 @@ const team = [
     image: "/media/Catherine_Husman_CCS.jpg",
   },
   {
-    name: "Corrine DeRosa",
+    name: "Corinne DeRosa",
     role: "Assistant Instructor",
-    image: "/media/Malissa_CCS.jpg",
+    image: "/media/Corinne_DeRosa_CCS.jpg",
   },
   {
     name: "Dakota Kimble",
@@ -52,7 +52,7 @@ const team = [
     image: "/media/Emma_Eagle_CCS.jpg",
   },
   {
-    name: "Joey Becks",
+    name: "Joey Becks", 
     role: "Assistant Instructor",
     image: "/media/Malissa_CCS.jpg",
   },
@@ -79,7 +79,7 @@ const team = [
   {
     name: "Seth Vink",
     role: "Assistant Instructor",
-    image: "/media/Malissa_CCS.jpg",
+    image: "/media/Seth_Vink_CCS.jpg",
   }
 ];
 

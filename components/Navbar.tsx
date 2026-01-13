@@ -7,6 +7,7 @@ import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 
 interface UserMeta {
+  id?: string;
   email?: string;
   user_metadata?: { first_name?: string };
 }
@@ -16,24 +17,32 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<any>(null);
 
-  // Load current user and listen for changes
+  // Load and listen for auth changes
   useEffect(() => {
-  supabaseBrowser.auth.getUser().then(({ data }) => setUser(data.user));
+    supabaseBrowser.auth.getUser().then(({ data }) => setUser(data.user));
+    const { data: listener } = supabaseBrowser.auth.onAuthStateChange(
+      (_: AuthChangeEvent, session: Session | null) =>
+        setUser(session?.user ?? null)
+    );
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
-  const { data: listener } = supabaseBrowser.auth.onAuthStateChange(
-    (_, session) => setUser(session?.user ?? null)
-  );
-
-  return () => listener.subscription.unsubscribe();
-}, []);
-
-  const handleSignOut = async () => {
-    await supabaseBrowser.auth.signOut();
-    setUser(null);
-    setMenuOpen(false);
-  };
+  // Fetch profile when user changes
+  useEffect(() => {
+    const fetchProfile = async () => {
+      if (!user?.id) return setProfile(null);
+      const { data } = await supabaseBrowser
+        .from("profiles")
+        .select("first_name, last_name, role")
+        .eq("id", user.id)
+        .single();
+      if (data) setProfile(data);
+    };
+    fetchProfile();
+  }, [user]);
 
   const displayName =
+    profile?.first_name ||
     user?.user_metadata?.first_name ||
     (user?.email ? user.email.split("@")[0] : "");
 
@@ -48,7 +57,7 @@ export default function Navbar() {
   return (
     <nav className="w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md">
       <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-        {/* Logo / Brand */}
+        {/* Logo */}
         <Link
           href="/"
           className="text-2xl font-bold text-primary whitespace-nowrap"
@@ -56,7 +65,7 @@ export default function Navbar() {
           Country City Swing
         </Link>
 
-        {/* Hamburger button (mobile only) */}
+        {/* Hamburger (mobile) */}
         <button
           className="md:hidden text-gray-300 hover:text-primary transition-colors"
           onClick={() => setMenuOpen(!menuOpen)}
@@ -69,7 +78,7 @@ export default function Navbar() {
           )}
         </button>
 
-        {/* Desktop Menu */}
+        {/* Desktop menu */}
         <div className="hidden md:flex items-center space-x-6">
           {navLinks.map((link) => (
             <Link
@@ -82,12 +91,12 @@ export default function Navbar() {
           ))}
 
           {user ? (
-            <button
-              className="text-primary font-medium text-yellow-400 hover:text-red-400 text-sm transition-colors"
-              onClick={handleSignOut}
+            <Link
+              href="/profile"
+              className="text-gray-300 hover:text-primary transition-colors"
             >
               Hello {displayName}!
-            </button>
+            </Link>
           ) : (
             <Link
               href="/auth"
@@ -99,7 +108,7 @@ export default function Navbar() {
         </div>
       </div>
 
-      {/* Mobile Dropdown */}
+      {/* Mobile dropdown */}
       {menuOpen && (
         <div className="md:hidden bg-neutral-900 border-t border-neutral-800 px-6 py-4 space-y-4">
           {navLinks.map((link) => (
@@ -114,12 +123,13 @@ export default function Navbar() {
           ))}
 
           {user ? (
-            <button
-              onClick={handleSignOut}
-              className="block text-yellow-400 hover:text-red-400 text-sm transition-colors"
+            <Link
+              href="/profile"
+              onClick={() => setMenuOpen(false)}
+              className="block text-gray-300 hover:text-primary transition-colors"
             >
-              Hello {profile?.first_name || profile?.email?.split("@")[0]}! (Sign Out)
-            </button>
+              Hello {displayName}!
+            </Link>
           ) : (
             <Link
               href="/auth"

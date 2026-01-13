@@ -1,153 +1,143 @@
-import Image from "next/image";
+"use client";
 
-const team = [
-  {
-    name: "Isaiah",
-    role: "Owner & Head Instructor",
-    image: "/media/Isaiah_CCS.jpg",
-  },
-  {
-    name: "Malissa",
-    role: "Head Instructor",
-    image: "/media/Malissa_CCS.jpg",
-  },
-  {
-    name: "Brandon Haas",
-    role: "Assistant Instructor",
-    image: "/media/Malissa_CCS.jpg",
-  },
-  {
-    name: "Brittney McGetrick",
-    role: "Assistant Instructor",
-    image: "/media/Brittney_McGetrick_CCS.jpg",
-  },
-  {
-    name: "Catherine Cerroni",
-    role: "Assistant Instructor",
-    image: "/media/Malissa_CCS.jpg",
-  },
-  {
-    name: "Catherine Husman",
-    role: "Assistant Instructor",
-    image: "/media/Catherine_Husman_CCS.jpg",
-  },
-  {
-    name: "Corinne DeRosa",
-    role: "Assistant Instructor",
-    image: "/media/Corinne_DeRosa_CCS.jpg",
-  },
-  {
-    name: "Dakota Kimble",
-    role: "Assistant Instructor",
-    image: "/media/Malissa_CCS.jpg",
-  },
-  {
-    name: "Davis Schmidt",
-    role: "Assistant Instructor",
-    image: "/media/Malissa_CCS.jpg",
-  },
-  {
-    name: "Emma Eagle",
-    role: "Assistant Instructor",
-    image: "/media/Emma_Eagle_CCS.jpg",
-  },
-  {
-    name: "Joey Becks", 
-    role: "Assistant Instructor",
-    image: "/media/Malissa_CCS.jpg",
-  },
-  {
-    name: "Jacob Meiland",
-    role: "Assistant Instructor",
-    image: "/media/Jacob_Meiland_CCS.jpg",
-  },
-  {
-    name: "Mike Reich",
-    role: "Assistant Instructor",
-    image: "/media/Mike_Reich_CCS.jpg",
-  },
-  {
-    name: "Nicole Maxson",
-    role: "Assistant Instructor",
-    image: "/media/Nicole_Maxson_CCS.jpg",
-  },
-  {
-    name: "Rhi Goodman",
-    role: "Assistant Instructor",
-    image: "/media/Rhi_Goodman_CCS.jpg",
-  },
-  {
-    name: "Seth Vink",
-    role: "Assistant Instructor",
-    image: "/media/Seth_Vink_CCS.jpg",
-  }
-];
+import { useEffect, useState } from "react";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
-export default function Team() {
-  // split team array: first two vs. rest
-  const firstRow = team.slice(0, 2);
-  const remaining = team.slice(2);
+interface Instructor {
+  id: string;
+  first_name: string;
+  last_name: string;
+  photo_url: string | null;
+  role: string;
+}
+
+export default function TeamPage() {
+  const [profiles, setProfiles] = useState<Instructor[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadProfiles() {
+      // ✅ Get all profiles (no filter)
+      const { data, error } = await supabaseBrowser
+        .from("profiles")
+        .select("id, first_name, last_name, photo_url, role")
+        .order("first_name", { ascending: true });
+
+      if (error) {
+        console.error("Error loading profiles:", error.message);
+      } else {
+        setProfiles(data || []);
+      }
+      setLoading(false);
+    }
+
+    loadProfiles();
+  }, []);
+
+  if (loading)
+    return <p className="text-center text-gray-400 mt-10">Loading team...</p>;
+
+  if (profiles.length === 0)
+    return (
+      <p className="text-center text-gray-400 mt-10">No team members found.</p>
+    );
+
+  // --- Normalize helper ---
+  const normalize = (s: string) => s.trim().toLowerCase();
+
+  // --- Find Isaiah + Malissa regardless of role ---
+  const isaiah = profiles.find(
+    (p) =>
+      normalize(p.first_name) === "isaiah" &&
+      normalize(p.last_name) === "britto"
+  );
+  const malissa = profiles.find(
+    (p) =>
+      normalize(p.first_name) === "malissa" &&
+      normalize(p.last_name) === "petersen"
+  );
+
+  // --- Everyone else (assistant instructors only) ---
+  const assistants = profiles.filter((p) => {
+    const role = normalize(p.role);
+    const isInstructor = role.includes("instructor");
+    const isIsaiah =
+      normalize(p.first_name) === "isaiah" &&
+      normalize(p.last_name) === "britto";
+    const isMalissa =
+      normalize(p.first_name) === "malissa" &&
+      normalize(p.last_name) === "petersen";
+    return isInstructor && !isIsaiah && !isMalissa;
+  });
 
   return (
-    <section className="max-w-5xl mx-auto px-4">
-      <h2 className="text-3xl font-semibold text-primary mb-8 text-center">
-        Meet Our Team
+    <section className="max-w-5xl mx-auto text-center px-4 py-12">
+      <h2 className="text-3xl font-semibold text-primary mb-10">
+        Meet Our Instructors
       </h2>
 
-      {/* --- First Row: 2 Cards, Centered --- */}
-      <div className="flex flex-wrap justify-center gap-8 mb-10">
-        {firstRow.map((person) => (
-          <div
-            key={person.name}
-            className="text-center bg-neutral-800 rounded-lg p-6 shadow-[0_0_20px_rgba(242,201,76,0.25)] hover:shadow-[0_0_25px_rgba(242,201,76,0.5)] transition-all duration-300 w-56 h-[20rem] flex flex-col items-center justify-start"
-          >
-            <div className="relative w-36 h-36 mb-4">
-              <Image
-                src={person.image}
-                alt={person.name}
-                fill
-                sizes="(max-width: 768px) 140px, 180px"
-                className="rounded-full object-cover"
-                priority
-              />
-            </div>
-            <div className="flex flex-col items-center flex-grow">
-              <h3 className="text-lg font-bold text-primary">{person.name}</h3>
-              <p className="text-gray-400 mt-1 text-center text-sm">
-                {person.role}
-              </p>
-            </div>
-          </div>
-        ))}
+      {/* --- Top row: Isaiah & Malissa --- */}
+      <div className="flex flex-wrap justify-center gap-10 mb-14">
+        {isaiah && (
+          <InstructorCard
+            member={isaiah}
+            title="Owner & Head Instructor"
+          />
+        )}
+        {malissa && (
+          <InstructorCard
+            member={malissa}
+            title="Head Instructor"
+          />
+        )}
       </div>
 
-      {/* --- Remaining Rows: 3 per Row --- */}
-      {remaining.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8 justify-items-center">
-          {remaining.map((person) => (
-            <div
-              key={person.name}
-              className="text-center bg-neutral-800 rounded-lg p-6 shadow-[0_0_20px_rgba(242,201,76,0.25)] hover:shadow-[0_0_25px_rgba(242,201,76,0.5)] transition-all duration-300 w-56 h-[20rem] flex flex-col items-center justify-start"
-            >
-              <div className="relative w-36 h-36 mb-4">
-                <Image
-                  src={person.image}
-                  alt={person.name}
-                  fill
-                  sizes="(max-width: 768px) 140px, 180px"
-                  className="rounded-full object-cover"
-                />
-              </div>
-              <div className="flex flex-col items-center flex-grow">
-                <h3 className="text-lg font-bold text-primary">{person.name}</h3>
-                <p className="text-gray-400 mt-1 text-center text-sm">
-                  {person.role}
-                </p>
-              </div>
-            </div>
+      {/* --- Assistant instructors --- */}
+      {assistants.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-10 justify-items-center">
+          {assistants.map((member) => (
+            <InstructorCard
+              key={member.id}
+              member={member}
+              title="Assistant Instructor"
+            />
           ))}
         </div>
       )}
     </section>
+  );
+}
+
+/* ---------- Card Component ---------- */
+function InstructorCard({
+  member,
+  title,
+}: {
+  member: Instructor;
+  title: string;
+}) {
+  return (
+    <div className="text-center bg-neutral-800 rounded-lg p-6 shadow-[0_0_20px_rgba(242,201,76,0.25)] hover:shadow-[0_0_25px_rgba(242,201,76,0.5)] transition-all duration-300 w-56 h-[20rem] flex flex-col items-center justify-start">
+      <div className="relative w-36 h-36 mb-4">
+        {member.photo_url ? (
+          <img
+            src={member.photo_url}
+            alt={`${member.first_name} ${member.last_name}`}
+            className="rounded-full object-cover w-full h-full border-2 border-yellow-400"
+          />
+        ) : (
+          <div className="w-full h-full rounded-full border-2 border-yellow-400 flex items-center justify-center text-yellow-300 text-sm">
+            No Photo
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col items-center flex-grow">
+        <h3 className="text-lg font-bold text-primary">
+          {member.first_name} {member.last_name}
+        </h3>
+        <p className="text-gray-400 mt-1 text-center text-sm">{title}</p>
+      </div>
+    </div>
   );
 }

@@ -123,7 +123,7 @@ function InstructorCard({
           <img
             src={member.photo_url}
             alt={`${member.first_name} ${member.last_name}`}
-            className="rounded-full object-cover w-full h-full border-2 border-yellow-400"
+            className="rounded-full object-cover w-full h-full "
           />
         ) : (
           <div className="w-full h-full rounded-full border-2 border-yellow-400 flex items-center justify-center text-yellow-300 text-sm">

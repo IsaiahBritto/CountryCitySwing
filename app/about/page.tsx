@@ -9,7 +9,7 @@ export default function About() {
         <div className="w-24 h-[2px] bg-gradient-to-r from-yellow-400 via-primary to-yellow-400 mx-auto rounded-full"></div>
       </div>
 
-      {/* Content */}
+      {/* Main content */}
       <div className="space-y-6 text-lg leading-relaxed text-gray-300">
         <p>
           Founded in the heart of Nashville, Tennessee,{" "}
@@ -19,24 +19,65 @@ export default function About() {
         </p>
 
         <p>
-          Our mission is to create a <span className="text-yellow-400 font-medium">welcoming, faith-driven community</span>{" "}
+          Our mission is to create a{" "}
+          <span className="text-yellow-400 font-medium">
+            welcoming, faith-driven community
+          </span>{" "}
           where dancers of all levels — from curious beginners to experienced
-          performers — can learn, grow, and connect through movement, music, and joy.
+          performers — can learn, grow, and connect through movement, music, and
+          joy.
         </p>
 
         <p>
           We believe dancing is more than just steps — it’s a celebration of
           fellowship, gratitude, and expression. Every event, class, and workshop
-          we host is designed to help people learn, grow, and connect through dance and faith.
-        </p>
-
-        <p className="text-center italic text-yellow-300 mt-10 text-xl">
-          “Dance for joy, dance for connection, dance for His glory.”
+          we host is designed to help people experience the connection between
+          rhythm, relationship, and renewal.
         </p>
       </div>
 
+      {/* Logo Story */}
+      <div className="mt-16 pt-10 border-t border-neutral-800">
+        <h3 className="text-3xl font-semibold text-primary mb-4 text-center">
+          The CCS Logo
+        </h3>
+
+        <div className="text-lg leading-relaxed text-gray-300 space-y-5">
+          <p>
+            From the very beginning, our goal was clear —{" "}
+            <span className="text-yellow-400 font-medium">
+              the eyes should never be on us
+            </span>
+            , but always on Him. That conviction guided every step of our journey,
+            including the creation of the{" "}
+            <strong className="text-primary">Country City Swing logo</strong>.
+          </p>
+
+          <p>
+            The logo`s design is intentional —{" "}
+            <span className="text-yellow-400 font-medium">
+              keeping Christ first
+            </span>{" "}
+            as a reminder of the One who makes it all possible. At its heart, the
+            focal point is <strong>The Cross</strong>, representing our mission to
+            bring joy, unity, and purpose through dance that honors Him.
+          </p>
+
+          <p>
+            A special thanks to{" "}
+            <strong className="text-primary">Gabe Sebastian</strong> for
+            providing the original inspiration for the design — his vision helped
+            spark the logo we know and love today, a symbol of praise for
+            <strong className="text-primary"> Him</strong> with dance
+            and a community rooted in faith.
+          </p>
+        </div>
+      </div>
+      <p className="text-center italic text-yellow-300 mt-10 text-xl">
+          “Dance for joy, dance for connection, dance for His glory.”
+      </p>
       {/* Decorative accent footer */}
-      <div className="mt-12 flex justify-center">
+      <div className="mt-16 flex justify-center">
         <div className="w-32 h-[1px] bg-gradient-to-r from-transparent via-yellow-400 to-transparent rounded-full"></div>
       </div>
     </section>

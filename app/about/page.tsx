@@ -27,8 +27,7 @@ export default function About() {
         <p>
           We believe dancing is more than just steps — it’s a celebration of
           fellowship, gratitude, and expression. Every event, class, and workshop
-          we host is designed to help people experience the connection between
-          rhythm, relationship, and renewal.
+          we host is designed to help people learn, grow, and connect through dance and faith.
         </p>
 
         <p className="text-center italic text-yellow-300 mt-10 text-xl">

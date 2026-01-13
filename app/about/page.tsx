@@ -65,8 +65,15 @@ export default function About() {
 
           <p>
             A special thanks to{" "}
-            <strong className="text-primary">Gabe Sebastian</strong> for
-            providing the original inspiration for the design — his vision helped
+            <a
+              href="https://www.instagram.com/dancewithgabe?igsh=eGwycmI6NWI2Z2g1"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="!text-white underline decoration-1 underline-offset-2 hover:!text-white hover:shadow-[0_0_8px_rgba(242,201,76,0.8)] transition-all duration-300"
+            >
+              Gabe Sebastian
+            </a>{" "}
+            for providing the original inspiration for the design — his vision helped
             spark the logo we know and love today, a symbol of praise for
             <strong className="text-primary"> Him</strong> with dance
             and a community rooted in faith.

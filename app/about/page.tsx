@@ -6,7 +6,9 @@ export default function About() {
         <h2 className="text-4xl font-bold text-primary mb-2 tracking-wide">
           About Country City Swing
         </h2>
-        <div className="w-24 h-[2px] bg-gradient-to-r from-yellow-400 via-primary to-yellow-400 mx-auto rounded-full"></div>
+        <div className="mt-4 flex justify-center">
+        <div className="w-100 h-[1px] bg-gradient-to-r from-transparent via-yellow-400 to-transparent rounded-full"></div>
+      </div>
       </div>
 
       {/* Main content */}
@@ -84,8 +86,8 @@ export default function About() {
           “Dance for joy, dance for connection, dance for His glory.”
       </p>
       {/* Decorative accent footer */}
-      <div className="mt-16 flex justify-center">
-        <div className="w-32 h-[1px] bg-gradient-to-r from-transparent via-yellow-400 to-transparent rounded-full"></div>
+      <div className="mt-8 flex justify-center">
+        <div className="w-100 h-[1px] bg-gradient-to-r from-transparent via-yellow-400 to-transparent rounded-full"></div>
       </div>
     </section>
   );

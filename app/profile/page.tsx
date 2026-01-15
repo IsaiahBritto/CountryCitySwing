@@ -18,7 +18,7 @@ interface Profile {
   specialty: string | null;
   phone_number: string | null;
   private_lessons: string | null;
-  private_lessons_link: profile.private_lessons_link;
+  private_lessons_link: string | null;
 }
 
 export default function ProfilePage() {

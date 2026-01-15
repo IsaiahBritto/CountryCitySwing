@@ -111,13 +111,15 @@ export default function InstructorProfilePage() {
               </p>
             )}
             {show(profile.teaching_since) && (
-              <p className="text-gray-300">
-                <span className="text-primary font-medium">
-                  Teaching Since:
-                </span>{" "}
-                {new Date(profile.teaching_since).getFullYear()}
-              </p>
-            )}
+                <p className="text-gray-300">
+                    <span className="text-primary font-medium">
+                    Teaching Since:
+                    </span>{" "}
+                    {profile.teaching_since
+                    ? new Date(profile.teaching_since).getFullYear()
+                    : ""}
+                </p>
+                )}
           </div>
         )}
 

@@ -71,9 +71,9 @@ export default function InstructorProfilePage() {
         {/* Photo */}
         {profile.photo_url && (
           <img
-            src={profile.photo_url}
-            alt={`${profile.first_name} ${profile.last_name}`}
-            className="w-40 h-40 rounded-full mx-auto mb-4 object-cover"
+            src={profile.photo_url ?? ""}
+            alt={`${profile.first_name ?? ""} ${profile.last_name ?? ""}`}
+            className="w-40 h-40 rounded-full mx-auto mb-4 object-cover border-2 border-yellow-400"
           />
         )}
 
@@ -111,15 +111,15 @@ export default function InstructorProfilePage() {
               </p>
             )}
             {show(profile.teaching_since) && (
-                <p className="text-gray-300">
-                    <span className="text-primary font-medium">
-                    Teaching Since:
-                    </span>{" "}
-                    {profile.teaching_since
-                    ? new Date(profile.teaching_since).getFullYear()
-                    : ""}
-                </p>
-                )}
+              <p className="text-gray-300">
+                <span className="text-primary font-medium">
+                  Teaching Since:
+                </span>{" "}
+                {profile.teaching_since
+                  ? new Date(profile.teaching_since).getFullYear()
+                  : ""}
+              </p>
+            )}
           </div>
         )}
 
@@ -147,7 +147,7 @@ export default function InstructorProfilePage() {
             {show(profile.instagram_url) && (
               <p>
                 <a
-                  href={profile.instagram_url}
+                  href={profile.instagram_url ?? "#"}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-white underline decoration-1 underline-offset-2 hover:shadow-[0_0_8px_rgba(242,201,76,0.8)] transition-all duration-300 break-all"

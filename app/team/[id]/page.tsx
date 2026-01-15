@@ -19,6 +19,7 @@ interface InstructorProfile {
   specialty: string | null;
   phone_number: string | null;
   private_lessons: string | null;
+  private_lessons_link: string | null; // 👈 new field
 }
 
 export default function InstructorProfilePage() {
@@ -32,7 +33,8 @@ export default function InstructorProfilePage() {
         .from("profiles")
         .select(
           `id, first_name, last_name, photo_url, role, bio, bio_long, instagram_url,
-           teaching_since, favorite_song, teaching_style, specialty, phone_number, private_lessons`
+           teaching_since, favorite_song, teaching_style, specialty, phone_number,
+           private_lessons, private_lessons_link`
         )
         .eq("id", id)
         .single();
@@ -50,7 +52,6 @@ export default function InstructorProfilePage() {
       <p className="text-center text-gray-400 mt-10">Instructor not found.</p>
     );
 
-  // helper to assign display title
   const normalize = (s: string) => s.trim().toLowerCase();
   const getInstructorTitle = (first: string, last: string) => {
     const f = normalize(first);
@@ -135,9 +136,21 @@ export default function InstructorProfilePage() {
         {show(profile.private_lessons) && (
           <div className="break-words">
             <p className="text-primary font-medium mb-1">Private Lessons:</p>
-            <p className="text-gray-300 whitespace-pre-line">
+            <p className="text-gray-300 whitespace-pre-line mb-3">
               {profile.private_lessons}
             </p>
+
+            {/* New Private Lessons Link */}
+            {show(profile.private_lessons_link) && (
+              <a
+                href={profile.private_lessons_link ?? "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white underline decoration-1 underline-offset-2 hover:shadow-[0_0_8px_rgba(242,201,76,0.8)] transition-all duration-300 break-all"
+              >
+                View Private Lesson Schedule →
+              </a>
+            )}
           </div>
         )}
 

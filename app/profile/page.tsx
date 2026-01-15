@@ -18,6 +18,7 @@ interface Profile {
   specialty: string | null;
   phone_number: string | null;
   private_lessons: string | null;
+  private_lessons_link: profile.private_lessons_link;
 }
 
 export default function ProfilePage() {
@@ -83,6 +84,7 @@ export default function ProfilePage() {
         specialty: profile.specialty,
         phone_number: profile.phone_number,
         private_lessons: profile.private_lessons,
+        private_lessons_link: profile.private_lessons_link,
       })
       .eq("id", profile.id);
 
@@ -232,6 +234,16 @@ export default function ProfilePage() {
               placeholder="Private Lessons Info"
               className="w-full h-24 px-3 py-2 rounded bg-neutral-900 border border-neutral-700 resize-none"
             />
+            <input
+              type="text"
+              value={profile.private_lessons_link || ""}
+              onChange={(e) =>
+                setProfile({ ...profile, private_lessons_link: e.target.value })
+              }
+              placeholder="Private Lessons Schedule Link"
+              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+            />
+
           </>
         )}
 

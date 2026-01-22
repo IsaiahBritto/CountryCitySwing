@@ -174,6 +174,12 @@ export default function EventSignupModal({ event, open, onClose }: any) {
               : ""}{" "}
             <br />
             <strong>Location:</strong> {event.location}
+            {event.price && (
+              <>
+                <br />
+                <strong>Price:</strong> ${event.price.toFixed(2)}
+              </>
+            )}
           </p>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -250,7 +256,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
             {/* Payment */}
             <div>
               <p className="font-medium mb-1">
-                Payment Method: ${event.cost}
+                Payment Method{event.price ? `: $${event.price.toFixed(2)}` : ""}
               </p>
               {[
                 {

@@ -28,6 +28,11 @@ export default function EventCard({ event }: { event: Event }) {
               : ""}{" "}
             — 📍 {event.location}
       </p>
+      {(event as any).price && (
+        <p className="text-yellow-400 font-semibold text-sm mt-1">
+          Price: ${(event as any).price.toFixed(2)}
+        </p>
+      )}
       <p className="mt-3 text-gray-300">{event.description}</p>
       <a
         href={event.signupLink}

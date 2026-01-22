@@ -12,6 +12,7 @@ interface LessonBookingModalProps {
     end: string;          // ISO string
     is_booked?: boolean;
     duration_minutes?: number;
+    price?: number;
   };
   onClose: () => void;
 }
@@ -20,6 +21,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [instructorName, setInstructorName] = useState<string | null>(null);
+  const [slotPrice, setSlotPrice] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   
@@ -168,6 +170,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             lessonTime,
             lessonDuration: slot.duration_minutes || Math.round((new Date(slot.end).getTime() - new Date(slot.start).getTime()) / 60000),
             lessonFocus,
+            lessonPrice: slot.price,
           }),
         });
       } catch (emailError) {
@@ -244,6 +247,11 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
           <p className="text-gray-400 mt-1">
             Duration: {slot.duration_minutes || Math.round((new Date(slot.end).getTime() - new Date(slot.start).getTime()) / 60000)} minutes
           </p>
+          {slot.price && (
+            <p className="text-yellow-400 font-semibold mt-2">
+              Price: ${slot.price.toFixed(2)}
+            </p>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

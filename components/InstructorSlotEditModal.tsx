@@ -24,6 +24,7 @@ interface InstructorSlotEditModalProps {
     end: string;
     is_booked: boolean;
     duration_minutes: number;
+    price?: number;
   };
   onClose: () => void;
   onUpdate: () => void;
@@ -43,6 +44,7 @@ export default function InstructorSlotEditModal({
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [duration, setDuration] = useState(slot.duration_minutes || 60);
+  const [price, setPrice] = useState<number | null>(slot.price || null);
 
   const fetchBookingInfo = useCallback(async () => {
     setLoading(true);
@@ -89,6 +91,7 @@ export default function InstructorSlotEditModal({
     setDate(startDate.format("YYYY-MM-DD"));
     setTime(startDate.format("HH:mm"));
     setDuration(slot.duration_minutes || 60);
+    setPrice(slot.price || null);
 
     // Fetch booking info if slot is booked
     if (slot.is_booked) {
@@ -108,13 +111,19 @@ export default function InstructorSlotEditModal({
     const start = new Date(`${date}T${time}`);
     const end = new Date(start.getTime() + duration * 60000);
 
+    const updateData: any = {
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      duration_minutes: duration,
+    };
+    
+    if (price !== null && price !== undefined) {
+      updateData.price = price;
+    }
+
     const { error } = await supabaseBrowser
       .from("lesson_slots")
-      .update({
-        start_time: start.toISOString(),
-        end_time: end.toISOString(),
-        duration_minutes: duration,
-      })
+      .update(updateData)
       .eq("id", slot.id);
 
     setSaving(false);
@@ -262,6 +271,14 @@ export default function InstructorSlotEditModal({
                   </span>
                 </div>
               )}
+              {slot.price && (
+                <div>
+                  <span className="text-gray-400">Price:</span>{" "}
+                  <span className="text-white font-medium text-yellow-400">
+                    ${slot.price.toFixed(2)}
+                  </span>
+                </div>
+              )}
             </div>
             <button
               onClick={handleUnbook}
@@ -313,6 +330,21 @@ export default function InstructorSlotEditModal({
               <option value={60}>60</option>
               <option value={90}>90</option>
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              Price ($)
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={price === null ? "" : price}
+              onChange={(e) => setPrice(e.target.value === "" ? null : parseFloat(e.target.value))}
+              placeholder="Optional"
+              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
+            />
           </div>
 
           <div className="flex gap-3 pt-4">

@@ -9,6 +9,7 @@ interface CancelBookingModalProps {
     id: string;
     start: string;
     end: string;
+    price?: number | null;
   };
   bookingId: string;
   onClose: () => void;
@@ -93,6 +94,14 @@ export default function CancelBookingModal({
                 minute: "2-digit",
               })}
             </p>
+            {slot.price && (
+              <>
+                <p className="text-sm text-gray-400 mt-2 mb-1">Price:</p>
+                <p className="text-white font-semibold text-yellow-400">
+                  ${slot.price.toFixed(2)}
+                </p>
+              </>
+            )}
           </div>
         </div>
 

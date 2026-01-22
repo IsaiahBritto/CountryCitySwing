@@ -22,6 +22,7 @@ export default function InstructorSlotManager({
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
   const [duration, setDuration] = useState(60);
+  const [price, setPrice] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedDays, setSelectedDays] = useState<number[]>([]); // 0 = Sunday, 6 = Saturday
   const [numberOfWeeks, setNumberOfWeeks] = useState(1);
@@ -165,12 +166,18 @@ export default function InstructorSlotManager({
     }
 
     // Insert all valid slots
-    const slotsToAdd = slotsToInsert.map(({ start, end }) => ({
-      instructor_id: instructorId,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-      duration_minutes: duration,
-    }));
+    const slotsToAdd = slotsToInsert.map(({ start, end }) => {
+      const slotData: any = {
+        instructor_id: instructorId,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        duration_minutes: duration,
+      };
+      if (price !== null && price !== undefined) {
+        slotData.price = price;
+      }
+      return slotData;
+    });
 
     const results: Array<{ success: boolean; date: Date; error?: string }> = [];
 
@@ -214,6 +221,7 @@ export default function InstructorSlotManager({
     if (failed.length === 0 && overlappingSlots.length === 0) {
       setSelectedDate("");
       setSelectedTime("");
+      setPrice(null);
       setSelectedDays([]);
       setNumberOfWeeks(1);
     }
@@ -274,6 +282,15 @@ export default function InstructorSlotManager({
             <option value={45}>45 Minutes</option>
             <option value={60}>1 Hour</option>
           </select>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={price === null ? "" : price}
+            onChange={(e) => setPrice(e.target.value === "" ? null : parseFloat(e.target.value))}
+            placeholder="Price ($)"
+            className="px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+          />
         </div>
 
         {/* Recurring Options */}

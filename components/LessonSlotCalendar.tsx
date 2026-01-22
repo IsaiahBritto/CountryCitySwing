@@ -17,6 +17,7 @@ interface SlotEvent {
   is_booked: boolean;
   instructor_id: string;
   duration_minutes?: number;
+  price?: number | null;
 }
 
 export default function LessonSlotCalendar({ instructorId }: { instructorId: string }) {
@@ -29,7 +30,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
     async function fetchSlots() {
       const { data, error } = await supabaseBrowser
         .from("lesson_slots")
-        .select("id, instructor_id, start_time, end_time, duration_minutes, is_booked")
+        .select("id, instructor_id, start_time, end_time, duration_minutes, is_booked, price")
         .eq("instructor_id", instructorId)
         .order("start_time", { ascending: true });
 
@@ -44,6 +45,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
           end: new Date(s.end_time),
           is_booked: s.is_booked,
           duration_minutes: s.duration_minutes,
+          price: s.price || null,
         }));
         setSlots(mapped);
       }
@@ -126,6 +128,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
             end: selectedSlot.end.toISOString(),
             is_booked: selectedSlot.is_booked,
             duration_minutes: selectedSlot.duration_minutes,
+            price: selectedSlot.price,
           }}
           onClose={handleBookingSuccess}
         />

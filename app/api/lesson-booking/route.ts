@@ -12,6 +12,7 @@ export async function POST(req: Request) {
       lessonTime,
       lessonDuration,
       lessonFocus,
+      lessonPrice,
     } = await req.json();
 
     if (!studentEmail || !firstName || !lessonDate || !lessonTime) {
@@ -39,6 +40,7 @@ export async function POST(req: Request) {
           <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Date:</strong> ${formattedDate}</p>
           <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Time:</strong> ${lessonTime}</p>
           <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Duration:</strong> ${lessonDuration} minutes</p>
+          ${lessonPrice ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Price:</strong> $${lessonPrice.toFixed(2)}</p>` : ""}
           ${lessonFocus ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Focus:</strong> ${lessonFocus}</p>` : ""}
         </div>
 

@@ -14,6 +14,7 @@ export interface CarouselEvent {
   signupLink: string;
   description: string;
   cost?: number;
+  price?: number;
   time?: string;
   start_time?: string;
   type?: string;
@@ -102,9 +103,14 @@ export default function EventCarousel({ events }: EventCarouselProps) {
                       : ""}
                   </p>
 
-                  <p className="text-gray-400 italic mb-4">
+                  <p className="text-gray-400 italic mb-2">
                     📍 {event.location}
                   </p>
+                  {event.price && (
+                    <p className="text-yellow-400 font-semibold mb-4">
+                      Price: ${event.price.toFixed(2)}
+                    </p>
+                  )}
 
                   <p className="text-neutral-200 mb-6">{event.description}</p>
 

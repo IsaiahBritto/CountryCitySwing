@@ -20,6 +20,7 @@ interface CalendarEvent {
   signupLink: string;
   description: string;
   cost?: number;
+  price?: number;
   time?: string;
   start_time?: string;
   type?: string;
@@ -181,9 +182,14 @@ export default function Calendar({ events = [] }: CalendarProps) {
                 ? ` • ${selectedEvent.time}`
                 : ""}
             </p>
-            <p className="text-gray-300 mb-4 italic">
+            <p className="text-gray-300 mb-2 italic">
               📍 {selectedEvent.location}
             </p>
+            {selectedEvent.price && (
+              <p className="text-yellow-400 font-semibold mb-4">
+                Price: ${selectedEvent.price.toFixed(2)}
+              </p>
+            )}
             <p className="text-neutral-200 leading-relaxed mb-6">
               {selectedEvent.description}
             </p>

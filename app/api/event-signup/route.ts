@@ -51,6 +51,7 @@ export async function POST(req: Request) {
         month: "long",
         day: "numeric",
       })}</strong> at ${event.location}.</p>
+      ${event.price ? `<p style="font-size:16px;line-height:1.6"><strong>Price:</strong> $${event.price.toFixed(2)}</p>` : ""}
       <p style="font-size:16px;line-height:1.6">Payment method: <strong>${paymentMethod}</strong></p>
       <p style="font-size:16px;line-height:1.6;margin-top:20px">Thank you for joining us — we can't wait to see you on the dance floor!</p>
       <p style="margin-top:30px;color:#888;font-size:14px">— The Country City Swing Team</p>

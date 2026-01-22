@@ -22,6 +22,7 @@ interface LessonSlot {
   is_booked: boolean;
   instructor_id: string;
   duration_minutes: number;
+  price?: number | null;
   booking_user_id?: string | null;
   booking_id?: string | null;
 }
@@ -61,7 +62,7 @@ export default function InstructorLessonCalendar({
       // First, fetch slots without the relationship to ensure we get the data
       const { data: slotsData, error: slotsError } = await supabaseBrowser
         .from("lesson_slots")
-        .select("id,start_time,end_time,is_booked,instructor_id,duration_minutes")
+        .select("id,start_time,end_time,is_booked,instructor_id,duration_minutes,price")
         .eq("instructor_id", instructorId)
         .gte("start_time", start)
         .lte("end_time", end)
@@ -106,6 +107,7 @@ export default function InstructorLessonCalendar({
           is_booked: d.is_booked || false,
           instructor_id: d.instructor_id,
           duration_minutes: d.duration_minutes,
+          price: d.price || null,
           booking_user_id: booking?.user_id || null,
           booking_id: booking?.id || null,
         };

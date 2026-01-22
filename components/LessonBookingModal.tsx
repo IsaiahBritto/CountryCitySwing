@@ -78,6 +78,13 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
       return;
     }
 
+    // Check if slot is in the past
+    const slotStartTime = new Date(slot.start);
+    if (slotStartTime < new Date()) {
+      alert("❌ Cannot book a lesson that has already started.");
+      return;
+    }
+
     // Validate required fields
     if (!firstName.trim()) {
       alert("First name is required");

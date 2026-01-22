@@ -198,6 +198,11 @@ export default function InstructorLessonCalendar({
     });
   };
 
+  // Helper to get available (non-booked and non-past) slots for a day
+  const getAvailableSlotsForDay = (day: number) => {
+    return getSlotsForDay(day).filter((s) => !s.is_booked && !isSlotPast(s));
+  };
+
   const openDayView = (day: number) => {
     setSelectedDate(currentMonth.date(day));
   };
@@ -210,11 +215,21 @@ export default function InstructorLessonCalendar({
   const weekStart = currentMonth.startOf("week");
   const weekDays = Array.from({ length: 7 }, (_, i) => weekStart.add(i, "day"));
 
+  // Helper function to check if a slot is in the past
+  const isSlotPast = (slot: LessonSlot) => {
+    return dayjs(slot.start).isBefore(dayjs(), "minute");
+  };
+
   // --- Slot handler ---
   function handleSlotClick(slot: LessonSlot) {
     // If this is the instructor's own view, allow editing any slot
     if (isInstructorView) {
       setSelectedSlot(slot);
+      return;
+    }
+
+    // For public view - don't allow booking past slots
+    if (isSlotPast(slot)) {
       return;
     }
 
@@ -321,7 +336,7 @@ export default function InstructorLessonCalendar({
             {weeks.map((week, wi) =>
               week.map((day, di) => {
                 const daySlots = day ? getSlotsForDay(day) : [];
-                const available = daySlots.filter((s) => !s.is_booked).length;
+                const available = day ? getAvailableSlotsForDay(day).length : 0;
                 const booked = daySlots.filter((s) => s.is_booked).length;
                 const hasSlots = daySlots.length > 0;
 
@@ -409,12 +424,16 @@ export default function InstructorLessonCalendar({
                   )}
                   {daySlots.map((s) => {
                     const isUserBooking = currentUserId && s.booking_user_id === currentUserId;
+                    const isPast = isSlotPast(s);
                     return (
                       <button
                         key={s.id}
                         onClick={() => handleSlotClick(s)}
+                        disabled={isPast && !isInstructorView}
                         className={`block w-full text-xs text-left mb-1 px-2 py-1 rounded transition-all ${
-                          s.is_booked
+                          isPast && !isInstructorView
+                            ? "bg-neutral-800 text-gray-600 cursor-not-allowed opacity-50"
+                            : s.is_booked
                             ? isInstructorView
                               ? "bg-neutral-800 text-gray-300 hover:bg-neutral-700 cursor-pointer"
                               : isUserBooking
@@ -425,6 +444,7 @@ export default function InstructorLessonCalendar({
                       >
                         {dayjs(s.start).format("h:mm A")}
                         {isUserBooking && !isInstructorView && " (Yours)"}
+                        {isPast && !isInstructorView && !s.is_booked && " (Past)"}
                       </button>
                     );
                   })}
@@ -467,12 +487,16 @@ export default function InstructorLessonCalendar({
                 })
                 .map((slot) => {
                   const isUserBooking = currentUserId && slot.booking_user_id === currentUserId;
+                  const isPast = isSlotPast(slot);
                   return (
                     <button
                       key={slot.id}
                       onClick={() => handleSlotClick(slot)}
+                      disabled={isPast && !isInstructorView}
                       className={`block w-full text-left px-4 py-2 rounded transition-all ${
-                        slot.is_booked
+                        isPast && !isInstructorView
+                          ? "bg-neutral-800 text-gray-600 cursor-not-allowed opacity-50"
+                          : slot.is_booked
                           ? isInstructorView
                             ? "bg-neutral-800 text-gray-300 hover:bg-neutral-700 cursor-pointer"
                             : isUserBooking
@@ -483,7 +507,9 @@ export default function InstructorLessonCalendar({
                     >
                       {dayjs(slot.start).format("h:mm A")} –{" "}
                       {dayjs(slot.end).format("h:mm A")} (
-                      {slot.is_booked 
+                      {isPast && !isInstructorView && !slot.is_booked
+                        ? "Past"
+                        : slot.is_booked 
                         ? isUserBooking && !isInstructorView 
                           ? "Your Booking" 
                           : "Booked" 
@@ -497,7 +523,7 @@ export default function InstructorLessonCalendar({
       )}
 
       {/* --- Booking Modal (for public view, available slots) --- */}
-      {selectedSlot && !isInstructorView && !selectedSlot.is_booked && !showCancelModal && (
+      {selectedSlot && !isInstructorView && !selectedSlot.is_booked && !isSlotPast(selectedSlot) && !showCancelModal && (
         <LessonBookingModal
           slot={selectedSlot}
           onClose={() => {

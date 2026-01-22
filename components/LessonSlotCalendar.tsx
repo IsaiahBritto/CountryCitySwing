@@ -16,6 +16,7 @@ interface SlotEvent {
   end: Date;
   is_booked: boolean;
   instructor_id: string;
+  duration_minutes?: number;
 }
 
 export default function LessonSlotCalendar({ instructorId }: { instructorId: string }) {
@@ -42,6 +43,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
           start: new Date(s.start_time),
           end: new Date(s.end_time),
           is_booked: s.is_booked,
+          duration_minutes: s.duration_minutes,
         }));
         setSlots(mapped);
       }
@@ -117,7 +119,14 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
       {/* Booking Modal */}
       {selectedSlot && (
         <LessonBookingModal
-          slot={selectedSlot}
+          slot={{
+            id: selectedSlot.id,
+            instructor_id: selectedSlot.instructor_id,
+            start: selectedSlot.start.toISOString(),
+            end: selectedSlot.end.toISOString(),
+            is_booked: selectedSlot.is_booked,
+            duration_minutes: selectedSlot.duration_minutes,
+          }}
           onClose={handleBookingSuccess}
         />
       )}

@@ -200,12 +200,10 @@ export default function InstructorLessonCalendar({
 
   const openDayView = (day: number) => {
     setSelectedDate(currentMonth.date(day));
-    setView("day");
   };
 
   const closeDayView = () => {
     setSelectedDate(null);
-    setView("month");
   };
 
   // --- Week view helpers ---
@@ -438,7 +436,7 @@ export default function InstructorLessonCalendar({
       )}
 
       {/* --- Day Modal --- */}
-      {view === "day" && selectedDate && (
+      {selectedDate && (
         <div
           className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50"
           onClick={closeDayView}

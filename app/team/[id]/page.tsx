@@ -3,8 +3,9 @@
 import dynamic from "next/dynamic";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { XMarkIcon } from "@heroicons/react/24/solid";
 
 // Dynamically import LessonSlotCalendar to avoid early hydration
 const InstructorLessonCalendar = dynamic(
@@ -34,8 +35,13 @@ interface InstructorProfile {
 
 export default function InstructorProfilePage() {
   const { id } = useParams();
+  const router = useRouter();
   const [profile, setProfile] = useState<InstructorProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const handleClose = () => {
+    router.back();
+  };
 
   useEffect(() => {
     async function loadProfile() {
@@ -57,11 +63,17 @@ export default function InstructorProfilePage() {
   }, [id]);
 
   if (loading)
-    return <p className="text-center text-gray-400 mt-10">Loading profile...</p>;
+    return (
+      <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/60 backdrop-blur-sm">
+        <p className="text-center text-gray-400">Loading profile...</p>
+      </div>
+    );
 
   if (!profile)
     return (
-      <p className="text-center text-gray-400 mt-10">Instructor not found.</p>
+      <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/60 backdrop-blur-sm">
+        <p className="text-center text-gray-400">Instructor not found.</p>
+      </div>
     );
 
   const normalize = (s: string) => s.trim().toLowerCase();
@@ -78,8 +90,23 @@ export default function InstructorProfilePage() {
     val !== null && val !== undefined && val.trim() !== "";
 
   return (
-    <section className="max-w-3xl mx-auto text-center px-6 py-12 text-white">
-      <div className="bg-neutral-800 rounded-lg p-8 shadow-[0_0_25px_rgba(242,201,76,0.25)] text-left sm:text-center space-y-6 break-words">
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 bg-black/60 backdrop-blur-sm"
+      onClick={handleClose}
+    >
+      <section
+        className="max-w-3xl mx-auto text-center px-6 py-12 text-white"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="bg-neutral-800 rounded-lg p-8 shadow-[0_0_25px_rgba(242,201,76,0.25)] text-left sm:text-center space-y-6 break-words relative max-h-[90vh] overflow-y-auto scrollbar-black">
+          {/* Close button */}
+          <button
+            className="absolute top-4 right-4 text-neutral-400 hover:text-primary transition-colors z-10"
+            onClick={handleClose}
+            aria-label="Close profile"
+          >
+            <XMarkIcon className="w-6 h-6" />
+          </button>
         {/* Photo */}
         {profile.photo_url && (
           <img
@@ -205,7 +232,8 @@ export default function InstructorProfilePage() {
             )}
           </div>
         )}
-      </div>
-    </section>
+        </div>
+      </section>
+    </div>
   );
 }

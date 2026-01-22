@@ -61,9 +61,14 @@ export default function WorkshopSpotlight({ events }: WorkshopSpotlightProps) {
             ? ` • ${upcomingWorkshop.time}`
             : ""}
         </p>
-        <p className="text-gray-400 italic mb-3">
+        <p className="text-gray-400 italic mb-2">
           📍 {upcomingWorkshop.location}
         </p>
+        {upcomingWorkshop.price && (
+          <p className="text-yellow-400 font-semibold mb-3">
+            Price: ${upcomingWorkshop.price.toFixed(2)}
+          </p>
+        )}
         <p className="text-neutral-200 mb-5">{upcomingWorkshop.description}</p>
 
         {dayjs(upcomingWorkshop.date).isBefore(dayjs(), "day") ? (

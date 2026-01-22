@@ -24,7 +24,7 @@ interface InstructorSlotEditModalProps {
     end: string;
     is_booked: boolean;
     duration_minutes: number;
-    price?: number;
+    price?: number | null;
   };
   onClose: () => void;
   onUpdate: () => void;

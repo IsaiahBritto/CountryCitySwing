@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import nodemailer from "nodemailer";
+import { sendMail } from "@/lib/mailer";
 
 export async function POST(req: Request) {
   try {
@@ -9,26 +9,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Message required" }, { status: 400 });
     }
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.PRAYER_USER,
-        pass: process.env.PRAYER_PASS,
-      },
-    });
-
-    const mailOptions = {
-      from: process.env.PRAYER_USER,
-      to: "prayers.ccs@gmail.com",
-      subject: "New Prayer Request - Country City Swing",
-      text: `
+    const emailBody = `
 From: ${anonymous ? "Anonymous" : name || "No name provided"}
 Message:
 ${message}
-      `,
-    };
+    `;
 
-    await transporter.sendMail(mailOptions);
+    await sendMail(
+      "New Prayer Request - Country City Swing",
+      emailBody,
+      "prayer@countrycityswing.dance",
+      "prayer@countrycityswing.dance" // from address
+    );
+
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("Prayer email error:", err);

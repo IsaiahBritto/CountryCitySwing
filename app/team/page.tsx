@@ -10,6 +10,8 @@ interface Instructor {
   last_name: string;
   photo_url: string | null;
   role: string;
+  bio_long: string | null;
+  specialty: string | null;
 }
 
 export default function TeamPage() {
@@ -20,17 +22,14 @@ export default function TeamPage() {
     async function loadProfiles() {
       const { data, error } = await supabaseBrowser
         .from("profiles")
-        .select("id, first_name, last_name, photo_url, role")
+        .select("id, first_name, last_name, photo_url, role, bio_long, specialty")
+        // fetch everyone but filter client side (RLS will filter anyway)
         .order("first_name", { ascending: true });
 
-      if (error) {
-        console.error("Error loading profiles:", error.message);
-      } else {
-        setProfiles(data || []);
-      }
+      if (error) console.error("Error loading profiles:", error.message);
+      else setProfiles(data || []);
       setLoading(false);
     }
-
     loadProfiles();
   }, []);
 
@@ -39,11 +38,12 @@ export default function TeamPage() {
 
   if (profiles.length === 0)
     return (
-      <p className="text-center text-gray-400 mt-10">No team members found.</p>
+      <p className="text-center text-gray-400 mt-10">No instructors found.</p>
     );
 
   const normalize = (s: string) => s.trim().toLowerCase();
 
+  // Find Isaiah & Malissa
   const isaiah = profiles.find(
     (p) =>
       normalize(p.first_name) === "isaiah" &&
@@ -55,17 +55,19 @@ export default function TeamPage() {
       normalize(p.last_name) === "petersen"
   );
 
-  const assistants = profiles.filter((p) => {
-    const role = normalize(p.role);
-    const isInstructor = role.includes("instructor");
-    const isIsaiah =
-      normalize(p.first_name) === "isaiah" &&
-      normalize(p.last_name) === "britto";
-    const isMalissa =
-      normalize(p.first_name) === "malissa" &&
-      normalize(p.last_name) === "petersen";
-    return isInstructor && !isIsaiah && !isMalissa;
-  });
+  // Everyone else = assistant instructors
+  const assistants = profiles.filter(
+    (p) =>
+      !(
+        normalize(p.first_name) === "isaiah" &&
+        normalize(p.last_name) === "britto"
+      ) &&
+      !(
+        normalize(p.first_name) === "malissa" &&
+        normalize(p.last_name) === "petersen"
+      ) &&
+      p.role?.toLowerCase().includes("instructor")
+  );
 
   return (
     <section className="max-w-5xl mx-auto text-center px-4 py-12">
@@ -76,16 +78,10 @@ export default function TeamPage() {
       {/* Top row: Isaiah & Malissa */}
       <div className="flex flex-wrap justify-center gap-10 mb-14">
         {isaiah && (
-          <InstructorCard
-            member={isaiah}
-            title="Owner & Head Instructor"
-          />
+          <InstructorCard member={isaiah} title="Owner & Head Instructor" />
         )}
         {malissa && (
-          <InstructorCard
-            member={malissa}
-            title="Head Instructor"
-          />
+          <InstructorCard member={malissa} title="Head Instructor" />
         )}
       </div>
 
@@ -115,13 +111,12 @@ function InstructorCard({
 }) {
   return (
     <div className="text-center bg-neutral-800 rounded-lg p-6 shadow-[0_0_20px_rgba(242,201,76,0.25)] hover:shadow-[0_0_25px_rgba(242,201,76,0.5)] transition-all duration-300 w-56 h-[22rem] flex flex-col items-center justify-start">
-      {/* Photo */}
       <div className="relative w-36 h-36 mb-4">
         {member.photo_url ? (
           <img
             src={member.photo_url}
             alt={`${member.first_name} ${member.last_name}`}
-            className="rounded-full object-cover w-full h-full"
+            className="rounded-full object-cover w-full h-full border-2 border-yellow-400"
           />
         ) : (
           <div className="w-full h-full rounded-full border-2 border-yellow-400 flex items-center justify-center text-yellow-300 text-sm">
@@ -130,15 +125,16 @@ function InstructorCard({
         )}
       </div>
 
-      {/* Name + Role */}
       <div className="flex flex-col items-center flex-grow mb-4">
         <h3 className="text-lg font-bold text-primary">
           {member.first_name} {member.last_name}
         </h3>
         <p className="text-gray-400 mt-1 text-center text-sm">{title}</p>
+        {member.specialty && (
+          <p className="text-yellow-400 text-xs mt-1">{member.specialty}</p>
+        )}
       </div>
 
-      {/* See Profile Button */}
       <Link
         href={`/team/${member.id}`}
         className="btn-signup text-sm px-4 py-2 rounded-md"

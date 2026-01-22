@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import nodemailer from "nodemailer";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { sendHtmlEmail } from "@/lib/mailer";
 
 export async function POST(req: Request) {
   const data = await req.json();
@@ -40,39 +40,29 @@ export async function POST(req: Request) {
     );
   }
 
-  // 2️⃣ Send confirmation email
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
+  // 2️⃣ Send confirmation email using Resend
   const html = `
-    <div style="font-family:sans-serif;padding:20px">
-      <h2 style="color:#BB86FC">Country City Swing Signup Confirmation</h2>
-      <p>Hi ${firstName},</p>
-      <p>You're signed up for <strong>${event.title}</strong> on
+    <div style="font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto">
+      <h2 style="color:#F2C94C;margin-bottom:20px">Country City Swing Signup Confirmation</h2>
+      <p style="font-size:16px;line-height:1.6">Hi ${firstName},</p>
+      <p style="font-size:16px;line-height:1.6">You're signed up for <strong>${event.title}</strong> on
       <strong>${new Date(event.date).toLocaleDateString(undefined, {
         weekday: "long",
         month: "long",
         day: "numeric",
       })}</strong> at ${event.location}.</p>
-      <p>Payment method: <strong>${paymentMethod}</strong></p>
-      <p>Thank you for joining us — we can’t wait to see you on the dance floor!</p>
-      <p style="margin-top:30px;color:#888">— The Country City Swing Team</p>
+      <p style="font-size:16px;line-height:1.6">Payment method: <strong>${paymentMethod}</strong></p>
+      <p style="font-size:16px;line-height:1.6;margin-top:20px">Thank you for joining us — we can't wait to see you on the dance floor!</p>
+      <p style="margin-top:30px;color:#888;font-size:14px">— The Country City Swing Team</p>
     </div>`;
 
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: email,
-    subject: `Country City Swing Signup — ${event.title}`,
-    html,
-  };
-
   try {
-    await transporter.sendMail(mailOptions);
+    await sendHtmlEmail(
+      email,
+      `Country City Swing Signup — ${event.title}`,
+      html,
+      "signup.confirmation@countrycityswing.dance"
+    );
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("Email send error:", err);

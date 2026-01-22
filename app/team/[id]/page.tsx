@@ -1,8 +1,16 @@
 "use client";
 
+import dynamic from "next/dynamic";
+
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+
+// Dynamically import LessonSlotCalendar to avoid early hydration
+const InstructorLessonCalendar = dynamic(
+  () => import("@/components/InstructorLessonCalendar"),
+  { ssr: false }
+);
 
 interface InstructorProfile {
   id: string;
@@ -19,7 +27,8 @@ interface InstructorProfile {
   specialty: string | null;
   phone_number: string | null;
   private_lessons: string | null;
-  private_lessons_link: string | null; // 👈 new field
+  private_lessons_link: string | null;
+  scheduling_enabled: boolean | null;
 }
 
 export default function InstructorProfilePage() {
@@ -34,7 +43,7 @@ export default function InstructorProfilePage() {
         .select(
           `id, first_name, last_name, photo_url, role, bio, bio_long, instagram_url,
            teaching_since, favorite_song, teaching_style, specialty, phone_number,
-           private_lessons, private_lessons_link`
+           private_lessons, private_lessons_link, scheduling_enabled`
         )
         .eq("id", id)
         .single();
@@ -42,11 +51,13 @@ export default function InstructorProfilePage() {
       if (!error) setProfile(data);
       setLoading(false);
     }
+
     loadProfile();
   }, [id]);
 
   if (loading)
     return <p className="text-center text-gray-400 mt-10">Loading profile...</p>;
+
   if (!profile)
     return (
       <p className="text-center text-gray-400 mt-10">Instructor not found.</p>
@@ -62,7 +73,6 @@ export default function InstructorProfilePage() {
   };
 
   const displayTitle = getInstructorTitle(profile.first_name, profile.last_name);
-
   const show = (val?: string | null) =>
     val !== null && val !== undefined && val.trim() !== "";
 
@@ -86,7 +96,7 @@ export default function InstructorProfilePage() {
           <p className="text-gray-400 italic mb-6 break-words">{displayTitle}</p>
         </div>
 
-        {/* Long Bio */}
+        {/* Bio */}
         {show(profile.bio_long) && (
           <p className="text-gray-300 text-lg leading-relaxed whitespace-pre-line break-words">
             {profile.bio_long}
@@ -140,7 +150,7 @@ export default function InstructorProfilePage() {
               {profile.private_lessons}
             </p>
 
-            {/* New Private Lessons Link */}
+            {/* Link */}
             {show(profile.private_lessons_link) && (
               <a
                 href={profile.private_lessons_link ?? "#"}
@@ -151,6 +161,16 @@ export default function InstructorProfilePage() {
                 View Private Lesson Schedule →
               </a>
             )}
+          </div>
+        )}
+
+        {/* Booking Calendar - only render when profile is loaded */}
+        {!!profile.scheduling_enabled && profile.id && (
+          <div className="mt-10">
+            <h3 className="text-2xl font-semibold text-primary mb-4 text-center">
+              Book a Private Lesson
+            </h3>
+            <InstructorLessonCalendar instructorId={profile.id} />
           </div>
         )}
 

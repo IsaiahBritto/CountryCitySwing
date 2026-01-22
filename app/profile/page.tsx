@@ -1,7 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import InstructorSlotManager from "@/components/InstructorSlotManager";
+
+// Dynamically load client-side only
+const InstructorLessonCalendar = dynamic(
+  () => import("@/components/InstructorLessonCalendar"),
+  { ssr: false }
+);
 
 interface Profile {
   id: string;
@@ -19,6 +27,9 @@ interface Profile {
   phone_number: string | null;
   private_lessons: string | null;
   private_lessons_link: string | null;
+  scheduling_enabled: boolean | null;
+  lesson_duration_minutes: number | null;
+  prayer: string | null;
 }
 
 export default function ProfilePage() {
@@ -53,7 +64,7 @@ export default function ProfilePage() {
     if (!profile) return;
     setUpdating(true);
 
-    // Upload photo if a new file is selected
+    // Upload new profile photo if one is chosen
     let photo_url = profile.photo_url;
     if (file) {
       const { data, error } = await supabaseBrowser.storage
@@ -75,7 +86,6 @@ export default function ProfilePage() {
         first_name: profile.first_name,
         last_name: profile.last_name,
         photo_url,
-        // Instructor-specific fields
         instagram_url: profile.instagram_url,
         teaching_since: profile.teaching_since,
         favorite_song: profile.favorite_song,
@@ -85,6 +95,8 @@ export default function ProfilePage() {
         phone_number: profile.phone_number,
         private_lessons: profile.private_lessons,
         private_lessons_link: profile.private_lessons_link,
+        scheduling_enabled: profile.scheduling_enabled,
+        lesson_duration_minutes: profile.lesson_duration_minutes,
       })
       .eq("id", profile.id);
 
@@ -112,7 +124,7 @@ export default function ProfilePage() {
     );
 
   return (
-    <div className="max-w-2xl mx-auto mt-12 bg-neutral-800 p-8 rounded-lg text-white shadow-[0_0_25px_rgba(187,134,252,0.4)] space-y-6">
+    <div className="max-w-3xl mx-auto mt-12 bg-neutral-800 p-8 rounded-lg text-white shadow-[0_0_25px_rgba(187,134,252,0.4)] space-y-6">
       <h2 className="text-2xl font-bold text-primary text-center">
         Edit Your Profile
       </h2>
@@ -160,14 +172,13 @@ export default function ProfilePage() {
           <>
             <input
               type="text"
-              value={profile.specialty || ""}
+              value={profile.prayer || ""}
               onChange={(e) =>
-                setProfile({ ...profile, specialty: e.target.value })
+                setProfile({ ...profile, prayer: e.target.value })
               }
-              placeholder="Specialty (e.g., Country Swing)"
+              placeholder="Prayer: "
               className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
             />
-
             <textarea
               value={profile.bio_long || ""}
               onChange={(e) =>
@@ -175,6 +186,16 @@ export default function ProfilePage() {
               }
               placeholder="Full Bio (share your story!)"
               className="w-full h-28 px-3 py-2 rounded bg-neutral-900 border border-neutral-700 resize-none"
+            />
+
+            <input
+              type="text"
+              value={profile.specialty || ""}
+              onChange={(e) =>
+                setProfile({ ...profile, specialty: e.target.value })
+              }
+              placeholder="Specialty (e.g., Country Swing)"
+              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
             />
 
             <input
@@ -234,6 +255,7 @@ export default function ProfilePage() {
               placeholder="Private Lessons Info"
               className="w-full h-24 px-3 py-2 rounded bg-neutral-900 border border-neutral-700 resize-none"
             />
+
             <input
               type="text"
               value={profile.private_lessons_link || ""}
@@ -244,6 +266,45 @@ export default function ProfilePage() {
               className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
             />
 
+            {/* Scheduling Toggle */}
+            <div className="flex items-center justify-between mt-6">
+              <label className="text-gray-300 font-medium">
+                Enable scheduling through CCS website
+              </label>
+              <input
+                type="checkbox"
+                checked={!!profile.scheduling_enabled}
+                onChange={(e) =>
+                  setProfile({
+                    ...profile,
+                    scheduling_enabled: e.target.checked,
+                  })
+                }
+                className="w-5 h-5 accent-yellow-400"
+              />
+            </div>
+
+            {/* Lesson Duration */}
+            {profile.scheduling_enabled && (
+              <div className="mt-3">
+                <label className="text-gray-300 font-medium">
+                  Lesson Duration (minutes)
+                </label>
+                <select
+                  value={profile.lesson_duration_minutes || 60}
+                  onChange={(e) =>
+                    setProfile({
+                      ...profile,
+                      lesson_duration_minutes: Number(e.target.value),
+                    })
+                  }
+                  className="block w-32 mt-1 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+                >
+                  <option value={45}>45</option>
+                  <option value={60}>60</option>
+                </select>
+              </div>
+            )}
           </>
         )}
 
@@ -255,6 +316,20 @@ export default function ProfilePage() {
           {updating ? "Updating..." : "Save Changes"}
         </button>
       </form>
+
+      {/* Slot Manager (only for instructors who enabled scheduling) */}
+      {profile.role === "instructor" && profile.scheduling_enabled && (
+        <InstructorSlotManager instructorId={profile.id} />
+      )}
+
+      {profile.role === "instructor" && profile.scheduling_enabled && (
+        <div className="mt-10">
+          <h3 className="text-xl font-semibold text-primary mb-4 text-center">
+            Your Public Lesson Calendar Preview
+          </h3>
+          <InstructorLessonCalendar instructorId={profile.id} isInstructorView={true} />
+        </div>
+      )}
 
       {/* Sign Out */}
       <div className="text-center mt-6">

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { XMarkIcon } from "@heroicons/react/24/solid";
+import { slugToName } from "@/lib/utils/slugHelpers";
 
 // Dynamically import LessonSlotCalendar to avoid early hydration
 const InstructorLessonCalendar = dynamic(
@@ -34,7 +35,7 @@ interface InstructorProfile {
 }
 
 export default function InstructorProfilePage() {
-  const { id } = useParams();
+  const { slug } = useParams();
   const router = useRouter();
   const [profile, setProfile] = useState<InstructorProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,22 +46,42 @@ export default function InstructorProfilePage() {
 
   useEffect(() => {
     async function loadProfile() {
-      const { data, error } = await supabaseBrowser
+      // Parse the slug to get first and last name
+      const nameParts = slugToName(slug as string);
+      if (!nameParts) {
+        setLoading(false);
+        return;
+      }
+
+      // Query by first_name and last_name (case-insensitive exact match)
+      // Fetch all profiles and filter client-side for exact case-insensitive match
+      const { data: allProfiles, error } = await supabaseBrowser
         .from("profiles")
         .select(
           `id, first_name, last_name, photo_url, role, bio, bio_long, instagram_url,
            teaching_since, favorite_song, teaching_style, specialty, phone_number,
            private_lessons, private_lessons_link, scheduling_enabled, prayer`
-        )
-        .eq("id", id)
-        .single();
+        );
 
-      if (!error) setProfile(data);
+      if (error) {
+        setLoading(false);
+        return;
+      }
+
+      // Find the profile with matching name (case-insensitive)
+      const normalize = (s: string) => s.trim().toLowerCase();
+      const matchingProfile = allProfiles?.find(
+        (p) =>
+          normalize(p.first_name) === normalize(nameParts.firstName) &&
+          normalize(p.last_name) === normalize(nameParts.lastName)
+      );
+
+      if (matchingProfile) setProfile(matchingProfile);
       setLoading(false);
     }
 
     loadProfile();
-  }, [id]);
+  }, [slug]);
 
   if (loading)
     return (

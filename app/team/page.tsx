@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import Link from "next/link";
+import { nameToSlug } from "@/lib/utils/slugHelpers";
 
 interface Instructor {
   id: string;
@@ -136,7 +137,7 @@ function InstructorCard({
       </div>
 
       <Link
-        href={`/team/${member.id}`}
+        href={`/team/${nameToSlug(member.first_name, member.last_name)}`}
         className="btn-signup text-sm px-4 py-2 rounded-md"
       >
         See Profile

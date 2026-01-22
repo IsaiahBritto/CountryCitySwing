@@ -17,7 +17,16 @@ export default function EventCard({ event }: { event: Event }) {
               month: "long",
               day: "numeric",
               year: "numeric",
-            })} — 📍 {event.location}
+            })}
+            {(event as any).start_time
+              ? ` • ${new Date((event as any).start_time).toLocaleTimeString(undefined, {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}`
+              : (event as any).time
+              ? ` • ${(event as any).time}`
+              : ""}{" "}
+            — 📍 {event.location}
       </p>
       <p className="mt-3 text-gray-300">{event.description}</p>
       <a

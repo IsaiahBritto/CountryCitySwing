@@ -3,7 +3,8 @@
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 /* ---------- Validation Schema ---------- */
 const baseSchema = z.object({
@@ -57,9 +58,59 @@ export default function EventSignupModal({ event, open, onClose }: any) {
     handleSubmit,
     formState: { errors, isSubmitting, isSubmitSuccessful },
     reset,
+    setValue,
   } = useForm({ resolver: zodResolver(schema) });
 
+  const [loadingUser, setLoadingUser] = useState(false);
   const beenBefore = watch("beenBefore");
+
+  // Fetch and prefill user information when modal opens
+  useEffect(() => {
+    if (open) {
+      async function loadUserInfo() {
+        setLoadingUser(true);
+        try {
+          const { data: { user } } = await supabaseBrowser.auth.getUser();
+          
+          if (user) {
+            // Fetch user profile
+            const { data: profile } = await supabaseBrowser
+              .from("profiles")
+              .select("first_name, last_name, email")
+              .eq("id", user.id)
+              .single();
+
+            // Build default values object
+            // Try profile first, then fall back to user_metadata, then empty string
+            const defaultValues: any = {};
+            
+            defaultValues.firstName = profile?.first_name || user.user_metadata?.first_name || "";
+            defaultValues.lastName = profile?.last_name || user.user_metadata?.last_name || "";
+            defaultValues.email = profile?.email || user.email || "";
+
+            // Use reset to set all values at once - this properly updates the form
+            if (Object.keys(defaultValues).length > 0) {
+              reset(defaultValues);
+            }
+          }
+        } catch (err) {
+          console.error("Error loading user info:", err);
+        } finally {
+          setLoadingUser(false);
+        }
+      }
+      
+      // Small delay to ensure form is ready
+      const timer = setTimeout(() => {
+        loadUserInfo();
+      }, 50);
+      
+      return () => clearTimeout(timer);
+    } else {
+      // Reset form when modal closes
+      reset();
+    }
+  }, [open, reset]);
 
   // Unregister "heardAboutUs" when hidden
   useEffect(() => {
@@ -112,8 +163,16 @@ export default function EventSignupModal({ event, open, onClose }: any) {
               weekday: "long",
               month: "long",
               day: "numeric",
-            })}{" "}
-            {event.time && `• ${event.time}`} <br />
+            })}
+            {event.start_time
+              ? ` • ${new Date(event.start_time).toLocaleTimeString(undefined, {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}`
+              : event.time
+              ? ` • ${event.time}`
+              : ""}{" "}
+            <br />
             <strong>Location:</strong> {event.location}
           </p>
 

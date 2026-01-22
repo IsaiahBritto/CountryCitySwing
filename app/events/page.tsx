@@ -105,7 +105,14 @@ export default function EventsPage() {
                   day: "numeric",
                   year: "numeric",
                 })}
-                {event.time && ` • ${event.time}`}
+                {event.start_time
+                  ? ` • ${new Date(event.start_time).toLocaleTimeString(undefined, {
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}`
+                  : event.time
+                  ? ` • ${event.time}`
+                  : ""}
               </p>
               {event.location && (
                 <p className="text-gray-300 italic mb-2">{event.location}</p>

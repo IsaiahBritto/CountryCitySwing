@@ -52,7 +52,14 @@ export default function WorkshopSpotlight({ events }: WorkshopSpotlightProps) {
             day: "numeric",
             year: "numeric",
           })}
-          {upcomingWorkshop.time && ` • ${upcomingWorkshop.time}`}
+          {upcomingWorkshop.start_time
+            ? ` • ${new Date(upcomingWorkshop.start_time).toLocaleTimeString(undefined, {
+                hour: "numeric",
+                minute: "2-digit",
+              })}`
+            : upcomingWorkshop.time
+            ? ` • ${upcomingWorkshop.time}`
+            : ""}
         </p>
         <p className="text-gray-400 italic mb-3">
           📍 {upcomingWorkshop.location}

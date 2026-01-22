@@ -15,6 +15,7 @@ export interface CarouselEvent {
   description: string;
   cost?: number;
   time?: string;
+  start_time?: string;
   type?: string;
 }
 
@@ -91,7 +92,14 @@ export default function EventCarousel({ events }: EventCarouselProps) {
                       day: "numeric",
                       year: "numeric",
                     })}
-                    {event.time && ` • ${event.time}`}
+                    {event.start_time
+                      ? ` • ${new Date(event.start_time).toLocaleTimeString(undefined, {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}`
+                      : event.time
+                      ? ` • ${event.time}`
+                      : ""}
                   </p>
 
                   <p className="text-gray-400 italic mb-4">

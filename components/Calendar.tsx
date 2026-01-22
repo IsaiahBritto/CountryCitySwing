@@ -21,6 +21,7 @@ interface CalendarEvent {
   description: string;
   cost?: number;
   time?: string;
+  start_time?: string;
   type?: string;
 }
 
@@ -171,7 +172,14 @@ export default function Calendar({ events = [] }: CalendarProps) {
             </h3>
             <p className="text-gray-400 mb-2">
               {dayjs(selectedEvent.date).format("dddd, MMMM D, YYYY")}
-              {selectedEvent.time && ` • ${selectedEvent.time}`}
+              {selectedEvent.start_time
+                ? ` • ${new Date(selectedEvent.start_time).toLocaleTimeString(undefined, {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}`
+                : selectedEvent.time
+                ? ` • ${selectedEvent.time}`
+                : ""}
             </p>
             <p className="text-gray-300 mb-4 italic">
               📍 {selectedEvent.location}

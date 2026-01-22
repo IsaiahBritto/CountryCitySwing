@@ -60,12 +60,25 @@ export default function InstructorSlotEditModal({
         .select("id, student_name, student_email")
         .eq("slot_id", slot.id)
         .single();
-      data = fallbackResult.data;
+      
+      if (!fallbackResult.error && fallbackResult.data) {
+        // Map fallback data to match the expected interface
+        data = {
+          id: fallbackResult.data.id,
+          student_name: fallbackResult.data.student_name,
+          student_email: fallbackResult.data.student_email,
+          first_name: null,
+          last_name: null,
+          email: null,
+          phone_number: null,
+          lesson_focus: null,
+        };
+      }
       error = fallbackResult.error;
     }
 
     if (!error && data) {
-      setBookingInfo(data);
+      setBookingInfo(data as BookingInfo);
     }
     setLoading(false);
   }, [slot.id]);

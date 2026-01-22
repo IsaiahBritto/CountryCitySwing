@@ -97,6 +97,7 @@ export default function ProfilePage() {
         private_lessons_link: profile.private_lessons_link,
         scheduling_enabled: profile.scheduling_enabled,
         lesson_duration_minutes: profile.lesson_duration_minutes,
+        prayer: profile.prayer,
       })
       .eq("id", profile.id);
 

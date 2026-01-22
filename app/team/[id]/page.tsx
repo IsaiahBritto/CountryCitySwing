@@ -29,6 +29,7 @@ interface InstructorProfile {
   private_lessons: string | null;
   private_lessons_link: string | null;
   scheduling_enabled: boolean | null;
+  prayer: string | null;
 }
 
 export default function InstructorProfilePage() {
@@ -43,7 +44,7 @@ export default function InstructorProfilePage() {
         .select(
           `id, first_name, last_name, photo_url, role, bio, bio_long, instagram_url,
            teaching_since, favorite_song, teaching_style, specialty, phone_number,
-           private_lessons, private_lessons_link, scheduling_enabled`
+           private_lessons, private_lessons_link, scheduling_enabled, prayer`
         )
         .eq("id", id)
         .single();
@@ -95,6 +96,13 @@ export default function InstructorProfilePage() {
           </h2>
           <p className="text-gray-400 italic mb-6 break-words">{displayTitle}</p>
         </div>
+
+        {/* Prayer */}
+        {show(profile.prayer) && (
+          <p className="text-gray-300 text-lg leading-relaxed whitespace-pre-line break-words">
+            🙏 {profile.prayer}
+          </p>
+        )}
 
         {/* Bio */}
         {show(profile.bio_long) && (

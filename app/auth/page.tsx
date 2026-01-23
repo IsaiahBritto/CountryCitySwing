@@ -2,21 +2,39 @@
 import { useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const router = useRouter();
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setPasswordError("");
 
     if (mode === "signup") {
-      // ✅ Sign up with metadata
+      // Validate password confirmation
+      if (password !== confirmPassword) {
+        setPasswordError("Passwords do not match");
+        setLoading(false);
+        return;
+      }
+
+      // Get the current origin for redirect URL
+      const redirectUrl = typeof window !== "undefined" 
+        ? `${window.location.origin}/auth`
+        : "/auth";
+
+      // ✅ Sign up with metadata and redirect URL
       const { data, error } = await supabaseBrowser.auth.signUp({
         email,
         password,
@@ -25,11 +43,13 @@ export default function AuthPage() {
             first_name: firstName,
             last_name: lastName,
           },
+          emailRedirectTo: redirectUrl,
         },
       });
 
       if (error) {
         alert(error.message);
+        setLoading(false);
       } else {
         // ✅ Also update profiles table (optional, but explicit)
         const user = data.user;
@@ -40,7 +60,13 @@ export default function AuthPage() {
           }).eq("id", user.id);
         }
 
-        alert("Account created! Check your email for confirmation link.");
+        // Show confirmation message
+        setShowConfirmation(true);
+        
+        // Redirect to homepage after 3 seconds
+        setTimeout(() => {
+          router.push("/");
+        }, 3000);
       }
     } else {
       const { error } = await supabaseBrowser.auth.signInWithPassword({
@@ -48,11 +74,49 @@ export default function AuthPage() {
         password,
       });
       if (error) alert(error.message);
-      else window.location.href = "/";
+      else router.push("/");
     }
 
     setLoading(false);
   };
+
+  // Show confirmation message after successful signup
+  if (showConfirmation) {
+    return (
+      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+        <div className="mb-4">
+          <svg
+            className="mx-auto h-16 w-16 text-primary"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+            />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold mb-4 text-primary">
+          Check Your Email!
+        </h2>
+        <p className="text-gray-300 mb-4">
+          We've sent a confirmation link to <strong>{email}</strong>
+        </p>
+        <p className="text-sm text-gray-400 mb-6">
+          Please check your inbox and click the confirmation link to activate your account.
+        </p>
+        <p className="text-sm text-gray-500">
+          Redirecting to homepage in a few seconds...
+        </p>
+        <Link href="/" className="block mt-4 text-accent hover:text-[#CF9FFF]">
+          ← Go to homepage now
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg">
@@ -97,9 +161,33 @@ export default function AuthPage() {
           type="password"
           placeholder="Password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            setPasswordError("");
+          }}
           required
         />
+
+        {mode === "signup" && (
+          <div>
+            <input
+              className={`w-full px-3 py-2 rounded bg-neutral-900 border ${
+                passwordError ? "border-red-500" : "border-neutral-700"
+              }`}
+              type="password"
+              placeholder="Confirm Password"
+              value={confirmPassword}
+              onChange={(e) => {
+                setConfirmPassword(e.target.value);
+                setPasswordError("");
+              }}
+              required
+            />
+            {passwordError && (
+              <p className="text-red-500 text-sm mt-1">{passwordError}</p>
+            )}
+          </div>
+        )}
 
         <button disabled={loading} type="submit" className="btn-signup w-full">
           {loading
@@ -113,7 +201,11 @@ export default function AuthPage() {
       <p className="text-sm mt-3 text-gray-400">
         {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
         <button
-          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+          onClick={() => {
+            setMode(mode === "signin" ? "signup" : "signin");
+            setPasswordError("");
+            setConfirmPassword("");
+          }}
           className="text-primary hover:underline"
         >
           {mode === "signin" ? "Create one" : "Sign in"}

@@ -29,11 +29,9 @@ export default function AuthPage() {
         return;
       }
 
-      // Get the current origin for redirect URL
-      // Use the callback handler to process the email confirmation tokens
-      const redirectUrl = typeof window !== "undefined" 
-        ? `${window.location.origin}/auth/callback`
-        : "/auth/callback";
+      // Always use production URL for email redirect (must match Supabase allowlist)
+      // This ensures the redirect URL is in the allowlist regardless of where signup happens
+      const redirectUrl = "https://countrycityswing.dance/auth/callback";
 
       // ✅ Sign up with metadata and redirect URL
       const { data, error } = await supabaseBrowser.auth.signUp({
@@ -49,26 +47,44 @@ export default function AuthPage() {
       });
 
       if (error) {
-        alert(error.message);
+        console.error("Signup error:", error);
+        alert(`Error creating account: ${error.message}`);
         setLoading(false);
-      } else {
-        // ✅ Also update profiles table (optional, but explicit)
-        const user = data.user;
-        if (user) {
-          await supabaseBrowser.from("profiles").update({
-            first_name: firstName,
-            last_name: lastName,
-          }).eq("id", user.id);
-        }
-
-        // Show confirmation message
-        setShowConfirmation(true);
-        
-        // Redirect to homepage after 3 seconds
-        setTimeout(() => {
-          router.push("/");
-        }, 10000);
+        return;
       }
+
+      // Check if user was actually created
+      if (!data.user) {
+        console.error("No user returned from signup");
+        alert("Account creation failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+
+      console.log("User created successfully:", data.user.id);
+
+      // ✅ Also update profiles table (optional, but explicit)
+      try {
+        const { error: profileError } = await supabaseBrowser.from("profiles").update({
+          first_name: firstName,
+          last_name: lastName,
+        }).eq("id", data.user.id);
+
+        if (profileError) {
+          console.error("Profile update error:", profileError);
+          // Don't fail the signup if profile update fails
+        }
+      } catch (profileErr) {
+        console.error("Profile update exception:", profileErr);
+      }
+
+      // Show confirmation message
+      setShowConfirmation(true);
+      
+      // Redirect to homepage after 10 seconds
+      setTimeout(() => {
+        router.push("/");
+      }, 10000);
     } else {
       const { error } = await supabaseBrowser.auth.signInWithPassword({
         email,

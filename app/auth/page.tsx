@@ -29,9 +29,24 @@ export default function AuthPage() {
         return;
       }
 
+      // Check Supabase configuration
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      if (!supabaseUrl) {
+        console.error("NEXT_PUBLIC_SUPABASE_URL is not configured!");
+        alert("Configuration error: Supabase URL not found. Please check your environment variables.");
+        setLoading(false);
+        return;
+      }
+
       // Always use production URL for email redirect (must match Supabase allowlist)
       // This ensures the redirect URL is in the allowlist regardless of where signup happens
       const redirectUrl = "https://countrycityswing.dance/auth/callback";
+
+      console.log("Attempting signup with:", { 
+        email, 
+        redirectUrl,
+        supabaseUrl: supabaseUrl.substring(0, 30) + "...", // Log partial URL for security
+      });
 
       // ✅ Sign up with metadata and redirect URL
       const { data, error } = await supabaseBrowser.auth.signUp({
@@ -46,22 +61,35 @@ export default function AuthPage() {
         },
       });
 
+      // Log the full response for debugging
+      console.log("Signup response:", { data, error, hasUser: !!data?.user, hasSession: !!data?.session });
+
       if (error) {
-        console.error("Signup error:", error);
-        alert(`Error creating account: ${error.message}`);
+        console.error("Signup error details:", {
+          message: error.message,
+          status: error.status,
+          name: error.name,
+          fullError: error,
+        });
+        alert(`Error creating account: ${error.message}\n\nPlease check:\n1. Redirect URL is in Supabase allowlist\n2. Email confirmation is enabled\n3. Check browser console for details`);
         setLoading(false);
         return;
       }
 
       // Check if user was actually created
-      if (!data.user) {
-        console.error("No user returned from signup");
-        alert("Account creation failed. Please try again.");
+      if (!data || !data.user) {
+        console.error("No user returned from signup. Full response:", data);
+        alert("Account creation failed - no user was created. Please check:\n1. Supabase redirect URL allowlist\n2. Email confirmation settings\n3. Browser console for errors");
         setLoading(false);
         return;
       }
 
-      console.log("User created successfully:", data.user.id);
+      console.log("User created successfully:", {
+        id: data.user.id,
+        email: data.user.email,
+        emailConfirmed: data.user.email_confirmed_at,
+        createdAt: data.user.created_at,
+      });
 
       // ✅ Also update profiles table (optional, but explicit)
       try {

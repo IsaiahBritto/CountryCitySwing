@@ -158,11 +158,6 @@ export default function ProfilePage() {
           className="block mx-auto text-sm text-gray-300 mt-2"
         />
       )}
-      {profile.role === "attendee" && (
-        <p className="text-sm text-gray-400 text-center mt-2">
-          Photo upload is not available for attendees
-        </p>
-      )}
 
       {/* Editable Form */}
       <form onSubmit={handleUpdate} className="space-y-4">

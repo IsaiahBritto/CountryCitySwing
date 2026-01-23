@@ -22,7 +22,7 @@ export const sendMail = async (
 
     const { data, error } = await resend.emails.send({
       from: finalFromEmail,
-      to: to || "isaiah.countrycityswing@gmail.com",
+      to: to || "contact.us@countrycityswing.dance",
       subject,
       text: body,
     });
@@ -33,7 +33,7 @@ export const sendMail = async (
         console.warn(`Domain not verified for ${fromEmail}, using fallback: ${FROM_EMAIL}`);
         const fallbackResult = await resend.emails.send({
           from: FROM_EMAIL,
-          to: to || "isaiah.countrycityswing@gmail.com",
+          to: to || "contact.us@countrycityswing.dance",
           subject,
           text: body,
         });

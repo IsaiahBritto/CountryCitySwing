@@ -121,20 +121,80 @@ export default function InstructorSlotEditModal({
       updateData.price = price;
     }
 
+    // Store old slot data for comparison
+    const oldStart = new Date(slot.start);
+    const oldDuration = slot.duration_minutes || 60;
+    const oldPrice = slot.price;
+
     const { error } = await supabaseBrowser
       .from("lesson_slots")
       .update(updateData)
       .eq("id", slot.id);
 
-    setSaving(false);
-
     if (error) {
+      setSaving(false);
       alert("Error updating slot: " + error.message);
-    } else {
-      alert("Slot updated successfully!");
-      onUpdate();
-      onClose();
+      return;
     }
+
+    // If slot is booked, send notification email to student
+    if (slot.is_booked && bookingInfo) {
+      // Check if anything actually changed
+      const startChanged = oldStart.getTime() !== start.getTime();
+      const durationChanged = oldDuration !== duration;
+      const priceChanged = oldPrice !== price;
+
+      if (startChanged || durationChanged || priceChanged) {
+        try {
+          // Fetch instructor name
+          const { data: instructorProfile } = await supabaseBrowser
+            .from("profiles")
+            .select("first_name, last_name")
+            .eq("id", slot.instructor_id)
+            .single();
+
+          const instructorName = instructorProfile
+            ? `${instructorProfile.first_name} ${instructorProfile.last_name}`
+            : "Your Instructor";
+
+          const lessonDate = start.toISOString();
+          const lessonTime = start.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
+          const studentFirstName = bookingInfo.first_name || bookingInfo.student_name?.split(" ")[0] || "";
+          const studentLastName = bookingInfo.last_name || bookingInfo.student_name?.split(" ").slice(1).join(" ") || "";
+          const studentEmail = bookingInfo.email || bookingInfo.student_email;
+
+          if (studentEmail) {
+            await fetch("/api/lesson-update-student-notification", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                studentEmail,
+                studentFirstName,
+                studentLastName,
+                instructorName,
+                lessonDate,
+                lessonTime,
+                lessonDuration: duration,
+                lessonFocus: bookingInfo.lesson_focus || null,
+                lessonPrice: price,
+              }),
+            });
+          }
+        } catch (emailError) {
+          console.error("Failed to send student notification email:", emailError);
+          // Don't fail the update if email fails
+        }
+      }
+    }
+
+    setSaving(false);
+    alert("Slot updated successfully!");
+    onUpdate();
+    onClose();
   }
 
   async function handleUnbook() {

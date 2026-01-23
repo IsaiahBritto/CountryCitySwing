@@ -56,6 +56,17 @@ export default function TeamPage() {
       normalize(p.last_name) === "petersen"
   );
 
+  // Helper function to check if a role indicates an instructor
+  // Admins are also instructors, so include them
+  const isInstructorRole = (role: string | null | undefined): boolean => {
+    if (!role) return false;
+    const roleLower = role.toLowerCase();
+    // Admins are also instructors, so include them
+    if (roleLower === "admin") return true;
+    // Check for instructor-related roles
+    return roleLower === "instructor" || roleLower.includes("instructor");
+  };
+
   // Everyone else = assistant instructors
   const assistants = profiles.filter(
     (p) =>
@@ -67,7 +78,7 @@ export default function TeamPage() {
         normalize(p.first_name) === "malissa" &&
         normalize(p.last_name) === "petersen"
       ) &&
-      p.role?.toLowerCase().includes("instructor")
+      isInstructorRole(p.role)
   );
 
   return (

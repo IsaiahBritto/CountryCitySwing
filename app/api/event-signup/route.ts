@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       email,
       `Country City Swing Signup — ${event.title}`,
       html,
-      "signup.confirmation@countrycityswing.dance"
+      "confirmation@countrycityswing.dance"
     );
     return NextResponse.json({ success: true });
   } catch (err) {

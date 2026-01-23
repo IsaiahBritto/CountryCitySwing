@@ -157,14 +157,16 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
         .update({ is_booked: true })
         .eq("id", slot.id);
 
-      // Send confirmation email
+      // Send confirmation emails
       try {
         const lessonDate = new Date(slot.start);
         const lessonTime = lessonDate.toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         });
+        const lessonDuration = slot.duration_minutes || Math.round((new Date(slot.end).getTime() - new Date(slot.start).getTime()) / 60000);
         
+        // Send email to student
         await fetch("/api/lesson-booking", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -175,7 +177,25 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             instructorName: instructorName || "Your Instructor",
             lessonDate: slot.start,
             lessonTime,
-            lessonDuration: slot.duration_minutes || Math.round((new Date(slot.end).getTime() - new Date(slot.start).getTime()) / 60000),
+            lessonDuration,
+            lessonFocus,
+            lessonPrice: slot.price,
+          }),
+        });
+
+        // Send email to instructor
+        await fetch("/api/lesson-booking-instructor-notification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            instructorId: slot.instructor_id,
+            studentFirstName: firstName.trim(),
+            studentLastName: lastName.trim(),
+            studentEmail: email.trim(),
+            studentPhone: phoneNumber.trim() || null,
+            lessonDate: slot.start,
+            lessonTime,
+            lessonDuration,
             lessonFocus,
             lessonPrice: slot.price,
           }),

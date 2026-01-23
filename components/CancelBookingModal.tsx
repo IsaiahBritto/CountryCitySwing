@@ -10,6 +10,7 @@ interface CancelBookingModalProps {
     start: string;
     end: string;
     price?: number | null;
+    instructor_id?: string;
   };
   bookingId: string;
   onClose: () => void;
@@ -31,6 +32,21 @@ export default function CancelBookingModal({
 
     setCanceling(true);
 
+    // Fetch booking info before deleting (for email notification)
+    let bookingInfo: any = null;
+    if (slot.instructor_id) {
+      try {
+        const { data } = await supabaseBrowser
+          .from("lesson_bookings")
+          .select("student_name, student_email, first_name, last_name, email")
+          .eq("id", bookingId)
+          .single();
+        bookingInfo = data;
+      } catch (err) {
+        console.error("Error fetching booking info:", err);
+      }
+    }
+
     // Delete the booking
     const { error: bookingError } = await supabaseBrowser
       .from("lesson_bookings")
@@ -48,6 +64,37 @@ export default function CancelBookingModal({
       .from("lesson_slots")
       .update({ is_booked: false })
       .eq("id", slot.id);
+
+    // Send notification email to instructor
+    if (slot.instructor_id && bookingInfo) {
+      try {
+        const lessonDate = new Date(slot.start);
+        const lessonTime = lessonDate.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        
+        const studentName = bookingInfo.first_name && bookingInfo.last_name
+          ? `${bookingInfo.first_name} ${bookingInfo.last_name}`
+          : bookingInfo.student_name || bookingInfo.student_email || "Student";
+        const studentEmail = bookingInfo.email || bookingInfo.student_email;
+
+        await fetch("/api/lesson-cancellation-instructor-notification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            instructorId: slot.instructor_id,
+            studentName,
+            studentEmail,
+            lessonDate: slot.start,
+            lessonTime,
+          }),
+        });
+      } catch (emailError) {
+        console.error("Failed to send instructor notification email:", emailError);
+        // Don't fail the cancellation if email fails
+      }
+    }
 
     setCanceling(false);
 

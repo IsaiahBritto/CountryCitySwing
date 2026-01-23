@@ -30,6 +30,8 @@ logs
 .idea
 .DS_Store
 *.swp
+*.sql
+*.md
 
 # Misc
 coverage

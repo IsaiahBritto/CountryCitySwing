@@ -51,6 +51,7 @@ export default function Navbar() {
     { name: "Team", href: "/team" },
     { name: "Prayer", href: "/prayer" },
     { name: "Media", href: "/media" },
+    { name: "Merch", href: "/merch" },
     { name: "About", href: "/about" },
   ];
 

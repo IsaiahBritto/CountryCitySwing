@@ -169,7 +169,7 @@ export default function ProfilePage() {
         </div>
 
         {/* Instructor-only fields */}
-        {profile.role === "instructor" && (
+        {(profile.role === "instructor" || profile.role === "admin") && (
           <>
             <input
               type="text"
@@ -319,11 +319,11 @@ export default function ProfilePage() {
       </form>
 
       {/* Slot Manager (only for instructors who enabled scheduling) */}
-      {profile.role === "instructor" && profile.scheduling_enabled && (
+      {(profile.role === "instructor" || profile.role === "admin") && profile.scheduling_enabled && (
         <InstructorSlotManager instructorId={profile.id} />
       )}
 
-      {profile.role === "instructor" && profile.scheduling_enabled && (
+      {(profile.role === "instructor" || profile.role === "admin") && profile.scheduling_enabled && (
         <div className="mt-10">
           <h3 className="text-xl font-semibold text-primary mb-4 text-center">
             Your Public Lesson Calendar Preview

@@ -5,8 +5,8 @@ export async function POST(req: Request) {
   try {
     const {
       studentEmail,
-      firstName,
-      lastName,
+      studentFirstName,
+      studentLastName,
       instructorName,
       lessonDate,
       lessonTime,
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
       lessonPrice,
     } = await req.json();
 
-    if (!studentEmail || !firstName || !lessonDate || !lessonTime) {
+    if (!studentEmail || !studentFirstName || !lessonDate || !lessonTime) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -39,6 +39,7 @@ export async function POST(req: Request) {
             .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
             .content { background-color: #f9f9f9; padding: 20px; }
             .lesson-details { background-color: white; padding: 15px; margin: 15px 0; border-radius: 5px; }
+            .update-box { background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 15px 0; }
             .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
           </style>
         </head>
@@ -46,14 +47,18 @@ export async function POST(req: Request) {
           <div class="container">
             <div class="header">
               <h1>Country City Swing</h1>
-              <h2>Private Lesson Booking Confirmation</h2>
+              <h2>Private Lesson Updated</h2>
             </div>
             <div class="content">
-              <p>Hi ${firstName},</p>
-              <p>Your private lesson has been confirmed!</p>
+              <p>Hi ${studentFirstName},</p>
+              
+              <div class="update-box">
+                <p style="margin: 0;"><strong>Lesson Details Updated</strong></p>
+                <p style="margin: 5px 0 0 0;">Your private lesson details have been updated by your instructor. Please make note of the updated information below.</p>
+              </div>
               
               <div class="lesson-details">
-                <h3>Lesson Details</h3>
+                <h3>Updated Lesson Details</h3>
                 <p><strong>Instructor:</strong> ${instructorName}</p>
                 <p><strong>Date:</strong> ${formattedDate}</p>
                 <p><strong>Time:</strong> ${lessonTime}</p>
@@ -62,7 +67,7 @@ export async function POST(req: Request) {
                 ${lessonFocus ? `<p><strong>Focus:</strong> ${lessonFocus}</p>` : ""}
               </div>
               
-              <p>We're excited to work with you! If you need to cancel or reschedule, please contact us as soon as possible.</p>
+              <p>If you have any questions or need to reschedule, please contact your instructor as soon as possible.</p>
               
               <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
             </div>
@@ -75,16 +80,16 @@ export async function POST(req: Request) {
 
     await sendHtmlEmail(
       studentEmail,
-      "Private Lesson Booking Confirmation - Country City Swing",
+      "Private Lesson Updated - Country City Swing",
       html,
       "confirmation@countrycityswing.dance"
     );
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error("Lesson booking email error:", err);
+    console.error("Lesson update student notification email error:", err);
     return NextResponse.json(
-      { error: "Failed to send confirmation email" },
+      { error: "Failed to send student notification email" },
       { status: 500 }
     );
   }

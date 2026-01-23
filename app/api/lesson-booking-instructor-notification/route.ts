@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
 import { sendHtmlEmail } from "@/lib/mailer";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { supabaseServer } from "@/lib/supabaseServer";
 
 export async function POST(req: Request) {
   try {
@@ -30,7 +25,7 @@ export async function POST(req: Request) {
     }
 
     // Fetch instructor email
-    const { data: instructorProfile, error: instructorError } = await supabase
+    const { data: instructorProfile, error: instructorError } = await supabaseServer
       .from("profiles")
       .select("email, first_name, last_name")
       .eq("id", instructorId)

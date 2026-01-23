@@ -1,7 +1,4 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { supabaseServer } from "@/lib/supabaseServer";
 import Link from "next/link";
 import { nameToSlug } from "@/lib/utils/slugHelpers";
 
@@ -15,32 +12,23 @@ interface Instructor {
   specialty: string | null;
 }
 
-export default function TeamPage() {
-  const [profiles, setProfiles] = useState<Instructor[]>([]);
-  const [loading, setLoading] = useState(true);
+export default async function TeamPage() {
+  // Fetch profiles server-side using supabaseServer to bypass RLS
+  const { data: profiles, error } = await supabaseServer
+    .from("profiles")
+    .select("id, first_name, last_name, photo_url, role, bio_long, specialty")
+    .order("first_name", { ascending: true });
 
-  useEffect(() => {
-    async function loadProfiles() {
-      const { data, error } = await supabaseBrowser
-        .from("profiles")
-        .select("id, first_name, last_name, photo_url, role, bio_long, specialty")
-        // fetch everyone but filter client side (RLS will filter anyway)
-        .order("first_name", { ascending: true });
+  if (error) {
+    console.error("Error loading profiles:", error.message);
+    return <p className="text-center text-gray-400 mt-10">Error loading team...</p>;
+  }
 
-      if (error) console.error("Error loading profiles:", error.message);
-      else setProfiles(data || []);
-      setLoading(false);
-    }
-    loadProfiles();
-  }, []);
-
-  if (loading)
-    return <p className="text-center text-gray-400 mt-10">Loading team...</p>;
-
-  if (profiles.length === 0)
+  if (!profiles || profiles.length === 0) {
     return (
       <p className="text-center text-gray-400 mt-10">No instructors found.</p>
     );
+  }
 
   const normalize = (s: string) => s.trim().toLowerCase();
 

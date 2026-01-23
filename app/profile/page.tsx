@@ -64,9 +64,9 @@ export default function ProfilePage() {
     if (!profile) return;
     setUpdating(true);
 
-    // Upload new profile photo if one is chosen
+    // Upload new profile photo if one is chosen (only for non-attendee users)
     let photo_url = profile.photo_url;
-    if (file) {
+    if (file && profile.role !== "attendee") {
       const { data, error } = await supabaseBrowser.storage
         .from("photos")
         .upload(`profiles/${profile.id}_${Date.now()}.jpg`, file, {
@@ -80,25 +80,36 @@ export default function ProfilePage() {
       }
     }
 
+    // Build update object - exclude photo_url for attendees
+    const updateData: any = {
+      first_name: profile.first_name,
+      last_name: profile.last_name,
+    };
+
+    // Only include photo_url if user is not an attendee
+    if (profile.role !== "attendee") {
+      updateData.photo_url = photo_url;
+    }
+
+    // Only include instructor/admin fields if user has appropriate role
+    if (profile.role === "instructor" || profile.role === "admin") {
+      updateData.instagram_url = profile.instagram_url;
+      updateData.teaching_since = profile.teaching_since;
+      updateData.favorite_song = profile.favorite_song;
+      updateData.teaching_style = profile.teaching_style;
+      updateData.bio_long = profile.bio_long;
+      updateData.specialty = profile.specialty;
+      updateData.phone_number = profile.phone_number;
+      updateData.private_lessons = profile.private_lessons;
+      updateData.private_lessons_link = profile.private_lessons_link;
+      updateData.scheduling_enabled = profile.scheduling_enabled;
+      updateData.lesson_duration_minutes = profile.lesson_duration_minutes;
+      updateData.prayer = profile.prayer;
+    }
+
     const { error } = await supabaseBrowser
       .from("profiles")
-      .update({
-        first_name: profile.first_name,
-        last_name: profile.last_name,
-        photo_url,
-        instagram_url: profile.instagram_url,
-        teaching_since: profile.teaching_since,
-        favorite_song: profile.favorite_song,
-        teaching_style: profile.teaching_style,
-        bio_long: profile.bio_long,
-        specialty: profile.specialty,
-        phone_number: profile.phone_number,
-        private_lessons: profile.private_lessons,
-        private_lessons_link: profile.private_lessons_link,
-        scheduling_enabled: profile.scheduling_enabled,
-        lesson_duration_minutes: profile.lesson_duration_minutes,
-        prayer: profile.prayer,
-      })
+      .update(updateData)
       .eq("id", profile.id);
 
     setUpdating(false);
@@ -138,12 +149,20 @@ export default function ProfilePage() {
           className="w-28 h-28 rounded-full mx-auto border border-yellow-400 object-cover"
         />
       )}
-      <input
-        type="file"
-        accept="image/*"
-        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-        className="block mx-auto text-sm text-gray-300 mt-2"
-      />
+      {/* Only allow photo upload for non-attendee users */}
+      {profile.role !== "attendee" && (
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          className="block mx-auto text-sm text-gray-300 mt-2"
+        />
+      )}
+      {profile.role === "attendee" && (
+        <p className="text-sm text-gray-400 text-center mt-2">
+          Photo upload is not available for attendees
+        </p>
+      )}
 
       {/* Editable Form */}
       <form onSubmit={handleUpdate} className="space-y-4">

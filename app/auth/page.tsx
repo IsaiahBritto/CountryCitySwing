@@ -30,9 +30,10 @@ export default function AuthPage() {
       }
 
       // Get the current origin for redirect URL
+      // Use the callback handler to process the email confirmation tokens
       const redirectUrl = typeof window !== "undefined" 
-        ? `${window.location.origin}/auth`
-        : "/auth";
+        ? `${window.location.origin}/auth/callback`
+        : "/auth/callback";
 
       // ✅ Sign up with metadata and redirect URL
       const { data, error } = await supabaseBrowser.auth.signUp({
@@ -66,7 +67,7 @@ export default function AuthPage() {
         // Redirect to homepage after 3 seconds
         setTimeout(() => {
           router.push("/");
-        }, 3000);
+        }, 10000);
       }
     } else {
       const { error } = await supabaseBrowser.auth.signInWithPassword({

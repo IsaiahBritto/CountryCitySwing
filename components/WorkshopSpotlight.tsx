@@ -11,9 +11,11 @@ dayjs.extend(isSameOrAfter);
 
 interface WorkshopSpotlightProps {
   events: CarouselEvent[];
+  isAdmin?: boolean;
+  onEditEvent?: (event: CarouselEvent) => void;
 }
 
-export default function WorkshopSpotlight({ events }: WorkshopSpotlightProps) {
+export default function WorkshopSpotlight({ events, isAdmin = false, onEditEvent }: WorkshopSpotlightProps) {
   const today = dayjs().startOf("day");
   const [showSignup, setShowSignup] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CarouselEvent | null>(null);
@@ -57,8 +59,6 @@ export default function WorkshopSpotlight({ events }: WorkshopSpotlightProps) {
                 hour: "numeric",
                 minute: "2-digit",
               })}`
-            : upcomingWorkshop.time
-            ? ` • ${upcomingWorkshop.time}`
             : ""}
         </p>
         <p className="text-gray-400 italic mb-2">
@@ -71,18 +71,28 @@ export default function WorkshopSpotlight({ events }: WorkshopSpotlightProps) {
         )}
         <p className="text-neutral-200 mb-5">{upcomingWorkshop.description}</p>
 
-        {dayjs(upcomingWorkshop.date).isBefore(dayjs(), "day") ? (
-          <button
-            disabled
-            className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"
-          >
-            Closed
-          </button>
-        ) : (
-          <button onClick={openSignup} className="btn-signup">
-            Sign Up
-          </button>
-        )}
+        <div className="flex gap-3">
+          {dayjs(upcomingWorkshop.date).isBefore(dayjs(), "day") ? (
+            <button
+              disabled
+              className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"
+            >
+              Closed
+            </button>
+          ) : (
+            <button onClick={openSignup} className="btn-signup">
+              Sign Up
+            </button>
+          )}
+          {isAdmin && onEditEvent && (
+            <button
+              onClick={() => onEditEvent(upcomingWorkshop)}
+              className="px-4 py-2 rounded-md bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors"
+            >
+              Edit
+            </button>
+          )}
+        </div>
       </div>
 
       {/* --- Signup Modal --- */}

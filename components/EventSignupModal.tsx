@@ -169,8 +169,6 @@ export default function EventSignupModal({ event, open, onClose }: any) {
                   hour: "numeric",
                   minute: "2-digit",
                 })}`
-              : event.time
-              ? ` • ${event.time}`
               : ""}{" "}
             <br />
             <strong>Location:</strong> {event.location}

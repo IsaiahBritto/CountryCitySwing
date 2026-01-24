@@ -3,10 +3,12 @@
 import { useState, useEffect } from "react";
 import dayjs from "dayjs";
 import { supabase } from "@/lib/supabaseClient";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import Calendar from "@/components/Calendar";
 import WorkshopSpotlight from "@/components/WorkshopSpotlight";
 import EventCarousel from "@/components/EventCarousel";
 import EventSignupModal from "@/components/EventSignupModal";
+import EventFormModal from "@/components/EventFormModal";
 import { parseLocalDate } from "@/lib/utils/dateHelpers";
 
 export default function EventsPage() {
@@ -15,20 +17,50 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
   const [showSignup, setShowSignup] = useState(false);
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [eventToEdit, setEventToEdit] = useState<any | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    async function loadEvents() {
-      const { data, error } = await supabase
-        .from("events")
-        .select("*")
-        .order("date", { ascending: true });
+    const checkAdmin = async () => {
+      const { data: { user } } = await supabaseBrowser.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabaseBrowser
+          .from("profiles")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+        setIsAdmin(profile?.role === "admin");
+      }
+    };
+    checkAdmin();
+  }, []);
 
-      if (error) console.error("Supabase error:", error);
-      else setEvents(data || []);
-      setLoading(false);
-    }
+  useEffect(() => {
     loadEvents();
   }, []);
+
+  const loadEvents = async () => {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .order("date", { ascending: true });
+
+    if (error) {
+      console.error("Supabase error:", error);
+      setEvents([]);
+    } else {
+      // Normalize snake_case to camelCase for frontend components
+      const normalizedEvents = (data || []).map((event: any) => ({
+        ...event,
+        signupLink: event.signup_link || event.signupLink || "",
+        // Remove time field if it exists (it's not in the schema)
+        time: undefined,
+      }));
+      setEvents(normalizedEvents);
+    }
+    setLoading(false);
+  };
 
   // Filter upcoming events only (today and future)
   const today = dayjs().startOf("day");
@@ -36,11 +68,35 @@ export default function EventsPage() {
     dayjs(e.date).isSame(today, "day") || dayjs(e.date).isAfter(today, "day")
   );
 
+  const handleEventSaved = () => {
+    loadEvents();
+  };
+
+  const handleEditEvent = (event: any) => {
+    setEventToEdit(event);
+    setShowEventForm(true);
+  };
+
+  const handleAddEvent = () => {
+    setEventToEdit(null);
+    setShowEventForm(true);
+  };
+
   return (
     <section className="max-w-5xl mx-auto text-center px-4">
-      <h2 className="text-3xl font-semibold text-primary mb-4">
-        Upcoming Events
-      </h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-3xl font-semibold text-primary">
+          Upcoming Events
+        </h2>
+        {isAdmin && (
+          <button
+            onClick={handleAddEvent}
+            className="btn-signup text-sm px-4 py-2 rounded-md"
+          >
+            Add Event
+          </button>
+        )}
+      </div>
 
       {/* --- View Switcher --- */}
       <div className="flex justify-center mb-8 space-x-3">
@@ -83,9 +139,21 @@ export default function EventsPage() {
               Upcoming Events
             </h2>
 
-            <WorkshopSpotlight events={upcomingEvents} />
-            <Calendar events={events} /> {/* calendar shows all events */}
-            <EventCarousel events={upcomingEvents} />
+            <WorkshopSpotlight 
+              events={upcomingEvents} 
+              isAdmin={isAdmin}
+              onEditEvent={handleEditEvent}
+            />
+            <Calendar 
+              events={events} 
+              isAdmin={isAdmin}
+              onEditEvent={handleEditEvent}
+            />
+            <EventCarousel 
+              events={upcomingEvents} 
+              isAdmin={isAdmin}
+              onEditEvent={handleEditEvent}
+            />
           </section>
         </div>
       )}
@@ -110,8 +178,6 @@ export default function EventsPage() {
                       hour: "numeric",
                       minute: "2-digit",
                     })}`
-                  : event.time
-                  ? ` • ${event.time}`
                   : ""}
               </p>
               {event.location && (
@@ -120,15 +186,25 @@ export default function EventsPage() {
               {event.description && (
                 <p className="text-neutral-200 mb-3">{event.description}</p>
               )}
-              <button
-                onClick={() => {
-                  setSelectedEvent(event);
-                  setShowSignup(true);
-                }}
-                className="btn-signup"
-              >
-                Sign Up
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setSelectedEvent(event);
+                    setShowSignup(true);
+                  }}
+                  className="btn-signup"
+                >
+                  Sign Up
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => handleEditEvent(event)}
+                    className="px-4 py-2 rounded-md bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors"
+                  >
+                    Edit
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -142,6 +218,17 @@ export default function EventsPage() {
           onClose={() => setShowSignup(false)}
         />
       )}
+
+      {/* --- Event Form Modal (Add/Edit) --- */}
+      <EventFormModal
+        open={showEventForm}
+        onClose={() => {
+          setShowEventForm(false);
+          setEventToEdit(null);
+        }}
+        event={eventToEdit}
+        onSuccess={handleEventSaved}
+      />
     </section>
   );
 }

@@ -17,22 +17,23 @@ interface CalendarEvent {
   title: string;
   date: string;
   location: string;
-  signupLink: string;
+  signupLink?: string;
+  signup_link?: string;
   description: string;
-  cost?: number;
   price?: number;
-  time?: string;
   start_time?: string;
   type?: string;
 }
 
 interface CalendarProps {
   events?: CalendarEvent[];
+  isAdmin?: boolean;
+  onEditEvent?: (event: CalendarEvent) => void;
 }
 
 const today = dayjs().format("YYYY-MM-DD");
 
-export default function Calendar({ events = [] }: CalendarProps) {
+export default function Calendar({ events = [], isAdmin = false, onEditEvent }: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(dayjs());
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -178,8 +179,6 @@ export default function Calendar({ events = [] }: CalendarProps) {
                     hour: "numeric",
                     minute: "2-digit",
                   })}`
-                : selectedEvent.time
-                ? ` • ${selectedEvent.time}`
                 : ""}
             </p>
             <p className="text-gray-300 mb-2 italic">
@@ -195,24 +194,37 @@ export default function Calendar({ events = [] }: CalendarProps) {
             </p>
 
             {/* Signup button or Closed state */}
-            {dayjs(selectedEvent.date).isBefore(dayjs(), "day") ? (
-              <button
-                disabled
-                className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"
-              >
-                Closed
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  setIsVisible(false);   // close event details
-                  setShowSignup(true);   // open signup modal
-                }}
-                className="btn-signup inline-block"
-              >
-                Sign Up
-              </button>
-            )}
+            <div className="flex gap-3">
+              {dayjs(selectedEvent.date).isBefore(dayjs(), "day") ? (
+                <button
+                  disabled
+                  className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"
+                >
+                  Closed
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setIsVisible(false);   // close event details
+                    setShowSignup(true);   // open signup modal
+                  }}
+                  className="btn-signup inline-block"
+                >
+                  Sign Up
+                </button>
+              )}
+              {isAdmin && onEditEvent && (
+                <button
+                  onClick={() => {
+                    setIsVisible(false);
+                    onEditEvent(selectedEvent);
+                  }}
+                  className="px-4 py-2 rounded-md bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors"
+                >
+                  Edit
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -11,20 +11,21 @@ export interface CarouselEvent {
   title: string;
   date: string;
   location: string;
-  signupLink: string;
+  signupLink?: string;
+  signup_link?: string;
   description: string;
-  cost?: number;
   price?: number;
-  time?: string;
   start_time?: string;
   type?: string;
 }
 
 interface EventCarouselProps {
   events: CarouselEvent[];
+  isAdmin?: boolean;
+  onEditEvent?: (event: CarouselEvent) => void;
 }
 
-export default function EventCarousel({ events }: EventCarouselProps) {
+export default function EventCarousel({ events, isAdmin = false, onEditEvent }: EventCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedEvent, setSelectedEvent] = useState<CarouselEvent | null>(null);
   const touchStartX = useRef<number | null>(null);
@@ -77,7 +78,7 @@ export default function EventCarousel({ events }: EventCarouselProps) {
             {filteredEvents.map((event) => (
               <div
                 key={event.id}
-                className="flex-shrink-0 flex justify-center items-stretch w-full"
+                className="shrink-0 flex justify-center items-stretch w-full"
                 style={{ flexBasis: "100%" }}
               >
                 {/* --- Event Card --- */}
@@ -98,8 +99,6 @@ export default function EventCarousel({ events }: EventCarouselProps) {
                           hour: "numeric",
                           minute: "2-digit",
                         })}`
-                      : event.time
-                      ? ` • ${event.time}`
                       : ""}
                   </p>
 
@@ -115,21 +114,31 @@ export default function EventCarousel({ events }: EventCarouselProps) {
                   <p className="text-neutral-200 mb-6">{event.description}</p>
 
                   {/* --- Sign Up / Closed Button --- */}
-                  {dayjs(event.date).isBefore(dayjs(), "day") ? (
-                    <button
-                      disabled
-                      className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"
-                    >
-                      Closed
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => setSelectedEvent(event)}
-                      className="btn-signup inline-block"
-                    >
-                      Sign Up
-                    </button>
-                  )}
+                  <div className="flex gap-3">
+                    {dayjs(event.date).isBefore(dayjs(), "day") ? (
+                      <button
+                        disabled
+                        className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"
+                      >
+                        Closed
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setSelectedEvent(event)}
+                        className="btn-signup inline-block"
+                      >
+                        Sign Up
+                      </button>
+                    )}
+                    {isAdmin && onEditEvent && (
+                      <button
+                        onClick={() => onEditEvent(event)}
+                        className="px-4 py-2 rounded-md bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}

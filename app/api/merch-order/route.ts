@@ -243,6 +243,17 @@ export async function POST(request: NextRequest) {
       console.error("Error sending admin notification email:", emailError);
     }
 
+    // Send notification email to merch team
+    try {
+      await sendHtmlEmail(
+        "merch@countrycityswing.dance",
+        `New Merch Order #${order.id} - ${orderData.firstName} ${orderData.lastName}`,
+        adminEmailHtml
+      );
+    } catch (emailError) {
+      console.error("Error sending merch notification email:", emailError);
+    }
+
     return NextResponse.json({ success: true, orderId: order.id });
   } catch (error: any) {
     console.error("Order submission error:", error);

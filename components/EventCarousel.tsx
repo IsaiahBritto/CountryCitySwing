@@ -122,6 +122,15 @@ export default function EventCarousel({ events, isAdmin = false, onEditEvent }: 
                       >
                         Closed
                       </button>
+                    ) : event.type === "Comp" && (event.signupLink || event.signup_link) ? (
+                      <a
+                        href={event.signupLink || event.signup_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-signup inline-block text-center"
+                      >
+                        Sign Up
+                      </a>
                     ) : (
                       <button
                         onClick={() => setSelectedEvent(event)}
@@ -176,11 +185,13 @@ export default function EventCarousel({ events, isAdmin = false, onEditEvent }: 
       </div>
 
       {/* --- Modal --- */}
-      <EventSignupModal
-        event={selectedEvent}
-        open={!!selectedEvent}
-        onClose={() => setSelectedEvent(null)}
-      />
+      {selectedEvent && selectedEvent.type !== "Comp" && (
+        <EventSignupModal
+          event={selectedEvent}
+          open={!!selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+        />
+      )}
     </>
   );
 }

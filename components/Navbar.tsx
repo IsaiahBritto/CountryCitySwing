@@ -16,6 +16,7 @@ export default function Navbar() {
   const [user, setUser] = useState<UserMeta | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+  const [showRegistration, setShowRegistration] = useState(false);
 
   // Load and listen for auth changes
   useEffect(() => {
@@ -30,13 +31,38 @@ export default function Navbar() {
   // Fetch profile when user changes
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!user?.id) return setProfile(null);
+      if (!user?.id) {
+        setProfile(null);
+        setShowRegistration(false);
+        return;
+      }
       const { data } = await supabaseBrowser
         .from("profiles")
         .select("first_name, last_name, role")
         .eq("id", user.id)
         .single();
-      if (data) setProfile(data);
+      if (data) {
+        setProfile(data);
+        
+        // Show registration button for admins (always) or instructors (only when event today)
+        const isAdmin = data.role === "admin";
+        const isInstructor = data.role === "instructor";
+        
+        if (isAdmin) {
+          setShowRegistration(true);
+        } else if (isInstructor) {
+          // Check if there's an event today
+          const today = new Date().toISOString().split("T")[0];
+          const { data: events } = await supabaseBrowser
+            .from("events")
+            .select("id")
+            .eq("date", today)
+            .limit(1);
+          setShowRegistration(!!(events && events.length > 0));
+        } else {
+          setShowRegistration(false);
+        }
+      }
     };
     fetchProfile();
   }, [user]);
@@ -90,6 +116,14 @@ export default function Navbar() {
               {link.name}
             </Link>
           ))}
+          {showRegistration && (
+            <Link
+              href="/registration"
+              className="text-gray-300 hover:text-primary transition-colors"
+            >
+              Registration
+            </Link>
+          )}
 
           {user ? (
             <Link
@@ -122,6 +156,15 @@ export default function Navbar() {
               {link.name}
             </Link>
           ))}
+          {showRegistration && (
+            <Link
+              href="/registration"
+              onClick={() => setMenuOpen(false)}
+              className="block text-gray-300 hover:text-primary transition-colors"
+            >
+              Registration
+            </Link>
+          )}
 
           {user ? (
             <Link

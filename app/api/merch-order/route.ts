@@ -166,6 +166,9 @@ export async function POST(request: NextRequest) {
       </html>
     `;
 
+    // Helper function to delay between email sends (Resend rate limit: 2 requests/second)
+    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
     try {
       await sendHtmlEmail(
         orderData.email,
@@ -177,8 +180,11 @@ export async function POST(request: NextRequest) {
       // Don't fail the order if email fails
     }
 
-    // Send notification email to admin
-    const adminEmailHtml = `
+    // Wait before sending next email to respect rate limits
+    await delay(600); // 600ms delay to stay under 2 requests/second
+
+    // Prepare notification email HTML for merch team
+    const notificationEmailHtml = `
       <!DOCTYPE html>
       <html>
         <head>
@@ -233,25 +239,23 @@ export async function POST(request: NextRequest) {
       </html>
     `;
 
-    try {
-      await sendHtmlEmail(
-        "contact.us@countrycityswing.dance",
-        `New Merch Order #${order.id} - ${orderData.firstName} ${orderData.lastName}`,
-        adminEmailHtml
-      );
-    } catch (emailError) {
-      console.error("Error sending admin notification email:", emailError);
-    }
-
     // Send notification email to merch team
     try {
-      await sendHtmlEmail(
+      const merchEmailResult = await sendHtmlEmail(
         "merch@countrycityswing.dance",
         `New Merch Order #${order.id} - ${orderData.firstName} ${orderData.lastName}`,
-        adminEmailHtml
+        notificationEmailHtml
       );
-    } catch (emailError) {
+      console.log("Merch notification email sent successfully:", merchEmailResult);
+    } catch (emailError: any) {
       console.error("Error sending merch notification email:", emailError);
+      console.error("Error details:", {
+        message: emailError?.message,
+        statusCode: emailError?.statusCode,
+        error: emailError,
+      });
+      // Re-throw to ensure we know about the failure
+      // But don't fail the order creation if email fails
     }
 
     return NextResponse.json({ success: true, orderId: order.id });

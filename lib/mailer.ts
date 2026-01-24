@@ -64,8 +64,17 @@ export const sendHtmlEmail = async (
   from?: string
 ) => {
   try {
+    // Validate Resend API key
+    if (!process.env.RESEND_API_KEY) {
+      const errorMsg = "RESEND_API_KEY is not configured";
+      console.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+
     // Use fallback email if custom domain isn't verified
     const fromEmail = from || FROM_EMAIL;
+
+    console.log(`Attempting to send email to: ${to}, from: ${fromEmail}, subject: ${subject}`);
 
     const { data, error } = await resend.emails.send({
       from: fromEmail,
@@ -75,6 +84,15 @@ export const sendHtmlEmail = async (
     });
 
     if (error) {
+      console.error("Resend API error:", {
+        statusCode: error.statusCode,
+        message: error.message,
+        name: error.name,
+        to,
+        from: fromEmail,
+        subject,
+      });
+
       // If domain not verified, try with fallback
       if (error.statusCode === 403 && error.message?.includes("not verified")) {
         console.warn(`Domain not verified for ${fromEmail}, using fallback: ${FROM_EMAIL}`);
@@ -85,18 +103,32 @@ export const sendHtmlEmail = async (
           html,
         });
         if (fallbackResult.error) {
-          console.error("Resend fallback error:", fallbackResult.error);
+          console.error("Resend fallback error:", {
+            statusCode: fallbackResult.error.statusCode,
+            message: fallbackResult.error.message,
+            name: fallbackResult.error.name,
+            to,
+            from: FROM_EMAIL,
+            subject,
+          });
           throw fallbackResult.error;
         }
+        console.log("Email sent successfully using fallback address");
         return fallbackResult.data;
       }
-      console.error("Resend error:", error);
       throw error;
     }
 
+    console.log("Email sent successfully:", { id: data?.id, to, from: fromEmail });
     return data;
-  } catch (error) {
-    console.error("Failed to send HTML email:", error);
+  } catch (error: any) {
+    console.error("Failed to send HTML email:", {
+      error: error?.message || error,
+      statusCode: error?.statusCode,
+      name: error?.name,
+      to,
+      subject,
+    });
     throw error;
   }
 };

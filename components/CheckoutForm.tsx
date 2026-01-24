@@ -71,7 +71,7 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
       const nonPreorderItems = items.filter(
         (item) =>
           item.productName !== "Black CCS x 8CC Shirt (Preorder)" &&
-          item.productName !== "Black CCS x 8CC Crop(Preorder)"
+          item.productName !== "Black CCS x 8CC Crop (Preorder)"
       );
       const totalItems = nonPreorderItems.reduce((sum, item) => sum + item.quantity, 0);
       return Math.ceil(totalItems / 2) * 10;
@@ -89,7 +89,7 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
   const hasPreorderItems = items.some(
     (item) =>
       item.productName === "Black CCS x 8CC Shirt (Preorder)" ||
-      item.productName === "Black CCS x 8CC Crop(Preorder)"
+      item.productName === "Black CCS x 8CC Crop (Preorder)"
   );
 
   const handleSubmit = async (e: React.FormEvent) => {

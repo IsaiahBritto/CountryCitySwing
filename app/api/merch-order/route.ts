@@ -220,8 +220,8 @@ export async function POST(request: NextRequest) {
     const paymentBoxCash = `
       <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
         <p style="margin: 0;"><strong>Payment:</strong> Cash payment needed.</p>
-        <p style="margin: 5px 0 0 0;">Please complete your payment via Venmo: <a href="https://www.venmo.com/u/CountryCitySwing" style="color: #000; font-weight: bold;">@CountryCitySwing</a> or in person.</p>
-        <p style="margin: 10px 0 0 0; font-size: 0.9em;">Please include your order number (#${order.id}) in the Venmo payment note.</p>
+        <p style="margin: 5px 0 0 0;">Please pay cash in person.</p>
+        <p style="margin: 10px 0 0 0; font-size: 0.9em;">Please show this confirmation email when picking up your order.</p>
       </div>
     `;
 

@@ -451,7 +451,7 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
               <span className="text-gray-300">Pay with cash</span>
             </label>
             <p className="text-sm text-gray-400 ml-7">
-              Venmo <a href="https://www.venmo.com/u/CountryCitySwing" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@CountryCitySwing</a> or in person. Include your order number in the Venmo note.
+              Pay cash in person. Please show your confirmation email at check-in.
             </p>
             <label className="flex items-center gap-3 cursor-pointer">
               <input

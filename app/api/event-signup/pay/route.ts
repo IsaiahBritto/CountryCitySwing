@@ -1,0 +1,129 @@
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseServer } from "@/lib/supabaseServer";
+import { getStripe } from "@/lib/stripe";
+import eventsData from "@/lib/events.json";
+
+function getBaseUrl(request: NextRequest): string {
+  const env = process.env.NEXT_PUBLIC_APP_URL;
+  if (env) return env.replace(/\/$/, "");
+  const host = request.headers.get("host") || "localhost:3000";
+  const proto =
+    request.headers.get("x-forwarded-proto") ||
+    (host.includes("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { signupId } = await req.json();
+
+    if (!signupId) {
+      return NextResponse.json(
+        { error: "Signup ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // Fetch signup
+    const { data: signup, error: fetchError } = await supabaseServer
+      .from("signups")
+      .select("*")
+      .eq("id", signupId)
+      .single();
+
+    if (fetchError || !signup) {
+      return NextResponse.json(
+        { error: "Signup not found" },
+        { status: 404 }
+      );
+    }
+
+    // Check if already paid
+    if (signup.paid) {
+      return NextResponse.json(
+        { error: "This event has already been paid for" },
+        { status: 400 }
+      );
+    }
+
+    // Check if payment method is Cash
+    if (signup.payment_method !== "Cash") {
+      return NextResponse.json(
+        { error: "This signup is not eligible for cash payment conversion" },
+        { status: 400 }
+      );
+    }
+
+    // Get event price from events table or JSON file
+    let eventPrice = 0;
+    
+    if (signup.event_id) {
+      // First try to fetch from events table (if it exists)
+      try {
+        const { data: eventData } = await supabaseServer
+          .from("events")
+          .select("price")
+          .eq("id", signup.event_id)
+          .single();
+        
+        if (eventData?.price) {
+          eventPrice = Number(eventData.price);
+        }
+      } catch (e) {
+        // If events table doesn't exist or query fails, try events.json
+        const event = (eventsData as any[]).find((e: any) => e.id === signup.event_id);
+        if (event?.price) {
+          eventPrice = Number(event.price);
+        }
+      }
+    }
+
+    if (eventPrice <= 0) {
+      return NextResponse.json(
+        { error: "Event price not found or event is free. Please contact support." },
+        { status: 400 }
+      );
+    }
+
+    // Create Stripe checkout session
+    const base = getBaseUrl(req);
+    const session = await getStripe().checkout.sessions.create({
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: signup.event_title || "Event Registration",
+              description: `Payment for event registration`,
+            },
+            unit_amount: Math.round(eventPrice * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      customer_email: signup.email,
+      client_reference_id: signupId,
+      metadata: {
+        signup_id: signupId,
+        event_id: signup.event_id,
+        event_title: signup.event_title,
+        payment_type: "cash_to_stripe",
+      },
+      success_url: `${base}/events?payment=success`,
+      cancel_url: `${base}/events/pay/${signupId}`,
+    });
+
+    return NextResponse.json({
+      success: true,
+      redirect: session.url!,
+    });
+  } catch (error: any) {
+    console.error("Payment creation error:", error);
+    return NextResponse.json(
+      { error: "Failed to create payment session", details: error.message },
+      { status: 500 }
+    );
+  }
+}

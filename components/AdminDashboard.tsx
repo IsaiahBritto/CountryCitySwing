@@ -31,6 +31,7 @@ interface Order {
   shipping: number;
   total: number;
   status: string;
+  payment_method?: string;
   tracking_number?: string;
   notes?: string;
   created_at: string;
@@ -386,6 +387,11 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
                     >
                       {order.status.toUpperCase()}
                     </span>
+                    {order.payment_method && (
+                      <p className="text-xs text-gray-400 mt-1 capitalize">
+                        {order.payment_method}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -467,6 +473,13 @@ function OrderDetailModal({
                 {new Date(order.created_at).toLocaleString()}
               </p>
             </div>
+
+            {order.payment_method && (
+              <div>
+                <p className="text-sm text-gray-400">Payment</p>
+                <p className="text-white capitalize">{order.payment_method}</p>
+              </div>
+            )}
 
             <div>
               <p className="text-sm text-gray-400">Items</p>

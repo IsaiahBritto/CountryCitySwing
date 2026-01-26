@@ -9,6 +9,7 @@ yarn-error.log*
 .next
 out
 dist
+next-env.d.ts
 
 # Local environment
 .env.local

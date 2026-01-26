@@ -21,7 +21,7 @@ const baseSchema = z.object({
     ])
     .optional(),
   paymentMethod: z.enum([
-    "Venmo @CountryCitySwing",
+    "Stripe",
     "Cash",
     "A friend paid for me",
     "Class Voucher",
@@ -33,7 +33,7 @@ const baseSchema = z.object({
   acceptPayment: z.literal(true, {
     errorMap: () => ({
       message:
-        "You must acknowledge Venmo or pay-at-door confirmation requirement",
+        "You must acknowledge payment confirmation requirement",
     }),
   }),
 });
@@ -126,14 +126,38 @@ export default function EventSignupModal({ event, open, onClose }: any) {
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const [submitError, setSubmitError] = useState("");
+
   const onSubmit = async (data: any) => {
-    await fetch("/api/event-signup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...data, event }),
-    });
-    reset();
-    onClose();
+    setSubmitError("");
+    try {
+      const response = await fetch("/api/event-signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...data, event }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        const errorMsg = result.error || "Failed to submit signup";
+        const details = result.details ? ` (${result.details})` : "";
+        setSubmitError(errorMsg + details);
+        throw new Error(errorMsg);
+      }
+
+      // If Stripe payment, redirect to checkout
+      if (data.paymentMethod === "Stripe" && result.redirect) {
+        window.location.href = result.redirect;
+        return;
+      }
+
+      reset();
+      onClose();
+    } catch (error: any) {
+      console.error("Signup error:", error);
+      // Error is already set in setSubmitError above
+    }
   };
 
   if (!open || !event) return null;
@@ -257,16 +281,12 @@ export default function EventSignupModal({ event, open, onClose }: any) {
                 Payment Method{event.price ? `: $${event.price.toFixed(2)}` : ""}
               </p>
               {[
-                {
-                  label: "Venmo @CountryCitySwing",
-                  value: "Venmo @CountryCitySwing",
-                  link: "https://www.venmo.com/u/CountryCitySwing",
-                },
+                { label: "Stripe (Credit/Debit Card)", value: "Stripe" },
                 { label: "Cash", value: "Cash" },
                 { label: "A friend paid for me", value: "A friend paid for me" },
                 { label: "Class Voucher", value: "Class Voucher" },
                 { label: "Volunteer", value: "Volunteer" },
-              ].map(({ label, value, link }) => (
+              ].map(({ label, value }) => (
                 <label key={value} className="block text-sm">
                   <input
                     {...register("paymentMethod")}
@@ -274,17 +294,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
                     value={value}
                     className="mr-2"
                   />
-                  {link ? (
-                    <a
-                      href={link}
-                      target="_blank"
-                      className="text-accent underline hover:text-[#CF9FFF]"
-                    >
-                      {label}
-                    </a>
-                  ) : (
-                    label
-                  )}
+                  {label}
                 </label>
               ))}
             </div>
@@ -328,14 +338,19 @@ export default function EventSignupModal({ event, open, onClose }: any) {
                 {...register("acceptPayment")}
                 className="mr-2"
               />
-              I understand that I will have to show Venmo payment confirmation
-              or pay at the door as well as confirmation of form completion.
+              I understand that I will need to complete payment (via Stripe or cash at the door) and show confirmation of form completion.
             </label>
 
             {Object.values(errors).length > 0 && (
               <p className="text-red-400 text-sm">
                 Please fill in all required fields.
               </p>
+            )}
+
+            {submitError && (
+              <div className="bg-red-900/20 border border-red-500 rounded-lg p-3">
+                <p className="text-red-400 text-sm">{submitError}</p>
+              </div>
             )}
 
             <button

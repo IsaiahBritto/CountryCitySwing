@@ -22,7 +22,7 @@ export default function CheckoutSuccessPage() {
       </p>
       <Link
         href="/merch"
-        className="inline-block btn-signup py-3 px-8 font-semibold"
+        className="inline-block btn-signup py-3 px-8 font-semibold transition-opacity hover:opacity-90"
       >
         Back to Merch
       </Link>

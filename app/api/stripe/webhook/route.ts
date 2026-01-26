@@ -4,6 +4,9 @@ import { getStripe } from "@/lib/stripe";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 
+// Disable body parsing for webhook to get raw body
+export const runtime = "nodejs";
+
 function getWebhookSecret(): string {
   const s = process.env.STRIPE_WEBHOOK_SECRET;
   if (!s) throw new Error("STRIPE_WEBHOOK_SECRET is not set");
@@ -11,10 +14,12 @@ function getWebhookSecret(): string {
 }
 
 export async function POST(request: NextRequest) {
+  console.log("Webhook received at:", new Date().toISOString());
   try {
     const rawBody = await request.text();
     const sig = request.headers.get("stripe-signature");
     if (!sig) {
+      console.error("Webhook: Missing stripe-signature header");
       return NextResponse.json(
         { error: "Missing stripe-signature header" },
         { status: 400 }
@@ -24,6 +29,7 @@ export async function POST(request: NextRequest) {
     let event: Stripe.Event;
     try {
       event = getStripe().webhooks.constructEvent(rawBody, sig, getWebhookSecret());
+      console.log("Webhook event type:", event.type);
     } catch (err: any) {
       console.error("Webhook signature verification failed:", err?.message);
       return NextResponse.json(
@@ -33,8 +39,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.type !== "checkout.session.completed") {
+      console.log("Webhook: Ignoring event type:", event.type);
       return NextResponse.json({ received: true });
     }
+
+    console.log("Webhook: Processing checkout.session.completed");
 
     const session = event.data.object as Stripe.Checkout.Session;
     const orderId = session.client_reference_id;
@@ -178,11 +187,13 @@ export async function POST(request: NextRequest) {
     const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
     try {
+      console.log("Webhook: Sending customer confirmation email to:", order.email);
       await sendHtmlEmail(
         order.email,
         "Order Confirmation - Country City Swing",
         customerEmailHtml
       );
+      console.log("Webhook: Customer confirmation email sent successfully");
     } catch (e) {
       console.error("Webhook: error sending customer confirmation email", e);
     }
@@ -238,15 +249,18 @@ export async function POST(request: NextRequest) {
     `;
 
     try {
+      console.log("Webhook: Sending admin notification email to: merch@countrycityswing.dance");
       await sendHtmlEmail(
         "merch@countrycityswing.dance",
         `New Merch Order #${order.id} (Paid) - ${order.first_name} ${order.last_name}`,
         merchEmailHtml
       );
+      console.log("Webhook: Admin notification email sent successfully");
     } catch (e) {
       console.error("Webhook: error sending merch notification email", e);
     }
 
+    console.log("Webhook: Successfully processed order:", orderId);
     return NextResponse.json({ received: true });
   } catch (error: any) {
     console.error("Stripe webhook error:", error);

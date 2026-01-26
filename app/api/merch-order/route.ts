@@ -1,12 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
+import { getStripe } from "@/lib/stripe";
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function getBaseUrl(request: NextRequest): string {
+  const env = process.env.NEXT_PUBLIC_APP_URL;
+  if (env) return env.replace(/\/$/, "");
+  const host = request.headers.get("host") || "localhost:3000";
+  const proto =
+    request.headers.get("x-forwarded-proto") ||
+    (host.includes("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
+}
 
 export async function POST(request: NextRequest) {
   try {
     const orderData = await request.json();
+    const paymentMethod = orderData.paymentMethod ?? "cash";
 
-    // Validate required fields
+    if (!["cash", "stripe"].includes(paymentMethod)) {
+      return NextResponse.json(
+        { error: "Invalid payment method" },
+        { status: 400 }
+      );
+    }
+
     if (
       !orderData.firstName ||
       !orderData.lastName ||
@@ -20,7 +40,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check inventory availability before creating order
     for (const item of orderData.items) {
       const { data: inventory } = await supabaseServer
         .from("merch_inventory")
@@ -29,7 +48,7 @@ export async function POST(request: NextRequest) {
         .eq("size", item.size)
         .single();
 
-      const availableQty = inventory?.quantity ?? 999; // Default to available if no record
+      const availableQty = inventory?.quantity ?? 999;
       if (availableQty < item.quantity) {
         return NextResponse.json(
           {
@@ -40,7 +59,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Insert order into database
     const { data: order, error: orderError } = await supabaseServer
       .from("merch_orders")
       .insert({
@@ -54,6 +72,7 @@ export async function POST(request: NextRequest) {
         shipping: orderData.shipping,
         total: orderData.total,
         status: "pending",
+        payment_method: paymentMethod,
       })
       .select()
       .single();
@@ -61,12 +80,62 @@ export async function POST(request: NextRequest) {
     if (orderError) {
       console.error("Error creating order:", orderError);
       return NextResponse.json(
-        { error: "Failed to create order" },
+        { error: "Failed to create order", details: orderError.message },
         { status: 500 }
       );
     }
 
-    // Send confirmation email to customer
+    if (paymentMethod === "stripe") {
+      try {
+        const base = getBaseUrl(request);
+        const lineItems: { price_data: any; quantity: number }[] = orderData.items.map(
+          (item: any) => ({
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: `${item.productName} (${item.size})`,
+              },
+              unit_amount: Math.round(item.price * 100),
+            },
+            quantity: item.quantity,
+          })
+        );
+        if (orderData.shipping > 0) {
+          lineItems.push({
+            price_data: {
+              currency: "usd",
+              product_data: { name: "Shipping" },
+              unit_amount: Math.round(orderData.shipping * 100),
+            },
+            quantity: 1,
+          });
+        }
+
+        const session = await getStripe().checkout.sessions.create({
+          mode: "payment",
+          payment_method_types: ["card"],
+          line_items: lineItems,
+          customer_email: orderData.email,
+          client_reference_id: order.id,
+          success_url: `${base}/merch/checkout/success`,
+          cancel_url: `${base}/merch/checkout`,
+        });
+
+        return NextResponse.json({
+          success: true,
+          redirect: session.url!,
+          orderId: order.id,
+        });
+      } catch (stripeError: any) {
+        console.error("Stripe error:", stripeError);
+        return NextResponse.json(
+          { error: "Failed to create Stripe session", details: stripeError.message },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Cash: send "Cash payment needed" emails
     const orderItemsHtml = orderData.items
       .map(
         (item: any) => `
@@ -90,6 +159,14 @@ export async function POST(request: NextRequest) {
       <p><strong>Shipping Cost:</strong> $${orderData.shipping.toFixed(2)}</p>
     `
         : "<p><strong>Delivery Method:</strong> Local Pickup</p>";
+
+    const paymentBoxCash = `
+      <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Payment:</strong> Cash payment needed.</p>
+        <p style="margin: 5px 0 0 0;">Please complete your payment via Venmo: <a href="https://www.venmo.com/u/CountryCitySwing" style="color: #000; font-weight: bold;">@CountryCitySwing</a> or in person.</p>
+        <p style="margin: 10px 0 0 0; font-size: 0.9em;">Please include your order number (#${order.id}) in the Venmo payment note.</p>
+      </div>
+    `;
 
     const emailHtml = `
       <!DOCTYPE html>
@@ -116,14 +193,12 @@ export async function POST(request: NextRequest) {
             </div>
             <div class="content">
               <p>Thank you for your order, ${orderData.firstName}!</p>
-              
               <div class="order-details">
                 <h3>Order Details</h3>
                 <p><strong>Order Number:</strong> #${order.id}</p>
                 <p><strong>Order Date:</strong> ${new Date().toLocaleDateString()}</p>
                 <p><strong>Customer Name:</strong> ${orderData.firstName} ${orderData.lastName}</p>
                 <p><strong>Email:</strong> ${orderData.email}</p>
-                
                 <h4 style="margin-top: 20px; margin-bottom: 10px;">Items Ordered:</h4>
                 <table>
                   <thead>
@@ -133,29 +208,18 @@ export async function POST(request: NextRequest) {
                       <th style="text-align: right;">Price</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    ${orderItemsHtml}
-                  </tbody>
+                  <tbody>${orderItemsHtml}</tbody>
                 </table>
-                
                 <div class="total">
                   <p><strong>Subtotal:</strong> $${orderData.subtotal.toFixed(2)}</p>
                   <p><strong>Shipping:</strong> $${orderData.shipping.toFixed(2)}</p>
                   <p style="font-size: 1.3em; margin-top: 10px;"><strong>Total:</strong> $${orderData.total.toFixed(2)}</p>
                 </div>
-                
                 <h4 style="margin-top: 20px; margin-bottom: 10px;">Delivery Information:</h4>
                 ${shippingInfo}
               </div>
-              
-              <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
-                <p style="margin: 0;"><strong>Payment Instructions:</strong></p>
-                <p style="margin: 5px 0 0 0;">Please complete your payment via Venmo: <a href="https://www.venmo.com/u/CountryCitySwing" style="color: #000; font-weight: bold;">@CountryCitySwing</a></p>
-                <p style="margin: 10px 0 0 0; font-size: 0.9em;">Please include your order number (#${order.id}) in the Venmo payment note.</p>
-              </div>
-              
+              ${paymentBoxCash}
               <p>We'll process your order once payment is received. You'll receive another email when your order is ready for ${orderData.deliveryMethod === "ship" ? "shipping" : "pickup"}.</p>
-              
               <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions about your order, please contact us at contact.us@countrycityswing.dance</p>
             </div>
             <div class="footer">
@@ -166,9 +230,6 @@ export async function POST(request: NextRequest) {
       </html>
     `;
 
-    // Helper function to delay between email sends (Resend rate limit: 2 requests/second)
-    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
     try {
       await sendHtmlEmail(
         orderData.email,
@@ -177,13 +238,9 @@ export async function POST(request: NextRequest) {
       );
     } catch (emailError) {
       console.error("Error sending confirmation email:", emailError);
-      // Don't fail the order if email fails
     }
+    await delay(600);
 
-    // Wait before sending next email to respect rate limits
-    await delay(600); // 600ms delay to stay under 2 requests/second
-
-    // Prepare notification email HTML for merch team
     const notificationEmailHtml = `
       <!DOCTYPE html>
       <html>
@@ -202,14 +259,12 @@ export async function POST(request: NextRequest) {
         </head>
         <body>
           <div class="container">
-            <div class="header">
-              <h1>New Merch Order</h1>
-            </div>
+            <div class="header"><h1>New Merch Order</h1></div>
             <div class="content">
               <p><strong>Order Number:</strong> #${order.id}</p>
               <p><strong>Customer:</strong> ${orderData.firstName} ${orderData.lastName}</p>
               <p><strong>Email:</strong> ${orderData.email}</p>
-              
+              <p><strong>Payment:</strong> Cash payment needed.</p>
               <div class="order-details">
                 <h3>Order Items</h3>
                 <table>
@@ -220,17 +275,13 @@ export async function POST(request: NextRequest) {
                       <th style="text-align: right;">Price</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    ${orderItemsHtml}
-                  </tbody>
+                  <tbody>${orderItemsHtml}</tbody>
                 </table>
-                
                 <div class="total">
                   <p>Subtotal: $${orderData.subtotal.toFixed(2)}</p>
                   ${orderData.shipping > 0 ? `<p>Shipping: $${orderData.shipping.toFixed(2)}</p>` : ""}
                   <p>Total: $${orderData.total.toFixed(2)}</p>
                 </div>
-                
                 ${shippingInfo}
               </div>
             </div>
@@ -239,30 +290,21 @@ export async function POST(request: NextRequest) {
       </html>
     `;
 
-    // Send notification email to merch team
     try {
-      const merchEmailResult = await sendHtmlEmail(
+      await sendHtmlEmail(
         "merch@countrycityswing.dance",
         `New Merch Order #${order.id} - ${orderData.firstName} ${orderData.lastName}`,
         notificationEmailHtml
       );
-      console.log("Merch notification email sent successfully:", merchEmailResult);
     } catch (emailError: any) {
       console.error("Error sending merch notification email:", emailError);
-      console.error("Error details:", {
-        message: emailError?.message,
-        statusCode: emailError?.statusCode,
-        error: emailError,
-      });
-      // Re-throw to ensure we know about the failure
-      // But don't fail the order creation if email fails
     }
 
     return NextResponse.json({ success: true, orderId: order.id });
   } catch (error: any) {
     console.error("Order submission error:", error);
     return NextResponse.json(
-      { error: error.message || "Internal server error" },
+      { error: error.message || "Internal server error", details: error.stack },
       { status: 500 }
     );
   }

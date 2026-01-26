@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
       .eq("id", referenceId);
 
     if (updateError) {
-      console.error("Webhook: failed to update order", orderId, updateError);
+      console.error("Webhook: failed to update order", referenceId, updateError);
       return NextResponse.json(
         { error: "Failed to update order" },
         { status: 500 }
@@ -383,7 +383,7 @@ export async function POST(request: NextRequest) {
       console.error("Webhook: error sending merch notification email", e);
     }
 
-    console.log("Webhook: Successfully processed order:", orderId);
+    console.log("Webhook: Successfully processed order:", referenceId);
     return NextResponse.json({ received: true });
   } catch (error: any) {
     console.error("Stripe webhook error:", error);

@@ -139,21 +139,86 @@ export async function POST(req: NextRequest) {
 
   // 4️⃣ Send confirmation email for non-Stripe payments
   const html = `
-    <div style="font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto">
-      <h2 style="color:#F2C94C;margin-bottom:20px">Country City Swing Signup Confirmation</h2>
-      <p style="font-size:16px;line-height:1.6">Hi ${firstName},</p>
-      <p style="font-size:16px;line-height:1.6">You're signed up for <strong>${event.title}</strong> on
-      <strong>${new Date(event.date).toLocaleDateString(undefined, {
-        weekday: "long",
-        month: "long",
-        day: "numeric",
-      })}</strong> at ${event.location}.</p>
-      ${event.price ? `<p style="font-size:16px;line-height:1.6"><strong>Price:</strong> $${event.price.toFixed(2)}</p>` : ""}
-      <p style="font-size:16px;line-height:1.6">Payment method: <strong>${paymentMethod}</strong></p>
-      ${paymentSection}
-      <p style="font-size:16px;line-height:1.6;margin-top:20px">Thank you for joining us — we can't wait to see you on the dance floor!</p>
-      <p style="margin-top:30px;color:#888;font-size:14px">— The Country City Swing Team</p>
-    </div>`;
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
+          .content { background-color: #f9f9f9; padding: 20px; }
+          .details-box { background-color: white; border: 2px solid #f2c94c; border-radius: 8px; padding: 20px; margin: 20px 0; }
+          .detail-row { padding: 10px 0; border-bottom: 1px solid #eee; }
+          .detail-row:last-child { border-bottom: none; }
+          .detail-label { font-weight: bold; color: #666; font-size: 0.9em; margin-bottom: 5px; }
+          .detail-value { font-size: 1.1em; color: #333; }
+          .payment-box { background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Country City Swing</h1>
+            <h2>Registration Confirmation</h2>
+          </div>
+          <div class="content">
+            <p>Hi <strong>${firstName} ${lastName}</strong>,</p>
+            <p>You're signed up for the event! We're excited to see you there.</p>
+            
+            <div class="details-box">
+              <h3 style="margin-top: 0; color: #f2c94c; font-size: 1.3em;">Registration Details</h3>
+              <div class="detail-row">
+                <div class="detail-label">Name</div>
+                <div class="detail-value">${firstName} ${lastName}</div>
+              </div>
+              <div class="detail-row">
+                <div class="detail-label">Event</div>
+                <div class="detail-value"><strong>${event.title}</strong></div>
+              </div>
+              <div class="detail-row">
+                <div class="detail-label">Date</div>
+                <div class="detail-value">${new Date(event.date).toLocaleDateString(undefined, {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                })}</div>
+              </div>
+              ${event.location ? `
+              <div class="detail-row">
+                <div class="detail-label">Location</div>
+                <div class="detail-value">${event.location}</div>
+              </div>
+              ` : ""}
+              ${event.price ? `
+              <div class="detail-row">
+                <div class="detail-label">Price</div>
+                <div class="detail-value">$${event.price.toFixed(2)}</div>
+              </div>
+              ` : ""}
+              <div class="detail-row">
+                <div class="detail-label">Payment Method</div>
+                <div class="detail-value"><strong>${paymentMethod}</strong></div>
+              </div>
+              <div class="detail-row">
+                <div class="detail-label">Payment Status</div>
+                <div class="detail-value" style="color: ${paymentMethod === 'Stripe' ? '#28a745' : '#f2c94c'}; font-weight: bold;">
+                  ${paymentMethod === 'Stripe' ? '✓ Paid' : paymentMethod === 'Cash' ? '⏳ Pending - Pay at door' : '✓ Confirmed'}
+                </div>
+              </div>
+            </div>
+            
+            ${paymentSection}
+            
+            <p>Thank you for joining us — we can't wait to see you on the dance floor!</p>
+            <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
+          </div>
+          <div class="footer">
+            <p>Country City Swing<br>Nashville, TN</p>
+          </div>
+        </div>
+      </body>
+    </html>`;
 
   try {
     await sendHtmlEmail(

@@ -209,6 +209,11 @@ export async function POST(request: NextRequest) {
                   .container { max-width: 600px; margin: 0 auto; padding: 20px; }
                   .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
                   .content { background-color: #f9f9f9; padding: 20px; }
+                  .details-box { background-color: white; border: 2px solid #f2c94c; border-radius: 8px; padding: 20px; margin: 20px 0; }
+                  .detail-row { padding: 10px 0; border-bottom: 1px solid #eee; }
+                  .detail-row:last-child { border-bottom: none; }
+                  .detail-label { font-weight: bold; color: #666; font-size: 0.9em; margin-bottom: 5px; }
+                  .detail-value { font-size: 1.1em; color: #333; }
                   .payment-box { background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
                   .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
                 </style>
@@ -220,11 +225,30 @@ export async function POST(request: NextRequest) {
                     <h2>Payment Confirmed</h2>
                   </div>
                   <div class="content">
-                    <p>Hi ${signup.first_name},</p>
-                    <p>Your payment for <strong>${signup.event_title}</strong> has been confirmed!</p>
-                    <div class="payment-box">
-                      <p style="margin: 0;"><strong>Payment Status:</strong> Paid via Stripe</p>
+                    <p>Hi <strong>${signup.first_name} ${signup.last_name}</strong>,</p>
+                    <p>Your payment has been confirmed! We're excited to see you at the event.</p>
+                    
+                    <div class="details-box">
+                      <h3 style="margin-top: 0; color: #f2c94c; font-size: 1.3em;">Registration Details</h3>
+                      <div class="detail-row">
+                        <div class="detail-label">Name</div>
+                        <div class="detail-value">${signup.first_name} ${signup.last_name}</div>
+                      </div>
+                      <div class="detail-row">
+                        <div class="detail-label">Event</div>
+                        <div class="detail-value"><strong>${signup.event_title}</strong></div>
+                      </div>
+                      <div class="detail-row">
+                        <div class="detail-label">Payment Status</div>
+                        <div class="detail-value" style="color: #28a745; font-weight: bold;">✓ Paid via Stripe</div>
+                      </div>
                     </div>
+                    
+                    <div class="payment-box">
+                      <p style="margin: 0; font-size: 1.1em;"><strong>Payment Confirmed</strong></p>
+                      <p style="margin: 5px 0 0 0;">Your registration is complete and your spot is secured!</p>
+                    </div>
+                    
                     <p>Thank you for your payment. We're excited to see you at the event!</p>
                     <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
                   </div>
@@ -367,6 +391,11 @@ export async function POST(request: NextRequest) {
                 .container { max-width: 600px; margin: 0 auto; padding: 20px; }
                 .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
                 .content { background-color: #f9f9f9; padding: 20px; }
+                .details-box { background-color: white; border: 2px solid #f2c94c; border-radius: 8px; padding: 20px; margin: 20px 0; }
+                .detail-row { padding: 10px 0; border-bottom: 1px solid #eee; }
+                .detail-row:last-child { border-bottom: none; }
+                .detail-label { font-weight: bold; color: #666; font-size: 0.9em; margin-bottom: 5px; }
+                .detail-value { font-size: 1.1em; color: #333; }
                 .payment-box { background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
                 .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
               </style>
@@ -378,11 +407,30 @@ export async function POST(request: NextRequest) {
                   <h2>Payment Confirmed</h2>
                 </div>
                 <div class="content">
-                  <p>Hi ${signup.first_name},</p>
-                  <p>Your payment for <strong>${signup.event_title}</strong> has been confirmed!</p>
-                  <div class="payment-box">
-                    <p style="margin: 0;"><strong>Payment Status:</strong> Paid via Stripe</p>
+                  <p>Hi <strong>${signup.first_name} ${signup.last_name}</strong>,</p>
+                  <p>Your payment has been confirmed! We're excited to see you at the event.</p>
+                  
+                  <div class="details-box">
+                    <h3 style="margin-top: 0; color: #f2c94c; font-size: 1.3em;">Registration Details</h3>
+                    <div class="detail-row">
+                      <div class="detail-label">Name</div>
+                      <div class="detail-value">${signup.first_name} ${signup.last_name}</div>
+                    </div>
+                    <div class="detail-row">
+                      <div class="detail-label">Event</div>
+                      <div class="detail-value"><strong>${signup.event_title}</strong></div>
+                    </div>
+                    <div class="detail-row">
+                      <div class="detail-label">Payment Status</div>
+                      <div class="detail-value" style="color: #28a745; font-weight: bold;">✓ Paid via Stripe</div>
+                    </div>
                   </div>
+                  
+                  <div class="payment-box">
+                    <p style="margin: 0; font-size: 1.1em;"><strong>Payment Confirmed</strong></p>
+                    <p style="margin: 5px 0 0 0;">Your registration is complete and your spot is secured!</p>
+                  </div>
+                  
                   <p>Thank you for your payment. We're excited to see you at the event!</p>
                   <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
                 </div>

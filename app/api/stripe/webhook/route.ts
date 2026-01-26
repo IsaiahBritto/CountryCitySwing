@@ -86,30 +86,56 @@ export async function POST(request: NextRequest) {
     const isStripeCheckout = session.metadata?.payment_type === "stripe_checkout";
     const isEventSignup = hasSignupId || isCashToStripe || isStripeCheckout;
     
+    console.log("Webhook: Checking event signup", {
+      hasSignupId,
+      isCashToStripe,
+      isStripeCheckout,
+      isEventSignup,
+      paymentType: session.metadata?.payment_type,
+      metadataKeys: session.metadata ? Object.keys(session.metadata) : [],
+      referenceId
+    });
+    
     if (isEventSignup) {
       const signupId = session.metadata?.signup_id || referenceId;
+      console.log("Webhook: Processing event signup", { signupId, sessionId: session.id });
       
       // If this is a new Stripe checkout (not cash-to-stripe), create the signup record
       if (isStripeCheckout) {
+        console.log("Webhook: Processing stripe_checkout payment", { signupId, sessionId: session.id });
         const metadata = session.metadata;
         if (!metadata) {
-          console.error("Webhook: Missing metadata for stripe_checkout");
+          console.error("Webhook: Missing metadata for stripe_checkout", { sessionId: session.id });
           return NextResponse.json(
             { error: "Missing metadata" },
             { status: 400 }
           );
         }
 
+        console.log("Webhook: Metadata received", { 
+          signupId, 
+          eventId: metadata.event_id,
+          email: metadata.email,
+          hasAllFields: !!(metadata.first_name && metadata.last_name && metadata.email)
+        });
+
         // Check if signup already exists (idempotency)
-        const { data: existingSignup } = await supabaseServer
+        const { data: existingSignup, error: fetchExistingError } = await supabaseServer
           .from("signups")
           .select("*")
           .eq("id", signupId)
           .single();
 
+        if (fetchExistingError && fetchExistingError.code !== "PGRST116") {
+          // PGRST116 is "not found" which is expected for new signups
+          console.error("Webhook: Error checking for existing signup", signupId, fetchExistingError);
+        }
+
         if (existingSignup) {
+          console.log("Webhook: Signup already exists", signupId);
           // Signup already exists, just ensure it's marked as paid
           if (existingSignup.paid) {
+            console.log("Webhook: Signup already paid, returning", signupId);
             return NextResponse.json({ received: true }); // idempotent
           }
           
@@ -129,13 +155,16 @@ export async function POST(request: NextRequest) {
               { status: 500 }
             );
           }
+          console.log("Webhook: Updated existing signup to paid", signupId);
         } else {
+          console.log("Webhook: Creating new signup", signupId);
           // Create new signup record with paid: true
+          // Note: Don't specify 'id' - let database auto-generate it (it's a bigint, not UUID)
+          // We'll use client_reference_id to look it up later if needed
           const { data: newSignup, error: insertError } = await supabaseServer
             .from("signups")
             .insert([
               {
-                id: signupId,
                 event_id: metadata.event_id,
                 event_title: metadata.event_title,
                 first_name: metadata.first_name,
@@ -154,14 +183,76 @@ export async function POST(request: NextRequest) {
 
           if (insertError) {
             console.error("Webhook: failed to create signup", signupId, insertError);
+            console.error("Webhook: Insert error details", {
+              code: insertError.code,
+              message: insertError.message,
+              details: insertError.details,
+              hint: insertError.hint
+            });
             return NextResponse.json(
-              { error: "Failed to create signup" },
+              { error: "Failed to create signup", details: insertError.message },
               { status: 500 }
             );
           }
+          console.log("Webhook: Successfully created signup", { originalSignupId: signupId, databaseId: newSignup?.id });
+          
+          // Use the newly created signup for email sending
+          const signup = newSignup;
+          
+          // Send confirmation email for paid event signup
+          const html = `
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <style>
+                  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                  .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                  .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
+                  .content { background-color: #f9f9f9; padding: 20px; }
+                  .payment-box { background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
+                  .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+                </style>
+              </head>
+              <body>
+                <div class="container">
+                  <div class="header">
+                    <h1>Country City Swing</h1>
+                    <h2>Payment Confirmed</h2>
+                  </div>
+                  <div class="content">
+                    <p>Hi ${signup.first_name},</p>
+                    <p>Your payment for <strong>${signup.event_title}</strong> has been confirmed!</p>
+                    <div class="payment-box">
+                      <p style="margin: 0;"><strong>Payment Status:</strong> Paid via Stripe</p>
+                    </div>
+                    <p>Thank you for your payment. We're excited to see you at the event!</p>
+                    <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
+                  </div>
+                  <div class="footer">
+                    <p>Country City Swing<br>Nashville, TN</p>
+                  </div>
+                </div>
+              </body>
+            </html>
+          `;
+
+          try {
+            console.log("Webhook: Sending payment confirmation email to:", signup.email);
+            await sendHtmlEmail(
+              signup.email,
+              `Payment Confirmed - ${signup.event_title}`,
+              html
+            );
+            console.log("Webhook: Payment confirmation email sent successfully");
+          } catch (e) {
+            console.error("Webhook: error sending payment confirmation email", e);
+          }
+
+          console.log("Webhook: Successfully processed new Stripe checkout signup:", signupId);
+          return NextResponse.json({ received: true });
         }
 
-        // Fetch the signup for email sending
+        // If we get here, the signup already existed - fetch it for email sending
         const { data: signup, error: fetchError } = await supabaseServer
           .from("signups")
           .select("*")
@@ -169,7 +260,7 @@ export async function POST(request: NextRequest) {
           .single();
 
         if (fetchError || !signup) {
-          console.error("Webhook: failed to fetch created signup", signupId, fetchError);
+          console.error("Webhook: failed to fetch existing signup", signupId, fetchError);
           return NextResponse.json(
             { error: "Failed to fetch signup" },
             { status: 500 }

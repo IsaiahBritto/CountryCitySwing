@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 export default function EventConfirmationPage() {
-  const params = useParams();
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const signupId = params.signupId as string;
+  const sessionId = searchParams.get("session_id");
   const [loading, setLoading] = useState(true);
   const [signup, setSignup] = useState<any>(null);
   const [error, setError] = useState("");
@@ -16,25 +16,23 @@ export default function EventConfirmationPage() {
   useEffect(() => {
     let pollInterval: NodeJS.Timeout | null = null;
     let pollAttempts = 0;
-    const maxPollAttempts = 30; // Poll for up to 30 seconds (30 attempts * 1 second)
+    const maxPollAttempts = 60; // Poll for up to 60 seconds (60 attempts * 1 second)
     let isMounted = true;
 
     async function loadSignup() {
-      if (!isMounted) return;
+      if (!isMounted || !sessionId) return;
       
       try {
-        const { data, error: fetchError } = await supabaseBrowser
-          .from("signups")
-          .select("*")
-          .eq("id", signupId)
-          .single();
+        // Call API to look up signup by session ID
+        const response = await fetch(`/api/event-signup/confirmation?session_id=${sessionId}`);
+        const result = await response.json();
 
-        if (fetchError || !data) {
+        if (!response.ok || !result.signup) {
           // If signup doesn't exist yet, keep polling (webhook might still be processing)
           pollAttempts++;
           if (pollAttempts >= maxPollAttempts) {
             if (isMounted) {
-              setError("Signup not found. Payment may still be processing.");
+              setError("Signup not found. Your payment was successful - please check your email for confirmation. If you don't receive an email, contact us at contact.us@countrycityswing.dance");
               setLoading(false);
             }
             if (pollInterval) {
@@ -46,7 +44,7 @@ export default function EventConfirmationPage() {
 
         // Signup found - stop polling
         if (isMounted) {
-          setSignup(data);
+          setSignup(result.signup);
           setLoading(false);
         }
         if (pollInterval) {
@@ -62,7 +60,7 @@ export default function EventConfirmationPage() {
       }
     }
 
-    if (signupId) {
+    if (sessionId) {
       // Load immediately
       loadSignup();
       
@@ -74,6 +72,9 @@ export default function EventConfirmationPage() {
           clearInterval(pollInterval);
         }
       }, 1000);
+    } else {
+      setError("Invalid confirmation link");
+      setLoading(false);
     }
 
     return () => {
@@ -82,7 +83,7 @@ export default function EventConfirmationPage() {
         clearInterval(pollInterval);
       }
     };
-  }, [signupId]);
+  }, [sessionId]);
 
   // Auto-redirect countdown
   useEffect(() => {

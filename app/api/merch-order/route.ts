@@ -77,8 +77,7 @@ export async function POST(request: NextRequest) {
               currency: "usd",
               product_data: {
                 name: `${item.productName} (${item.size})`,
-                // Tax code will use preset from Stripe Tax settings if not specified
-                // Once Stripe Tax is fully configured, you can add: tax_code: "txcd_10100000"
+                tax_code: "txcd_10100000", // Clothing & Footwear (for merchandise/clothing)
               },
               unit_amount: Math.round(item.price * 100),
             },
@@ -93,8 +92,7 @@ export async function POST(request: NextRequest) {
               currency: "usd",
               product_data: { 
                 name: "Shipping",
-                // Tax code will use preset from Stripe Tax settings
-                // Once Stripe Tax is fully configured, you can add: tax_code: "txcd_11000000"
+                tax_code: "txcd_11000000", // Shipping services (taxable in Tennessee)
               },
               unit_amount: Math.round(orderData.shipping * 100),
             },
@@ -110,8 +108,7 @@ export async function POST(request: NextRequest) {
               product_data: {
                 name: "Processing Fee",
                 description: "Payment processing fee",
-                // Processing fees are typically tax-exempt
-                // Once Stripe Tax is fully configured, you can add: tax_code: "txcd_99999999"
+                tax_code: "txcd_99999999", // General - Tangible Goods (processing fees are typically tax-exempt, but using general code)
               },
               unit_amount: Math.round(processingFee * 100),
             },

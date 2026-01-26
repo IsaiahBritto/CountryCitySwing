@@ -14,7 +14,14 @@ export default function EventConfirmationPage() {
   const [countdown, setCountdown] = useState(8);
 
   useEffect(() => {
+    let pollInterval: NodeJS.Timeout | null = null;
+    let pollAttempts = 0;
+    const maxPollAttempts = 30; // Poll for up to 30 seconds (30 attempts * 1 second)
+    let isMounted = true;
+
     async function loadSignup() {
+      if (!isMounted) return;
+      
       try {
         const { data, error: fetchError } = await supabaseBrowser
           .from("signups")
@@ -23,23 +30,58 @@ export default function EventConfirmationPage() {
           .single();
 
         if (fetchError || !data) {
-          setError("Signup not found");
-          setLoading(false);
-          return;
+          // If signup doesn't exist yet, keep polling (webhook might still be processing)
+          pollAttempts++;
+          if (pollAttempts >= maxPollAttempts) {
+            if (isMounted) {
+              setError("Signup not found. Payment may still be processing.");
+              setLoading(false);
+            }
+            if (pollInterval) {
+              clearInterval(pollInterval);
+            }
+          }
+          return; // Continue polling
         }
 
-        setSignup(data);
+        // Signup found - stop polling
+        if (isMounted) {
+          setSignup(data);
+          setLoading(false);
+        }
+        if (pollInterval) {
+          clearInterval(pollInterval);
+        }
       } catch (err) {
         console.error("Error loading signup:", err);
-        setError("Failed to load signup information");
-      } finally {
-        setLoading(false);
+        pollAttempts++;
+        if (pollAttempts >= maxPollAttempts && isMounted) {
+          setError("Failed to load signup information");
+          setLoading(false);
+        }
       }
     }
 
     if (signupId) {
+      // Load immediately
       loadSignup();
+      
+      // Poll every second until signup is found or max attempts reached
+      pollInterval = setInterval(() => {
+        if (pollAttempts < maxPollAttempts && isMounted) {
+          loadSignup();
+        } else if (pollInterval) {
+          clearInterval(pollInterval);
+        }
+      }, 1000);
     }
+
+    return () => {
+      isMounted = false;
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
   }, [signupId]);
 
   // Auto-redirect countdown

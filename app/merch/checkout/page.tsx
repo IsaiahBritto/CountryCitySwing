@@ -24,7 +24,7 @@ export default function CheckoutPage() {
     <CheckoutForm
       onBack={() => router.push("/merch?cart=open")}
       onComplete={() => {
-        router.push("/merch?order=success");
+        router.push("/merch/checkout/success");
       }}
     />
   );

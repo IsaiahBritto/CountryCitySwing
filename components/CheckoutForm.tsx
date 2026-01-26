@@ -26,6 +26,7 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [preorderAcknowledged, setPreorderAcknowledged] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "stripe">("cash");
 
   // Auto-fill from user profile if logged in
   useEffect(() => {
@@ -130,6 +131,7 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
         email: formData.email,
         deliveryMethod,
         canPickupFrom8CC,
+        paymentMethod,
         shippingAddress:
           deliveryMethod === "ship"
             ? {
@@ -158,9 +160,15 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
         body: JSON.stringify(orderData),
       });
 
+      const data = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to submit order");
+        throw new Error(data.error || "Failed to submit order");
+      }
+
+      if (data.redirect) {
+        window.location.href = data.redirect;
+        return;
       }
 
       clearCart();
@@ -425,20 +433,39 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
           </div>
         )}
 
-        {/* Payment Info */}
+        {/* Payment Method */}
         <div className="bg-neutral-800 rounded-lg p-6">
           <h3 className="text-xl font-semibold text-white mb-4">Payment</h3>
-          <p className="text-gray-300 mb-4">
-            Please complete your payment via Venmo:
-          </p>
-            <a
-              href="https://www.venmo.com/u/CountryCitySwing"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary hover:underline font-semibold"
-            >
-              @CountryCitySwing on Venmo
-            </a>
+          <div className="space-y-3 mb-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="payment"
+                value="cash"
+                checked={paymentMethod === "cash"}
+                onChange={() => setPaymentMethod("cash")}
+                className="w-4 h-4 text-primary focus:ring-primary"
+              />
+              <span className="text-gray-300">Pay with cash</span>
+            </label>
+            <p className="text-sm text-gray-400 ml-7">
+              Venmo <a href="https://www.venmo.com/u/CountryCitySwing" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">@CountryCitySwing</a> or in person. Include your order number in the Venmo note.
+            </p>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="payment"
+                value="stripe"
+                checked={paymentMethod === "stripe"}
+                onChange={() => setPaymentMethod("stripe")}
+                className="w-4 h-4 text-primary focus:ring-primary"
+              />
+              <span className="text-gray-300">Pay with card</span>
+            </label>
+            <p className="text-sm text-gray-400 ml-7">
+              Secure checkout via Stripe. You’ll be redirected to complete payment.
+            </p>
+          </div>
         </div>
 
         {error && (

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getStripe } from "@/lib/stripe";
 import eventsData from "@/lib/events.json";
+import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -85,24 +86,50 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Calculate processing fee
+    const processingFee = roundCurrency(calculateProcessingFee(eventPrice));
+    
+    // Build line items: event price + processing fee
+    const lineItems: any[] = [
+      {
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: signup.event_title || "Event Registration",
+            description: `Payment for event registration`,
+            tax_code: "txcd_10401000", // Tax code for educational services/instruction
+          },
+          unit_amount: Math.round(eventPrice * 100),
+        },
+        quantity: 1,
+      },
+    ];
+
+    // Add processing fee as a separate line item
+    if (processingFee > 0) {
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Processing Fee",
+            description: "Payment processing fee",
+            tax_code: "txcd_99999999", // Tax-exempt processing fee
+          },
+          unit_amount: Math.round(processingFee * 100),
+        },
+        quantity: 1,
+      });
+    }
+
     // Create Stripe checkout session
     const base = getBaseUrl(req);
     const session = await getStripe().checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: signup.event_title || "Event Registration",
-              description: `Payment for event registration`,
-            },
-            unit_amount: Math.round(eventPrice * 100),
-          },
-          quantity: 1,
-        },
-      ],
+      line_items: lineItems,
+      automatic_tax: {
+        enabled: true, // Enable Stripe Tax for automatic sales tax calculation
+      },
       customer_email: signup.email,
       client_reference_id: signupId,
       metadata: {
@@ -110,6 +137,8 @@ export async function POST(req: NextRequest) {
         event_id: signup.event_id,
         event_title: signup.event_title,
         payment_type: "cash_to_stripe",
+        subtotal: String(eventPrice),
+        processing_fee: String(processingFee),
       },
       success_url: `${base}/events/confirmation/${signupId}`,
       cancel_url: `${base}/events/pay/${signupId}`,

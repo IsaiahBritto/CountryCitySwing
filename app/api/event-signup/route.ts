@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { getStripe } from "@/lib/stripe";
 import { randomUUID } from "crypto";
+import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -35,23 +36,49 @@ export async function POST(req: NextRequest) {
       const signupId = randomUUID();
       const base = getBaseUrl(req);
       
+      // Calculate processing fee
+      const processingFee = roundCurrency(calculateProcessingFee(event.price));
+      
+      // Build line items: event price + processing fee
+      const lineItems: any[] = [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: event.title,
+              description: `Event on ${new Date(event.date).toLocaleDateString()} at ${event.location}`,
+              tax_code: "txcd_10401000", // Tax code for educational services/instruction
+            },
+            unit_amount: Math.round(event.price * 100),
+          },
+          quantity: 1,
+        },
+      ];
+
+      // Add processing fee as a separate line item
+      if (processingFee > 0) {
+        lineItems.push({
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: "Processing Fee",
+              description: "Payment processing fee",
+              tax_code: "txcd_99999999", // Tax-exempt processing fee
+            },
+            unit_amount: Math.round(processingFee * 100),
+          },
+          quantity: 1,
+        });
+      }
+      
       // Store all signup data in Stripe metadata - will be used to create signup in webhook
       const session = await getStripe().checkout.sessions.create({
         mode: "payment",
         payment_method_types: ["card"], // Apple Pay and Google Pay are automatically available when "card" is enabled
-        line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: event.title,
-                description: `Event on ${new Date(event.date).toLocaleDateString()} at ${event.location}`,
-              },
-              unit_amount: Math.round(event.price * 100),
-            },
-            quantity: 1,
-          },
-        ],
+        line_items: lineItems,
+        automatic_tax: {
+          enabled: true, // Enable Stripe Tax for automatic sales tax calculation
+        },
         customer_email: email,
         client_reference_id: signupId,
         metadata: {
@@ -67,6 +94,8 @@ export async function POST(req: NextRequest) {
           accept_liability: String(acceptLiability),
           accept_payment: String(acceptPayment),
           payment_type: "stripe_checkout",
+          subtotal: String(event.price),
+          processing_fee: String(processingFee),
         },
         success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${base}/events?payment=cancelled`,

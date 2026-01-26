@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { getStripe } from "@/lib/stripe";
+import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -64,24 +65,52 @@ export async function POST(request: NextRequest) {
     if (paymentMethod === "stripe") {
       try {
         const base = getBaseUrl(request);
+        
+        // Calculate subtotal (items + shipping) for processing fee calculation
+        const subtotalForFee = orderData.subtotal + (orderData.shipping || 0);
+        const processingFee = roundCurrency(calculateProcessingFee(subtotalForFee));
+        
+        // Build line items: products + shipping + processing fee
         const lineItems: { price_data: any; quantity: number }[] = orderData.items.map(
           (item: any) => ({
             price_data: {
               currency: "usd",
               product_data: {
                 name: `${item.productName} (${item.size})`,
+                tax_code: "txcd_10100000", // Tax code for general merchandise/clothing
               },
               unit_amount: Math.round(item.price * 100),
             },
             quantity: item.quantity,
           })
         );
+        
+        // Add shipping as a line item (taxable in Tennessee)
         if (orderData.shipping > 0) {
           lineItems.push({
             price_data: {
               currency: "usd",
-              product_data: { name: "Shipping" },
+              product_data: { 
+                name: "Shipping",
+                tax_code: "txcd_11000000", // Tax code for shipping services
+              },
               unit_amount: Math.round(orderData.shipping * 100),
+            },
+            quantity: 1,
+          });
+        }
+
+        // Add processing fee as a separate line item (tax-exempt)
+        if (processingFee > 0) {
+          lineItems.push({
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: "Processing Fee",
+                description: "Payment processing fee",
+                tax_code: "txcd_99999999", // Tax-exempt processing fee
+              },
+              unit_amount: Math.round(processingFee * 100),
             },
             quantity: 1,
           });
@@ -92,6 +121,9 @@ export async function POST(request: NextRequest) {
           mode: "payment",
           payment_method_types: ["card"],
           line_items: lineItems,
+          automatic_tax: {
+            enabled: true, // Enable Stripe Tax for automatic sales tax calculation
+          },
           customer_email: orderData.email,
           metadata: {
             first_name: orderData.firstName,
@@ -102,6 +134,7 @@ export async function POST(request: NextRequest) {
             items: JSON.stringify(orderData.items),
             subtotal: String(orderData.subtotal),
             shipping: String(orderData.shipping),
+            processing_fee: String(processingFee),
             total: String(orderData.total),
             payment_method: paymentMethod,
             payment_type: "merch_order",

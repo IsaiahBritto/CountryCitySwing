@@ -199,6 +199,12 @@ export async function POST(request: NextRequest) {
           // Use the newly created signup for email sending
           const signup = newSignup;
           
+          // Retrieve tax and fee amounts from Stripe session
+          const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
+          const processingFee = Number(metadata.processing_fee || 0);
+          const subtotal = Number(metadata.subtotal || 0);
+          const actualTotal = session.amount_total ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+          
           // Fetch event details for email
           let eventDate = "";
           let eventLocation = "";
@@ -279,10 +285,26 @@ export async function POST(request: NextRequest) {
                       ` : ""}
                       ${eventPrice ? `
                       <div class="detail-row">
-                        <div class="detail-label">Price</div>
-                        <div class="detail-value">$${Number(eventPrice).toFixed(2)}</div>
+                        <div class="detail-label">Event Price</div>
+                        <div class="detail-value">$${subtotal.toFixed(2)}</div>
                       </div>
                       ` : ""}
+                      ${processingFee > 0 ? `
+                      <div class="detail-row">
+                        <div class="detail-label">Processing Fee</div>
+                        <div class="detail-value">$${processingFee.toFixed(2)}</div>
+                      </div>
+                      ` : ""}
+                      ${taxAmount > 0 ? `
+                      <div class="detail-row">
+                        <div class="detail-label">Sales Tax</div>
+                        <div class="detail-value">$${taxAmount.toFixed(2)}</div>
+                      </div>
+                      ` : ""}
+                      <div class="detail-row">
+                        <div class="detail-label">Total Paid</div>
+                        <div class="detail-value" style="font-size: 1.2em; font-weight: bold; color: #28a745;">$${actualTotal.toFixed(2)}</div>
+                      </div>
                       <div class="detail-row">
                         <div class="detail-label">Payment Method</div>
                         <div class="detail-value"><strong>Stripe</strong></div>
@@ -339,6 +361,12 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           );
         }
+
+        // Retrieve tax and fee amounts from Stripe session
+        const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
+        const processingFee = Number(metadata.processing_fee || 0);
+        const subtotal = Number(metadata.subtotal || 0);
+        const actualTotal = session.amount_total ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
 
         // Fetch event details for email
         let eventDate = "";
@@ -420,10 +448,26 @@ export async function POST(request: NextRequest) {
                     ` : ""}
                     ${eventPrice ? `
                     <div class="detail-row">
-                      <div class="detail-label">Price</div>
-                      <div class="detail-value">$${Number(eventPrice).toFixed(2)}</div>
+                      <div class="detail-label">Event Price</div>
+                      <div class="detail-value">$${subtotal.toFixed(2)}</div>
                     </div>
                     ` : ""}
+                    ${processingFee > 0 ? `
+                    <div class="detail-row">
+                      <div class="detail-label">Processing Fee</div>
+                      <div class="detail-value">$${processingFee.toFixed(2)}</div>
+                    </div>
+                    ` : ""}
+                    ${taxAmount > 0 ? `
+                    <div class="detail-row">
+                      <div class="detail-label">Sales Tax</div>
+                      <div class="detail-value">$${taxAmount.toFixed(2)}</div>
+                    </div>
+                    ` : ""}
+                    <div class="detail-row">
+                      <div class="detail-label">Total Paid</div>
+                      <div class="detail-value" style="font-size: 1.2em; font-weight: bold; color: #28a745;">$${actualTotal.toFixed(2)}</div>
+                    </div>
                     <div class="detail-row">
                       <div class="detail-label">Payment Method</div>
                       <div class="detail-value"><strong>Stripe</strong></div>
@@ -503,6 +547,12 @@ export async function POST(request: NextRequest) {
           );
         }
 
+        // Retrieve tax and fee amounts from Stripe session
+        const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
+        const processingFee = Number(metadata.processing_fee || 0);
+        const subtotal = Number(metadata.subtotal || 0);
+        const actualTotal = session.amount_total ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+
         // Fetch event details for email
         let eventDate = "";
         let eventLocation = "";
@@ -583,10 +633,26 @@ export async function POST(request: NextRequest) {
                     ` : ""}
                     ${eventPrice ? `
                     <div class="detail-row">
-                      <div class="detail-label">Price</div>
-                      <div class="detail-value">$${Number(eventPrice).toFixed(2)}</div>
+                      <div class="detail-label">Event Price</div>
+                      <div class="detail-value">$${subtotal.toFixed(2)}</div>
                     </div>
                     ` : ""}
+                    ${processingFee > 0 ? `
+                    <div class="detail-row">
+                      <div class="detail-label">Processing Fee</div>
+                      <div class="detail-value">$${processingFee.toFixed(2)}</div>
+                    </div>
+                    ` : ""}
+                    ${taxAmount > 0 ? `
+                    <div class="detail-row">
+                      <div class="detail-label">Sales Tax</div>
+                      <div class="detail-value">$${taxAmount.toFixed(2)}</div>
+                    </div>
+                    ` : ""}
+                    <div class="detail-row">
+                      <div class="detail-label">Total Paid</div>
+                      <div class="detail-value" style="font-size: 1.2em; font-weight: bold; color: #28a745;">$${actualTotal.toFixed(2)}</div>
+                    </div>
                     <div class="detail-row">
                       <div class="detail-label">Payment Method</div>
                       <div class="detail-value"><strong>Stripe</strong></div>
@@ -645,12 +711,19 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Retrieve actual amounts from Stripe session (includes tax)
+      const actualTotal = session.amount_total ? session.amount_total / 100 : Number(metadata.total);
+      const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
+      const processingFee = Number(metadata.processing_fee || 0);
+      const subtotal = Number(metadata.subtotal);
+      const shipping = Number(metadata.shipping);
+
       // Check if order already exists (idempotency)
       const { data: existingOrder } = await supabaseServer
         .from("merch_orders")
         .select("*")
         .eq("email", metadata.email)
-        .eq("total", Number(metadata.total))
+        .eq("stripe_session_id", session.id)
         .order("created_at", { ascending: false })
         .limit(1)
         .single();
@@ -700,9 +773,9 @@ export async function POST(request: NextRequest) {
               delivery_method: metadata.delivery_method,
               shipping_address: shippingAddress,
               items: items,
-              subtotal: Number(metadata.subtotal),
-              shipping: Number(metadata.shipping),
-              total: Number(metadata.total),
+              subtotal: subtotal,
+              shipping: shipping,
+              total: actualTotal, // Use actual total from Stripe (includes tax)
               status: "paid",
               payment_method: "stripe",
               stripe_session_id: session.id,
@@ -721,6 +794,13 @@ export async function POST(request: NextRequest) {
         order = newOrder;
         console.log("Webhook: Successfully created merch order", order.id);
       }
+
+      // Retrieve tax and fee amounts for email display
+      const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
+      const processingFee = Number(metadata.processing_fee || 0);
+      const subtotal = Number(metadata.subtotal);
+      const shipping = Number(metadata.shipping);
+      const actualTotal = session.amount_total ? session.amount_total / 100 : Number(order.total);
 
       // Send "Paid" confirmation emails with improved template
       const orderItemsHtml = (order.items as any[])
@@ -823,9 +903,11 @@ export async function POST(request: NextRequest) {
                   <tbody>${orderItemsHtml}</tbody>
                 </table>
                 <div class="total">
-                  <p><strong>Subtotal:</strong> $${Number(order.subtotal).toFixed(2)}</p>
-                  <p><strong>Shipping:</strong> $${Number(order.shipping).toFixed(2)}</p>
-                  <p style="font-size: 1.3em; margin-top: 10px;"><strong>Total:</strong> $${Number(order.total).toFixed(2)}</p>
+                  <p><strong>Subtotal:</strong> $${subtotal.toFixed(2)}</p>
+                  <p><strong>Shipping:</strong> $${shipping.toFixed(2)}</p>
+                  ${processingFee > 0 ? `<p><strong>Processing Fee:</strong> $${processingFee.toFixed(2)}</p>` : ""}
+                  ${taxAmount > 0 ? `<p><strong>Sales Tax:</strong> $${taxAmount.toFixed(2)}</p>` : ""}
+                  <p style="font-size: 1.3em; margin-top: 10px;"><strong>Total:</strong> $${actualTotal.toFixed(2)}</p>
                 </div>
                 <h4 style="margin-top: 20px; margin-bottom: 10px;">Delivery Information:</h4>
                 ${shippingInfo}
@@ -894,9 +976,11 @@ export async function POST(request: NextRequest) {
                   <tbody>${orderItemsHtml}</tbody>
                 </table>
                 <div class="total">
-                  <p>Subtotal: $${Number(order.subtotal).toFixed(2)}</p>
-                  ${Number(order.shipping) > 0 ? `<p>Shipping: $${Number(order.shipping).toFixed(2)}</p>` : ""}
-                  <p>Total: $${Number(order.total).toFixed(2)}</p>
+                  <p>Subtotal: $${subtotal.toFixed(2)}</p>
+                  ${shipping > 0 ? `<p>Shipping: $${shipping.toFixed(2)}</p>` : ""}
+                  ${processingFee > 0 ? `<p>Processing Fee: $${processingFee.toFixed(2)}</p>` : ""}
+                  ${taxAmount > 0 ? `<p>Sales Tax: $${taxAmount.toFixed(2)}</p>` : ""}
+                  <p>Total: $${actualTotal.toFixed(2)}</p>
                 </div>
                 ${shippingInfo}
               </div>

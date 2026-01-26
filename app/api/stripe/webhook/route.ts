@@ -548,6 +548,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Retrieve tax and fee amounts from Stripe session
+        const metadata = session.metadata || {};
         const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
         const processingFee = Number(metadata.processing_fee || 0);
         const subtotal = Number(metadata.subtotal || 0);

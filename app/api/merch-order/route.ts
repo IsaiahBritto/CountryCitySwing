@@ -80,51 +80,59 @@ export async function POST(request: NextRequest) {
     if (orderError) {
       console.error("Error creating order:", orderError);
       return NextResponse.json(
-        { error: "Failed to create order" },
+        { error: "Failed to create order", details: orderError.message },
         { status: 500 }
       );
     }
 
     if (paymentMethod === "stripe") {
-      const base = getBaseUrl(request);
-      const lineItems: { price_data: any; quantity: number }[] = orderData.items.map(
-        (item: any) => ({
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: `${item.productName} (${item.size})`,
+      try {
+        const base = getBaseUrl(request);
+        const lineItems: { price_data: any; quantity: number }[] = orderData.items.map(
+          (item: any) => ({
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: `${item.productName} (${item.size})`,
+              },
+              unit_amount: Math.round(item.price * 100),
             },
-            unit_amount: Math.round(item.price * 100),
-          },
-          quantity: item.quantity,
-        })
-      );
-      if (orderData.shipping > 0) {
-        lineItems.push({
-          price_data: {
-            currency: "usd",
-            product_data: { name: "Shipping" },
-            unit_amount: Math.round(orderData.shipping * 100),
-          },
-          quantity: 1,
+            quantity: item.quantity,
+          })
+        );
+        if (orderData.shipping > 0) {
+          lineItems.push({
+            price_data: {
+              currency: "usd",
+              product_data: { name: "Shipping" },
+              unit_amount: Math.round(orderData.shipping * 100),
+            },
+            quantity: 1,
+          });
+        }
+
+        const session = await getStripe().checkout.sessions.create({
+          mode: "payment",
+          payment_method_types: ["card"],
+          line_items: lineItems,
+          customer_email: orderData.email,
+          client_reference_id: order.id,
+          success_url: `${base}/merch/checkout/success`,
+          cancel_url: `${base}/merch/checkout`,
         });
+
+        return NextResponse.json({
+          success: true,
+          redirect: session.url!,
+          orderId: order.id,
+        });
+      } catch (stripeError: any) {
+        console.error("Stripe error:", stripeError);
+        return NextResponse.json(
+          { error: "Failed to create Stripe session", details: stripeError.message },
+          { status: 500 }
+        );
       }
-
-      const session = await getStripe().checkout.sessions.create({
-        mode: "payment",
-        payment_method_types: ["card"],
-        line_items: lineItems,
-        customer_email: orderData.email,
-        client_reference_id: order.id,
-        success_url: `${base}/merch/checkout/success`,
-        cancel_url: `${base}/merch/checkout`,
-      });
-
-      return NextResponse.json({
-        success: true,
-        redirect: session.url!,
-        orderId: order.id,
-      });
     }
 
     // Cash: send "Cash payment needed" emails
@@ -296,7 +304,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("Order submission error:", error);
     return NextResponse.json(
-      { error: error.message || "Internal server error" },
+      { error: error.message || "Internal server error", details: error.stack },
       { status: 500 }
     );
   }

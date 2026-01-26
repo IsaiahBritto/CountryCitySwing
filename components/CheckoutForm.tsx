@@ -163,7 +163,9 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to submit order");
+        const errorMsg = data.error || "Failed to submit order";
+        const details = data.details ? ` (${data.details})` : "";
+        throw new Error(errorMsg + details);
       }
 
       if (data.redirect) {

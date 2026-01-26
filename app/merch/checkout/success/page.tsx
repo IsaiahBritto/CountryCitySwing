@@ -1,16 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCart } from "@/components/CartContext";
 import { CheckCircleIcon } from "@heroicons/react/24/solid";
 
 export default function CheckoutSuccessPage() {
   const { clearCart } = useCart();
+  const router = useRouter();
 
   useEffect(() => {
     clearCart();
   }, [clearCart]);
+
+  const handleBackToMerch = () => {
+    router.push("/merch");
+  };
 
   return (
     <div className="max-w-2xl mx-auto text-center py-16">
@@ -20,12 +25,12 @@ export default function CheckoutSuccessPage() {
         Your order has been received. You’ll get a confirmation email shortly
         with your order details.
       </p>
-      <Link
-        href="/merch"
-        className="inline-block btn-signup py-3 px-8 font-semibold transition-opacity hover:opacity-90"
+      <button
+        onClick={handleBackToMerch}
+        className="inline-block btn-signup py-3 px-8 font-semibold transition-opacity hover:opacity-90 cursor-pointer"
       >
         Back to Merch
-      </Link>
+      </button>
     </div>
   );
 }

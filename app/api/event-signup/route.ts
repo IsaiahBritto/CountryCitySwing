@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       const base = getBaseUrl(req);
       const session = await getStripe().checkout.sessions.create({
         mode: "payment",
-        payment_method_types: ["card"],
+        payment_method_types: ["card"], // Apple Pay and Google Pay are automatically available when "card" is enabled
         line_items: [
           {
             price_data: {

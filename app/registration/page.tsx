@@ -111,7 +111,7 @@ export default function RegistrationPage() {
         .from("signups")
         .select("*")
         .eq("event_id", eventId)
-        .order("created_at", { ascending: true });
+        .order("first_name", { ascending: true });
 
       // Apply filter
       if (filter === "not_checked_in") {
@@ -125,7 +125,11 @@ export default function RegistrationPage() {
       if (error) {
         console.error("Error loading signups:", error);
       } else {
-        setSignups(data || []);
+        // Sort by first name alphabetically (case-insensitive)
+        const sorted = (data || []).sort((a, b) => 
+          a.first_name.localeCompare(b.first_name, undefined, { sensitivity: 'base' })
+        );
+        setSignups(sorted);
       }
     } catch (err) {
       console.error("Error:", err);

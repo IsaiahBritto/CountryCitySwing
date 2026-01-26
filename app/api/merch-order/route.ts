@@ -117,15 +117,15 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Prepare customer details and billing address
-        const customerDetails: any = {
+        // Prepare billing details for payment intent
+        const billingDetails: any = {
           name: `${orderData.firstName} ${orderData.lastName}`,
           email: orderData.email,
         };
 
         // If shipping address is provided, use it for billing address prefilling
         if (orderData.shippingAddress && orderData.deliveryMethod === "ship") {
-          customerDetails.address = {
+          billingDetails.address = {
             line1: orderData.shippingAddress.address,
             city: orderData.shippingAddress.city,
             state: orderData.shippingAddress.state,
@@ -143,7 +143,9 @@ export async function POST(request: NextRequest) {
             enabled: true, // Enable Stripe Tax for automatic sales tax calculation
           },
           customer_email: orderData.email,
-          customer_details: customerDetails,
+          payment_intent_data: {
+            billing_details: billingDetails,
+          },
           billing_address_collection: orderData.shippingAddress && orderData.deliveryMethod === "ship" 
             ? "auto" // Prefilled but can be edited
             : "auto", // Optional - allows customer to fill in if needed

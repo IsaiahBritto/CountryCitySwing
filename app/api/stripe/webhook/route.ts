@@ -70,8 +70,8 @@ export async function POST(request: NextRequest) {
     console.log("Webhook: Processing checkout.session.completed");
 
     const session = event.data.object as Stripe.Checkout.Session;
-    const orderId = session.client_reference_id;
-    if (!orderId) {
+    const referenceId = session.client_reference_id;
+    if (!referenceId) {
       console.error("Webhook: checkout.session.completed missing client_reference_id");
       return NextResponse.json(
         { error: "Missing client_reference_id" },
@@ -79,14 +79,113 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if this is an event signup payment
+    // Event signups have signup_id in metadata, or payment_type === "cash_to_stripe"
+    const hasSignupId = !!session.metadata?.signup_id;
+    const isCashToStripe = session.metadata?.payment_type === "cash_to_stripe";
+    const isEventSignup = hasSignupId || isCashToStripe;
+    
+    if (isEventSignup) {
+      // Handle event signup payment
+      const signupId = session.metadata?.signup_id || referenceId;
+      
+      const { data: signup, error: fetchError } = await supabaseServer
+        .from("signups")
+        .select("*")
+        .eq("id", signupId)
+        .single();
+
+      if (fetchError || !signup) {
+        console.error("Webhook: signup not found for client_reference_id", signupId, fetchError);
+        return NextResponse.json(
+          { error: "Signup not found" },
+          { status: 404 }
+        );
+      }
+
+      if (signup.paid) {
+        return NextResponse.json({ received: true }); // idempotent
+      }
+
+      const { error: updateError } = await supabaseServer
+        .from("signups")
+        .update({
+          paid: true,
+          payment_method: "Stripe", // Update payment method to Stripe
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", signupId);
+
+      if (updateError) {
+        console.error("Webhook: failed to update signup", signupId, updateError);
+        return NextResponse.json(
+          { error: "Failed to update signup" },
+          { status: 500 }
+        );
+      }
+
+      // Send confirmation email for paid event signup
+      const html = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
+              .content { background-color: #f9f9f9; padding: 20px; }
+              .payment-box { background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
+              .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>Country City Swing</h1>
+                <h2>Payment Confirmed</h2>
+              </div>
+              <div class="content">
+                <p>Hi ${signup.first_name},</p>
+                <p>Your payment for <strong>${signup.event_title}</strong> has been confirmed!</p>
+                <div class="payment-box">
+                  <p style="margin: 0;"><strong>Payment Status:</strong> Paid via Stripe</p>
+                </div>
+                <p>Thank you for your payment. We're excited to see you at the event!</p>
+                <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
+              </div>
+              <div class="footer">
+                <p>Country City Swing<br>Nashville, TN</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      try {
+        console.log("Webhook: Sending payment confirmation email to:", signup.email);
+        await sendHtmlEmail(
+          signup.email,
+          `Payment Confirmed - ${signup.event_title}`,
+          html
+        );
+        console.log("Webhook: Payment confirmation email sent successfully");
+      } catch (e) {
+        console.error("Webhook: error sending payment confirmation email", e);
+      }
+
+      console.log("Webhook: Successfully processed event signup payment:", signupId);
+      return NextResponse.json({ received: true });
+    }
+
+    // Handle merch order payment (existing logic)
     const { data: order, error: fetchError } = await supabaseServer
       .from("merch_orders")
       .select("*")
-      .eq("id", orderId)
+      .eq("id", referenceId)
       .single();
 
     if (fetchError || !order) {
-      console.error("Webhook: order not found for client_reference_id", orderId, fetchError);
+      console.error("Webhook: order not found for client_reference_id", referenceId, fetchError);
       return NextResponse.json(
         { error: "Order not found" },
         { status: 404 }
@@ -104,7 +203,7 @@ export async function POST(request: NextRequest) {
         stripe_session_id: session.id,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", orderId);
+      .eq("id", referenceId);
 
     if (updateError) {
       console.error("Webhook: failed to update order", orderId, updateError);

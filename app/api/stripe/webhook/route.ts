@@ -712,11 +712,13 @@ export async function POST(request: NextRequest) {
       }
 
       // Retrieve actual amounts from Stripe session (includes tax)
-      const actualTotal = session.amount_total != null ? session.amount_total / 100 : Number(metadata.total);
+      // These will be used throughout the merch order processing
       const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
       const processingFee = Number(metadata.processing_fee || 0);
       const subtotal = Number(metadata.subtotal);
       const shipping = Number(metadata.shipping);
+      // Calculate actualTotal from Stripe session or metadata
+      const calculatedTotal = session.amount_total != null ? session.amount_total / 100 : Number(metadata.total);
 
       // Check if order already exists (idempotency)
       const { data: existingOrder } = await supabaseServer
@@ -775,7 +777,7 @@ export async function POST(request: NextRequest) {
               items: items,
               subtotal: subtotal,
               shipping: shipping,
-              total: actualTotal, // Use actual total from Stripe (includes tax)
+              total: calculatedTotal, // Use actual total from Stripe (includes tax)
               status: "paid",
               payment_method: "stripe",
               stripe_session_id: session.id,
@@ -795,11 +797,7 @@ export async function POST(request: NextRequest) {
         console.log("Webhook: Successfully created merch order", order.id);
       }
 
-      // Retrieve tax and fee amounts for email display
-      const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
-      const processingFee = Number(metadata.processing_fee || 0);
-      const subtotal = Number(metadata.subtotal);
-      const shipping = Number(metadata.shipping);
+      // Use actualTotal for email display - prefer session amount, otherwise use order total
       const actualTotal = session.amount_total != null ? session.amount_total / 100 : Number(order.total);
 
       // Send "Paid" confirmation emails with improved template

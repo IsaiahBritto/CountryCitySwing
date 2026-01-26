@@ -203,7 +203,7 @@ export async function POST(request: NextRequest) {
           const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
           const processingFee = Number(metadata.processing_fee || 0);
           const subtotal = Number(metadata.subtotal || 0);
-          const actualTotal = session.amount_total ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+          const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
           
           // Fetch event details for email
           let eventDate = "";
@@ -366,7 +366,7 @@ export async function POST(request: NextRequest) {
         const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
         const processingFee = Number(metadata.processing_fee || 0);
         const subtotal = Number(metadata.subtotal || 0);
-        const actualTotal = session.amount_total ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+        const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
 
         // Fetch event details for email
         let eventDate = "";
@@ -551,7 +551,7 @@ export async function POST(request: NextRequest) {
         const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
         const processingFee = Number(metadata.processing_fee || 0);
         const subtotal = Number(metadata.subtotal || 0);
-        const actualTotal = session.amount_total ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+        const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
 
         // Fetch event details for email
         let eventDate = "";
@@ -712,7 +712,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Retrieve actual amounts from Stripe session (includes tax)
-      const actualTotal = session.amount_total ? session.amount_total / 100 : Number(metadata.total);
+      const actualTotal = session.amount_total != null ? session.amount_total / 100 : Number(metadata.total);
       const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
       const processingFee = Number(metadata.processing_fee || 0);
       const subtotal = Number(metadata.subtotal);
@@ -800,7 +800,7 @@ export async function POST(request: NextRequest) {
       const processingFee = Number(metadata.processing_fee || 0);
       const subtotal = Number(metadata.subtotal);
       const shipping = Number(metadata.shipping);
-      const actualTotal = session.amount_total ? session.amount_total / 100 : Number(order.total);
+      const actualTotal = session.amount_total != null ? session.amount_total / 100 : Number(order.total);
 
       // Send "Paid" confirmation emails with improved template
       const orderItemsHtml = (order.items as any[])

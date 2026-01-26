@@ -4,6 +4,7 @@ import { sendHtmlEmail } from "@/lib/mailer";
 import { getStripe } from "@/lib/stripe";
 import { randomUUID } from "crypto";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
+import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -47,7 +48,7 @@ export async function POST(req: NextRequest) {
               product_data: {
                 name: event.title,
                 description: `Event on ${new Date(event.date).toLocaleDateString()} at ${event.location}`,
-                tax_code: "txcd_10401000", // Educational services/instruction
+                tax_code: getEventTaxCode(), // Educational services/instruction
               },
             unit_amount: Math.round(event.price * 100),
           },
@@ -60,11 +61,11 @@ export async function POST(req: NextRequest) {
         lineItems.push({
           price_data: {
             currency: "usd",
-            product_data: {
-              name: "Processing Fee",
-              description: "Payment processing fee",
-              tax_code: "txcd_99999999", // General - Tangible Goods (processing fees are typically tax-exempt)
-            },
+              product_data: {
+                name: "Processing Fee",
+                description: "Payment processing fee",
+                tax_code: getProcessingFeeTaxCode(), // General - Tangible Goods (processing fees are typically tax-exempt)
+              },
             unit_amount: Math.round(processingFee * 100),
           },
           quantity: 1,

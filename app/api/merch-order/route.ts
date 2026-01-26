@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { getStripe } from "@/lib/stripe";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
+import { getMerchandiseTaxCode, getShippingTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
               currency: "usd",
               product_data: {
                 name: `${item.productName} (${item.size})`,
-                tax_code: "txcd_10100000", // Clothing & Footwear (for merchandise/clothing)
+                tax_code: getMerchandiseTaxCode(), // General - Tangible Goods (for merchandise/clothing)
               },
               unit_amount: Math.round(item.price * 100),
             },
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
               currency: "usd",
               product_data: { 
                 name: "Shipping",
-                tax_code: "txcd_11000000", // Shipping services (taxable in Tennessee)
+                tax_code: getShippingTaxCode(), // Shipping services (taxable in Tennessee)
               },
               unit_amount: Math.round(orderData.shipping * 100),
             },

@@ -47,7 +47,8 @@ export async function POST(req: NextRequest) {
             product_data: {
               name: event.title,
               description: `Event on ${new Date(event.date).toLocaleDateString()} at ${event.location}`,
-              tax_code: "txcd_10401000", // Tax code for educational services/instruction
+              // Tax code will use preset from Stripe Tax settings if not specified
+              // Once Stripe Tax is fully configured, you can add: tax_code: "txcd_10401000"
             },
             unit_amount: Math.round(event.price * 100),
           },
@@ -63,7 +64,8 @@ export async function POST(req: NextRequest) {
             product_data: {
               name: "Processing Fee",
               description: "Payment processing fee",
-              tax_code: "txcd_99999999", // Tax-exempt processing fee
+              // Processing fees are typically tax-exempt
+              // Once Stripe Tax is fully configured, you can add: tax_code: "txcd_99999999"
             },
             unit_amount: Math.round(processingFee * 100),
           },

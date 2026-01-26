@@ -72,35 +72,6 @@ export async function POST(req: NextRequest) {
         });
       }
       
-      // Create or retrieve Stripe customer to enable name/address prefilling
-      // Stripe Checkout can prefill info from existing customers with saved payment methods
-      let customerId: string | undefined;
-      try {
-        // Try to find existing customer by email
-        const existingCustomers = await getStripe().customers.list({
-          email: email,
-          limit: 1,
-        });
-        
-        if (existingCustomers.data.length > 0) {
-          customerId = existingCustomers.data[0].id;
-        } else {
-          // Create new customer with name
-          const customer = await getStripe().customers.create({
-            email: email,
-            name: `${firstName} ${lastName}`,
-            metadata: {
-              first_name: firstName,
-              last_name: lastName,
-            },
-          });
-          customerId = customer.id;
-        }
-      } catch (customerError) {
-        console.error("Error creating/finding customer:", customerError);
-        // Continue without customer - email will still be prefilled
-      }
-
       // Store all signup data in Stripe metadata - will be used to create signup in webhook
       const sessionParams: any = {
         mode: "payment",
@@ -109,7 +80,7 @@ export async function POST(req: NextRequest) {
         automatic_tax: {
           enabled: true, // Enable Stripe Tax for automatic sales tax calculation
         },
-        ...(customerId ? { customer: customerId } : { customer_email: email }), // Use customer ID if available, otherwise email
+        customer_email: email,
         billing_address_collection: "auto", // Optional - allows customer to fill in if needed
         client_reference_id: signupId,
         metadata: {

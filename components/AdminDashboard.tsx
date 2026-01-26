@@ -387,7 +387,8 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
                 className="bg-neutral-700 rounded-lg p-4 cursor-pointer hover:bg-neutral-600 transition-colors"
                 onClick={(e) => {
                   // Don't open modal if clicking on checkbox
-                  if ((e.target as HTMLElement).type !== 'checkbox') {
+                  const target = e.target as HTMLElement;
+                  if (target.tagName !== 'INPUT' || (target as HTMLInputElement).type !== 'checkbox') {
                     setSelectedOrder(order);
                   }
                 }}

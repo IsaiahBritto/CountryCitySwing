@@ -266,57 +266,58 @@ export async function POST(request: NextRequest) {
           );
         }
 
-      // Send confirmation email for paid event signup
-      const html = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
-              .content { background-color: #f9f9f9; padding: 20px; }
-              .payment-box { background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
-              .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="header">
-                <h1>Country City Swing</h1>
-                <h2>Payment Confirmed</h2>
-              </div>
-              <div class="content">
-                <p>Hi ${signup.first_name},</p>
-                <p>Your payment for <strong>${signup.event_title}</strong> has been confirmed!</p>
-                <div class="payment-box">
-                  <p style="margin: 0;"><strong>Payment Status:</strong> Paid via Stripe</p>
+        // Send confirmation email for paid event signup
+        const html = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
+                .content { background-color: #f9f9f9; padding: 20px; }
+                .payment-box { background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
+                .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <h1>Country City Swing</h1>
+                  <h2>Payment Confirmed</h2>
                 </div>
-                <p>Thank you for your payment. We're excited to see you at the event!</p>
-                <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
+                <div class="content">
+                  <p>Hi ${signup.first_name},</p>
+                  <p>Your payment for <strong>${signup.event_title}</strong> has been confirmed!</p>
+                  <div class="payment-box">
+                    <p style="margin: 0;"><strong>Payment Status:</strong> Paid via Stripe</p>
+                  </div>
+                  <p>Thank you for your payment. We're excited to see you at the event!</p>
+                  <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
+                </div>
+                <div class="footer">
+                  <p>Country City Swing<br>Nashville, TN</p>
+                </div>
               </div>
-              <div class="footer">
-                <p>Country City Swing<br>Nashville, TN</p>
-              </div>
-            </div>
-          </body>
-        </html>
-      `;
+            </body>
+          </html>
+        `;
 
-      try {
-        console.log("Webhook: Sending payment confirmation email to:", signup.email);
-        await sendHtmlEmail(
-          signup.email,
-          `Payment Confirmed - ${signup.event_title}`,
-          html
-        );
-        console.log("Webhook: Payment confirmation email sent successfully");
-      } catch (e) {
-        console.error("Webhook: error sending payment confirmation email", e);
+        try {
+          console.log("Webhook: Sending payment confirmation email to:", signup.email);
+          await sendHtmlEmail(
+            signup.email,
+            `Payment Confirmed - ${signup.event_title}`,
+            html
+          );
+          console.log("Webhook: Payment confirmation email sent successfully");
+        } catch (e) {
+          console.error("Webhook: error sending payment confirmation email", e);
+        }
+
+        console.log("Webhook: Successfully processed cash-to-stripe payment:", signupId);
+        return NextResponse.json({ received: true });
       }
-
-      console.log("Webhook: Successfully processed event signup payment:", signupId);
-      return NextResponse.json({ received: true });
     }
 
     // Handle merch order payment (existing logic)

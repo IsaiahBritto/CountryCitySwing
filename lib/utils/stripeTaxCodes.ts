@@ -15,8 +15,8 @@ export const STRIPE_TAX_CODES = {
   EDUCATIONAL_SERVICES: "txcd_10401000",
   
   // Shipping services
-  // Note: If this doesn't work, use GENERAL_TANGIBLE_GOODS
-  SHIPPING: "txcd_11000000",
+  // Using general tangible goods code as shipping-specific code is not available
+  SHIPPING: "txcd_99999999",
   
   // Processing fees (typically tax-exempt, but using general code)
   PROCESSING_FEE: "txcd_99999999",

@@ -733,7 +733,7 @@ export async function POST(request: NextRequest) {
 
       let order;
       
-      if (existingOrder && existingOrder.status === "paid") {
+      if (existingOrder && existingOrder.paid === true) {
         // Order already exists and is paid - idempotent
         console.log("Webhook: Merch order already paid", existingOrder.id);
         return NextResponse.json({ received: true });
@@ -743,7 +743,7 @@ export async function POST(request: NextRequest) {
         const { data: updatedOrder, error: updateError } = await supabaseServer
           .from("merch_orders")
           .update({
-            status: "paid",
+            paid: true,
             payment_method: "stripe",
             stripe_session_id: session.id,
             updated_at: new Date().toISOString(),
@@ -779,7 +779,7 @@ export async function POST(request: NextRequest) {
               subtotal: subtotal,
               shipping: shipping,
               total: calculatedTotal, // Use actual total from Stripe (includes tax)
-              status: "paid",
+              paid: true, // Stripe payment completed
               payment_method: "stripe",
               stripe_session_id: session.id,
             },

@@ -60,7 +60,6 @@ export async function POST(request: NextRequest) {
     if (currentOrder.status !== status) {
       try {
         const statusMessages: { [key: string]: string } = {
-          paid: "Your payment has been received and your order is being processed.",
           processing: "Your order is now being processed and prepared for shipment.",
           shipped: "Your order has been shipped!",
           completed: "Your order has been completed and delivered.",

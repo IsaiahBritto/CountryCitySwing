@@ -31,6 +31,7 @@ interface Order {
   shipping: number;
   total: number;
   status: string;
+  paid: boolean;
   payment_method?: string;
   tracking_number?: string;
   notes?: string;
@@ -208,6 +209,35 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
     }
   };
 
+  const togglePaidStatus = async (orderId: string, paid: boolean) => {
+    try {
+      const response = await fetch("/api/merch-order/update-paid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId,
+          paid,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to update paid status");
+      }
+
+      // Update local state immediately for better UX
+      setOrders((prevOrders) =>
+        prevOrders.map((order) =>
+          order.id === orderId ? { ...order, paid } : order
+        )
+      );
+    } catch (err) {
+      console.error("Error updating paid status:", err);
+      alert("Failed to update paid status");
+      // Reload data to sync with server
+      await loadData();
+    }
+  };
+
   const updateOrderStatus = async (
     orderId: string,
     status: string,
@@ -355,20 +385,37 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
               <div
                 key={order.id}
                 className="bg-neutral-700 rounded-lg p-4 cursor-pointer hover:bg-neutral-600 transition-colors"
-                onClick={() => setSelectedOrder(order)}
+                onClick={(e) => {
+                  // Don't open modal if clicking on checkbox
+                  if ((e.target as HTMLElement).type !== 'checkbox') {
+                    setSelectedOrder(order);
+                  }
+                }}
               >
                 <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-semibold text-white">
-                      Order #{order.id.slice(0, 8)}
-                    </p>
-                    <p className="text-gray-300">
-                      {order.first_name} {order.last_name}
-                    </p>
-                    <p className="text-sm text-gray-400">{order.email}</p>
-                    <p className="text-sm text-gray-400 mt-1">
-                      {new Date(order.created_at).toLocaleDateString()}
-                    </p>
+                  <div className="flex items-start gap-3 flex-1">
+                    <input
+                      type="checkbox"
+                      checked={order.paid}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        togglePaidStatus(order.id, e.target.checked);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-1 w-5 h-5 text-primary bg-neutral-600 border-neutral-500 rounded focus:ring-primary focus:ring-2"
+                    />
+                    <div>
+                      <p className="font-semibold text-white">
+                        Order #{order.id.slice(0, 8)}
+                      </p>
+                      <p className="text-gray-300">
+                        {order.first_name} {order.last_name}
+                      </p>
+                      <p className="text-sm text-gray-400">{order.email}</p>
+                      <p className="text-sm text-gray-400 mt-1">
+                        {new Date(order.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-primary">
@@ -380,13 +427,18 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
                           ? "bg-green-600 text-white"
                           : order.status === "shipped"
                           ? "bg-blue-600 text-white"
-                          : order.status === "paid"
-                          ? "bg-yellow-600 text-black"
+                          : order.status === "processing"
+                          ? "bg-purple-600 text-white"
                           : "bg-gray-600 text-white"
                       }`}
                     >
                       {order.status.toUpperCase()}
                     </span>
+                    {order.paid && (
+                      <p className="text-xs text-green-400 mt-1 font-semibold">
+                        ✓ Paid
+                      </p>
+                    )}
                     {order.payment_method && (
                       <p className="text-xs text-gray-400 mt-1 capitalize">
                         {order.payment_method}
@@ -406,6 +458,7 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
           order={selectedOrder}
           onClose={() => setSelectedOrder(null)}
           onUpdate={updateOrderStatus}
+          onTogglePaid={togglePaidStatus}
         />
       )}
     </div>
@@ -421,18 +474,21 @@ interface OrderDetailModalProps {
     trackingNumber?: string,
     notes?: string
   ) => void;
+  onTogglePaid: (orderId: string, paid: boolean) => void;
 }
 
 function OrderDetailModal({
   order,
   onClose,
   onUpdate,
+  onTogglePaid,
 }: OrderDetailModalProps) {
   const [status, setStatus] = useState(order.status);
   const [trackingNumber, setTrackingNumber] = useState(
     order.tracking_number || ""
   );
   const [notes, setNotes] = useState(order.notes || "");
+  const [paid, setPaid] = useState(order.paid);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -476,10 +532,26 @@ function OrderDetailModal({
 
             {order.payment_method && (
               <div>
-                <p className="text-sm text-gray-400">Payment</p>
+                <p className="text-sm text-gray-400">Payment Method</p>
                 <p className="text-white capitalize">{order.payment_method}</p>
               </div>
             )}
+
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={paid}
+                  onChange={(e) => {
+                    const newPaidStatus = e.target.checked;
+                    setPaid(newPaidStatus);
+                    onTogglePaid(order.id, newPaidStatus);
+                  }}
+                  className="w-5 h-5 text-primary bg-neutral-700 border-neutral-600 rounded focus:ring-primary focus:ring-2"
+                />
+                <span className="text-white">Mark as Paid</span>
+              </label>
+            </div>
 
             <div>
               <p className="text-sm text-gray-400">Items</p>
@@ -532,7 +604,6 @@ function OrderDetailModal({
                 className="w-full px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <option value="pending">Pending</option>
-                <option value="paid">Paid</option>
                 <option value="processing">Processing</option>
                 <option value="shipped">Shipped</option>
                 <option value="completed">Completed</option>

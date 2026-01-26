@@ -178,6 +178,7 @@ export async function POST(request: NextRequest) {
         shipping: orderData.shipping,
         total: orderData.total,
         status: "pending",
+        paid: false, // Cash payment - not paid yet
         payment_method: paymentMethod,
       })
       .select()

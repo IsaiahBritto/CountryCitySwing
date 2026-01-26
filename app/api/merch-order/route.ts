@@ -117,21 +117,50 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Prepare billing details for payment intent
-        const billingDetails: any = {
-          name: `${orderData.firstName} ${orderData.lastName}`,
-          email: orderData.email,
-        };
-
-        // If shipping address is provided, use it for billing address prefilling
-        if (orderData.shippingAddress && orderData.deliveryMethod === "ship") {
-          billingDetails.address = {
-            line1: orderData.shippingAddress.address,
-            city: orderData.shippingAddress.city,
-            state: orderData.shippingAddress.state,
-            postal_code: orderData.shippingAddress.zip,
-            country: "US",
-          };
+        // Create or retrieve Stripe customer to enable name/address prefilling
+        // Stripe Checkout can prefill info from existing customers with saved payment methods
+        let customerId: string | undefined;
+        try {
+          // Try to find existing customer by email
+          const existingCustomers = await getStripe().customers.list({
+            email: orderData.email,
+            limit: 1,
+          });
+          
+          if (existingCustomers.data.length > 0) {
+            customerId = existingCustomers.data[0].id;
+            // Update customer with latest name if needed
+            await getStripe().customers.update(customerId, {
+              name: `${orderData.firstName} ${orderData.lastName}`,
+            });
+          } else {
+            // Create new customer with name and address if shipping
+            const customerData: any = {
+              email: orderData.email,
+              name: `${orderData.firstName} ${orderData.lastName}`,
+              metadata: {
+                first_name: orderData.firstName,
+                last_name: orderData.lastName,
+              },
+            };
+            
+            // Add address if shipping is selected
+            if (orderData.shippingAddress && orderData.deliveryMethod === "ship") {
+              customerData.address = {
+                line1: orderData.shippingAddress.address,
+                city: orderData.shippingAddress.city,
+                state: orderData.shippingAddress.state,
+                postal_code: orderData.shippingAddress.zip,
+                country: "US",
+              };
+            }
+            
+            const customer = await getStripe().customers.create(customerData);
+            customerId = customer.id;
+          }
+        } catch (customerError) {
+          console.error("Error creating/finding customer:", customerError);
+          // Continue without customer - email will still be prefilled
         }
 
         // Store all order data in Stripe metadata - will be used to create order in webhook
@@ -142,13 +171,8 @@ export async function POST(request: NextRequest) {
           automatic_tax: {
             enabled: true, // Enable Stripe Tax for automatic sales tax calculation
           },
-          customer_email: orderData.email,
-          payment_intent_data: {
-            billing_details: billingDetails,
-          },
-          billing_address_collection: orderData.shippingAddress && orderData.deliveryMethod === "ship" 
-            ? "auto" // Prefilled but can be edited
-            : "auto", // Optional - allows customer to fill in if needed
+          ...(customerId ? { customer: customerId } : { customer_email: orderData.email }), // Use customer ID if available, otherwise email
+          billing_address_collection: "auto", // Optional - allows customer to fill in if needed
           shipping_address_collection: orderData.deliveryMethod === "ship" 
             ? { allowed_countries: ["US"] } 
             : undefined,

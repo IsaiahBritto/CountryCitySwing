@@ -122,6 +122,39 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Create or retrieve Stripe customer to enable name/address prefilling
+    // Stripe Checkout can prefill info from existing customers with saved payment methods
+    let customerId: string | undefined;
+    try {
+      // Try to find existing customer by email
+      const existingCustomers = await getStripe().customers.list({
+        email: signup.email,
+        limit: 1,
+      });
+      
+      if (existingCustomers.data.length > 0) {
+        customerId = existingCustomers.data[0].id;
+        // Update customer with latest name if needed
+        await getStripe().customers.update(customerId, {
+          name: `${signup.first_name} ${signup.last_name}`,
+        });
+      } else {
+        // Create new customer with name
+        const customer = await getStripe().customers.create({
+          email: signup.email,
+          name: `${signup.first_name} ${signup.last_name}`,
+          metadata: {
+            first_name: signup.first_name,
+            last_name: signup.last_name,
+          },
+        });
+        customerId = customer.id;
+      }
+    } catch (customerError) {
+      console.error("Error creating/finding customer:", customerError);
+      // Continue without customer - email will still be prefilled
+    }
+
     // Create Stripe checkout session
     const base = getBaseUrl(req);
     const sessionParams: any = {
@@ -131,13 +164,7 @@ export async function POST(req: NextRequest) {
       automatic_tax: {
         enabled: true, // Enable Stripe Tax for automatic sales tax calculation
       },
-      customer_email: signup.email,
-      payment_intent_data: {
-        billing_details: {
-          name: `${signup.first_name} ${signup.last_name}`,
-          email: signup.email,
-        },
-      },
+      ...(customerId ? { customer: customerId } : { customer_email: signup.email }), // Use customer ID if available, otherwise email
       billing_address_collection: "auto", // Optional - allows customer to fill in if needed
       client_reference_id: signupId,
       metadata: {

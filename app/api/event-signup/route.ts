@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
           accept_payment: String(acceptPayment),
           payment_type: "stripe_checkout",
         },
-        success_url: `${base}/events/confirmation?session_id=${session.id}`,
+        success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${base}/events?payment=cancelled`,
       });
 

@@ -7,16 +7,40 @@ import { sendHtmlEmail } from "@/lib/mailer";
 // Disable body parsing for webhook to get raw body
 export const runtime = "nodejs";
 
+// Route segment config for Next.js App Router
+export const dynamic = "force-dynamic";
+
 function getWebhookSecret(): string {
   const s = process.env.STRIPE_WEBHOOK_SECRET;
   if (!s) throw new Error("STRIPE_WEBHOOK_SECRET is not set");
   return s;
 }
 
+// Test endpoint to verify webhook route is accessible
+export async function GET() {
+  return NextResponse.json({ 
+    message: "Stripe webhook endpoint is accessible",
+    timestamp: new Date().toISOString(),
+    env: {
+      hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
+      hasStripeKey: !!process.env.STRIPE_SECRET_KEY,
+    }
+  });
+}
+
 export async function POST(request: NextRequest) {
-  console.log("Webhook received at:", new Date().toISOString());
+  const timestamp = new Date().toISOString();
+  console.log("=== WEBHOOK RECEIVED ===", timestamp);
+  console.log("Headers:", {
+    "stripe-signature": request.headers.get("stripe-signature") ? "present" : "missing",
+    "content-type": request.headers.get("content-type"),
+    "user-agent": request.headers.get("user-agent"),
+  });
+  
   try {
     const rawBody = await request.text();
+    console.log("Raw body length:", rawBody.length);
+    
     const sig = request.headers.get("stripe-signature");
     if (!sig) {
       console.error("Webhook: Missing stripe-signature header");

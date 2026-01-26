@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check inventory before proceeding
     for (const item of orderData.items) {
       const { data: inventory } = await supabaseServer
         .from("merch_inventory")
@@ -59,32 +60,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { data: order, error: orderError } = await supabaseServer
-      .from("merch_orders")
-      .insert({
-        first_name: orderData.firstName,
-        last_name: orderData.lastName,
-        email: orderData.email,
-        delivery_method: orderData.deliveryMethod,
-        shipping_address: orderData.shippingAddress,
-        items: orderData.items,
-        subtotal: orderData.subtotal,
-        shipping: orderData.shipping,
-        total: orderData.total,
-        status: "pending",
-        payment_method: paymentMethod,
-      })
-      .select()
-      .single();
-
-    if (orderError) {
-      console.error("Error creating order:", orderError);
-      return NextResponse.json(
-        { error: "Failed to create order", details: orderError.message },
-        { status: 500 }
-      );
-    }
-
+    // 1️⃣ Handle Stripe payment - create order AFTER payment completes
     if (paymentMethod === "stripe") {
       try {
         const base = getBaseUrl(request);
@@ -111,20 +87,33 @@ export async function POST(request: NextRequest) {
           });
         }
 
+        // Store all order data in Stripe metadata - will be used to create order in webhook
         const session = await getStripe().checkout.sessions.create({
           mode: "payment",
           payment_method_types: ["card"],
           line_items: lineItems,
           customer_email: orderData.email,
-          client_reference_id: order.id,
-          success_url: `${base}/merch/checkout/success`,
+          metadata: {
+            first_name: orderData.firstName,
+            last_name: orderData.lastName,
+            email: orderData.email,
+            delivery_method: orderData.deliveryMethod,
+            shipping_address: orderData.shippingAddress ? JSON.stringify(orderData.shippingAddress) : "",
+            items: JSON.stringify(orderData.items),
+            subtotal: String(orderData.subtotal),
+            shipping: String(orderData.shipping),
+            total: String(orderData.total),
+            payment_method: paymentMethod,
+            payment_type: "merch_order",
+          },
+          success_url: `${base}/merch/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${base}/merch/checkout`,
         });
 
+        // Don't send email yet - will be sent after payment completes in webhook
         return NextResponse.json({
           success: true,
           redirect: session.url!,
-          orderId: order.id,
         });
       } catch (stripeError: any) {
         console.error("Stripe error:", stripeError);
@@ -133,6 +122,33 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
+    }
+
+    // 2️⃣ Handle Cash payment - create order immediately
+    const { data: order, error: orderError } = await supabaseServer
+      .from("merch_orders")
+      .insert({
+        first_name: orderData.firstName,
+        last_name: orderData.lastName,
+        email: orderData.email,
+        delivery_method: orderData.deliveryMethod,
+        shipping_address: orderData.shippingAddress,
+        items: orderData.items,
+        subtotal: orderData.subtotal,
+        shipping: orderData.shipping,
+        total: orderData.total,
+        status: "pending",
+        payment_method: paymentMethod,
+      })
+      .select()
+      .single();
+
+    if (orderError) {
+      console.error("Error creating order:", orderError);
+      return NextResponse.json(
+        { error: "Failed to create order", details: orderError.message },
+        { status: 500 }
+      );
     }
 
     // Cash: send "Cash payment needed" emails

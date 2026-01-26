@@ -630,44 +630,100 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Handle merch order payment (existing logic)
-    const { data: order, error: fetchError } = await supabaseServer
-      .from("merch_orders")
-      .select("*")
-      .eq("id", referenceId)
-      .single();
+    // Handle merch order payment
+    const isMerchOrder = session.metadata?.payment_type === "merch_order";
+    
+    if (isMerchOrder) {
+      console.log("Webhook: Processing merch order payment", { sessionId: session.id });
+      const metadata = session.metadata;
+      
+      if (!metadata) {
+        console.error("Webhook: Missing metadata for merch_order");
+        return NextResponse.json(
+          { error: "Missing metadata" },
+          { status: 400 }
+        );
+      }
 
-    if (fetchError || !order) {
-      console.error("Webhook: order not found for client_reference_id", referenceId, fetchError);
-      return NextResponse.json(
-        { error: "Order not found" },
-        { status: 404 }
-      );
-    }
+      // Check if order already exists (idempotency)
+      const { data: existingOrder } = await supabaseServer
+        .from("merch_orders")
+        .select("*")
+        .eq("email", metadata.email)
+        .eq("total", Number(metadata.total))
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
 
-    if (order.status === "paid") {
-      return NextResponse.json({ received: true }); // idempotent
-    }
+      let order;
+      
+      if (existingOrder && existingOrder.status === "paid") {
+        // Order already exists and is paid - idempotent
+        console.log("Webhook: Merch order already paid", existingOrder.id);
+        return NextResponse.json({ received: true });
+      } else if (existingOrder) {
+        // Order exists but not paid - update it
+        console.log("Webhook: Updating existing merch order to paid", existingOrder.id);
+        const { data: updatedOrder, error: updateError } = await supabaseServer
+          .from("merch_orders")
+          .update({
+            status: "paid",
+            payment_method: "stripe",
+            stripe_session_id: session.id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existingOrder.id)
+          .select()
+          .single();
 
-    const { error: updateError } = await supabaseServer
-      .from("merch_orders")
-      .update({
-        status: "paid",
-        stripe_session_id: session.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", referenceId);
+        if (updateError) {
+          console.error("Webhook: failed to update merch order", updateError);
+          return NextResponse.json(
+            { error: "Failed to update order" },
+            { status: 500 }
+          );
+        }
+        order = updatedOrder;
+      } else {
+        // Create new order from metadata
+        console.log("Webhook: Creating new merch order from metadata");
+        const shippingAddress = metadata.shipping_address ? JSON.parse(metadata.shipping_address) : null;
+        const items = JSON.parse(metadata.items);
+        
+        const { data: newOrder, error: insertError } = await supabaseServer
+          .from("merch_orders")
+          .insert([
+            {
+              first_name: metadata.first_name,
+              last_name: metadata.last_name,
+              email: metadata.email,
+              delivery_method: metadata.delivery_method,
+              shipping_address: shippingAddress,
+              items: items,
+              subtotal: Number(metadata.subtotal),
+              shipping: Number(metadata.shipping),
+              total: Number(metadata.total),
+              status: "paid",
+              payment_method: "stripe",
+              stripe_session_id: session.id,
+            },
+          ])
+          .select()
+          .single();
 
-    if (updateError) {
-      console.error("Webhook: failed to update order", referenceId, updateError);
-      return NextResponse.json(
-        { error: "Failed to update order" },
-        { status: 500 }
-      );
-    }
+        if (insertError) {
+          console.error("Webhook: failed to create merch order", insertError);
+          return NextResponse.json(
+            { error: "Failed to create order", details: insertError.message },
+            { status: 500 }
+          );
+        }
+        order = newOrder;
+        console.log("Webhook: Successfully created merch order", order.id);
+      }
 
-    // Send "Paid" confirmation emails
-    const orderItemsHtml = (order.items as any[])
+      // Send "Paid" confirmation emails with improved template
+      const orderItemsHtml = (order.items as any[])
       .map(
         (item: any) => `
       <tr>
@@ -707,6 +763,11 @@ export async function POST(request: NextRequest) {
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
             .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
             .content { background-color: #f9f9f9; padding: 20px; }
+            .details-box { background-color: white; border: 2px solid #f2c94c; border-radius: 8px; padding: 20px; margin: 20px 0; }
+            .detail-row { padding: 10px 0; border-bottom: 1px solid #eee; }
+            .detail-row:last-child { border-bottom: none; }
+            .detail-label { font-weight: bold; color: #666; font-size: 0.9em; margin-bottom: 5px; }
+            .detail-value { font-size: 1.1em; color: #333; }
             .order-details { background-color: white; padding: 15px; margin: 15px 0; border-radius: 5px; }
             table { width: 100%; border-collapse: collapse; }
             th { background-color: #f2c94c; color: #000; padding: 10px; text-align: left; }
@@ -722,14 +783,35 @@ export async function POST(request: NextRequest) {
               <h2>Order Confirmation</h2>
             </div>
             <div class="content">
-              <p>Thank you for your order, ${order.first_name}!</p>
+              <p>Hi <strong>${order.first_name} ${order.last_name}</strong>,</p>
+              <p>Your order has been confirmed! We're excited to get your items to you.</p>
+              
+              <div class="details-box">
+                <h3 style="margin-top: 0; color: #f2c94c; font-size: 1.3em;">Order Details</h3>
+                <div class="detail-row">
+                  <div class="detail-label">Name</div>
+                  <div class="detail-value">${order.first_name} ${order.last_name}</div>
+                </div>
+                <div class="detail-row">
+                  <div class="detail-label">Order Number</div>
+                  <div class="detail-value"><strong>#${order.id}</strong></div>
+                </div>
+                <div class="detail-row">
+                  <div class="detail-label">Order Date</div>
+                  <div class="detail-value">${new Date(order.created_at).toLocaleDateString()}</div>
+                </div>
+                <div class="detail-row">
+                  <div class="detail-label">Payment Method</div>
+                  <div class="detail-value"><strong>Stripe</strong></div>
+                </div>
+                <div class="detail-row">
+                  <div class="detail-label">Payment Status</div>
+                  <div class="detail-value" style="color: #28a745; font-weight: bold;">✓ Paid</div>
+                </div>
+              </div>
+
               <div class="order-details">
-                <h3>Order Details</h3>
-                <p><strong>Order Number:</strong> #${order.id}</p>
-                <p><strong>Order Date:</strong> ${new Date(order.created_at).toLocaleDateString()}</p>
-                <p><strong>Customer Name:</strong> ${order.first_name} ${order.last_name}</p>
-                <p><strong>Email:</strong> ${order.email}</p>
-                <h4 style="margin-top: 20px; margin-bottom: 10px;">Items Ordered:</h4>
+                <h3 style="margin-top: 0;">Items Ordered</h3>
                 <table>
                   <thead>
                     <tr>
@@ -762,20 +844,20 @@ export async function POST(request: NextRequest) {
 
     const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    try {
-      console.log("Webhook: Sending customer confirmation email to:", order.email);
-      await sendHtmlEmail(
-        order.email,
-        "Order Confirmation - Country City Swing",
-        customerEmailHtml
-      );
-      console.log("Webhook: Customer confirmation email sent successfully");
-    } catch (e) {
-      console.error("Webhook: error sending customer confirmation email", e);
-    }
-    await delay(600);
+      try {
+        console.log("Webhook: Sending customer confirmation email to:", order.email);
+        await sendHtmlEmail(
+          order.email,
+          "Order Confirmation - Country City Swing",
+          customerEmailHtml
+        );
+        console.log("Webhook: Customer confirmation email sent successfully");
+      } catch (e) {
+        console.error("Webhook: error sending customer confirmation email", e);
+      }
+      await delay(600);
 
-    const merchEmailHtml = `
+      const merchEmailHtml = `
       <!DOCTYPE html>
       <html>
         <head>
@@ -824,20 +906,21 @@ export async function POST(request: NextRequest) {
       </html>
     `;
 
-    try {
-      console.log("Webhook: Sending admin notification email to: merch@countrycityswing.dance");
-      await sendHtmlEmail(
-        "merch@countrycityswing.dance",
-        `New Merch Order #${order.id} (Paid) - ${order.first_name} ${order.last_name}`,
-        merchEmailHtml
-      );
-      console.log("Webhook: Admin notification email sent successfully");
-    } catch (e) {
-      console.error("Webhook: error sending merch notification email", e);
-    }
+      try {
+        console.log("Webhook: Sending admin notification email to: merch@countrycityswing.dance");
+        await sendHtmlEmail(
+          "merch@countrycityswing.dance",
+          `New Merch Order #${order.id} (Paid) - ${order.first_name} ${order.last_name}`,
+          merchEmailHtml
+        );
+        console.log("Webhook: Admin notification email sent successfully");
+      } catch (e) {
+        console.error("Webhook: error sending merch notification email", e);
+      }
 
-    console.log("Webhook: Successfully processed order:", referenceId);
-    return NextResponse.json({ received: true });
+      console.log("Webhook: Successfully processed merch order:", order.id);
+      return NextResponse.json({ received: true });
+    }
   } catch (error: any) {
     console.error("Stripe webhook error:", error);
     return NextResponse.json(

@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
 
     // Create Stripe checkout session
     const base = getBaseUrl(req);
-    const session = await getStripe().checkout.sessions.create({
+    const sessionParams: any = {
       mode: "payment",
       payment_method_types: ["card"],
       line_items: lineItems,
@@ -132,6 +132,11 @@ export async function POST(req: NextRequest) {
         enabled: true, // Enable Stripe Tax for automatic sales tax calculation
       },
       customer_email: signup.email,
+      customer_details: {
+        name: `${signup.first_name} ${signup.last_name}`,
+        email: signup.email,
+      },
+      billing_address_collection: "auto", // Optional - allows customer to fill in if needed
       client_reference_id: signupId,
       metadata: {
         signup_id: signupId,
@@ -143,7 +148,9 @@ export async function POST(req: NextRequest) {
       },
       success_url: `${base}/events/confirmation/${signupId}`,
       cancel_url: `${base}/events/pay/${signupId}`,
-    });
+    };
+    
+    const session = await getStripe().checkout.sessions.create(sessionParams);
 
     return NextResponse.json({
       success: true,

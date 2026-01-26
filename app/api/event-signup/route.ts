@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       }
       
       // Store all signup data in Stripe metadata - will be used to create signup in webhook
-      const session = await getStripe().checkout.sessions.create({
+      const sessionParams: any = {
         mode: "payment",
         payment_method_types: ["card"], // Apple Pay and Google Pay are automatically available when "card" is enabled
         line_items: lineItems,
@@ -81,6 +81,11 @@ export async function POST(req: NextRequest) {
           enabled: true, // Enable Stripe Tax for automatic sales tax calculation
         },
         customer_email: email,
+        customer_details: {
+          name: `${firstName} ${lastName}`,
+          email: email,
+        },
+        billing_address_collection: "auto", // Optional - allows customer to fill in if needed
         client_reference_id: signupId,
         metadata: {
           signup_id: signupId,
@@ -100,7 +105,9 @@ export async function POST(req: NextRequest) {
         },
         success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${base}/events?payment=cancelled`,
-      });
+      };
+      
+      const session = await getStripe().checkout.sessions.create(sessionParams);
 
       // Don't send email yet - will be sent after payment completes in webhook
       return NextResponse.json({

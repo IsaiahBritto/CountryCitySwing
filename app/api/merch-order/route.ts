@@ -117,8 +117,25 @@ export async function POST(request: NextRequest) {
           });
         }
 
+        // Prepare customer details and billing address
+        const customerDetails: any = {
+          name: `${orderData.firstName} ${orderData.lastName}`,
+          email: orderData.email,
+        };
+
+        // If shipping address is provided, use it for billing address prefilling
+        if (orderData.shippingAddress && orderData.deliveryMethod === "ship") {
+          customerDetails.address = {
+            line1: orderData.shippingAddress.address,
+            city: orderData.shippingAddress.city,
+            state: orderData.shippingAddress.state,
+            postal_code: orderData.shippingAddress.zip,
+            country: "US",
+          };
+        }
+
         // Store all order data in Stripe metadata - will be used to create order in webhook
-        const session = await getStripe().checkout.sessions.create({
+        const sessionParams: any = {
           mode: "payment",
           payment_method_types: ["card"],
           line_items: lineItems,
@@ -126,6 +143,13 @@ export async function POST(request: NextRequest) {
             enabled: true, // Enable Stripe Tax for automatic sales tax calculation
           },
           customer_email: orderData.email,
+          customer_details: customerDetails,
+          billing_address_collection: orderData.shippingAddress && orderData.deliveryMethod === "ship" 
+            ? "auto" // Prefilled but can be edited
+            : "auto", // Optional - allows customer to fill in if needed
+          shipping_address_collection: orderData.deliveryMethod === "ship" 
+            ? { allowed_countries: ["US"] } 
+            : undefined,
           metadata: {
             first_name: orderData.firstName,
             last_name: orderData.lastName,
@@ -142,7 +166,9 @@ export async function POST(request: NextRequest) {
           },
           success_url: `${base}/merch/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${base}/merch/checkout`,
-        });
+        };
+        
+        const session = await getStripe().checkout.sessions.create(sessionParams);
 
         // Don't send email yet - will be sent after payment completes in webhook
         return NextResponse.json({

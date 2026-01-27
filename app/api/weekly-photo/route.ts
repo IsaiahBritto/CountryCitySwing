@@ -59,7 +59,7 @@ async function listWeeklyPhotos(request: Request) {
     console.log("Weekly photo API: Raw files from Drive", { count: data.files.length, sample: data.files[0] });
 
     const files = data.files
-      .filter((f: { mimeType: string }) => {
+      .filter((f: { id: string; name: string; mimeType: string; createdTime: string }) => {
         const isImage = f.mimeType.startsWith("image/") || isHeic(f.mimeType);
         if (!isImage) {
           console.log("Weekly photo API: Filtered out non-image file", { name: f.name, mimeType: f.mimeType });

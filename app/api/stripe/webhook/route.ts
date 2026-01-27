@@ -68,10 +68,10 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("Webhook: Processing checkout.session.completed");
+    
+    const session = event.data.object as Stripe.Checkout.Session;
     console.log("Webhook: Session ID:", session.id);
     console.log("Webhook: Session metadata:", JSON.stringify(session.metadata, null, 2));
-
-    const session = event.data.object as Stripe.Checkout.Session;
     
     // Check if this is a merch order FIRST (before checking client_reference_id)
     // Merch orders don't require client_reference_id, so handle them separately

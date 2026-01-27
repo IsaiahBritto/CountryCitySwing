@@ -743,6 +743,7 @@ export async function POST(request: NextRequest) {
         const { data: updatedOrder, error: updateError } = await supabaseServer
           .from("merch_orders")
           .update({
+            status: "pending", // Status is pending, but paid=true indicates payment received
             paid: true,
             payment_method: "stripe",
             stripe_session_id: session.id,
@@ -779,6 +780,7 @@ export async function POST(request: NextRequest) {
               subtotal: subtotal,
               shipping: shipping,
               total: calculatedTotal, // Use actual total from Stripe (includes tax)
+              status: "pending", // Status is pending, but paid=true indicates payment received
               paid: true, // Stripe payment completed
               payment_method: "stripe",
               stripe_session_id: session.id,

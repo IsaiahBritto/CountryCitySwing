@@ -24,33 +24,29 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const metadata = session.metadata;
-    const email = metadata.email;
-    const total = Number(metadata.total);
-
-    if (!email || !total) {
-      return NextResponse.json(
-        { error: "Missing email or total in session metadata" },
-        { status: 400 }
-      );
-    }
-
-    // Look up the order by email, total, and status
-    // Order by created_at desc to get the most recent one
+    // Look up the order by stripe_session_id (most reliable method)
+    // This ensures we get the exact order created by this Stripe session
     const { data: order, error: fetchError } = await supabaseServer
       .from("merch_orders")
       .select("*")
-      .eq("email", email)
-      .eq("total", total)
-      .eq("status", "paid")
-      .order("created_at", { ascending: false })
-      .limit(1)
+      .eq("stripe_session_id", sessionId)
       .single();
 
     if (fetchError || !order) {
       // Order not found yet - webhook might still be processing
+      // Log the error for debugging
+      console.error("Confirmation: Order not found for session", sessionId, fetchError);
       return NextResponse.json(
         { error: "Order not found", pending: true },
+        { status: 404 }
+      );
+    }
+
+    // Verify the order is paid
+    if (!order.paid) {
+      console.error("Confirmation: Order found but not marked as paid", order.id);
+      return NextResponse.json(
+        { error: "Order payment not confirmed", pending: true },
         { status: 404 }
       );
     }

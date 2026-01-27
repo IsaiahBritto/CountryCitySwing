@@ -19,6 +19,7 @@ function getBaseUrl(request: NextRequest): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const base = getBaseUrl(request);
     const orderData = await request.json();
     const paymentMethod = orderData.paymentMethod ?? "cash";
 
@@ -65,7 +66,6 @@ export async function POST(request: NextRequest) {
     // 1️⃣ Handle Stripe payment - create order AFTER payment completes
     if (paymentMethod === "stripe") {
       try {
-        const base = getBaseUrl(request);
         
         // Calculate subtotal (items + shipping) for processing fee calculation
         const subtotalForFee = orderData.subtotal + (orderData.shipping || 0);
@@ -193,6 +193,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Cash: send "Cash payment needed" emails
+    const paymentLink = `${base}/merch/checkout/pay/${order.id}`;
+    
     const orderItemsHtml = orderData.items
       .map(
         (item: any) => `
@@ -219,9 +221,14 @@ export async function POST(request: NextRequest) {
 
     const paymentBoxCash = `
       <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
-        <p style="margin: 0;"><strong>Payment:</strong> Cash payment needed.</p>
-        <p style="margin: 5px 0 0 0;">Please pay cash in person.</p>
-        <p style="margin: 10px 0 0 0; font-size: 0.9em;">Please show this confirmation email when picking up your order.</p>
+        <p style="margin: 0;"><strong>Payment:</strong> Cash payment selected.</p>
+        <p style="margin: 10px 0 0 0;">You can pay with cash in person, or click the link below to pay online via Stripe:</p>
+        <p style="margin: 10px 0 0 0;">
+          <a href="${paymentLink}" style="display: inline-block; background-color: #F2C94C; color: #000; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">
+            Pay Online via Stripe
+          </a>
+        </p>
+        <p style="margin: 10px 0 0 0; font-size: 0.9em;">If paying cash, please show this confirmation email when picking up your order.</p>
       </div>
     `;
 
@@ -358,7 +365,6 @@ export async function POST(request: NextRequest) {
     }
 
     // Redirect to success page with order_id for cash payments
-    const base = getBaseUrl(request);
     return NextResponse.json({ 
       success: true, 
       orderId: order.id,

@@ -710,6 +710,206 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Handle cash-to-stripe merch order conversion
+    const isCashToStripeMerch = session.metadata?.payment_type === "cash_to_stripe_merch";
+    
+    if (isCashToStripeMerch) {
+      console.log("Webhook: Processing cash-to-stripe merch order conversion", { sessionId: session.id });
+      const metadata = session.metadata;
+      const orderId = metadata?.order_id || session.client_reference_id;
+      
+      if (!orderId) {
+        console.error("Webhook: Missing order_id for cash_to_stripe_merch");
+        return NextResponse.json(
+          { error: "Missing order_id" },
+          { status: 400 }
+        );
+      }
+
+      // Fetch the existing order
+      const { data: order, error: fetchError } = await supabaseServer
+        .from("merch_orders")
+        .select("*")
+        .eq("id", orderId)
+        .single();
+
+      if (fetchError || !order) {
+        console.error("Webhook: Order not found for cash_to_stripe_merch", orderId, fetchError);
+        return NextResponse.json(
+          { error: "Order not found" },
+          { status: 404 }
+        );
+      }
+
+      if (order.paid) {
+        console.log("Webhook: Order already paid, returning", orderId);
+        return NextResponse.json({ received: true }); // idempotent
+      }
+
+      // Retrieve tax and fee amounts from Stripe session
+      const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
+      const processingFee = Number(metadata.processing_fee || 0);
+      const subtotal = Number(metadata.subtotal);
+      const shipping = Number(metadata.shipping);
+      const actualTotal = session.amount_total != null ? session.amount_total / 100 : Number(order.total);
+
+      // Update order to mark as paid
+      const { error: updateError } = await supabaseServer
+        .from("merch_orders")
+        .update({
+          paid: true,
+          payment_method: "stripe", // Update payment method to stripe
+          stripe_session_id: session.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", orderId);
+
+      if (updateError) {
+        console.error("Webhook: failed to update merch order", orderId, updateError);
+        return NextResponse.json(
+          { error: "Failed to update order" },
+          { status: 500 }
+        );
+      }
+
+      // Send confirmation email (similar to regular paid merch order)
+      const orderItemsHtml = (order.items as any[])
+        .map(
+          (item: any) => `
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd;">${item.productName} (${item.size})</td>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: center;">${item.quantity}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
+        </tr>
+      `
+        )
+        .join("");
+
+      const shippingInfo =
+        order.delivery_method === "ship" && order.shipping_address
+          ? `
+        <p><strong>Shipping Address:</strong></p>
+        <p>
+          ${(order.shipping_address as any).address}<br>
+          ${(order.shipping_address as any).city}, ${(order.shipping_address as any).state} ${(order.shipping_address as any).zip}
+        </p>
+        <p><strong>Shipping Cost:</strong> $${Number(order.shipping).toFixed(2)}</p>
+      `
+          : "<p><strong>Delivery Method:</strong> Local Pickup</p>";
+
+      const paymentBox = `
+        <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+          <p style="margin: 0;"><strong>Payment:</strong> Paid.</p>
+          <p style="margin: 5px 0 0 0;">Thank you for your payment. Your order is confirmed.</p>
+        </div>
+      `;
+
+      const customerEmailHtml = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
+              .content { background-color: #f9f9f9; padding: 20px; }
+              .details-box { background-color: white; border: 2px solid #f2c94c; border-radius: 8px; padding: 20px; margin: 20px 0; }
+              .detail-row { padding: 10px 0; border-bottom: 1px solid #eee; }
+              .detail-row:last-child { border-bottom: none; }
+              .detail-label { font-weight: bold; color: #666; font-size: 0.9em; margin-bottom: 5px; }
+              .detail-value { font-size: 1.1em; color: #333; }
+              .order-details { background-color: white; padding: 15px; margin: 15px 0; border-radius: 5px; }
+              table { width: 100%; border-collapse: collapse; }
+              th { background-color: #f2c94c; color: #000; padding: 10px; text-align: left; }
+              td { padding: 8px; border-bottom: 1px solid #ddd; }
+              .total { font-size: 1.2em; font-weight: bold; margin-top: 15px; }
+              .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>Country City Swing</h1>
+                <h2>Payment Confirmed</h2>
+              </div>
+              <div class="content">
+                <p>Hi <strong>${order.first_name} ${order.last_name}</strong>,</p>
+                <p>Your payment has been confirmed! We're excited to get your items to you.</p>
+                
+                <div class="details-box">
+                  <h3 style="margin-top: 0; color: #f2c94c; font-size: 1.3em;">Order Details</h3>
+                  <div class="detail-row">
+                    <div class="detail-label">Name</div>
+                    <div class="detail-value">${order.first_name} ${order.last_name}</div>
+                  </div>
+                  <div class="detail-row">
+                    <div class="detail-label">Order Number</div>
+                    <div class="detail-value"><strong>#${order.id}</strong></div>
+                  </div>
+                  <div class="detail-row">
+                    <div class="detail-label">Order Date</div>
+                    <div class="detail-value">${new Date(order.created_at).toLocaleDateString()}</div>
+                  </div>
+                  <div class="detail-row">
+                    <div class="detail-label">Payment Method</div>
+                    <div class="detail-value"><strong>Stripe</strong></div>
+                  </div>
+                  <div class="detail-row">
+                    <div class="detail-label">Payment Status</div>
+                    <div class="detail-value" style="color: #28a745; font-weight: bold;">✓ Paid</div>
+                  </div>
+                </div>
+
+                <div class="order-details">
+                  <h3 style="margin-top: 0;">Items Ordered</h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Item</th>
+                        <th style="text-align: center;">Quantity</th>
+                        <th style="text-align: right;">Price</th>
+                      </tr>
+                    </thead>
+                    <tbody>${orderItemsHtml}</tbody>
+                  </table>
+                  <div class="total">
+                    <p><strong>Subtotal:</strong> $${subtotal.toFixed(2)}</p>
+                    <p><strong>Shipping:</strong> $${shipping.toFixed(2)}</p>
+                    ${processingFee > 0 ? `<p><strong>Processing Fee:</strong> $${processingFee.toFixed(2)}</p>` : ""}
+                    ${taxAmount > 0 ? `<p><strong>Sales Tax:</strong> $${taxAmount.toFixed(2)}</p>` : ""}
+                    <p style="font-size: 1.3em; margin-top: 10px;"><strong>Total:</strong> $${actualTotal.toFixed(2)}</p>
+                  </div>
+                  <h4 style="margin-top: 20px; margin-bottom: 10px;">Delivery Information:</h4>
+                  ${shippingInfo}
+                </div>
+                ${paymentBox}
+                <p>We'll notify you when your order is ready for ${order.delivery_method === "ship" ? "shipping" : "pickup"}.</p>
+                <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, contact us at contact.us@countrycityswing.dance</p>
+              </div>
+              <div class="footer">
+                <p>Country City Swing<br>Nashville, TN</p>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      try {
+        console.log("Webhook: Sending payment confirmation email to:", order.email);
+        await sendHtmlEmail(
+          order.email,
+          "Payment Confirmed - Country City Swing",
+          customerEmailHtml
+        );
+        console.log("Webhook: Payment confirmation email sent successfully");
+      } catch (e) {
+        console.error("Webhook: error sending payment confirmation email", e);
+      }
+
+      console.log("Webhook: Successfully processed cash-to-stripe merch order:", orderId);
+      return NextResponse.json({ received: true });
+    }
+
     // Handle merch order payment (checked at the top, now process it)
     if (isMerchOrder) {
       console.log("Webhook: Processing merch order payment", { sessionId: session.id });

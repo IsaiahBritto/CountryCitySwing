@@ -68,35 +68,47 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("Webhook: Processing checkout.session.completed");
+    console.log("Webhook: Session ID:", session.id);
+    console.log("Webhook: Session metadata:", JSON.stringify(session.metadata, null, 2));
 
     const session = event.data.object as Stripe.Checkout.Session;
-    const referenceId = session.client_reference_id;
-    if (!referenceId) {
-      console.error("Webhook: checkout.session.completed missing client_reference_id");
-      return NextResponse.json(
-        { error: "Missing client_reference_id" },
-        { status: 400 }
-      );
-    }
+    
+    // Check if this is a merch order FIRST (before checking client_reference_id)
+    // Merch orders don't require client_reference_id, so handle them separately
+    const isMerchOrder = session.metadata?.payment_type === "merch_order";
+    
+    if (isMerchOrder) {
+      // Handle merch order - skip all event signup logic
+      // (merch order handling code is below, will be reached)
+    } else {
+      // For event signups, client_reference_id is required
+      const referenceId = session.client_reference_id;
+      if (!referenceId) {
+        console.error("Webhook: checkout.session.completed missing client_reference_id (non-merch order)");
+        return NextResponse.json(
+          { error: "Missing client_reference_id" },
+          { status: 400 }
+        );
+      }
 
-    // Check if this is an event signup payment
-    // Event signups have signup_id in metadata, or payment_type === "cash_to_stripe" or "stripe_checkout"
-    const hasSignupId = !!session.metadata?.signup_id;
-    const isCashToStripe = session.metadata?.payment_type === "cash_to_stripe";
-    const isStripeCheckout = session.metadata?.payment_type === "stripe_checkout";
-    const isEventSignup = hasSignupId || isCashToStripe || isStripeCheckout;
-    
-    console.log("Webhook: Checking event signup", {
-      hasSignupId,
-      isCashToStripe,
-      isStripeCheckout,
-      isEventSignup,
-      paymentType: session.metadata?.payment_type,
-      metadataKeys: session.metadata ? Object.keys(session.metadata) : [],
-      referenceId
-    });
-    
-    if (isEventSignup) {
+      // Check if this is an event signup payment
+      // Event signups have signup_id in metadata, or payment_type === "cash_to_stripe" or "stripe_checkout"
+      const hasSignupId = !!session.metadata?.signup_id;
+      const isCashToStripe = session.metadata?.payment_type === "cash_to_stripe";
+      const isStripeCheckout = session.metadata?.payment_type === "stripe_checkout";
+      const isEventSignup = hasSignupId || isCashToStripe || isStripeCheckout;
+      
+      console.log("Webhook: Checking event signup", {
+        hasSignupId,
+        isCashToStripe,
+        isStripeCheckout,
+        isEventSignup,
+        paymentType: session.metadata?.payment_type,
+        metadataKeys: session.metadata ? Object.keys(session.metadata) : [],
+        referenceId
+      });
+      
+      if (isEventSignup) {
       const signupId = session.metadata?.signup_id || referenceId;
       console.log("Webhook: Processing event signup", { signupId, sessionId: session.id });
       
@@ -695,11 +707,10 @@ export async function POST(request: NextRequest) {
         console.log("Webhook: Successfully processed cash-to-stripe payment:", signupId);
         return NextResponse.json({ received: true });
       }
+      }
     }
 
-    // Handle merch order payment
-    const isMerchOrder = session.metadata?.payment_type === "merch_order";
-    
+    // Handle merch order payment (checked at the top, now process it)
     if (isMerchOrder) {
       console.log("Webhook: Processing merch order payment", { sessionId: session.id });
       const metadata = session.metadata;

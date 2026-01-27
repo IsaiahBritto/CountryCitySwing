@@ -747,6 +747,14 @@ export async function POST(request: NextRequest) {
       }
 
       // Retrieve tax and fee amounts from Stripe session
+      if (!metadata) {
+        console.error("Webhook: Missing metadata for cash_to_stripe_merch");
+        return NextResponse.json(
+          { error: "Missing metadata" },
+          { status: 400 }
+        );
+      }
+
       const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
       const processingFee = Number(metadata.processing_fee || 0);
       const subtotal = Number(metadata.subtotal);

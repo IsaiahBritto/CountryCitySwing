@@ -357,7 +357,13 @@ export async function POST(request: NextRequest) {
       console.error("Error sending merch notification email:", emailError);
     }
 
-    return NextResponse.json({ success: true, orderId: order.id });
+    // Redirect to success page with order_id for cash payments
+    const base = getBaseUrl(request);
+    return NextResponse.json({ 
+      success: true, 
+      orderId: order.id,
+      redirect: `${base}/merch/checkout/success?order_id=${order.id}`
+    });
   } catch (error: any) {
     console.error("Order submission error:", error);
     return NextResponse.json(

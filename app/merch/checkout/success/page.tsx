@@ -10,6 +10,7 @@ function SuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
+  const orderId = searchParams.get("order_id");
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<any>(null);
   const [error, setError] = useState("");
@@ -26,17 +27,21 @@ function SuccessContent() {
     let isMounted = true;
 
     async function loadOrder() {
-      if (!isMounted || !sessionId) return;
+      if (!isMounted || (!sessionId && !orderId)) return;
       
       try {
-        const response = await fetch(`/api/merch-order/confirmation?session_id=${sessionId}`);
+        const url = orderId 
+          ? `/api/merch-order/confirmation?order_id=${orderId}`
+          : `/api/merch-order/confirmation?session_id=${sessionId}`;
+        
+        const response = await fetch(url);
         const result = await response.json();
 
         if (!response.ok || !result.order) {
           pollAttempts++;
           if (pollAttempts >= maxPollAttempts) {
             if (isMounted) {
-              setError("Order not found. Your payment was successful - please check your email for confirmation.");
+              setError("Order not found. Please check your email for confirmation.");
               setLoading(false);
             }
             if (pollInterval) {
@@ -63,15 +68,18 @@ function SuccessContent() {
       }
     }
 
-    if (sessionId) {
+    if (sessionId || orderId) {
       loadOrder();
-      pollInterval = setInterval(() => {
-        if (pollAttempts < maxPollAttempts && isMounted) {
-          loadOrder();
-        } else if (pollInterval) {
-          clearInterval(pollInterval);
-        }
-      }, 1000);
+      // Only poll for Stripe orders (cash orders are created immediately)
+      if (sessionId) {
+        pollInterval = setInterval(() => {
+          if (pollAttempts < maxPollAttempts && isMounted) {
+            loadOrder();
+          } else if (pollInterval) {
+            clearInterval(pollInterval);
+          }
+        }, 1000);
+      }
     } else {
       setError("Invalid confirmation link");
       setLoading(false);
@@ -83,7 +91,7 @@ function SuccessContent() {
         clearInterval(pollInterval);
       }
     };
-  }, [sessionId]);
+  }, [sessionId, orderId]);
 
   // Auto-redirect countdown
   useEffect(() => {
@@ -149,7 +157,7 @@ function SuccessContent() {
             Order Confirmed!
           </h1>
           <p className="text-gray-300">
-            Your payment was successful
+            {order.paid ? "Your payment was successful" : "Your order has been received"}
           </p>
         </div>
 
@@ -183,9 +191,15 @@ function SuccessContent() {
             </div>
             <div>
               <p className="text-gray-400 text-sm mb-1">Payment Status</p>
-              <p className="text-green-400 font-semibold">
-                ✓ Paid via Stripe
-              </p>
+              {order.paid ? (
+                <p className="text-green-400 font-semibold">
+                  ✓ Paid via Stripe
+                </p>
+              ) : (
+                <p className="text-yellow-400 font-semibold">
+                  ⚠ Cash payment needed
+                </p>
+              )}
             </div>
             <div>
               <p className="text-gray-400 text-sm mb-1">Delivery Method</p>
@@ -215,12 +229,30 @@ function SuccessContent() {
 
         {/* Confirmation Message */}
         <div className="mb-6">
-          <p className="text-gray-300 mb-2">
-            Thank you for your order! We'll notify you when it's ready for {order.delivery_method === "ship" ? "shipping" : "pickup"}.
-          </p>
-          <p className="text-green-400 font-semibold">
-            Your payment has been confirmed.
-          </p>
+          {order.paid ? (
+            <>
+              <p className="text-gray-300 mb-2">
+                Thank you for your order! We'll notify you when it's ready for {order.delivery_method === "ship" ? "shipping" : "pickup"}.
+              </p>
+              <p className="text-green-400 font-semibold">
+                Your payment has been confirmed.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-300 mb-2">
+                Thank you for your order! Please pay cash in person when you {order.delivery_method === "ship" ? "receive" : "pick up"} your order.
+              </p>
+              <div className="bg-yellow-900/20 border-2 border-yellow-600 rounded-lg p-4 mt-3">
+                <p className="text-yellow-400 font-semibold mb-1">
+                  ⚠ Cash Payment Required
+                </p>
+                <p className="text-gray-300 text-sm">
+                  Please show this confirmation when paying for your order. We'll process your order once payment is received.
+                </p>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Auto-redirect notice */}

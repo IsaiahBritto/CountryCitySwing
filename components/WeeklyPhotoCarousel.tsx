@@ -40,10 +40,28 @@ export default function WeeklyPhotoCarousel() {
     async (pageToken: string | null = null) => {
       const params = new URLSearchParams({ pageSize: String(BATCH_SIZE) });
       if (pageToken) params.set("pageToken", pageToken);
-      const res = await fetch(`/api/weekly-photo?${params.toString()}`);
-      if (!res.ok) throw new Error("Failed to load photos");
-      const data = await res.json();
-      return { files: data.files ?? [], nextPageToken: data.nextPageToken ?? null };
+      
+      try {
+        const res = await fetch(`/api/weekly-photo?${params.toString()}`);
+        const data = await res.json();
+        
+        // Check for error in response (even if status is 200)
+        if (data.error) {
+          console.error("WeeklyPhotoCarousel: API returned error", data.error);
+          throw new Error(typeof data.error === 'string' ? data.error : data.error.message || "Failed to load photos");
+        }
+        
+        // If response is not ok, also check for error
+        if (!res.ok) {
+          console.error("WeeklyPhotoCarousel: API error", { status: res.status, error: data.error || data });
+          throw new Error(typeof data.error === 'string' ? data.error : data.error?.message || `Failed to load photos (${res.status})`);
+        }
+        
+        return { files: data.files ?? [], nextPageToken: data.nextPageToken ?? null };
+      } catch (err: any) {
+        console.error("WeeklyPhotoCarousel: Fetch error", err);
+        throw err instanceof Error ? err : new Error("Failed to load photos");
+      }
     },
     []
   );
@@ -60,7 +78,10 @@ export default function WeeklyPhotoCarousel() {
         setCurrentIndex(0);
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message ?? "Failed to load photos");
+        if (!cancelled) {
+          console.error("WeeklyPhotoCarousel: Error loading photos", err);
+          setError(err?.message ?? "Failed to load photos");
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

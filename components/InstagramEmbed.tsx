@@ -16,7 +16,7 @@ export default function InstagramEmbed() {
   const isNativeEmbed = embedUrl === NATIVE_EMBED_URL;
 
   return (
-    <section className="w-full max-w-4xl mx-auto">
+    <section className="w-full max-w-sm sm:max-w-2xl md:max-w-4xl mx-auto px-2 sm:px-0">
       {isNativeEmbed && (
         <div className="mb-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-3">

@@ -544,6 +544,13 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ received: true }); // idempotent
         }
 
+        // Retrieve tax and fee amounts from Stripe session (used for DB + email)
+        const metadata = session.metadata || {};
+        const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
+        const processingFee = Number(metadata.processing_fee || 0);
+        const subtotal = Number(metadata.subtotal || 0);
+        const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+
         const { error: updateError } = await supabaseServer
           .from("signups")
           .update({
@@ -563,13 +570,6 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           );
         }
-
-        // Retrieve tax and fee amounts from Stripe session
-        const metadata = session.metadata || {};
-        const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
-        const processingFee = Number(metadata.processing_fee || 0);
-        const subtotal = Number(metadata.subtotal || 0);
-        const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
 
         // Fetch event details for email
         let eventDate = "";

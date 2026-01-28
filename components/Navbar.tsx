@@ -18,6 +18,7 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [showRegistration, setShowRegistration] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Load and listen for auth changes
   useEffect(() => {
@@ -35,6 +36,7 @@ export default function Navbar() {
       if (!user?.id) {
         setProfile(null);
         setShowRegistration(false);
+        setIsAdmin(false);
         return;
       }
       const { data } = await supabaseBrowser
@@ -47,11 +49,12 @@ export default function Navbar() {
         
         // Use case-insensitive role check to handle variations
         const roleLower = (data.role || "").toLowerCase();
-        const isAdmin = roleLower === "admin";
+        const isAdminRole = roleLower === "admin";
         // Only check for instructor if NOT an admin (admins get special treatment)
-        const isInstructor = !isAdmin && (roleLower === "instructor" || roleLower.includes("instructor"));
+        const isInstructor = !isAdminRole && (roleLower === "instructor" || roleLower.includes("instructor"));
+        setIsAdmin(isAdminRole);
         
-        if (isAdmin) {
+        if (isAdminRole) {
           // Admins: Registration always visible
           setShowRegistration(true);
         } else if (isInstructor) {
@@ -129,6 +132,14 @@ export default function Navbar() {
               Registration
             </Link>
           )}
+          {isAdmin && (
+            <Link
+              href="/admin/finances"
+              className="text-gray-300 hover:text-primary transition-colors"
+            >
+              Finances
+            </Link>
+          )}
 
           {user ? (
             <Link
@@ -168,6 +179,15 @@ export default function Navbar() {
               className="block text-gray-300 hover:text-primary transition-colors"
             >
               Registration
+            </Link>
+          )}
+          {isAdmin && (
+            <Link
+              href="/admin/finances"
+              onClick={() => setMenuOpen(false)}
+              className="block text-gray-300 hover:text-primary transition-colors"
+            >
+              Finances
             </Link>
           )}
 

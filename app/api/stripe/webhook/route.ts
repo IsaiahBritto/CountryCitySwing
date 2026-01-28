@@ -112,10 +112,16 @@ export async function POST(request: NextRequest) {
       const signupId = session.metadata?.signup_id || referenceId;
       console.log("Webhook: Processing event signup", { signupId, sessionId: session.id });
       
+      // Common amounts for Stripe event payments
+      const metadata = session.metadata || {};
+      const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
+      const processingFee = Number(metadata.processing_fee || 0);
+      const subtotal = Number(metadata.subtotal || 0);
+      const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+      
       // If this is a new Stripe checkout (not cash-to-stripe), create the signup record
       if (isStripeCheckout) {
         console.log("Webhook: Processing stripe_checkout payment", { signupId, sessionId: session.id });
-        const metadata = session.metadata;
         if (!metadata) {
           console.error("Webhook: Missing metadata for stripe_checkout", { sessionId: session.id });
           return NextResponse.json(
@@ -145,7 +151,7 @@ export async function POST(request: NextRequest) {
 
         if (existingSignup) {
           console.log("Webhook: Signup already exists", signupId);
-          // Signup already exists, just ensure it's marked as paid
+          // Signup already exists, just ensure it's marked as paid and store Stripe amounts
           if (existingSignup.paid) {
             console.log("Webhook: Signup already paid, returning", signupId);
             return NextResponse.json({ received: true }); // idempotent
@@ -156,6 +162,9 @@ export async function POST(request: NextRequest) {
             .update({
               paid: true,
               payment_method: "Stripe",
+              stripe_tax_amount: taxAmount,
+              stripe_processing_fee: processingFee,
+              stripe_total_paid: actualTotal,
               updated_at: new Date().toISOString(),
             })
             .eq("id", signupId);
@@ -188,6 +197,9 @@ export async function POST(request: NextRequest) {
                 accept_liability: metadata.accept_liability === "true",
                 accept_payment: metadata.accept_payment === "true",
                 paid: true,
+                stripe_tax_amount: taxAmount,
+                stripe_processing_fee: processingFee,
+                stripe_total_paid: actualTotal,
               },
             ])
             .select()
@@ -211,11 +223,7 @@ export async function POST(request: NextRequest) {
           // Use the newly created signup for email sending
           const signup = newSignup;
           
-          // Retrieve tax and fee amounts from Stripe session
-          const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
-          const processingFee = Number(metadata.processing_fee || 0);
-          const subtotal = Number(metadata.subtotal || 0);
-          const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+          // Retrieve tax and fee amounts from Stripe session (already computed above)
           
           // Fetch event details for email
           let eventDate = "";
@@ -373,12 +381,6 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           );
         }
-
-        // Retrieve tax and fee amounts from Stripe session
-        const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
-        const processingFee = Number(metadata.processing_fee || 0);
-        const subtotal = Number(metadata.subtotal || 0);
-        const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
 
         // Fetch event details for email
         let eventDate = "";
@@ -547,6 +549,9 @@ export async function POST(request: NextRequest) {
           .update({
             paid: true,
             payment_method: "Stripe", // Update payment method to Stripe
+            stripe_tax_amount: taxAmount,
+            stripe_processing_fee: processingFee,
+            stripe_total_paid: actualTotal,
             updated_at: new Date().toISOString(),
           })
           .eq("id", signupId);

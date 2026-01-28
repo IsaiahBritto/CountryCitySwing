@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import dayjs from "dayjs";
 
 interface UserMeta {
   id?: string;
@@ -44,19 +45,23 @@ export default function Navbar() {
       if (data) {
         setProfile(data);
         
-        // Show registration button for admins (always) or instructors (only when event today)
-        const isAdmin = data.role === "admin";
-        const isInstructor = data.role === "instructor";
+        // Use case-insensitive role check to handle variations
+        const roleLower = (data.role || "").toLowerCase();
+        const isAdmin = roleLower === "admin";
+        // Only check for instructor if NOT an admin (admins get special treatment)
+        const isInstructor = !isAdmin && (roleLower === "instructor" || roleLower.includes("instructor"));
         
         if (isAdmin) {
+          // Admins: Registration always visible
           setShowRegistration(true);
         } else if (isInstructor) {
-          // Check if there's an event today
-          const today = new Date().toISOString().split("T")[0];
+          // Instructors: Only show Registration when there's an event today
+          // Use same date format as registration page for consistency
+          const todayStr = dayjs().startOf("day").format("YYYY-MM-DD");
           const { data: events } = await supabaseBrowser
             .from("events")
             .select("id")
-            .eq("date", today)
+            .eq("date", todayStr)
             .limit(1);
           setShowRegistration(!!(events && events.length > 0));
         } else {

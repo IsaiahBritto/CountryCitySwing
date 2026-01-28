@@ -5,7 +5,7 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
 
 interface Event {
-  id: number;
+  id: string; // UUID, not number
   title: string;
   date: string;
   location: string;
@@ -13,7 +13,7 @@ interface Event {
 
 interface Signup {
   id: string;
-  event_id: number;
+  event_id: string; // UUID, not number
   event_title: string;
   first_name: string;
   last_name: string;
@@ -33,6 +33,7 @@ export default function RegistrationPage() {
   const [filter, setFilter] = useState<FilterType>("all");
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [fadingOut, setFadingOut] = useState<Set<string>>(new Set());
   const [userEmail, setUserEmail] = useState<string>("");
   const [userRole, setUserRole] = useState<string>("");
   const [isInstructor, setIsInstructor] = useState(false);
@@ -50,8 +51,13 @@ export default function RegistrationPage() {
           .single();
         if (profile) {
           setUserRole(profile.role || "");
-          setIsInstructor(profile.role === "instructor");
-          setIsAdmin(profile.role === "admin");
+          // Use case-insensitive role check to handle variations
+          const roleLower = (profile.role || "").toLowerCase();
+          const isAdminRole = roleLower === "admin";
+          // Only check for instructor if NOT an admin (admins get special treatment)
+          const isInstructorRole = !isAdminRole && (roleLower === "instructor" || roleLower.includes("instructor"));
+          setIsInstructor(isInstructorRole);
+          setIsAdmin(isAdminRole);
         }
       }
     };
@@ -105,34 +111,110 @@ export default function RegistrationPage() {
     }
   }, [selectedEvent, filter]);
 
-  const loadSignups = async (eventId: number) => {
+  // Set up real-time subscription for signups changes
+  useEffect(() => {
+    if (!selectedEvent) return;
+
+    const channelName = `signups_changes_${selectedEvent.id}`;
+    const channel = supabaseBrowser.channel(channelName);
+
+    // Subscribe to signups changes for this event
+    channel
+      .on(
+        "postgres_changes",
+        {
+          event: "*", // Listen for INSERT, UPDATE, DELETE
+          schema: "public",
+          table: "signups",
+          filter: `event_id=eq.${selectedEvent.id}`, // Only listen for this event's signups
+        },
+        (payload) => {
+          console.log("Realtime update - signups:", payload);
+          // Reload signups when changes are detected
+          loadSignups(selectedEvent.id);
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("✅ Realtime subscription active for signups", channelName);
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("❌ Realtime subscription error for signups", channelName, status);
+        } else if (status === "TIMED_OUT") {
+          console.warn("⏱️ Realtime subscription timed out for signups", channelName);
+        } else if (status === "CLOSED") {
+          console.log("🔒 Realtime subscription closed for signups", channelName);
+        } else {
+          console.log("Realtime subscription status:", status, channelName);
+        }
+      });
+
+    // Cleanup subscription on unmount or when selectedEvent changes
+    return () => {
+      console.log("Cleaning up realtime subscription for signups", channelName);
+      supabaseBrowser.removeChannel(channel);
+    };
+  }, [selectedEvent]);
+
+  // Polling fallback: refresh signups every 10 seconds as backup
+  useEffect(() => {
+    if (!selectedEvent) return;
+
+    const intervalId = setInterval(() => {
+      console.log("Polling: Refreshing signups...");
+      loadSignups(selectedEvent.id);
+    }, 20000); // Poll every 20 seconds
+
+    return () => clearInterval(intervalId);
+  }, [selectedEvent]);
+
+  const loadSignups = async (eventId: string) => {
     try {
-      let query = supabaseBrowser
-        .from("signups")
-        .select("*")
-        .eq("event_id", eventId)
-        .order("first_name", { ascending: true });
-
-      // Apply filter
-      if (filter === "not_checked_in") {
-        query = query.eq("checked_in", false);
-      } else if (filter === "checked_in") {
-        query = query.eq("checked_in", true);
+      // Get the current session to send access token
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+      if (!session) {
+        console.error("No session found");
+        setSignups([]);
+        return;
       }
 
-      const { data, error } = await query;
-
-      if (error) {
-        console.error("Error loading signups:", error);
-      } else {
-        // Sort by first name alphabetically (case-insensitive)
-        const sorted = (data || []).sort((a, b) => 
-          a.first_name.localeCompare(b.first_name, undefined, { sensitivity: 'base' })
-        );
-        setSignups(sorted);
+      // Use API route which handles authentication and RLS bypass for instructors/admins
+      const params = new URLSearchParams({
+        event_id: eventId.toString(),
+        filter: filter,
+      });
+      
+      const response = await fetch(`/api/signups?${params.toString()}`, {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Error loading signups:", {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData.error,
+          eventId,
+          isInstructor,
+          isAdmin,
+          userRole
+        });
+        setSignups([]);
+        return;
       }
+
+      const { signups } = await response.json();
+      console.log("Signups loaded successfully:", signups?.length || 0, "signups for event", eventId);
+      
+      // Sort by first name alphabetically (case-insensitive)
+      const sorted = (signups || []).sort((a: Signup, b: Signup) => 
+        a.first_name.localeCompare(b.first_name, undefined, { sensitivity: 'base' })
+      );
+      setSignups(sorted);
     } catch (err) {
-      console.error("Error:", err);
+      console.error("Error loading signups:", err);
+      setSignups([]);
     }
   };
 
@@ -143,25 +225,63 @@ export default function RegistrationPage() {
   ) => {
     setUpdating(signupId);
     try {
-      const updateData: any = { [field]: value };
-      
-      // If checking in, also mark as paid
-      if (field === "checked_in" && value === true) {
-        updateData.paid = true;
+      // Get the current session to send access token
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+      if (!session) {
+        alert("Not authenticated");
+        setUpdating(null);
+        return;
       }
 
-      const { error } = await supabaseBrowser
-        .from("signups")
-        .update(updateData)
-        .eq("id", signupId);
+      // Use API route which handles authentication and RLS bypass for instructors/admins
+      const response = await fetch("/api/signups", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          signupId,
+          field,
+          value,
+        }),
+      });
 
-      if (error) {
-        console.error("Error updating signup:", error);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Error updating signup:", {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData.error,
+        });
         alert("Failed to update signup status");
       } else {
-        // Reload signups
-        if (selectedEvent) {
-          loadSignups(selectedEvent.id);
+        // If checking in while viewing "not_checked_in" filter, trigger fade-out
+        if (field === "checked_in" && value === true && filter === "not_checked_in") {
+          // Add to fading out set
+          setFadingOut((prev) => new Set(prev).add(signupId));
+          
+          // Update the signup locally to show green color immediately
+          setSignups((prev) =>
+            prev.map((s) =>
+              s.id === signupId ? { ...s, checked_in: true, paid: true } : s
+            )
+          );
+          
+          // Remove from list after 2 seconds
+          setTimeout(() => {
+            setSignups((prev) => prev.filter((s) => s.id !== signupId));
+            setFadingOut((prev) => {
+              const next = new Set(prev);
+              next.delete(signupId);
+              return next;
+            });
+          }, 2000);
+        } else {
+          // Reload signups normally for other cases
+          if (selectedEvent) {
+            loadSignups(selectedEvent.id);
+          }
         }
       }
     } catch (err) {
@@ -282,7 +402,9 @@ export default function RegistrationPage() {
               {signups.map((signup) => (
                 <div
                   key={signup.id}
-                  className={`p-3 md:p-4 rounded-lg border-2 ${getRowColor(signup)}`}
+                  className={`p-3 md:p-4 rounded-lg border-2 transition-opacity duration-[2000ms] ease-out ${
+                    fadingOut.has(signup.id) ? "opacity-0" : "opacity-100"
+                  } ${getRowColor(signup)}`}
                 >
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
                     <div className="flex-1 min-w-0">
@@ -294,35 +416,37 @@ export default function RegistrationPage() {
                         Payment: {signup.payment_method}
                       </p>
                     </div>
-                    <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={signup.paid}
-                          onChange={(e) =>
-                            updateSignupStatus(signup.id, "paid", e.target.checked)
-                          }
-                          disabled={updating === signup.id || signup.checked_in}
-                          className="w-4 h-4 md:w-5 md:h-5 text-primary focus:ring-primary border-neutral-600 bg-neutral-700 rounded shrink-0"
-                        />
-                        <span className="text-xs md:text-sm text-gray-300 whitespace-nowrap">Paid</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={signup.checked_in}
-                          onChange={(e) =>
-                            updateSignupStatus(
-                              signup.id,
-                              "checked_in",
-                              e.target.checked
-                            )
-                          }
-                          disabled={updating === signup.id}
-                          className="w-4 h-4 md:w-5 md:h-5 text-primary focus:ring-primary border-neutral-600 bg-neutral-700 rounded shrink-0"
-                        />
-                        <span className="text-xs md:text-sm text-gray-300 whitespace-nowrap">Check In</span>
-                      </label>
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                      <button
+                        onClick={() =>
+                          updateSignupStatus(signup.id, "paid", !signup.paid)
+                        }
+                        disabled={updating === signup.id || signup.checked_in}
+                        className={`px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap ${
+                          signup.paid
+                            ? "bg-yellow-500 text-black hover:bg-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.5)]"
+                            : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                        } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-neutral-700`}
+                      >
+                        {signup.paid ? "✓ Paid" : "Paid"}
+                      </button>
+                      <button
+                        onClick={() =>
+                          updateSignupStatus(
+                            signup.id,
+                            "checked_in",
+                            !signup.checked_in
+                          )
+                        }
+                        disabled={updating === signup.id}
+                        className={`px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap ${
+                          signup.checked_in
+                            ? "bg-green-600 text-white hover:bg-green-500 shadow-[0_0_10px_rgba(22,163,74,0.5)]"
+                            : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                        } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-neutral-700`}
+                      >
+                        {signup.checked_in ? "✓ Checked In" : "Check In"}
+                      </button>
                     </div>
                   </div>
                 </div>

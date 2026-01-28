@@ -1195,7 +1195,7 @@ function NashvilleBreakdown({
           autoPayout={autoPayouts.bt1Payout}
           onClearOverride={() => onPatch({ bt1_payout_override: null })}
           paid={nashville?.bt1_paid ?? false}
-          paidAt={nashville?.bt1_paid_at}
+          paidAt={nashville?.bt1_paid_at ?? null}
           onMarkPaid={() => onPatch({ mark_bt1_paid: true })}
           saving={saving}
         />
@@ -1212,7 +1212,7 @@ function NashvilleBreakdown({
           autoPayout={autoPayouts.bt2Payout}
           onClearOverride={() => onPatch({ bt2_payout_override: null })}
           paid={nashville?.bt2_paid ?? false}
-          paidAt={nashville?.bt2_paid_at}
+          paidAt={nashville?.bt2_paid_at ?? null}
           onMarkPaid={() => onPatch({ mark_bt2_paid: true })}
           saving={saving}
         />
@@ -1229,7 +1229,7 @@ function NashvilleBreakdown({
           autoPayout={autoPayouts.malissaPayout}
           onClearOverride={() => onPatch({ malissa_payout_override: null })}
           paid={nashville?.malissa_paid ?? false}
-          paidAt={nashville?.malissa_paid_at}
+          paidAt={nashville?.malissa_paid_at ?? null}
           onMarkPaid={() => onPatch({ mark_malissa_paid: true })}
           saving={saving}
         />

@@ -7,6 +7,9 @@ import CartProviderWrapper from "../components/CartProviderWrapper";
 export const metadata = {
   title: "Country City Swing",
   description: "Nashville’s Country Swing partner dancing studio",
+  icons: {
+    icon: "/media/logo-dark.png", // Browser tab icon (favicon)
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

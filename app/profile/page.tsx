@@ -41,18 +41,23 @@ export default function ProfilePage() {
   useEffect(() => {
     async function loadProfile() {
       const {
-        data: { user },
-      } = await supabaseBrowser.auth.getUser();
+        data: { session },
+      } = await supabaseBrowser.auth.getSession();
 
-      if (!user) return setLoading(false);
+      if (!session?.user) return setLoading(false);
 
-      const { data } = await supabaseBrowser
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
+      const token = session.access_token;
+      const res = await fetch("/api/profile", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-      setProfile({ ...data, email: user.email });
+      if (!res.ok) {
+        setLoading(false);
+        return;
+      }
+
+      const data = await res.json();
+      setProfile({ ...data, email: session.user.email ?? "" });
       setLoading(false);
     }
 
@@ -80,44 +85,59 @@ export default function ProfilePage() {
       }
     }
 
-    // Build update object - exclude photo_url for attendees
-    const updateData: any = {
-      first_name: profile.first_name,
-      last_name: profile.last_name,
+    // Build update payload: include every editable field so the API saves all of them
+    const updateData: Record<string, unknown> = {
+      first_name: profile.first_name ?? "",
+      last_name: profile.last_name ?? "",
+      role: profile.role,
     };
 
-    // Only include photo_url if user is not an attendee
     if (profile.role !== "attendee") {
-      updateData.photo_url = photo_url;
+      updateData.photo_url = photo_url ?? null;
     }
 
-    // Only include instructor/admin fields if user has appropriate role
     if (profile.role === "instructor" || profile.role === "admin") {
-      updateData.instagram_url = profile.instagram_url;
-      updateData.teaching_since = profile.teaching_since;
-      updateData.favorite_song = profile.favorite_song;
-      updateData.teaching_style = profile.teaching_style;
-      updateData.bio_long = profile.bio_long;
-      updateData.specialty = profile.specialty;
-      updateData.phone_number = profile.phone_number;
-      updateData.private_lessons = profile.private_lessons;
-      updateData.private_lessons_link = profile.private_lessons_link;
-      updateData.scheduling_enabled = profile.scheduling_enabled;
-      updateData.lesson_duration_minutes = profile.lesson_duration_minutes;
-      updateData.prayer = profile.prayer;
+      updateData.instagram_url = profile.instagram_url ?? null;
+      updateData.teaching_since = profile.teaching_since ?? null;
+      updateData.favorite_song = profile.favorite_song ?? null;
+      updateData.teaching_style = profile.teaching_style ?? null;
+      updateData.bio_long = profile.bio_long ?? null;
+      updateData.specialty = profile.specialty ?? null;
+      updateData.phone_number = profile.phone_number ?? null;
+      updateData.private_lessons = profile.private_lessons ?? null;
+      updateData.private_lessons_link = profile.private_lessons_link ?? null;
+      updateData.scheduling_enabled = profile.scheduling_enabled ?? false;
+      updateData.lesson_duration_minutes = profile.lesson_duration_minutes ?? null;
+      updateData.prayer = profile.prayer ?? null;
     }
 
-    const { error } = await supabaseBrowser
-      .from("profiles")
-      .update(updateData)
-      .eq("id", profile.id);
+    const {
+      data: { session },
+    } = await supabaseBrowser.auth.getSession();
+    const token = session?.access_token;
+
+    if (!token) {
+      setUpdating(false);
+      alert("Session expired. Please sign in again.");
+      return;
+    }
+
+    const res = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(updateData),
+    });
 
     setUpdating(false);
 
-    if (!error) {
+    if (res.ok) {
       alert("Profile updated successfully!");
     } else {
-      alert("Error updating profile: " + error.message);
+      const err = await res.json().catch(() => ({}));
+      alert("Error updating profile: " + (err.error ?? res.statusText));
     }
   };
 

@@ -100,6 +100,11 @@ export default function ScheduleCalendar({
     return slots.filter((s) => s.event?.date === dateStr);
   };
 
+  /** Number of slots on this day that have no assignee (available to pick up). */
+  const getAvailableCountForDay = (day: number): number => {
+    return getSlotsForDay(day).filter((s) => !s.assignee_id).length;
+  };
+
   const handleDayClick = (day: number) => {
     const dateSlots = getSlotsForDay(day);
     if (dateSlots.length === 0) return;
@@ -282,6 +287,7 @@ export default function ScheduleCalendar({
           {weeks.map((week, wi) =>
             week.map((day, di) => {
               const daySlotsCount = day ? getSlotsForDay(day).length : 0;
+              const availableCount = day ? getAvailableCountForDay(day) : 0;
               const hasSlots = daySlotsCount > 0;
               const dateStr = day && currentMonth.date(day).format("YYYY-MM-DD");
               const isToday = dateStr === today;
@@ -297,11 +303,9 @@ export default function ScheduleCalendar({
                   {hasSlots && (
                     <div className="flex items-center gap-1 mt-1">
                       <StarIcon className="w-4 h-4 text-yellow-600 group-hover:text-black" />
-                      {daySlotsCount > 1 && (
-                        <span className="text-xs font-semibold text-yellow-600 group-hover:text-black">
-                          {daySlotsCount}
-                        </span>
-                      )}
+                      <span className="text-xs font-semibold text-yellow-600 group-hover:text-black">
+                        {availableCount}
+                      </span>
                     </div>
                   )}
                 </div>

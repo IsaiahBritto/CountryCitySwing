@@ -4,9 +4,9 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import dayjs from "dayjs";
 
 /**
- * GET - Cron: send reminder emails 5 hours before each event to everyone signed up for slots that day.
- * Call this from Vercel Cron (e.g. every hour) or an external cron.
- * Auth: set CRON_SECRET and pass via ?secret=CRON_SECRET (external cron) or Vercel sends it as Authorization: Bearer CRON_SECRET. (implemented)
+ * GET - Cron: at 10am, send reminder emails to everyone signed up for an event that day (any time).
+ * Call from Vercel Cron once daily (e.g. 0 10 * * * for 10am).
+ * Auth: set CRON_SECRET and pass via ?secret=CRON_SECRET or Authorization: Bearer CRON_SECRET.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -21,22 +21,19 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const now = dayjs();
-    const windowStart = now.add(5, "hour").startOf("hour");
-    const windowEnd = windowStart.add(1, "hour");
+    const today = dayjs().format("YYYY-MM-DD");
 
     const { data: events } = await supabaseServer
       .from("events")
       .select("id, title, date, start_time, location")
-      .gte("date", now.format("YYYY-MM-DD"))
-      .order("date", { ascending: true });
+      .eq("date", today)
+      .order("start_time", { ascending: true });
 
     if (!events?.length) {
-      return NextResponse.json({ sent: 0, message: "No upcoming events in window" });
+      return NextResponse.json({ sent: 0, message: "No events today" });
     }
 
     let sent = 0;
-    const seenEmails = new Set<string>();
 
     for (const event of events) {
       const eventDate = dayjs(event.date);
@@ -46,9 +43,6 @@ export async function GET(req: NextRequest) {
         .minute(eventTime.minute())
         .second(0)
         .millisecond(0);
-
-      const hoursUntil = eventStart.diff(now, "hour", true);
-      if (hoursUntil < 4.5 || hoursUntil > 5.5) continue;
 
       const { data: slots } = await supabaseServer
         .from("team_slots")
@@ -71,7 +65,7 @@ export async function GET(req: NextRequest) {
 
       const html = `
         <div style="font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto">
-          <h2 style="color:#F2C94C;margin-bottom:20px">Reminder: Event in 5 Hours</h2>
+          <h2 style="color:#F2C94C;margin-bottom:20px">Reminder: Event Today</h2>
           <p style="font-size:16px;line-height:1.6">You're signed up to help at:</p>
           <div style="background-color:#1a1a1a;padding:20px;border-radius:8px;margin:20px 0">
             <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">${event.title}</strong></p>
@@ -84,12 +78,11 @@ export async function GET(req: NextRequest) {
 
       for (const p of profiles || []) {
         const email = (p as any).email;
-        if (!email || seenEmails.has(email)) continue;
-        seenEmails.add(email);
+        if (!email) continue;
         try {
           await sendHtmlEmail(
             email,
-            `Reminder: ${event.title} – in 5 hours – Country City Swing`,
+            `Reminder: ${event.title} – today – Country City Swing`,
             html,
             process.env.RESEND_FROM_EMAIL || undefined
           );

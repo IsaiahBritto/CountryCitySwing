@@ -18,6 +18,7 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [showRegistration, setShowRegistration] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
 
   // Load and listen for auth changes
@@ -36,6 +37,7 @@ export default function Navbar() {
       if (!user?.id) {
         setProfile(null);
         setShowRegistration(false);
+        setShowSchedule(false);
         setIsAdmin(false);
         return;
       }
@@ -53,6 +55,7 @@ export default function Navbar() {
         // Only check for instructor if NOT an admin (admins get special treatment)
         const isInstructor = !isAdminRole && (roleLower === "instructor" || roleLower.includes("instructor"));
         setIsAdmin(isAdminRole);
+        setShowSchedule(isAdminRole || isInstructor);
         
         if (isAdminRole) {
           // Admins: Registration always visible
@@ -132,6 +135,14 @@ export default function Navbar() {
               Registration
             </Link>
           )}
+          {showSchedule && (
+            <Link
+              href="/schedule"
+              className="text-gray-300 hover:text-primary transition-colors"
+            >
+              Schedule
+            </Link>
+          )}
           {isAdmin && (
             <Link
               href="/admin/finances"
@@ -179,6 +190,15 @@ export default function Navbar() {
               className="block text-gray-300 hover:text-primary transition-colors"
             >
               Registration
+            </Link>
+          )}
+          {showSchedule && (
+            <Link
+              href="/schedule"
+              onClick={() => setMenuOpen(false)}
+              className="block text-gray-300 hover:text-primary transition-colors"
+            >
+              Schedule
             </Link>
           )}
           {isAdmin && (

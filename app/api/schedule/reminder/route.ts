@@ -6,7 +6,7 @@ import dayjs from "dayjs";
 /**
  * GET - Cron: send reminder emails 5 hours before each event to everyone signed up for slots that day.
  * Call this from Vercel Cron (e.g. every hour) or an external cron.
- * Auth: set CRON_SECRET and pass via ?secret=CRON_SECRET (external cron) or Vercel sends it as Authorization: Bearer CRON_SECRET.
+ * Auth: set CRON_SECRET and pass via ?secret=CRON_SECRET (external cron) or Vercel sends it as Authorization: Bearer CRON_SECRET. (implemented)
  */
 export async function GET(req: NextRequest) {
   try {

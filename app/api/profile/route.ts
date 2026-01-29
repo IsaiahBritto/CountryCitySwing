@@ -12,10 +12,8 @@ async function getUserFromToken(accessToken: string) {
       },
     }
   );
-  const {
-    data: { user },
-    error,
-  } = await client.auth.getUser(accessToken);
+  const { data, error } = await client.auth.getUser(accessToken);
+  const user = data?.user ?? null;
   return { user, error };
 }
 
@@ -51,22 +49,26 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseServer
       .from("profiles")
-      .select(
-        `id, first_name, last_name, photo_url, role, instagram_url, teaching_since,
-         favorite_song, teaching_style, bio_long, specialty, phone_number,
-         private_lessons, private_lessons_link, scheduling_enabled, lesson_duration_minutes, prayer`
-      )
+      .select("*")
       .eq("id", user.id)
       .single();
 
-    if (error || !data) {
+    if (error) {
+      console.error("Profile GET Supabase error:", error.message);
       return NextResponse.json(
-        { error: error?.message ?? "Profile not found" },
-        { status: error ? 500 : 404 }
+        { error: error.message },
+        { status: 500 }
       );
     }
 
-    return NextResponse.json({ ...data, email: user.email });
+    if (!data) {
+      return NextResponse.json(
+        { error: "Profile not found" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ ...data, email: user.email ?? null });
   } catch (err) {
     console.error("Profile GET error:", err);
     return NextResponse.json(

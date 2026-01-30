@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { ShoppingCartIcon } from "@heroicons/react/24/outline";
 import ProductModal from "@/components/ProductModal";
 import Cart from "@/components/Cart";
 import AdminDashboard from "@/components/AdminDashboard";
@@ -149,7 +150,15 @@ export default function MerchPage() {
               Admin
             </button>
           )}
-          <Cart />
+          <Suspense
+            fallback={
+              <div className="text-gray-300" aria-label="Shopping cart">
+                <ShoppingCartIcon className="w-6 h-6" />
+              </div>
+            }
+          >
+            <Cart />
+          </Suspense>
         </div>
       </div>
 

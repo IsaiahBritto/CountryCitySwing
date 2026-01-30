@@ -9,6 +9,7 @@ import WorkshopSpotlight from "@/components/WorkshopSpotlight";
 import EventCarousel from "@/components/EventCarousel";
 import EventSignupModal from "@/components/EventSignupModal";
 import EventFormModal from "@/components/EventFormModal";
+import EventsListSkeleton from "@/components/EventsListSkeleton";
 import { parseLocalDate } from "@/lib/utils/dateHelpers";
 
 export default function EventsPage() {
@@ -84,17 +85,19 @@ export default function EventsPage() {
 
   return (
     <section className="max-w-5xl mx-auto text-center px-4">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-3xl font-semibold text-primary">
+      <div className="relative mb-4">
+        <h2 className="gold-wave text-4xl font-extrabold pb-2 text-center">
           Upcoming Events
         </h2>
         {isAdmin && (
-          <button
-            onClick={handleAddEvent}
-            className="btn-signup text-sm px-4 py-2 rounded-md"
-          >
-            Add Event
-          </button>
+          <div className="absolute right-0 top-0">
+            <button
+              onClick={handleAddEvent}
+              className="btn-signup text-sm px-4 py-2 rounded-md"
+            >
+              Add Event
+            </button>
+          </div>
         )}
       </div>
 
@@ -125,7 +128,9 @@ export default function EventsPage() {
 
       {/* --- Loading or Empty --- */}
       {loading && (
-        <p className="text-gray-400 mb-8">Loading upcoming events...</p>
+        <div className="mb-8">
+          <EventsListSkeleton />
+        </div>
       )}
       {!loading && upcomingEvents.length === 0 && (
         <p className="text-gray-400 mb-8">No upcoming events yet.</p>
@@ -135,10 +140,6 @@ export default function EventsPage() {
       {!loading && view === "dynamic" && upcomingEvents.length > 0 && (
         <div className="space-y-10">
           <section className="max-w-5xl mx-auto text-center px-4">
-            <h2 className="text-3xl font-semibold text-primary mb-6">
-              Upcoming Events
-            </h2>
-
             <WorkshopSpotlight 
               events={upcomingEvents} 
               isAdmin={isAdmin}
@@ -186,7 +187,7 @@ export default function EventsPage() {
               {event.description && (
                 <p className="text-neutral-200 mb-3">{event.description}</p>
               )}
-              <div className="flex gap-3">
+              <div className="flex justify-center gap-3">
                 <button
                   onClick={() => {
                     setSelectedEvent(event);

@@ -36,14 +36,16 @@ export default function EventCard({ event }: { event: Event }) {
       )}
       <p className="mt-3 text-gray-300">{event.description}</p>
       {(event.signupLink || event.signup_link) && (
-        <a
-          href={event.signupLink || event.signup_link}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-block mt-4 bg-primary text-black px-4 py-2 rounded hover:bg-yellow-400 font-medium"
-        >
-          Sign Up
-        </a>
+        <div className="flex justify-center mt-4">
+          <a
+            href={event.signupLink || event.signup_link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block bg-primary text-black px-4 py-2 rounded hover:bg-yellow-400 font-medium"
+          >
+            Sign Up
+          </a>
+        </div>
       )}
     </div>
   );

@@ -71,7 +71,7 @@ export default function WorkshopSpotlight({ events, isAdmin = false, onEditEvent
         )}
         <p className="text-neutral-200 mb-5">{upcomingWorkshop.description}</p>
 
-        <div className="flex gap-3">
+        <div className="flex justify-center gap-3">
           {dayjs(upcomingWorkshop.date).isBefore(dayjs(), "day") ? (
             <button
               disabled

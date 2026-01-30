@@ -383,7 +383,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             </div>
           </div>
 
-          <div className="flex justify-between items-center pt-4 border-t border-neutral-700">
+          <div className="flex justify-center gap-4 items-center pt-4 border-t border-neutral-700">
             <button
               type="button"
               onClick={onClose}

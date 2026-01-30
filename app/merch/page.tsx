@@ -6,6 +6,7 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import ProductModal from "@/components/ProductModal";
 import Cart from "@/components/Cart";
 import AdminDashboard from "@/components/AdminDashboard";
+import MerchGridSkeleton from "@/components/MerchGridSkeleton";
 
 interface ProductImage {
   id: string;
@@ -124,14 +125,6 @@ export default function MerchPage() {
     setIsModalOpen(true);
   };
 
-  if (loading) {
-    return (
-      <div className="text-center py-12">
-        <p className="text-gray-400">Loading products...</p>
-      </div>
-    );
-  }
-
   if (showAdminDashboard) {
     return (
       <AdminDashboard
@@ -160,7 +153,9 @@ export default function MerchPage() {
         </div>
       </div>
 
-      {products.length === 0 ? (
+      {loading ? (
+        <MerchGridSkeleton />
+      ) : products.length === 0 ? (
         <p className="text-center text-gray-400 py-12">
           No products available at this time.
         </p>

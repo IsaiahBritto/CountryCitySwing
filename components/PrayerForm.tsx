@@ -65,13 +65,15 @@ export default function PrayerForm() {
           )}
         </div>
 
-        <button
-          disabled={isSubmitting}
-          type="submit"
-          className="bg-accent text-white px-6 py-2 rounded font-medium transition-all duration-300 shadow-[0_0_15px_rgba(187,134,252,0.5)] hover:shadow-[0_0_25px_rgba(187,134,252,0.8)] hover:bg-[#CF9FFF] active:scale-95"
-        >
-          {isSubmitting ? "Sending..." : "Send Prayer Request"}
-        </button>
+        <div className="flex justify-center">
+          <button
+            disabled={isSubmitting}
+            type="submit"
+            className="bg-accent text-white px-6 py-2 rounded font-medium transition-all duration-300 shadow-[0_0_15px_rgba(187,134,252,0.5)] hover:shadow-[0_0_25px_rgba(187,134,252,0.8)] hover:bg-[#CF9FFF] active:scale-95"
+          >
+            {isSubmitting ? "Sending..." : "Send Prayer Request"}
+          </button>
+        </div>
       </form>
     </div>
   );

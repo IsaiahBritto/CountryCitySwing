@@ -353,13 +353,15 @@ export default function EventSignupModal({ event, open, onClose }: any) {
               </div>
             )}
 
-            <button
-              disabled={isSubmitting}
-              type="submit"
-              className="bg-accent text-white px-6 py-2 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] hover:shadow-[0_0_25px_rgba(187,134,252,0.8)]"
-            >
-              {isSubmitting ? "Submitting..." : "Submit Signup"}
-            </button>
+            <div className="flex justify-center">
+              <button
+                disabled={isSubmitting}
+                type="submit"
+                className="bg-accent text-white px-6 py-2 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] hover:shadow-[0_0_25px_rgba(187,134,252,0.8)]"
+              >
+                {isSubmitting ? "Submitting..." : "Submit Signup"}
+              </button>
+            </div>
 
             {isSubmitSuccessful && (
               <p className="text-green-400 mt-2">

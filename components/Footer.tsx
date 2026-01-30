@@ -1,6 +1,15 @@
 export default function Footer() {
   return (
     <footer className="bg-neutral-900 border-t border-neutral-700 py-6 text-center text-gray-400">
+      <p className="text-sm mb-1">
+        Questions?{" "}
+        <a
+          href="mailto:contact.us@countrycityswing.dance"
+          className="text-primary hover:underline"
+        >
+          contact.us@countrycityswing.dance
+        </a>
+      </p>
       <p>
         © {new Date().getFullYear()} Country City Swing — Nashville, TN. All rights reserved.
       </p>

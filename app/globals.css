@@ -56,6 +56,18 @@ h2 { font-size: 1.875rem; }
   background-color: #ffe375;
   box-shadow: 0 0 25px rgba(242, 201, 76, 0.55);
 }
+/* Primary button styled as link (<a>) — ensure yellow background wins over default link color */
+a.btn-primary,
+a.btn.btn-primary {
+  background-color: var(--color-primary, #F2C94C);
+  color: black;
+}
+a.btn-primary:hover,
+a.btn.btn-primary:hover {
+  background-color: #ffe375;
+  color: black;
+  box-shadow: 0 0 25px rgba(242, 201, 76, 0.55);
+}
 .btn-accent {
   background-color: var(--color-accent, #BB86FC);
   color: #000;

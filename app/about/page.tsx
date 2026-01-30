@@ -56,7 +56,7 @@ export default function About() {
           </p>
 
           <p>
-            The logo`s design is intentional —{" "}
+            The logo's design is intentional —{" "}
             <span className="text-yellow-400 font-medium">
               keeping Christ first
             </span>{" "}

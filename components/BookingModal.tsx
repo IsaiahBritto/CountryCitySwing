@@ -55,7 +55,7 @@ export default function LessonBookingModal({ slot, onClose }: any) {
             required
             className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
           />
-          <div className="flex justify-between mt-4">
+          <div className="flex justify-center gap-4 mt-4">
             <button
               type="button"
               onClick={onClose}

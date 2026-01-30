@@ -477,13 +477,15 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
         )}
 
         {/* Submit Button */}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full btn-signup py-3 text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? "Processing..." : "Complete Order"}
-        </button>
+        <div className="flex justify-center">
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-signup py-3 px-8 text-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? "Processing..." : "Complete Order"}
+          </button>
+        </div>
       </form>
     </div>
   );

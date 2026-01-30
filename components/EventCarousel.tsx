@@ -82,7 +82,7 @@ export default function EventCarousel({ events, isAdmin = false, onEditEvent }: 
                 style={{ flexBasis: "100%" }}
               >
                 {/* --- Event Card --- */}
-                <div className="bg-neutral-800 border border-neutral-700 rounded-lg p-6 text-left shadow-lg hover:shadow-glow transition-all w-full max-w-[600px]">
+                <div className="bg-neutral-800 border border-neutral-700 rounded-lg p-6 text-center shadow-lg hover:shadow-glow transition-all w-full max-w-[600px]">
                   <h3 className="text-2xl font-bold text-primary mb-2">
                     {event.title}
                   </h3>
@@ -114,7 +114,7 @@ export default function EventCarousel({ events, isAdmin = false, onEditEvent }: 
                   <p className="text-neutral-200 mb-6">{event.description}</p>
 
                   {/* --- Sign Up / Closed Button --- */}
-                  <div className="flex gap-3">
+                  <div className="flex justify-center gap-3">
                     {dayjs(event.date).isBefore(dayjs(), "day") ? (
                       <button
                         disabled

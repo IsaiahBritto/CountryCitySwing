@@ -341,7 +341,7 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
             </p>
 
             {/* Signup button or Closed state */}
-            <div className="flex gap-3">
+            <div className="flex justify-center gap-3">
               {dayjs(selectedEvent.date).isBefore(dayjs(), "day") ? (
                 <button
                   disabled

@@ -71,7 +71,7 @@ export default async function TeamPage() {
 
   return (
     <section className="max-w-5xl mx-auto text-center px-4 py-12">
-      <h2 className="text-3xl font-semibold text-primary mb-10">
+      <h2 className="gold-wave text-4xl font-extrabold mb-10 pb-2">
         Meet Our Instructors
       </h2>
 

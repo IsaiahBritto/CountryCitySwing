@@ -138,7 +138,7 @@ export default function MerchPage() {
   return (
     <section className="max-w-6xl mx-auto">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-4xl font-bold text-primary">
+        <h1 className="gold-wave text-4xl font-extrabold pb-2">
           Country City Swing Merch
         </h1>
         <div className="flex items-center gap-4">

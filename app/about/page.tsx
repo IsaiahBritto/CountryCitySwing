@@ -3,7 +3,7 @@ export default function About() {
     <section className="max-w-4xl mx-auto px-6 py-16 text-neutral-100">
       {/* Header */}
       <div className="text-center mb-10">
-        <h2 className="text-4xl font-bold text-primary mb-2 tracking-wide">
+        <h2 className="gold-wave text-4xl font-extrabold mb-2 pb-2 tracking-wide">
           About Country City Swing
         </h2>
         <div className="mt-4 flex justify-center">
@@ -40,7 +40,7 @@ export default function About() {
 
       {/* Logo Story */}
       <div className="mt-16 pt-10 border-t border-neutral-800">
-        <h3 className="text-3xl font-semibold text-primary mb-4 text-center">
+        <h3 className="gold-wave text-3xl font-extrabold mb-4 pb-2 text-center">
           The CCS Logo
         </h3>
 

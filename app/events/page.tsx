@@ -85,12 +85,12 @@ export default function EventsPage() {
 
   return (
     <section className="max-w-5xl mx-auto text-center px-4">
-      <div className="relative mb-4">
+      <div className="relative mb-4 flex flex-col items-center gap-3 md:block md:gap-0">
         <h2 className="gold-wave text-4xl font-extrabold pb-2 text-center">
           Upcoming Events
         </h2>
         {isAdmin && (
-          <div className="absolute right-0 top-0">
+          <div className="md:absolute md:right-0 md:top-0 shrink-0">
             <button
               onClick={handleAddEvent}
               className="btn-signup text-sm px-4 py-2 rounded-md"

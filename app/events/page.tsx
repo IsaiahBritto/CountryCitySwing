@@ -188,15 +188,26 @@ export default function EventsPage() {
                 <p className="text-neutral-200 mb-3">{event.description}</p>
               )}
               <div className="flex justify-center gap-3">
-                <button
-                  onClick={() => {
-                    setSelectedEvent(event);
-                    setShowSignup(true);
-                  }}
-                  className="btn-signup"
-                >
-                  Sign Up
-                </button>
+                {event.type === "Comp" && (event.signupLink || event.signup_link) ? (
+                  <a
+                    href={event.signupLink || event.signup_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-signup inline-block"
+                  >
+                    Sign Up
+                  </a>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setSelectedEvent(event);
+                      setShowSignup(true);
+                    }}
+                    className="btn-signup"
+                  >
+                    Sign Up
+                  </button>
+                )}
                 {isAdmin && (
                   <button
                     onClick={() => handleEditEvent(event)}
@@ -211,8 +222,8 @@ export default function EventsPage() {
         </div>
       )}
 
-      {/* --- Event Signup Modal --- */}
-      {selectedEvent && (
+      {/* --- Event Signup Modal (never for Comp — those use external signup link) --- */}
+      {selectedEvent && selectedEvent.type !== "Comp" && (
         <EventSignupModal
           event={selectedEvent}
           open={showSignup}

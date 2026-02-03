@@ -31,6 +31,7 @@ export function roundCurrency(amount: number): number {
  * Get discounted subtotal (in dollars) from a Stripe coupon.
  * Coupon.amount_off is in CENTS; percent_off is 0–100.
  * Reads snake_case and camelCase; handles Stripe SDK or raw API response shape.
+ * If the object is a "promotion" wrapper, reads .coupon (nested object) for amount_off/percent_off.
  */
 export function getDiscountedSubtotalFromCoupon(
   coupon: unknown,
@@ -38,9 +39,11 @@ export function getDiscountedSubtotalFromCoupon(
 ): number {
   if (!coupon || typeof coupon !== "object") return subtotalDollars;
   const c = coupon as Record<string, unknown>;
-  // Stripe API uses snake_case; SDK may expose either
-  const amountOffCents = c.amount_off ?? c.amountOff;
-  const percentOff = c.percent_off ?? c.percentOff;
+  // Stripe promotion object may nest the coupon under .coupon
+  const inner = c.coupon ?? c.coupon_id;
+  const use = inner && typeof inner === "object" && !Array.isArray(inner) ? (inner as Record<string, unknown>) : c;
+  const amountOffCents = use.amount_off ?? use.amountOff;
+  const percentOff = use.percent_off ?? use.percentOff;
   const amountNum =
     typeof amountOffCents === "number" && Number.isFinite(amountOffCents)
       ? amountOffCents

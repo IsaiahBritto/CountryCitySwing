@@ -18,6 +18,7 @@ function getBaseUrl(request: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
+  console.log("[event-signup] POST /api/event-signup called");
   const data = await req.json();
   const {
     firstName,
@@ -261,7 +262,13 @@ export async function POST(req: NextRequest) {
               if (typeof couponRef === "string" && couponRef.startsWith("coupon_")) {
                 couponId = couponRef;
               } else if (couponRef && typeof couponRef === "object" && !Array.isArray(couponRef)) {
-                coupon = couponRef; // expanded coupon: use directly
+                const pr = couponRef as Record<string, unknown>;
+                const innerId = pr.coupon ?? pr.coupon_id;
+                if (typeof innerId === "string" && innerId.startsWith("coupon_")) {
+                  couponId = innerId; // promotion object with coupon id: fetch it
+                } else {
+                  coupon = couponRef; // expanded coupon at top level: use directly
+                }
               }
             } catch (fetchErr) {
               console.error("[event-signup] Stripe REST fetch failed", fetchErr);
@@ -272,7 +279,14 @@ export async function POST(req: NextRequest) {
           }
         }
         if (coupon && typeof coupon === "object") {
-          const discounted = getDiscountedSubtotalFromCoupon(coupon, eventPrice);
+          // Stripe "promotion" object may nest the actual coupon under .coupon
+          const couponObj = coupon as Record<string, unknown>;
+          const innerCoupon = couponObj.coupon ?? couponObj.coupon_id;
+          const couponForDiscount =
+            innerCoupon && typeof innerCoupon === "object" && !Array.isArray(innerCoupon)
+              ? innerCoupon
+              : coupon;
+          const discounted = getDiscountedSubtotalFromCoupon(couponForDiscount, eventPrice);
           resolvedAmount = roundCurrency(discounted);
           console.log("[event-signup] Stripe coupon applied", { discounted, resolvedAmount });
         }

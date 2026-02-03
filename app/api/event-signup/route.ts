@@ -78,10 +78,13 @@ export async function POST(req: NextRequest) {
 
   let paid = false;
   let amountOwed = eventPrice;
-  let effectivePaymentMethod = paymentMethod;
+  // Normalize so "Cash" / "cash" etc. are treated as cash path
+  const paymentMethodNorm = typeof paymentMethod === "string" ? paymentMethod.trim() : "";
+  let effectivePaymentMethod =
+    paymentMethodNorm.toLowerCase() === "cash" ? "Cash" : paymentMethod;
 
   // 1️⃣ Stripe path: if promo brings total to ≤$0.50, treat as Cash with no payment (never create Stripe session ≤$0.50)
-  if (paymentMethod === "Stripe" && eventPrice > 0) {
+  if (effectivePaymentMethod === "Stripe" && eventPrice > 0) {
     const processingFee = roundCurrency(calculateProcessingFee(eventPrice));
     let discountedTotal = eventPrice + processingFee;
     if (promotionCodeId) {
@@ -186,24 +189,26 @@ export async function POST(req: NextRequest) {
 
   if (isCashPath && (eventPrice > 0 || promotionCodeId != null)) {
     let resolvedAmount: number | null = null;
-    // Always resolve from Stripe when we have a promo code (server is source of truth)
     if (promotionCodeId) {
       try {
         const stripe = getStripe();
         const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
           expand: ["coupon"],
         });
-        const coupon = (promo as { coupon?: unknown }).coupon;
-        if (coupon) {
-          resolvedAmount = roundCurrency(
-            getDiscountedSubtotalFromCoupon(coupon, eventPrice)
-          );
+        let coupon = (promo as { coupon?: unknown }).coupon;
+        // If expand didn't return an object (e.g. still an id string), fetch coupon by id
+        if (typeof coupon === "string" && coupon.startsWith("coupon_")) {
+          const fullCoupon = await stripe.coupons.retrieve(coupon);
+          coupon = fullCoupon as unknown;
+        }
+        if (coupon && typeof coupon === "object") {
+          const discounted = getDiscountedSubtotalFromCoupon(coupon, eventPrice);
+          resolvedAmount = roundCurrency(discounted);
         }
       } catch (e) {
         console.error("Event signup: could not resolve promo for paid check", e);
       }
     }
-    // Fallback to client value only if we didn't get a value from Stripe
     if (resolvedAmount === null &&
         typeof clientDiscountedSubtotal === "number" &&
         !Number.isNaN(clientDiscountedSubtotal) &&
@@ -214,6 +219,17 @@ export async function POST(req: NextRequest) {
       amountOwed = resolvedAmount;
       paid = amountOwed <= 0;
     }
+  }
+
+  // Debug: remove after confirming discount works (check server logs)
+  if (process.env.NODE_ENV !== "production" && promotionCodeId) {
+    console.error("[event-signup] promo applied", {
+      isCashPath,
+      eventPrice,
+      amountOwed,
+      paid,
+      hasPromoId: !!promotionCodeId,
+    });
   }
 
   const { data: insertedSignup, error: insertError } = await supabaseServer

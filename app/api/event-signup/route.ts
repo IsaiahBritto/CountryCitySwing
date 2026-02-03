@@ -100,8 +100,9 @@ export async function POST(req: NextRequest) {
           payment_method_types: ["card"],
           line_items: lineItems,
           automatic_tax: { enabled: true },
-          allow_promotion_codes: true,
-          ...(promotionCodeId ? { discounts: [{ promotion_code: promotionCodeId }] } : {}),
+          ...(promotionCodeId
+            ? { discounts: [{ promotion_code: promotionCodeId }] }
+            : { allow_promotion_codes: true }),
           customer_email: email,
           billing_address_collection: "auto",
           client_reference_id: signupId,

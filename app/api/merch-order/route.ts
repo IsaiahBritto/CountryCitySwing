@@ -143,8 +143,9 @@ export async function POST(request: NextRequest) {
             payment_method_types: ["card"],
             line_items: lineItems,
             automatic_tax: { enabled: true },
-            allow_promotion_codes: true,
-            ...(promotionCodeId ? { discounts: [{ promotion_code: promotionCodeId }] } : {}),
+            ...(promotionCodeId
+              ? { discounts: [{ promotion_code: promotionCodeId }] }
+              : { allow_promotion_codes: true }),
             customer_email: orderData.email,
             billing_address_collection: "auto",
             shipping_address_collection: orderData.deliveryMethod === "ship"

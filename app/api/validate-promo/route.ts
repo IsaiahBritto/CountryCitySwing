@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Optional: check coupon validity when expanded (e.g. not expired)
-    const coupon = promo.coupon as { valid?: boolean } | string | undefined;
+    const coupon = (promo as { coupon?: { valid?: boolean } | string }).coupon;
     if (typeof coupon === "object" && coupon?.valid === false) {
       return NextResponse.json(
         { valid: false, message: "This promotion code has expired." },

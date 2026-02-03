@@ -28,7 +28,6 @@ interface Profile {
   private_lessons: string | null;
   private_lessons_link: string | null;
   scheduling_enabled: boolean | null;
-  lesson_duration_minutes: number | null;
   prayer: string | null;
 }
 
@@ -107,7 +106,6 @@ export default function ProfilePage() {
       updateData.private_lessons = profile.private_lessons ?? null;
       updateData.private_lessons_link = profile.private_lessons_link ?? null;
       updateData.scheduling_enabled = profile.scheduling_enabled ?? false;
-      updateData.lesson_duration_minutes = profile.lesson_duration_minutes ?? null;
       updateData.prayer = profile.prayer ?? null;
     }
 
@@ -319,27 +317,6 @@ export default function ProfilePage() {
               />
             </div>
 
-            {/* Lesson Duration */}
-            {profile.scheduling_enabled && (
-              <div className="mt-3">
-                <label className="text-gray-300 font-medium">
-                  Lesson Duration (minutes)
-                </label>
-                <select
-                  value={profile.lesson_duration_minutes || 60}
-                  onChange={(e) =>
-                    setProfile({
-                      ...profile,
-                      lesson_duration_minutes: Number(e.target.value),
-                    })
-                  }
-                  className="block w-32 mt-1 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-                >
-                  <option value={45}>45</option>
-                  <option value={60}>60</option>
-                </select>
-              </div>
-            )}
           </>
         )}
 

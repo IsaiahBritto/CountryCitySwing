@@ -133,12 +133,6 @@ export async function PATCH(req: NextRequest) {
         body.scheduling_enabled === true || body.scheduling_enabled === false
           ? body.scheduling_enabled
           : null;
-      updateData.lesson_duration_minutes =
-        typeof body.lesson_duration_minutes === "number"
-          ? body.lesson_duration_minutes
-          : body.lesson_duration_minutes != null
-            ? Number(body.lesson_duration_minutes)
-            : null;
       updateData.prayer = emptyToNull(body.prayer);
     }
 

@@ -9,7 +9,7 @@ import { getStripe } from "@/lib/stripe";
  */
 export async function POST(req: NextRequest) {
   try {
-    const { code } = await req.json();
+    const { code, subtotal } = await req.json();
     const trimmed = typeof code === "string" ? code.trim() : "";
     if (!trimmed) {
       return NextResponse.json(
@@ -48,11 +48,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({
+    let discountedSubtotal: number | undefined;
+    const subtotalNum = typeof subtotal === "number" && subtotal >= 0 ? subtotal : undefined;
+    if (subtotalNum !== undefined) {
+      const promoWithCoupon = await stripe.promotionCodes.retrieve(promo.id, {
+        expand: ["coupon"],
+      });
+      const expandedCoupon = (promoWithCoupon as { coupon?: { amount_off?: number; percent_off?: number } }).coupon;
+      if (expandedCoupon && typeof expandedCoupon === "object") {
+        if (expandedCoupon.amount_off != null) {
+          discountedSubtotal = Math.max(0, subtotalNum - expandedCoupon.amount_off / 100);
+        } else if (expandedCoupon.percent_off != null) {
+          discountedSubtotal = Math.max(0, subtotalNum * (1 - expandedCoupon.percent_off / 100));
+        } else {
+          discountedSubtotal = subtotalNum;
+        }
+      }
+    }
+
+    const payload: { valid: true; promotionCodeId: string; code: string; discountedSubtotal?: number } = {
       valid: true,
       promotionCodeId: promo.id,
       code: promo.code,
-    });
+    };
+    if (discountedSubtotal !== undefined) payload.discountedSubtotal = discountedSubtotal;
+
+    return NextResponse.json(payload);
   } catch (err: unknown) {
     console.error("Validate promo error:", err);
     return NextResponse.json(

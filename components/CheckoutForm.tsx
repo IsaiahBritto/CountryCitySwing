@@ -27,6 +27,10 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
   const [error, setError] = useState("");
   const [preorderAcknowledged, setPreorderAcknowledged] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "stripe">("cash");
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string } | null>(null);
+  const [promoError, setPromoError] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
 
   // Auto-fill from user profile if logged in
   useEffect(() => {
@@ -93,6 +97,41 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
       item.productName === "Black CCS x 8CC Crop (Preorder)"
   );
 
+  const applyPromo = async () => {
+    const code = promoCodeInput.trim();
+    if (!code) {
+      setPromoError("Please enter a promotion code.");
+      return;
+    }
+    setPromoError("");
+    setPromoLoading(true);
+    try {
+      const res = await fetch("/api/validate-promo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const result = await res.json();
+      if (result.valid && result.promotionCodeId) {
+        setAppliedPromo({ promotionCodeId: result.promotionCodeId, code: result.code ?? code });
+      } else {
+        setAppliedPromo(null);
+        setPromoError(result.message || "Invalid promotion code.");
+      }
+    } catch {
+      setAppliedPromo(null);
+      setPromoError("Could not validate code.");
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const removePromo = () => {
+    setAppliedPromo(null);
+    setPromoCodeInput("");
+    setPromoError("");
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -125,7 +164,7 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
     }
 
     try {
-      const orderData = {
+      const orderData: Record<string, unknown> = {
         firstName: formData.firstName,
         lastName: formData.lastName,
         email: formData.email,
@@ -153,6 +192,9 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
         shipping: shippingCost,
         total: totalPrice,
       };
+      if (appliedPromo) {
+        orderData.promotionCodeId = appliedPromo.promotionCodeId;
+      }
 
       const response = await fetch("/api/merch-order", {
         method: "POST",
@@ -434,6 +476,46 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
             </div>
           </div>
         )}
+
+        {/* Promo code */}
+        <div className="bg-neutral-800 rounded-lg p-6">
+          <h3 className="text-xl font-semibold text-white mb-2">Promotion code</h3>
+          {appliedPromo ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-green-400 text-sm">Applied: {appliedPromo.code}</span>
+              <button
+                type="button"
+                onClick={removePromo}
+                className="text-sm text-gray-400 hover:text-white underline"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2 flex-wrap">
+              <input
+                type="text"
+                value={promoCodeInput}
+                onChange={(e) => {
+                  setPromoCodeInput(e.target.value);
+                  setPromoError("");
+                }}
+                placeholder="Enter code"
+                className="flex-1 min-w-[120px] px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                disabled={promoLoading}
+              />
+              <button
+                type="button"
+                onClick={applyPromo}
+                disabled={promoLoading}
+                className="px-4 py-2 rounded-md bg-neutral-600 hover:bg-neutral-500 text-sm font-medium disabled:opacity-50 text-white"
+              >
+                {promoLoading ? "Checking…" : "Apply"}
+              </button>
+            </div>
+          )}
+          {promoError && <p className="text-red-400 text-sm mt-1">{promoError}</p>}
+        </div>
 
         {/* Payment Method */}
         <div className="bg-neutral-800 rounded-lg p-6">

@@ -174,7 +174,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
     setSubmitError("");
     try {
       const body: Record<string, unknown> = { ...data, event };
-      if (data.paymentMethod === "Stripe" && appliedPromo) {
+      if (appliedPromo) {
         body.promotionCodeId = appliedPromo.promotionCodeId;
       }
       const response = await fetch("/api/event-signup", {

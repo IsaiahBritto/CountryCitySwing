@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { getStripe } from "@/lib/stripe";
@@ -125,6 +126,29 @@ export async function POST(req: NextRequest) {
   }
 
   // 2️⃣ Handle non-Stripe payments - create signup immediately
+  // If Cash (or other) + promo code brings cost to $0, mark as paid
+  let paid = false;
+  if (promotionCodeId && event.price != null && event.price > 0) {
+    try {
+      const stripe = getStripe();
+      const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
+        expand: ["coupon"],
+      });
+      const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
+      if (coupon) {
+        let discounted = event.price;
+        if (coupon.amount_off != null) {
+          discounted = Math.max(0, event.price - coupon.amount_off / 100);
+        } else if (coupon.percent_off != null) {
+          discounted = Math.max(0, event.price * (1 - coupon.percent_off / 100));
+        }
+        paid = discounted <= 0;
+      }
+    } catch (e) {
+      console.error("Event signup: could not resolve promo for paid check", e);
+    }
+  }
+
   const { data: insertedSignup, error: insertError } = await supabaseServer
     .from("signups")
     .insert([
@@ -139,6 +163,7 @@ export async function POST(req: NextRequest) {
         payment_method: paymentMethod,
         accept_liability: acceptLiability,
         accept_payment: acceptPayment,
+        paid,
       },
     ])
     .select()
@@ -161,8 +186,15 @@ export async function POST(req: NextRequest) {
   const base = getBaseUrl(req);
   const paymentLink = `${base}/events/pay/${signupId}`;
   
-  const paymentSection = paymentMethod === "Cash" && event.price && event.price > 0
-    ? `
+  const paymentSection =
+    paymentMethod === "Cash" && event.price && event.price > 0
+      ? paid
+        ? `
+      <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Payment:</strong> No payment needed &mdash; your promotion code covered the full cost.</p>
+      </div>
+    `
+        : `
       <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
         <p style="margin: 0;"><strong>Payment:</strong> Cash payment selected.</p>
         <p style="margin: 10px 0 0 0;">You can pay with cash at the door, or click the link below to pay online via Stripe:</p>
@@ -173,7 +205,7 @@ export async function POST(req: NextRequest) {
         </p>
       </div>
     `
-    : "";
+      : "";
 
   // 4️⃣ Send confirmation email for non-Stripe payments
   const html = `

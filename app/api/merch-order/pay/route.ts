@@ -16,7 +16,7 @@ function getBaseUrl(request: NextRequest): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { orderId } = await req.json();
+    const { orderId, promotionCodeId } = await req.json();
 
     if (!orderId) {
       return NextResponse.json(
@@ -115,6 +115,9 @@ export async function POST(req: NextRequest) {
         enabled: true, // Enable Stripe Tax for automatic sales tax calculation
       },
       allow_promotion_codes: true,
+      ...(promotionCodeId
+        ? { discounts: [{ promotion_code: promotionCodeId }] }
+        : {}),
       customer_email: order.email,
       billing_address_collection: "auto",
       shipping_address_collection: order.delivery_method === "ship"

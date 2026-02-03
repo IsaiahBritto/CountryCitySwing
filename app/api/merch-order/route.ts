@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { getStripe } from "@/lib/stripe";
@@ -166,6 +167,31 @@ export async function POST(request: NextRequest) {
     }
 
     // 2️⃣ Handle Cash payment - create order immediately
+    // If Cash + promo code brings order cost to $0, mark as paid
+    let paid = false;
+    const promotionCodeId = orderData.promotionCodeId;
+    const orderTotalForDiscount = orderData.subtotal + (orderData.shipping || 0);
+    if (promotionCodeId && orderTotalForDiscount > 0) {
+      try {
+        const stripe = getStripe();
+        const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
+          expand: ["coupon"],
+        });
+        const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
+        if (coupon) {
+          let discounted = orderTotalForDiscount;
+          if (coupon.amount_off != null) {
+            discounted = Math.max(0, orderTotalForDiscount - coupon.amount_off / 100);
+          } else if (coupon.percent_off != null) {
+            discounted = Math.max(0, orderTotalForDiscount * (1 - coupon.percent_off / 100));
+          }
+          paid = discounted <= 0;
+        }
+      } catch (e) {
+        console.error("Merch order: could not resolve promo for paid check", e);
+      }
+    }
+
     const { data: order, error: orderError } = await supabaseServer
       .from("merch_orders")
       .insert({
@@ -179,7 +205,7 @@ export async function POST(request: NextRequest) {
         shipping: orderData.shipping,
         total: orderData.total,
         status: "pending",
-        paid: false, // Cash payment - not paid yet
+        paid,
         payment_method: paymentMethod,
       })
       .select()
@@ -220,7 +246,13 @@ export async function POST(request: NextRequest) {
     `
         : "<p><strong>Delivery Method:</strong> Local Pickup</p>";
 
-    const paymentBoxCash = `
+    const paymentBoxCash = paid
+      ? `
+      <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Payment:</strong> No payment needed &mdash; your promotion code covered the full cost.</p>
+      </div>
+    `
+      : `
       <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
         <p style="margin: 0;"><strong>Payment:</strong> Cash payment selected.</p>
         <p style="margin: 10px 0 0 0;">You can pay with cash in person, or click the link below to pay online via Stripe:</p>

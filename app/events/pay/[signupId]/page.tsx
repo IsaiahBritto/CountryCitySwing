@@ -14,6 +14,10 @@ export default function EventPaymentPage() {
   const [error, setError] = useState("");
   const [processing, setProcessing] = useState(false);
   const [eventPrice, setEventPrice] = useState(0);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string } | null>(null);
+  const [promoError, setPromoError] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
 
   useEffect(() => {
     async function loadSignup() {
@@ -82,6 +86,41 @@ export default function EventPaymentPage() {
     }
   }, [signupId]);
 
+  const applyPromo = async () => {
+    const code = promoCodeInput.trim();
+    if (!code) {
+      setPromoError("Please enter a promotion code.");
+      return;
+    }
+    setPromoError("");
+    setPromoLoading(true);
+    try {
+      const res = await fetch("/api/validate-promo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const result = await res.json();
+      if (result.valid && result.promotionCodeId) {
+        setAppliedPromo({ promotionCodeId: result.promotionCodeId, code: result.code ?? code });
+      } else {
+        setAppliedPromo(null);
+        setPromoError(result.message || "Invalid promotion code.");
+      }
+    } catch {
+      setAppliedPromo(null);
+      setPromoError("Could not validate code.");
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const removePromo = () => {
+    setAppliedPromo(null);
+    setPromoCodeInput("");
+    setPromoError("");
+  };
+
   const handlePay = async () => {
     if (!signup) return;
 
@@ -89,10 +128,12 @@ export default function EventPaymentPage() {
     setError("");
 
     try {
+      const body: { signupId: string; promotionCodeId?: string } = { signupId };
+      if (appliedPromo) body.promotionCodeId = appliedPromo.promotionCodeId;
       const response = await fetch("/api/event-signup/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ signupId }),
+        body: JSON.stringify(body),
       });
 
       const data = await response.json();
@@ -179,6 +220,48 @@ export default function EventPaymentPage() {
             You initially selected cash payment. You can complete your payment online via Stripe, or pay with cash at the door.
           </p>
         </div>
+
+        {/* Promo code */}
+        {eventPrice > 0 && (
+          <div className="bg-neutral-800 rounded-lg p-6 mb-6">
+            <h3 className="text-lg font-semibold text-white mb-2">Promotion code</h3>
+            {appliedPromo ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-green-400 text-sm">Applied: {appliedPromo.code}</span>
+                <button
+                  type="button"
+                  onClick={removePromo}
+                  className="text-sm text-gray-400 hover:text-white underline"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2 flex-wrap">
+                <input
+                  type="text"
+                  value={promoCodeInput}
+                  onChange={(e) => {
+                    setPromoCodeInput(e.target.value);
+                    setPromoError("");
+                  }}
+                  placeholder="Enter code"
+                  className="flex-1 min-w-[120px] px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  disabled={promoLoading}
+                />
+                <button
+                  type="button"
+                  onClick={applyPromo}
+                  disabled={promoLoading}
+                  className="px-4 py-2 rounded-md bg-neutral-600 hover:bg-neutral-500 text-sm font-medium disabled:opacity-50 text-white"
+                >
+                  {promoLoading ? "Checking…" : "Apply"}
+                </button>
+              </div>
+            )}
+            {promoError && <p className="text-red-400 text-sm mt-1">{promoError}</p>}
+          </div>
+        )}
 
         {eventPrice > 0 ? (
           <button

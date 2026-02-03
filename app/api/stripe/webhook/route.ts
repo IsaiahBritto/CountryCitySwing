@@ -72,6 +72,21 @@ export async function POST(request: NextRequest) {
     const session = event.data.object as Stripe.Checkout.Session;
     console.log("Webhook: Session ID:", session.id);
     console.log("Webhook: Session metadata:", JSON.stringify(session.metadata, null, 2));
+
+    // Treat session as complete (mark as paid) when: paid, no_payment_required, or no-cost (promo brought total to 0)
+    const amountTotal = session.amount_total ?? 0;
+    const isNoCostOrder = amountTotal === 0;
+    const isPaidOrComplete =
+      session.payment_status === "paid" ||
+      session.payment_status === "no_payment_required" ||
+      isNoCostOrder;
+    if (!isPaidOrComplete) {
+      console.log("Webhook: Session not paid and not no-cost, skipping", {
+        payment_status: session.payment_status,
+        amount_total: session.amount_total,
+      });
+      return NextResponse.json({ received: true });
+    }
     
     // Check if this is a merch order FIRST (before checking client_reference_id)
     // Merch orders don't require client_reference_id, so handle them separately

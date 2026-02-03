@@ -201,6 +201,7 @@ export async function POST(req: NextRequest) {
     let resolvedAmount: number | null = null;
     if (promotionCodeId) {
       try {
+        console.log("[event-signup] resolving promo", { promotionCodeId: promotionCodeId.slice(0, 24) });
         const stripe = getStripe();
         const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
           expand: ["coupon"],
@@ -209,6 +210,7 @@ export async function POST(req: NextRequest) {
         let coupon: unknown = promoAny.coupon;
         // Expand often returns undefined in Vercel/serverless; get coupon ID from raw response or second retrieve
         if (!coupon || typeof coupon !== "object") {
+          console.log("[event-signup] coupon fallback: expand returned no object");
           let couponId: string | undefined =
             typeof coupon === "string" && coupon.startsWith("coupon_") ? coupon : undefined;
           if (!couponId && promoAny.lastResponse) {
@@ -236,24 +238,28 @@ export async function POST(req: NextRequest) {
                 /* ignore */
               }
             }
+            console.log("[event-signup] after second retrieve", { couponId: couponId ?? null, hasLastResponse: !!noExpandAny.lastResponse });
           }
           // Last resort: Stripe REST API (SDK can omit coupon in some serverless envs)
-          if (!couponId && process.env.STRIPE_SECRET_KEY) {
+          if (!couponId) {
+            const secretKey = process.env.STRIPE_SECRET_KEY;
+            console.log("[event-signup] trying Stripe REST API", { hasKey: !!secretKey });
             try {
               const res = await fetch(
                 `https://api.stripe.com/v1/promotion_codes/${encodeURIComponent(promotionCodeId)}`,
-                { headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` } }
+                { headers: { Authorization: `Bearer ${secretKey ?? ""}` } }
               );
               const data = (await res.json()) as Record<string, unknown>;
               console.log("[event-signup] Stripe REST response", {
                 ok: res.ok,
+                status: res.status,
                 coupon: data?.coupon,
                 keys: Object.keys(data || {}),
               });
               const c = data?.coupon;
               if (typeof c === "string" && c.startsWith("coupon_")) couponId = c;
-            } catch (_) {
-              /* ignore */
+            } catch (fetchErr) {
+              console.error("[event-signup] Stripe REST fetch failed", fetchErr);
             }
           }
           if (typeof couponId === "string" && couponId.startsWith("coupon_")) {

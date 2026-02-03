@@ -4,7 +4,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { getStripe } from "@/lib/stripe";
 import { randomUUID } from "crypto";
-import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
+import { calculateProcessingFee, getDiscountedSubtotalFromCoupon, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 
 function getBaseUrl(request: NextRequest): string {
@@ -71,14 +71,13 @@ export async function POST(req: NextRequest) {
         const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
           expand: ["coupon"],
         });
-        const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
+        const coupon = (promo as { coupon?: unknown }).coupon;
         if (coupon) {
           const totalBeforeDiscount = eventPrice + processingFee;
-          if (coupon.amount_off != null) {
-            discountedTotal = Math.max(0, totalBeforeDiscount - coupon.amount_off / 100);
-          } else if (coupon.percent_off != null) {
-            discountedTotal = Math.max(0, totalBeforeDiscount * (1 - coupon.percent_off / 100));
-          }
+          discountedTotal = getDiscountedSubtotalFromCoupon(
+            coupon,
+            totalBeforeDiscount
+          );
         }
       } catch (e) {
         console.error("Event signup: could not resolve promo for Stripe total check", e);
@@ -185,14 +184,9 @@ export async function POST(req: NextRequest) {
         const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
           expand: ["coupon"],
         });
-        const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
+        const coupon = (promo as { coupon?: unknown }).coupon;
         if (coupon) {
-          let discounted = eventPrice;
-          if (coupon.amount_off != null) {
-            discounted = Math.max(0, eventPrice - coupon.amount_off / 100);
-          } else if (coupon.percent_off != null) {
-            discounted = Math.max(0, eventPrice * (1 - coupon.percent_off / 100));
-          }
+          const discounted = getDiscountedSubtotalFromCoupon(coupon, eventPrice);
           resolvedAmount = roundCurrency(discounted);
         }
       } catch (e) {

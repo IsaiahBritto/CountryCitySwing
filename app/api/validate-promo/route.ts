@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
+import { getDiscountedSubtotalFromCoupon } from "@/lib/utils/paymentHelpers";
 
 /**
  * POST /api/validate-promo
@@ -59,24 +60,28 @@ export async function POST(req: NextRequest) {
       const promoWithCoupon = await stripe.promotionCodes.retrieve(promo.id, {
         expand: ["coupon"],
       });
-      const expandedCoupon = (promoWithCoupon as { coupon?: { amount_off?: number; percent_off?: number } }).coupon;
-      if (expandedCoupon && typeof expandedCoupon === "object") {
-        if (expandedCoupon.amount_off != null) {
-          discountedSubtotal = Math.max(0, subtotalNum - expandedCoupon.amount_off / 100);
-        } else if (expandedCoupon.percent_off != null) {
-          discountedSubtotal = Math.max(0, subtotalNum * (1 - expandedCoupon.percent_off / 100));
-        } else {
-          discountedSubtotal = subtotalNum;
-        }
+      const expandedCoupon = (promoWithCoupon as { coupon?: unknown }).coupon;
+      if (expandedCoupon) {
+        discountedSubtotal = getDiscountedSubtotalFromCoupon(
+          expandedCoupon,
+          subtotalNum
+        );
       }
     }
 
-    const payload: { valid: true; promotionCodeId: string; code: string; discountedSubtotal?: number } = {
+    const payload: {
+      valid: true;
+      promotionCodeId: string;
+      code: string;
+      discountedSubtotal?: number;
+    } = {
       valid: true,
       promotionCodeId: promo.id,
       code: promo.code,
     };
-    if (discountedSubtotal !== undefined) payload.discountedSubtotal = discountedSubtotal;
+    if (discountedSubtotal !== undefined) {
+      payload.discountedSubtotal = discountedSubtotal;
+    }
 
     return NextResponse.json(payload);
   } catch (err: unknown) {

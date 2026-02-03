@@ -3,9 +3,8 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { getStripe } from "@/lib/stripe";
 import { sendHtmlEmail } from "@/lib/mailer";
 import eventsData from "@/lib/events.json";
-import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
+import { calculateProcessingFee, getDiscountedSubtotalFromCoupon, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
-import Stripe from "stripe";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -95,13 +94,11 @@ export async function POST(req: NextRequest) {
           const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
             expand: ["coupon"],
           });
-          const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
+          const coupon = (promo as { coupon?: unknown }).coupon;
           if (coupon) {
-            if (coupon.amount_off != null) {
-              amountDue = Math.max(0, roundCurrency(basePrice - coupon.amount_off / 100));
-            } else if (coupon.percent_off != null) {
-              amountDue = Math.max(0, roundCurrency(basePrice * (1 - coupon.percent_off / 100)));
-            }
+            amountDue = roundCurrency(
+              getDiscountedSubtotalFromCoupon(coupon, basePrice)
+            );
           }
         } catch (e) {
           console.error("Event signup pay: could not resolve promo", e);

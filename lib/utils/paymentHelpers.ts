@@ -26,3 +26,25 @@ export function calculateProcessingFee(subtotal: number): number {
 export function roundCurrency(amount: number): number {
   return Math.round(amount * 100) / 100;
 }
+
+/**
+ * Get discounted subtotal (in dollars) from a Stripe coupon.
+ * Coupon.amount_off is in CENTS; percent_off is 0–100.
+ * Reads both snake_case (amount_off) and camelCase (amountOff) for compatibility.
+ */
+export function getDiscountedSubtotalFromCoupon(
+  coupon: unknown,
+  subtotalDollars: number
+): number {
+  if (!coupon || typeof coupon !== "object") return subtotalDollars;
+  const c = coupon as Record<string, unknown>;
+  const amountOffCents = c.amount_off ?? c.amountOff;
+  const percentOff = c.percent_off ?? c.percentOff;
+  if (typeof amountOffCents === "number" && Number.isFinite(amountOffCents)) {
+    return Math.max(0, subtotalDollars - amountOffCents / 100);
+  }
+  if (typeof percentOff === "number" && Number.isFinite(percentOff)) {
+    return Math.max(0, subtotalDollars * (1 - percentOff / 100));
+  }
+  return subtotalDollars;
+}

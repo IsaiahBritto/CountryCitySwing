@@ -15,7 +15,7 @@ export default function EventPaymentPage() {
   const [processing, setProcessing] = useState(false);
   const [eventPrice, setEventPrice] = useState(0);
   const [promoCodeInput, setPromoCodeInput] = useState("");
-  const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string } | null>(null);
+  const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string; discountedSubtotal?: number } | null>(null);
   const [promoError, setPromoError] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
 
@@ -100,11 +100,15 @@ export default function EventPaymentPage() {
       const res = await fetch("/api/validate-promo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, subtotal: eventPrice }),
       });
       const result = await res.json();
       if (result.valid && result.promotionCodeId) {
-        setAppliedPromo({ promotionCodeId: result.promotionCodeId, code: result.code ?? code });
+        setAppliedPromo({
+          promotionCodeId: result.promotionCodeId,
+          code: result.code ?? code,
+          discountedSubtotal: result.discountedSubtotal,
+        });
       } else {
         setAppliedPromo(null);
         setPromoError(result.message || "Invalid promotion code.");
@@ -123,6 +127,11 @@ export default function EventPaymentPage() {
     setPromoError("");
   };
 
+  // Amount due after discount: use discounted subtotal when promo applied, else event price
+  const amountDue =
+    appliedPromo?.discountedSubtotal != null ? appliedPromo.discountedSubtotal : eventPrice;
+  const noPaymentRequired = amountDue <= 0.5;
+
   const handlePay = async () => {
     if (!signup) return;
 
@@ -130,8 +139,14 @@ export default function EventPaymentPage() {
     setError("");
 
     try {
-      const body: { signupId: string; promotionCodeId?: string } = { signupId };
-      if (appliedPromo) body.promotionCodeId = appliedPromo.promotionCodeId;
+      const body: { signupId: string; promotionCodeId?: string; discountedSubtotal?: number } = {
+        signupId,
+      };
+      if (appliedPromo) {
+        body.promotionCodeId = appliedPromo.promotionCodeId;
+        if (appliedPromo.discountedSubtotal != null)
+          body.discountedSubtotal = appliedPromo.discountedSubtotal;
+      }
       const response = await fetch("/api/event-signup/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -142,6 +157,18 @@ export default function EventPaymentPage() {
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to create payment session");
+      }
+
+      if (data.noPaymentRequired) {
+        setSignup((prev) =>
+          prev ? { ...prev, paid: true, amount_owed: 0 } : null
+        );
+        setEventPrice(0);
+        setAppliedPromo(null);
+        setPromoCodeInput("");
+        setError("");
+        setProcessing(false);
+        return;
       }
 
       if (data.redirect) {
@@ -204,10 +231,10 @@ export default function EventPaymentPage() {
           <p className="text-gray-300 mb-2">
             <strong>Email:</strong> {signup.email}
           </p>
-          {(eventPrice > 0 || (signup.amount_owed != null && Number(signup.amount_owed) === 0)) && (
+          {(eventPrice > 0 || amountDue <= 0.5 || (signup.amount_owed != null && Number(signup.amount_owed) === 0)) && (
             <p className="text-gray-300 mb-4">
-              <strong>Amount due:</strong> ${eventPrice.toFixed(2)}
-              {signup.amount_owed != null && (
+              <strong>Amount due:</strong> ${Math.max(0, amountDue).toFixed(2)}
+              {(appliedPromo?.discountedSubtotal != null || signup.amount_owed != null) && (
                 <span className="text-green-400 text-sm ml-1">(after discount)</span>
               )}
             </p>
@@ -227,12 +254,17 @@ export default function EventPaymentPage() {
         </div>
 
         {/* Promo code */}
-        {eventPrice > 0 && (
+        {eventPrice > 0 && !signup.paid && (
           <div className="bg-neutral-800 rounded-lg p-6 mb-6">
             <h3 className="text-lg font-semibold text-white mb-2">Promotion code</h3>
             {appliedPromo ? (
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-green-400 text-sm">Applied: {appliedPromo.code}</span>
+                <span className="text-green-400 text-sm">
+                  Applied: {appliedPromo.code}
+                  {appliedPromo.discountedSubtotal != null && (
+                    <> — Amount due: ${Math.max(0, appliedPromo.discountedSubtotal).toFixed(2)}</>
+                  )}
+                </span>
                 <button
                   type="button"
                   onClick={removePromo}
@@ -268,13 +300,30 @@ export default function EventPaymentPage() {
           </div>
         )}
 
-        {eventPrice > 0 ? (
+        {noPaymentRequired ? (
+          <div className="bg-neutral-800 rounded-lg p-6 mb-6">
+            <p className="text-gray-300">
+              {signup.paid
+                ? "No payment required. Your promotion code covered the full cost. You're all set!"
+                : "Your promotion code covered the full cost. No payment is required."}
+            </p>
+            {!signup.paid && (
+              <button
+                onClick={handlePay}
+                disabled={processing}
+                className="w-full mt-4 bg-accent text-white px-6 py-3 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] hover:shadow-[0_0_25px_rgba(187,134,252,0.8)] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {processing ? "Confirming…" : "Confirm — no payment required"}
+              </button>
+            )}
+          </div>
+        ) : eventPrice > 0 ? (
           <button
             onClick={handlePay}
             disabled={processing}
             className="w-full bg-accent text-white px-6 py-3 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] hover:shadow-[0_0_25px_rgba(187,134,252,0.8)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {processing ? "Processing..." : `Pay $${eventPrice.toFixed(2)} via Stripe`}
+            {processing ? "Processing..." : `Pay $${amountDue.toFixed(2)} via Stripe`}
           </button>
         ) : (
           <div className="bg-neutral-800 rounded-lg p-6">

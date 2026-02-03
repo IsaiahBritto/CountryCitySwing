@@ -49,8 +49,13 @@ export async function POST(req: NextRequest) {
     }
 
     let discountedSubtotal: number | undefined;
-    const subtotalNum = typeof subtotal === "number" && subtotal >= 0 ? subtotal : undefined;
-    if (subtotalNum !== undefined) {
+    const subtotalNum =
+      typeof subtotal === "number"
+        ? subtotal
+        : typeof subtotal === "string"
+          ? parseFloat(subtotal)
+          : NaN;
+    if (!Number.isNaN(subtotalNum) && subtotalNum >= 0) {
       const promoWithCoupon = await stripe.promotionCodes.retrieve(promo.id, {
         expand: ["coupon"],
       });

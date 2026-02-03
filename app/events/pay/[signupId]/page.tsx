@@ -50,22 +50,24 @@ export default function EventPaymentPage() {
 
         setSignup(data);
 
-        // Fetch event price from events table or JSON
+        // Use stored amount_owed (after discount) when present; otherwise fetch event price
+        const storedAmountOwed = data.amount_owed != null ? Number(data.amount_owed) : null;
+        if (storedAmountOwed !== null && storedAmountOwed >= 0) {
+          setEventPrice(storedAmountOwed);
+          return;
+        }
         let price = 0;
         if (data.event_id) {
           try {
-            // Try fetching from events table
             const { data: eventData } = await supabaseBrowser
               .from("events")
               .select("price")
               .eq("id", data.event_id)
               .single();
-            
             if (eventData?.price) {
               price = Number(eventData.price);
             }
           } catch (e) {
-            // If events table doesn't exist, try events.json
             const event = (eventsData as any[]).find((e: any) => e.id === data.event_id);
             if (event?.price) {
               price = Number(event.price);
@@ -202,9 +204,12 @@ export default function EventPaymentPage() {
           <p className="text-gray-300 mb-2">
             <strong>Email:</strong> {signup.email}
           </p>
-          {eventPrice > 0 && (
+          {(eventPrice > 0 || (signup.amount_owed != null && Number(signup.amount_owed) === 0)) && (
             <p className="text-gray-300 mb-4">
-              <strong>Amount:</strong> ${eventPrice.toFixed(2)}
+              <strong>Amount due:</strong> ${eventPrice.toFixed(2)}
+              {signup.amount_owed != null && (
+                <span className="text-green-400 text-sm ml-1">(after discount)</span>
+              )}
             </p>
           )}
         </div>
@@ -274,7 +279,9 @@ export default function EventPaymentPage() {
         ) : (
           <div className="bg-neutral-800 rounded-lg p-6">
             <p className="text-gray-300">
-              This event is free. No payment is required.
+              {signup.paid || (signup.amount_owed != null && Number(signup.amount_owed) === 0)
+                ? "No payment required. Your promotion code covered the full cost."
+                : "This event is free. No payment is required."}
             </p>
           </div>
         )}

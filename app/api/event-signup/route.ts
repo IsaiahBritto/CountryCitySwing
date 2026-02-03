@@ -187,6 +187,7 @@ export async function POST(req: NextRequest) {
         accept_liability: acceptLiability,
         accept_payment: acceptPayment,
         paid,
+        amount_owed: roundCurrency(amountOwed),
       },
     ])
     .select()

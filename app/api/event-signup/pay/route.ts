@@ -56,23 +56,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Get event price from events table or JSON file
-    let eventPrice = 0;
-    
-    if (signup.event_id) {
-      // First try to fetch from events table (if it exists)
+    // Use stored amount_owed (after discount) when present; otherwise get event price
+    const hasStoredAmountOwed = signup.amount_owed != null && Number(signup.amount_owed) >= 0;
+    const amountDue = hasStoredAmountOwed ? Number(signup.amount_owed) : null;
+
+    if (amountDue === 0) {
+      return NextResponse.json(
+        { error: "No payment required. Your promotion code already covered the full cost." },
+        { status: 400 }
+      );
+    }
+
+    let eventPrice = hasStoredAmountOwed ? amountDue! : 0;
+
+    if (!hasStoredAmountOwed && signup.event_id) {
       try {
         const { data: eventData } = await supabaseServer
           .from("events")
           .select("price")
           .eq("id", signup.event_id)
           .single();
-        
         if (eventData?.price) {
           eventPrice = Number(eventData.price);
         }
       } catch (e) {
-        // If events table doesn't exist or query fails, try events.json
         const event = (eventsData as any[]).find((e: any) => e.id === signup.event_id);
         if (event?.price) {
           eventPrice = Number(event.price);
@@ -87,19 +94,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Calculate processing fee
+    // Calculate processing fee on the amount we're charging (discounted amount when applicable)
     const processingFee = roundCurrency(calculateProcessingFee(eventPrice));
-    
-    // Build line items: event price + processing fee
+
     const lineItems: any[] = [
       {
         price_data: {
           currency: "usd",
-            product_data: {
-              name: signup.event_title || "Event Registration",
-              description: `Payment for event registration`,
-              tax_code: getEventTaxCode(), // Educational services/instruction
-            },
+          product_data: {
+            name: signup.event_title || "Event Registration",
+            description: `Payment for event registration`,
+            tax_code: getEventTaxCode(),
+          },
           unit_amount: Math.round(eventPrice * 100),
         },
         quantity: 1,

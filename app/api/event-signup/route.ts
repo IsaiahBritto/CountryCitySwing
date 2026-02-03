@@ -180,16 +180,15 @@ export async function POST(req: NextRequest) {
   let effectivePaymentMethod =
     paymentMethodNorm.toLowerCase() === "cash" ? "Cash" : paymentMethod;
 
-  // 1️⃣ Stripe path: if promo brings total to ≤$0.50, treat as Cash with no payment (never create Stripe session ≤$0.50)
+  // 1️⃣ Stripe path: if event cost after promo (no processing fee, no tax) is ≤$0.50, treat as Cash with no payment
   if (effectivePaymentMethod === "Stripe" && eventPrice > 0) {
     const processingFee = roundCurrency(calculateProcessingFee(eventPrice));
-    const totalBeforeDiscount = eventPrice + processingFee;
-    let discountedTotal = totalBeforeDiscount;
+    let discountedEventOnly = eventPrice;
     if (promotionCodeId) {
-      const discounted = await getDiscountedAmountForPromotion(promotionCodeId, totalBeforeDiscount);
-      if (discounted !== null) discountedTotal = discounted;
+      const discounted = await getDiscountedAmountForPromotion(promotionCodeId, eventPrice);
+      if (discounted !== null) discountedEventOnly = discounted;
     }
-    if (discountedTotal <= 0.5) {
+    if (discountedEventOnly <= 0.5) {
       effectivePaymentMethod = "Cash";
       paid = true;
       amountOwed = 0;

@@ -187,13 +187,17 @@ export default function EventSignupModal({ event, open, onClose }: any) {
   const onSubmit = async (data: any) => {
     setSubmitError("");
     try {
-      const body: Record<string, unknown> = { ...data, event };
+      // Ensure event and price are always sent so server can apply promo for Cash
+      const eventPayload = event
+        ? { ...event, price: event.price ?? (event as Record<string, unknown>).price }
+        : undefined;
+      const body: Record<string, unknown> = { ...data, event: eventPayload };
       if (appliedPromo) {
         body.promotionCodeId = appliedPromo.promotionCodeId;
-        // Send discountedSubtotal when present (including 0) so server applies discount for Cash
-        if (appliedPromo.discountedSubtotal != null) {
-          body.discountedSubtotal = appliedPromo.discountedSubtotal;
-        }
+        body.discountedSubtotal =
+          appliedPromo.discountedSubtotal !== undefined && appliedPromo.discountedSubtotal !== null
+            ? appliedPromo.discountedSubtotal
+            : undefined;
       }
       const response = await fetch("/api/event-signup", {
         method: "POST",

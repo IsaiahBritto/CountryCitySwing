@@ -34,18 +34,37 @@ export async function POST(req: NextRequest) {
   } = data;
 
   // Normalize event and price (client may send snake_case or price as string)
-  const event = eventPayload ?? {};
+  const event = eventPayload ?? data.event ?? {};
   const eventPriceNum =
     typeof event.price === "number"
       ? event.price
       : typeof event.price === "string"
         ? parseFloat(event.price)
-        : Number(event?.price);
-  const eventPrice = Number.isFinite(eventPriceNum) ? eventPriceNum : 0;
+        : Number((event as Record<string, unknown>)?.price);
+  let eventPrice = Number.isFinite(eventPriceNum) ? eventPriceNum : 0;
+
+  // If event price missing but we have event.id, fetch from DB (so Cash + promo can apply)
+  if (eventPrice <= 0 && event?.id) {
+    try {
+      const { data: ev } = await supabaseServer
+        .from("events")
+        .select("price")
+        .eq("id", event.id)
+        .single();
+      if (ev?.price != null) {
+        const p = Number(ev.price);
+        if (Number.isFinite(p)) eventPrice = p;
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
 
   // Accept promo from body (camelCase or snake_case)
   const promotionCodeId =
-    promotionCodeIdFromBody ?? (data.promotion_code_id as string | undefined);
+    promotionCodeIdFromBody ??
+    (data.promotionCodeId as string | undefined) ??
+    (data.promotion_code_id as string | undefined);
   const clientDiscountedSubtotal =
     typeof clientDiscountedSubtotalFromBody === "number"
       ? clientDiscountedSubtotalFromBody
@@ -162,23 +181,13 @@ export async function POST(req: NextRequest) {
   }
 
   // 2️⃣ Non-Stripe (Cash or Stripe→Cash): create signup immediately
-  // If Cash + promo brings cost to $0, mark as paid and set amountOwed
-  const hasPromo =
-    promotionCodeId != null ||
-    (typeof clientDiscountedSubtotal === "number" && !Number.isNaN(clientDiscountedSubtotal));
-  const cashWithPromo =
-    effectivePaymentMethod !== "Stripe" && eventPrice > 0 && hasPromo;
+  // If Cash + promo, apply discount: prefer server-side Stripe when we have promotionCodeId
+  const isCashPath = effectivePaymentMethod !== "Stripe";
 
-  if (cashWithPromo) {
+  if (isCashPath && (eventPrice > 0 || promotionCodeId != null)) {
     let resolvedAmount: number | null = null;
-    if (
-      typeof clientDiscountedSubtotal === "number" &&
-      !Number.isNaN(clientDiscountedSubtotal) &&
-      clientDiscountedSubtotal >= 0
-    ) {
-      resolvedAmount = roundCurrency(clientDiscountedSubtotal);
-    }
-    if (resolvedAmount === null && promotionCodeId) {
+    // Always resolve from Stripe when we have a promo code (server is source of truth)
+    if (promotionCodeId) {
       try {
         const stripe = getStripe();
         const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
@@ -186,12 +195,20 @@ export async function POST(req: NextRequest) {
         });
         const coupon = (promo as { coupon?: unknown }).coupon;
         if (coupon) {
-          const discounted = getDiscountedSubtotalFromCoupon(coupon, eventPrice);
-          resolvedAmount = roundCurrency(discounted);
+          resolvedAmount = roundCurrency(
+            getDiscountedSubtotalFromCoupon(coupon, eventPrice)
+          );
         }
       } catch (e) {
         console.error("Event signup: could not resolve promo for paid check", e);
       }
+    }
+    // Fallback to client value only if we didn't get a value from Stripe
+    if (resolvedAmount === null &&
+        typeof clientDiscountedSubtotal === "number" &&
+        !Number.isNaN(clientDiscountedSubtotal) &&
+        clientDiscountedSubtotal >= 0) {
+      resolvedAmount = roundCurrency(clientDiscountedSubtotal);
     }
     if (resolvedAmount !== null) {
       amountOwed = resolvedAmount;

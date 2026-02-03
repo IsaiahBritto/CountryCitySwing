@@ -64,114 +64,123 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 1️⃣ Handle Stripe payment - create order AFTER payment completes
+    const orderTotalForDiscount = orderData.subtotal + (orderData.shipping || 0);
+    const promotionCodeId = orderData.promotionCodeId;
+    let paid = false;
+    let amountOwed = orderTotalForDiscount;
+    let effectivePaymentMethod = paymentMethod;
+
+    // 1️⃣ Stripe path: if promo brings total to ≤$0.50, treat as Cash with no payment
     if (paymentMethod === "stripe") {
-      try {
-        
-        // Calculate subtotal (items + shipping) for processing fee calculation
-        const subtotalForFee = orderData.subtotal + (orderData.shipping || 0);
-        const processingFee = roundCurrency(calculateProcessingFee(subtotalForFee));
-        
-        // Build line items: products + shipping + processing fee
-        const lineItems: { price_data: any; quantity: number }[] = orderData.items.map(
-          (item: any) => ({
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: `${item.productName} (${item.size})`,
-                tax_code: getMerchandiseTaxCode(), // General - Tangible Goods (for merchandise/clothing)
-              },
-              unit_amount: Math.round(item.price * 100),
-            },
-            quantity: item.quantity,
-          })
-        );
-        
-        // Add shipping as a line item (taxable in Tennessee)
-        if (orderData.shipping > 0) {
-          lineItems.push({
-            price_data: {
-              currency: "usd",
-              product_data: { 
-                name: "Shipping",
-                tax_code: getShippingTaxCode(), // Shipping services (taxable in Tennessee)
-              },
-              unit_amount: Math.round(orderData.shipping * 100),
-            },
-            quantity: 1,
+      const processingFee = roundCurrency(calculateProcessingFee(orderTotalForDiscount));
+      let discountedTotal = orderTotalForDiscount + processingFee;
+      if (promotionCodeId && orderTotalForDiscount > 0) {
+        try {
+          const stripe = getStripe();
+          const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
+            expand: ["coupon"],
           });
+          const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
+          if (coupon) {
+            const totalBeforeDiscount = orderTotalForDiscount + processingFee;
+            if (coupon.amount_off != null) {
+              discountedTotal = Math.max(0, totalBeforeDiscount - coupon.amount_off / 100);
+            } else if (coupon.percent_off != null) {
+              discountedTotal = Math.max(0, totalBeforeDiscount * (1 - coupon.percent_off / 100));
+            }
+          }
+        } catch (e) {
+          console.error("Merch order: could not resolve promo for Stripe total check", e);
         }
-
-        // Add processing fee
-        if (processingFee > 0) {
-          lineItems.push({
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: "Processing Fee",
-                description: "Payment processing fee",
-                tax_code: "txcd_99999999", // General - Tangible Goods (processing fees are typically tax-exempt, but using general code)
+      }
+      if (discountedTotal <= 0.5) {
+        effectivePaymentMethod = "cash";
+        paid = true;
+        amountOwed = 0;
+      } else {
+        try {
+          const subtotalForFee = orderData.subtotal + (orderData.shipping || 0);
+          const processingFee = roundCurrency(calculateProcessingFee(subtotalForFee));
+          const lineItems: { price_data: any; quantity: number }[] = orderData.items.map(
+            (item: any) => ({
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name: `${item.productName} (${item.size})`,
+                  tax_code: getMerchandiseTaxCode(),
+                },
+                unit_amount: Math.round(item.price * 100),
               },
-              unit_amount: Math.round(processingFee * 100),
+              quantity: item.quantity,
+            })
+          );
+          if (orderData.shipping > 0) {
+            lineItems.push({
+              price_data: {
+                currency: "usd",
+                product_data: { name: "Shipping", tax_code: getShippingTaxCode() },
+                unit_amount: Math.round(orderData.shipping * 100),
+              },
+              quantity: 1,
+            });
+          }
+          if (processingFee > 0) {
+            lineItems.push({
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name: "Processing Fee",
+                  description: "Payment processing fee",
+                  tax_code: "txcd_99999999",
+                },
+                unit_amount: Math.round(processingFee * 100),
+              },
+              quantity: 1,
+            });
+          }
+          const sessionParams: any = {
+            mode: "payment",
+            payment_method_types: ["card"],
+            line_items: lineItems,
+            automatic_tax: { enabled: true },
+            allow_promotion_codes: true,
+            ...(promotionCodeId ? { discounts: [{ promotion_code: promotionCodeId }] } : {}),
+            customer_email: orderData.email,
+            billing_address_collection: "auto",
+            shipping_address_collection: orderData.deliveryMethod === "ship"
+              ? { allowed_countries: ["US"] }
+              : undefined,
+            metadata: {
+              first_name: orderData.firstName,
+              last_name: orderData.lastName,
+              email: orderData.email,
+              delivery_method: orderData.deliveryMethod,
+              shipping_address: orderData.shippingAddress ? JSON.stringify(orderData.shippingAddress) : "",
+              items: JSON.stringify(orderData.items),
+              subtotal: String(orderData.subtotal),
+              shipping: String(orderData.shipping),
+              processing_fee: String(processingFee),
+              total: String(orderData.total),
+              payment_method: paymentMethod,
+              payment_type: "merch_order",
             },
-            quantity: 1,
-          });
+            success_url: `${base}/merch/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${base}/merch/checkout`,
+          };
+          const session = await getStripe().checkout.sessions.create(sessionParams);
+          return NextResponse.json({ success: true, redirect: session.url! });
+        } catch (stripeError: any) {
+          console.error("Stripe error:", stripeError);
+          return NextResponse.json(
+            { error: "Failed to create Stripe session", details: stripeError.message },
+            { status: 500 }
+          );
         }
-
-        // Store all order data in Stripe metadata - will be used to create order in webhook
-        const sessionParams: any = {
-          mode: "payment",
-          payment_method_types: ["card"],
-          line_items: lineItems,
-          automatic_tax: {
-            enabled: true, // Enable Stripe Tax for automatic sales tax calculation
-          },
-          allow_promotion_codes: true,
-          customer_email: orderData.email,
-          billing_address_collection: "auto", // Optional - allows customer to fill in if needed
-          shipping_address_collection: orderData.deliveryMethod === "ship" 
-            ? { allowed_countries: ["US"] } 
-            : undefined,
-          metadata: {
-            first_name: orderData.firstName,
-            last_name: orderData.lastName,
-            email: orderData.email,
-            delivery_method: orderData.deliveryMethod,
-            shipping_address: orderData.shippingAddress ? JSON.stringify(orderData.shippingAddress) : "",
-            items: JSON.stringify(orderData.items),
-            subtotal: String(orderData.subtotal),
-            shipping: String(orderData.shipping),
-            processing_fee: String(processingFee),
-            total: String(orderData.total),
-            payment_method: paymentMethod,
-            payment_type: "merch_order",
-          },
-          success_url: `${base}/merch/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${base}/merch/checkout`,
-        };
-        
-        const session = await getStripe().checkout.sessions.create(sessionParams);
-
-        // Don't send email yet - will be sent after payment completes in webhook
-        return NextResponse.json({
-          success: true,
-          redirect: session.url!,
-        });
-      } catch (stripeError: any) {
-        console.error("Stripe error:", stripeError);
-        return NextResponse.json(
-          { error: "Failed to create Stripe session", details: stripeError.message },
-          { status: 500 }
-        );
       }
     }
 
-    // 2️⃣ Handle Cash payment - create order immediately
-    // If Cash + promo code brings order cost to $0, mark as paid
-    let paid = false;
-    const promotionCodeId = orderData.promotionCodeId;
-    const orderTotalForDiscount = orderData.subtotal + (orderData.shipping || 0);
-    if (promotionCodeId && orderTotalForDiscount > 0) {
+    // 2️⃣ Cash path: create order; if promo brings cost to $0, mark as paid and set amountOwed
+    if (effectivePaymentMethod === "cash" && promotionCodeId && orderTotalForDiscount > 0) {
       try {
         const stripe = getStripe();
         const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
@@ -186,6 +195,7 @@ export async function POST(request: NextRequest) {
             discounted = Math.max(0, orderTotalForDiscount * (1 - coupon.percent_off / 100));
           }
           paid = discounted <= 0;
+          amountOwed = discounted;
         }
       } catch (e) {
         console.error("Merch order: could not resolve promo for paid check", e);
@@ -206,7 +216,7 @@ export async function POST(request: NextRequest) {
         total: orderData.total,
         status: "pending",
         paid,
-        payment_method: paymentMethod,
+        payment_method: effectivePaymentMethod,
       })
       .select()
       .single();
@@ -255,6 +265,7 @@ export async function POST(request: NextRequest) {
       : `
       <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
         <p style="margin: 0;"><strong>Payment:</strong> Cash payment selected.</p>
+        <p style="margin: 10px 0 0 0;"><strong>Amount due (after discount):</strong> $${amountOwed.toFixed(2)}</p>
         <p style="margin: 10px 0 0 0;">You can pay with cash in person, or click the link below to pay online via Stripe:</p>
         <p style="margin: 10px 0 0 0;">
           <a href="${paymentLink}" style="display: inline-block; background-color: #F2C94C; color: #000; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">

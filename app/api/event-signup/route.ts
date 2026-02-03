@@ -32,103 +32,113 @@ export async function POST(req: NextRequest) {
     promotionCodeId,
   } = data;
 
-  // 1️⃣ Handle Stripe payment - create signup AFTER payment completes
+  let paid = false;
+  let amountOwed = event.price != null ? event.price : 0;
+  let effectivePaymentMethod = paymentMethod;
+
+  // 1️⃣ Stripe path: if promo brings total to ≤$0.50, treat as Cash with no payment (never create Stripe session ≤$0.50)
   if (paymentMethod === "Stripe" && event.price && event.price > 0) {
-    try {
-      // Generate a UUID for the signup that will be created after payment
-      const signupId = randomUUID();
-      const base = getBaseUrl(req);
-      
-      // Calculate processing fee
-      const processingFee = roundCurrency(calculateProcessingFee(event.price));
-      
-      // Build line items: event price + processing fee
-      const lineItems: any[] = [
-        {
-          price_data: {
-            currency: "usd",
+    const processingFee = roundCurrency(calculateProcessingFee(event.price));
+    let discountedTotal = event.price + processingFee;
+    if (promotionCodeId) {
+      try {
+        const stripe = getStripe();
+        const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
+          expand: ["coupon"],
+        });
+        const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
+        if (coupon) {
+          const totalBeforeDiscount = event.price + processingFee;
+          if (coupon.amount_off != null) {
+            discountedTotal = Math.max(0, totalBeforeDiscount - coupon.amount_off / 100);
+          } else if (coupon.percent_off != null) {
+            discountedTotal = Math.max(0, totalBeforeDiscount * (1 - coupon.percent_off / 100));
+          }
+        }
+      } catch (e) {
+        console.error("Event signup: could not resolve promo for Stripe total check", e);
+      }
+    }
+    if (discountedTotal <= 0.5) {
+      effectivePaymentMethod = "Cash";
+      paid = true;
+      amountOwed = 0;
+    } else {
+      try {
+        const signupId = randomUUID();
+        const base = getBaseUrl(req);
+        const lineItems: any[] = [
+          {
+            price_data: {
+              currency: "usd",
               product_data: {
                 name: event.title,
                 description: `Event on ${new Date(event.date).toLocaleDateString()} at ${event.location}`,
-                tax_code: getEventTaxCode(), // Educational services/instruction
+                tax_code: getEventTaxCode(),
               },
-            unit_amount: Math.round(event.price * 100),
+              unit_amount: Math.round(event.price * 100),
+            },
+            quantity: 1,
           },
-          quantity: 1,
-        },
-      ];
-
-      // Add processing fee
-      if (processingFee > 0) {
-        lineItems.push({
+        ];
+        if (processingFee > 0) {
+          lineItems.push({
             price_data: {
               currency: "usd",
               product_data: {
                 name: "Processing Fee",
                 description: "Payment processing fee",
-                tax_code: getProcessingFeeTaxCode(), // General - Tangible Goods (processing fees are typically tax-exempt)
+                tax_code: getProcessingFeeTaxCode(),
               },
-            unit_amount: Math.round(processingFee * 100),
+              unit_amount: Math.round(processingFee * 100),
+            },
+            quantity: 1,
+          });
+        }
+        const sessionParams: any = {
+          mode: "payment",
+          payment_method_types: ["card"],
+          line_items: lineItems,
+          automatic_tax: { enabled: true },
+          allow_promotion_codes: true,
+          ...(promotionCodeId ? { discounts: [{ promotion_code: promotionCodeId }] } : {}),
+          customer_email: email,
+          billing_address_collection: "auto",
+          client_reference_id: signupId,
+          metadata: {
+            signup_id: signupId,
+            event_id: event.id,
+            event_title: event.title,
+            first_name: firstName,
+            last_name: lastName,
+            email,
+            been_before: beenBefore,
+            heard_about_us: heardAboutUs || "",
+            payment_method: paymentMethod,
+            accept_liability: String(acceptLiability),
+            accept_payment: String(acceptPayment),
+            payment_type: "stripe_checkout",
+            subtotal: String(event.price),
+            processing_fee: String(processingFee),
           },
-          quantity: 1,
-        });
+          success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${base}/events?payment=cancelled`,
+        };
+        const session = await getStripe().checkout.sessions.create(sessionParams);
+        return NextResponse.json({ success: true, redirect: session.url! });
+      } catch (stripeError: any) {
+        console.error("Stripe error:", stripeError);
+        return NextResponse.json(
+          { error: "Failed to create Stripe session", details: stripeError.message },
+          { status: 500 }
+        );
       }
-      
-      // Store all signup data in Stripe metadata - will be used to create signup in webhook
-      const sessionParams: any = {
-        mode: "payment",
-        payment_method_types: ["card"], // Apple Pay and Google Pay are automatically available when "card" is enabled
-        line_items: lineItems,
-        automatic_tax: {
-          enabled: true, // Enable Stripe Tax for automatic sales tax calculation
-        },
-        allow_promotion_codes: true,
-        ...(promotionCodeId
-          ? { discounts: [{ promotion_code: promotionCodeId }] }
-          : {}),
-        customer_email: email,
-        billing_address_collection: "auto", // Optional - allows customer to fill in if needed
-        client_reference_id: signupId,
-        metadata: {
-          signup_id: signupId,
-          event_id: event.id,
-          event_title: event.title,
-          first_name: firstName,
-          last_name: lastName,
-          email: email,
-          been_before: beenBefore,
-          heard_about_us: heardAboutUs || "",
-          payment_method: paymentMethod,
-          accept_liability: String(acceptLiability),
-          accept_payment: String(acceptPayment),
-          payment_type: "stripe_checkout",
-          subtotal: String(event.price),
-          processing_fee: String(processingFee),
-        },
-        success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${base}/events?payment=cancelled`,
-      };
-      
-      const session = await getStripe().checkout.sessions.create(sessionParams);
-
-      // Don't send email yet - will be sent after payment completes in webhook
-      return NextResponse.json({
-        success: true,
-        redirect: session.url!,
-      });
-    } catch (stripeError: any) {
-      console.error("Stripe error:", stripeError);
-      return NextResponse.json(
-        { error: "Failed to create Stripe session", details: stripeError.message },
-        { status: 500 }
-      );
     }
   }
 
-  // 2️⃣ Handle non-Stripe payments - create signup immediately
-  // If Cash (or other) + promo code brings cost to $0, mark as paid
-  let paid = false;
-  if (promotionCodeId && event.price != null && event.price > 0) {
+  // 2️⃣ Non-Stripe (Cash or Stripe→Cash): create signup immediately
+  // If Cash + promo brings cost to $0, mark as paid and set amountOwed
+  if (effectivePaymentMethod !== "Stripe" && promotionCodeId && event.price != null && event.price > 0) {
     try {
       const stripe = getStripe();
       const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
@@ -143,6 +153,7 @@ export async function POST(req: NextRequest) {
           discounted = Math.max(0, event.price * (1 - coupon.percent_off / 100));
         }
         paid = discounted <= 0;
+        amountOwed = discounted;
       }
     } catch (e) {
       console.error("Event signup: could not resolve promo for paid check", e);
@@ -160,7 +171,7 @@ export async function POST(req: NextRequest) {
         email,
         been_before: beenBefore,
         heard_about_us: heardAboutUs,
-        payment_method: paymentMethod,
+        payment_method: effectivePaymentMethod,
         accept_liability: acceptLiability,
         accept_payment: acceptPayment,
         paid,
@@ -187,7 +198,7 @@ export async function POST(req: NextRequest) {
   const paymentLink = `${base}/events/pay/${signupId}`;
   
   const paymentSection =
-    paymentMethod === "Cash" && event.price && event.price > 0
+    effectivePaymentMethod === "Cash" && event.price && event.price > 0
       ? paid
         ? `
       <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
@@ -197,6 +208,7 @@ export async function POST(req: NextRequest) {
         : `
       <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
         <p style="margin: 0;"><strong>Payment:</strong> Cash payment selected.</p>
+        <p style="margin: 10px 0 0 0;"><strong>Amount due:</strong> $${amountOwed.toFixed(2)}</p>
         <p style="margin: 10px 0 0 0;">You can pay with cash at the door, or click the link below to pay online via Stripe:</p>
         <p style="margin: 10px 0 0 0;">
           <a href="${paymentLink}" style="display: inline-block; background-color: #F2C94C; color: #000; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">
@@ -260,20 +272,20 @@ export async function POST(req: NextRequest) {
                 <div class="detail-value">${event.location}</div>
               </div>
               ` : ""}
-              ${event.price ? `
+              ${event.price != null ? `
               <div class="detail-row">
-                <div class="detail-label">Price</div>
-                <div class="detail-value">$${event.price.toFixed(2)}</div>
+                <div class="detail-label">Amount due (after discount)</div>
+                <div class="detail-value">$${amountOwed.toFixed(2)}</div>
               </div>
               ` : ""}
               <div class="detail-row">
                 <div class="detail-label">Payment Method</div>
-                <div class="detail-value"><strong>${paymentMethod}</strong></div>
+                <div class="detail-value"><strong>${effectivePaymentMethod}</strong></div>
               </div>
               <div class="detail-row">
                 <div class="detail-label">Payment Status</div>
-                <div class="detail-value" style="color: ${paymentMethod === 'Stripe' ? '#28a745' : '#f2c94c'}; font-weight: bold;">
-                  ${paymentMethod === 'Stripe' ? '✓ Paid' : paymentMethod === 'Cash' ? '⏳ Pending - Pay at door' : '✓ Confirmed'}
+                <div class="detail-value" style="color: ${paid ? '#28a745' : '#f2c94c'}; font-weight: bold;">
+                  ${paid ? '✓ No payment required' : effectivePaymentMethod === 'Cash' ? '⏳ Pending - Pay at door' : '✓ Confirmed'}
                 </div>
               </div>
             </div>
@@ -297,6 +309,13 @@ export async function POST(req: NextRequest) {
       html,
       "confirmation@countrycityswing.dance"
     );
+    if (paymentMethod === "Stripe" && effectivePaymentMethod === "Cash" && paid) {
+      return NextResponse.json({
+        success: true,
+        noRedirect: true,
+        message: "Your total after discount is $0. No payment required.",
+      });
+    }
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("Email send error:", err);

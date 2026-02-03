@@ -63,7 +63,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
 
   const [loadingUser, setLoadingUser] = useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
-  const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string } | null>(null);
+  const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string; discountedSubtotal?: number } | null>(null);
   const [promoError, setPromoError] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
   const beenBefore = watch("beenBefore");
@@ -116,6 +116,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
       setPromoCodeInput("");
       setAppliedPromo(null);
       setPromoError("");
+      setSubmitSuccessMessage("");
     }
   }, [open, reset]);
 
@@ -134,6 +135,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
   }, [onClose]);
 
   const [submitError, setSubmitError] = useState("");
+  const [submitSuccessMessage, setSubmitSuccessMessage] = useState("");
 
   const applyPromo = async () => {
     const code = promoCodeInput.trim();
@@ -144,14 +146,26 @@ export default function EventSignupModal({ event, open, onClose }: any) {
     setPromoError("");
     setPromoLoading(true);
     try {
+      const subtotal = event?.price != null ? event.price : undefined;
       const res = await fetch("/api/validate-promo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, ...(subtotal !== undefined && { subtotal }) }),
       });
       const result = await res.json();
       if (result.valid && result.promotionCodeId) {
-        setAppliedPromo({ promotionCodeId: result.promotionCodeId, code: result.code ?? code });
+        setAppliedPromo({
+          promotionCodeId: result.promotionCodeId,
+          code: result.code ?? code,
+          discountedSubtotal: result.discountedSubtotal,
+        });
+        if (
+          result.discountedSubtotal != null &&
+          result.discountedSubtotal <= 0.5 &&
+          watch("paymentMethod") === "Stripe"
+        ) {
+          setValue("paymentMethod", "Cash");
+        }
       } else {
         setAppliedPromo(null);
         setPromoError(result.message || "Invalid promotion code.");
@@ -192,7 +206,16 @@ export default function EventSignupModal({ event, open, onClose }: any) {
         throw new Error(errorMsg);
       }
 
-      // If Stripe payment, redirect to checkout
+      if (result.noRedirect) {
+        setSubmitError("");
+        setSubmitSuccessMessage(result.message || "Your signup has been submitted!");
+        reset();
+        setTimeout(() => {
+          setSubmitSuccessMessage("");
+          onClose();
+        }, 2500);
+        return;
+      }
       if (data.paymentMethod === "Stripe" && result.redirect) {
         window.location.href = result.redirect;
         return;
@@ -324,7 +347,12 @@ export default function EventSignupModal({ event, open, onClose }: any) {
             {/* Payment */}
             <div>
               <p className="font-medium mb-1">
-                Payment Method{event.price ? `: $${event.price.toFixed(2)}` : ""}
+                Payment Method
+                {event.price != null && event.price > 0
+                  ? appliedPromo?.discountedSubtotal != null
+                    ? `: $${appliedPromo.discountedSubtotal.toFixed(2)}${appliedPromo.discountedSubtotal <= 0.5 ? " (no payment required)" : " (after discount)"}`
+                    : `: $${event.price.toFixed(2)}`
+                  : ""}
               </p>
               {[
                 { label: "Stripe (Credit/Debit Card)", value: "Stripe" },
@@ -350,17 +378,29 @@ export default function EventSignupModal({ event, open, onClose }: any) {
               <div>
                 <p className="font-medium mb-1">Promotion code</p>
                 {appliedPromo ? (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-green-400 text-sm">
-                      Applied: {appliedPromo.code}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={removePromo}
-                      className="text-sm text-gray-400 hover:text-white underline"
-                    >
-                      Remove
-                    </button>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-green-400 text-sm">
+                        Applied: {appliedPromo.code}
+                        {appliedPromo.discountedSubtotal != null && (
+                          <span className="text-gray-300 ml-1">
+                            — Amount due: ${appliedPromo.discountedSubtotal.toFixed(2)}
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={removePromo}
+                        className="text-sm text-gray-400 hover:text-white underline"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    {appliedPromo.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5 && (
+                      <p className="text-green-400 text-sm">
+                        Your total after discount is $0. No payment required — payment method set to Cash.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="flex gap-2 flex-wrap">
@@ -439,6 +479,11 @@ export default function EventSignupModal({ event, open, onClose }: any) {
               </p>
             )}
 
+            {submitSuccessMessage && (
+              <div className="bg-green-900/20 border border-green-500 rounded-lg p-3">
+                <p className="text-green-400 text-sm">{submitSuccessMessage}</p>
+              </div>
+            )}
             {submitError && (
               <div className="bg-red-900/20 border border-red-500 rounded-lg p-3">
                 <p className="text-red-400 text-sm">{submitError}</p>

@@ -131,6 +131,7 @@ export async function POST(req: NextRequest) {
       automatic_tax: {
         enabled: true, // Enable Stripe Tax for automatic sales tax calculation
       },
+      allow_promotion_codes: true,
       customer_email: signup.email,
       billing_address_collection: "auto", // Optional - allows customer to fill in if needed
       client_reference_id: signupId,

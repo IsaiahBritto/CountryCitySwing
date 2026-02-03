@@ -205,18 +205,25 @@ export async function POST(req: NextRequest) {
         const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
           expand: ["coupon"],
         });
-        let coupon = (promo as { coupon?: unknown }).coupon;
-        // If expand didn't return an object (e.g. still an id string), fetch coupon by id
-        if (typeof coupon === "string" && coupon.startsWith("coupon_")) {
-          const fullCoupon = await stripe.coupons.retrieve(coupon);
-          coupon = fullCoupon as unknown;
+        let coupon: unknown = (promo as { coupon?: unknown }).coupon;
+        // Expand often returns undefined in Vercel/serverless; fetch coupon by ID (retrieve without expand gives id)
+        if (!coupon || typeof coupon !== "object") {
+          const couponId =
+            typeof coupon === "string" ? coupon : undefined;
+          if (!couponId) {
+            const promoNoExpand = await stripe.promotionCodes.retrieve(promotionCodeId);
+            const id = (promoNoExpand as { coupon?: string }).coupon;
+            if (typeof id === "string" && id.startsWith("coupon_")) {
+              coupon = await stripe.coupons.retrieve(id);
+            }
+          } else if (couponId.startsWith("coupon_")) {
+            coupon = await stripe.coupons.retrieve(couponId);
+          }
         }
         if (coupon && typeof coupon === "object") {
           const discounted = getDiscountedSubtotalFromCoupon(coupon, eventPrice);
           resolvedAmount = roundCurrency(discounted);
-          console.log("[event-signup] Stripe coupon applied", { discounted, resolvedAmount, amountOff: (coupon as Record<string, unknown>).amount_off, percentOff: (coupon as Record<string, unknown>).percent_off });
-        } else {
-          console.log("[event-signup] coupon missing or not object", { couponType: typeof coupon });
+          console.log("[event-signup] Stripe coupon applied", { discounted, resolvedAmount });
         }
       } catch (e) {
         console.error("Event signup: could not resolve promo for paid check", e);

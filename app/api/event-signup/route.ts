@@ -28,19 +28,43 @@ export async function POST(req: NextRequest) {
     paymentMethod,
     acceptLiability,
     acceptPayment,
-    event,
-    promotionCodeId,
-    discountedSubtotal: clientDiscountedSubtotal,
+    event: eventPayload,
+    promotionCodeId: promotionCodeIdFromBody,
+    discountedSubtotal: clientDiscountedSubtotalFromBody,
   } = data;
 
+  // Normalize event and price (client may send snake_case or price as string)
+  const event = eventPayload ?? {};
+  const eventPriceNum =
+    typeof event.price === "number"
+      ? event.price
+      : typeof event.price === "string"
+        ? parseFloat(event.price)
+        : Number(event?.price);
+  const eventPrice = Number.isFinite(eventPriceNum) ? eventPriceNum : 0;
+
+  // Accept promo from body (camelCase or snake_case)
+  const promotionCodeId =
+    promotionCodeIdFromBody ?? (data.promotion_code_id as string | undefined);
+  const clientDiscountedSubtotal =
+    typeof clientDiscountedSubtotalFromBody === "number"
+      ? clientDiscountedSubtotalFromBody
+      : typeof clientDiscountedSubtotalFromBody === "string"
+        ? parseFloat(clientDiscountedSubtotalFromBody)
+        : typeof data.discounted_subtotal === "number"
+          ? data.discounted_subtotal
+          : typeof data.discounted_subtotal === "string"
+            ? parseFloat(data.discounted_subtotal)
+            : undefined;
+
   let paid = false;
-  let amountOwed = event.price != null ? event.price : 0;
+  let amountOwed = eventPrice;
   let effectivePaymentMethod = paymentMethod;
 
   // 1️⃣ Stripe path: if promo brings total to ≤$0.50, treat as Cash with no payment (never create Stripe session ≤$0.50)
-  if (paymentMethod === "Stripe" && event.price && event.price > 0) {
-    const processingFee = roundCurrency(calculateProcessingFee(event.price));
-    let discountedTotal = event.price + processingFee;
+  if (paymentMethod === "Stripe" && eventPrice > 0) {
+    const processingFee = roundCurrency(calculateProcessingFee(eventPrice));
+    let discountedTotal = eventPrice + processingFee;
     if (promotionCodeId) {
       try {
         const stripe = getStripe();
@@ -49,7 +73,7 @@ export async function POST(req: NextRequest) {
         });
         const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
         if (coupon) {
-          const totalBeforeDiscount = event.price + processingFee;
+          const totalBeforeDiscount = eventPrice + processingFee;
           if (coupon.amount_off != null) {
             discountedTotal = Math.max(0, totalBeforeDiscount - coupon.amount_off / 100);
           } else if (coupon.percent_off != null) {
@@ -77,7 +101,7 @@ export async function POST(req: NextRequest) {
                 description: `Event on ${new Date(event.date).toLocaleDateString()} at ${event.location}`,
                 tax_code: getEventTaxCode(),
               },
-              unit_amount: Math.round(event.price * 100),
+              unit_amount: Math.round(eventPrice * 100),
             },
             quantity: 1,
           },
@@ -120,7 +144,7 @@ export async function POST(req: NextRequest) {
             accept_liability: String(acceptLiability),
             accept_payment: String(acceptPayment),
             payment_type: "stripe_checkout",
-            subtotal: String(event.price),
+            subtotal: String(eventPrice),
             processing_fee: String(processingFee),
           },
           success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
@@ -140,10 +164,19 @@ export async function POST(req: NextRequest) {
 
   // 2️⃣ Non-Stripe (Cash or Stripe→Cash): create signup immediately
   // If Cash + promo brings cost to $0, mark as paid and set amountOwed
-  const cashWithPromo = effectivePaymentMethod !== "Stripe" && event.price != null && event.price > 0 && (promotionCodeId || typeof clientDiscountedSubtotal === "number");
+  const hasPromo =
+    promotionCodeId != null ||
+    (typeof clientDiscountedSubtotal === "number" && !Number.isNaN(clientDiscountedSubtotal));
+  const cashWithPromo =
+    effectivePaymentMethod !== "Stripe" && eventPrice > 0 && hasPromo;
+
   if (cashWithPromo) {
     let resolvedAmount: number | null = null;
-    if (typeof clientDiscountedSubtotal === "number" && clientDiscountedSubtotal >= 0) {
+    if (
+      typeof clientDiscountedSubtotal === "number" &&
+      !Number.isNaN(clientDiscountedSubtotal) &&
+      clientDiscountedSubtotal >= 0
+    ) {
       resolvedAmount = roundCurrency(clientDiscountedSubtotal);
     }
     if (resolvedAmount === null && promotionCodeId) {
@@ -154,11 +187,11 @@ export async function POST(req: NextRequest) {
         });
         const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
         if (coupon) {
-          let discounted = event.price;
+          let discounted = eventPrice;
           if (coupon.amount_off != null) {
-            discounted = Math.max(0, event.price - coupon.amount_off / 100);
+            discounted = Math.max(0, eventPrice - coupon.amount_off / 100);
           } else if (coupon.percent_off != null) {
-            discounted = Math.max(0, event.price * (1 - coupon.percent_off / 100));
+            discounted = Math.max(0, eventPrice * (1 - coupon.percent_off / 100));
           }
           resolvedAmount = roundCurrency(discounted);
         }
@@ -211,7 +244,7 @@ export async function POST(req: NextRequest) {
   const paymentLink = `${base}/events/pay/${signupId}`;
   
   const paymentSection =
-    effectivePaymentMethod === "Cash" && event.price != null && event.price > 0
+    effectivePaymentMethod === "Cash" && eventPrice > 0
       ? paid
         ? `
       <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
@@ -286,7 +319,7 @@ export async function POST(req: NextRequest) {
                 <div class="detail-value">${event.location}</div>
               </div>
               ` : ""}
-              ${event.price != null ? `
+              ${eventPrice > 0 ? `
               <div class="detail-row">
                 <div class="detail-label">Amount due (after discount)</div>
                 <div class="detail-value">$${amountOwed.toFixed(2)}${paid ? ' — Paid in full by promotion code' : ''}</div>

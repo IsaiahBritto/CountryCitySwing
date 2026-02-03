@@ -190,6 +190,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
       const body: Record<string, unknown> = { ...data, event };
       if (appliedPromo) {
         body.promotionCodeId = appliedPromo.promotionCodeId;
+        // Send discountedSubtotal when present (including 0) so server applies discount for Cash
         if (appliedPromo.discountedSubtotal != null) {
           body.discountedSubtotal = appliedPromo.discountedSubtotal;
         }

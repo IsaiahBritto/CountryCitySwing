@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getStripe } from "@/lib/stripe";
-import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
+import { calculateProcessingFee, roundCurrency, shouldAddProcessingFee } from "@/lib/utils/paymentHelpers";
 import { getMerchandiseTaxCode, getShippingTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 
 function getBaseUrl(request: NextRequest): string {
@@ -89,8 +89,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Add processing fee as a separate line item
-    if (processingFee > 0) {
+    // Add processing fee only when subtotal exceeds threshold so fully discounted orders can total $0
+    const effectiveProcessingFee = processingFee > 0 && shouldAddProcessingFee(subtotalForFee) ? processingFee : 0;
+    if (effectiveProcessingFee > 0) {
       lineItems.push({
         price_data: {
           currency: "usd",
@@ -131,7 +132,7 @@ export async function POST(req: NextRequest) {
         items: JSON.stringify(order.items),
         subtotal: String(order.subtotal),
         shipping: String(order.shipping),
-        processing_fee: String(processingFee),
+        processing_fee: String(effectiveProcessingFee),
         total: String(order.total),
         payment_type: "cash_to_stripe_merch",
       },

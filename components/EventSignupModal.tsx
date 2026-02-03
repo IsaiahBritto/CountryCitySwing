@@ -62,6 +62,10 @@ export default function EventSignupModal({ event, open, onClose }: any) {
   } = useForm({ resolver: zodResolver(schema) });
 
   const [loadingUser, setLoadingUser] = useState(false);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string } | null>(null);
+  const [promoError, setPromoError] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
   const beenBefore = watch("beenBefore");
 
   // Fetch and prefill user information when modal opens
@@ -107,8 +111,11 @@ export default function EventSignupModal({ event, open, onClose }: any) {
       
       return () => clearTimeout(timer);
     } else {
-      // Reset form when modal closes
+      // Reset form and promo state when modal closes
       reset();
+      setPromoCodeInput("");
+      setAppliedPromo(null);
+      setPromoError("");
     }
   }, [open, reset]);
 
@@ -128,13 +135,52 @@ export default function EventSignupModal({ event, open, onClose }: any) {
 
   const [submitError, setSubmitError] = useState("");
 
+  const applyPromo = async () => {
+    const code = promoCodeInput.trim();
+    if (!code) {
+      setPromoError("Please enter a promotion code.");
+      return;
+    }
+    setPromoError("");
+    setPromoLoading(true);
+    try {
+      const res = await fetch("/api/validate-promo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+      const result = await res.json();
+      if (result.valid && result.promotionCodeId) {
+        setAppliedPromo({ promotionCodeId: result.promotionCodeId, code: result.code ?? code });
+      } else {
+        setAppliedPromo(null);
+        setPromoError(result.message || "Invalid promotion code.");
+      }
+    } catch {
+      setAppliedPromo(null);
+      setPromoError("Could not validate code.");
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const removePromo = () => {
+    setAppliedPromo(null);
+    setPromoCodeInput("");
+    setPromoError("");
+  };
+
   const onSubmit = async (data: any) => {
     setSubmitError("");
     try {
+      const body: Record<string, unknown> = { ...data, event };
+      if (data.paymentMethod === "Stripe" && appliedPromo) {
+        body.promotionCodeId = appliedPromo.promotionCodeId;
+      }
       const response = await fetch("/api/event-signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...data, event }),
+        body: JSON.stringify(body),
       });
 
       const result = await response.json();
@@ -298,6 +344,52 @@ export default function EventSignupModal({ event, open, onClose }: any) {
                 </label>
               ))}
             </div>
+
+            {/* Promo code - only when event has a price (Stripe is an option) */}
+            {event.price != null && event.price > 0 && (
+              <div>
+                <p className="font-medium mb-1">Promotion code</p>
+                {appliedPromo ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-green-400 text-sm">
+                      Applied: {appliedPromo.code}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={removePromo}
+                      className="text-sm text-gray-400 hover:text-white underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2 flex-wrap">
+                    <input
+                      type="text"
+                      value={promoCodeInput}
+                      onChange={(e) => {
+                        setPromoCodeInput(e.target.value);
+                        setPromoError("");
+                      }}
+                      placeholder="Enter code"
+                      className="flex-1 min-w-[120px] px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
+                      disabled={promoLoading}
+                    />
+                    <button
+                      type="button"
+                      onClick={applyPromo}
+                      disabled={promoLoading}
+                      className="px-3 py-2 rounded bg-neutral-700 hover:bg-neutral-600 text-sm font-medium disabled:opacity-50"
+                    >
+                      {promoLoading ? "Checking…" : "Apply"}
+                    </button>
+                  </div>
+                )}
+                {promoError && (
+                  <p className="text-red-400 text-sm mt-1">{promoError}</p>
+                )}
+              </div>
+            )}
 
             {/* Liability release */}
             <div className="bg-neutral-800 p-3 rounded text-sm max-h-40 overflow-y-auto">

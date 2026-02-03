@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getStripe } from "@/lib/stripe";
 import eventsData from "@/lib/events.json";
-import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
+import { calculateProcessingFee, roundCurrency, shouldAddProcessingFee } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 
 function getBaseUrl(request: NextRequest): string {
@@ -106,8 +106,9 @@ export async function POST(req: NextRequest) {
       },
     ];
 
-    // Add processing fee as a separate line item
-    if (processingFee > 0) {
+    // Add processing fee only when subtotal exceeds threshold so fully discounted orders can total $0
+    const effectiveProcessingFee = processingFee > 0 && shouldAddProcessingFee(eventPrice) ? processingFee : 0;
+    if (effectiveProcessingFee > 0) {
       lineItems.push({
         price_data: {
           currency: "usd",
@@ -141,7 +142,7 @@ export async function POST(req: NextRequest) {
         event_title: signup.event_title,
         payment_type: "cash_to_stripe",
         subtotal: String(eventPrice),
-        processing_fee: String(processingFee),
+        processing_fee: String(effectiveProcessingFee),
       },
       success_url: `${base}/events/confirmation/${signupId}`,
       cancel_url: `${base}/events/pay/${signupId}`,

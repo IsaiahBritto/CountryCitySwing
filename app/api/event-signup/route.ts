@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
     acceptLiability,
     acceptPayment,
     event,
+    promotionCodeId,
   } = data;
 
   // 1️⃣ Handle Stripe payment - create signup AFTER payment completes
@@ -56,11 +57,12 @@ export async function POST(req: NextRequest) {
         },
       ];
 
-      // Add processing fee as a separate line item
-      if (processingFee > 0) {
+      // Add processing fee only when subtotal exceeds threshold so fully discounted orders can total $0
+      const effectiveProcessingFee = processingFee > 0 && shouldAddProcessingFee(event.price) ? processingFee : 0;
+      if (effectiveProcessingFee > 0) {
         lineItems.push({
-          price_data: {
-            currency: "usd",
+            price_data: {
+              currency: "usd",
               product_data: {
                 name: "Processing Fee",
                 description: "Payment processing fee",
@@ -81,6 +83,9 @@ export async function POST(req: NextRequest) {
           enabled: true, // Enable Stripe Tax for automatic sales tax calculation
         },
         allow_promotion_codes: true,
+        ...(promotionCodeId
+          ? { discounts: [{ promotion_code: promotionCodeId }] }
+          : {}),
         customer_email: email,
         billing_address_collection: "auto", // Optional - allows customer to fill in if needed
         client_reference_id: signupId,
@@ -98,7 +103,7 @@ export async function POST(req: NextRequest) {
           accept_payment: String(acceptPayment),
           payment_type: "stripe_checkout",
           subtotal: String(event.price),
-          processing_fee: String(processingFee),
+          processing_fee: String(effectiveProcessingFee),
         },
         success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${base}/events?payment=cancelled`,

@@ -160,7 +160,7 @@ export default function EventPaymentPage() {
       }
 
       if (data.noPaymentRequired) {
-        setSignup((prev) =>
+        setSignup((prev: Record<string, unknown> | null) =>
           prev ? { ...prev, paid: true, amount_owed: 0 } : null
         );
         setEventPrice(0);

@@ -190,6 +190,9 @@ export default function EventSignupModal({ event, open, onClose }: any) {
       const body: Record<string, unknown> = { ...data, event };
       if (appliedPromo) {
         body.promotionCodeId = appliedPromo.promotionCodeId;
+        if (appliedPromo.discountedSubtotal != null) {
+          body.discountedSubtotal = appliedPromo.discountedSubtotal;
+        }
       }
       const response = await fetch("/api/event-signup", {
         method: "POST",

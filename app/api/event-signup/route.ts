@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
     acceptPayment,
     event,
     promotionCodeId,
+    discountedSubtotal: clientDiscountedSubtotal,
   } = data;
 
   let paid = false;
@@ -139,25 +140,35 @@ export async function POST(req: NextRequest) {
 
   // 2️⃣ Non-Stripe (Cash or Stripe→Cash): create signup immediately
   // If Cash + promo brings cost to $0, mark as paid and set amountOwed
-  if (effectivePaymentMethod !== "Stripe" && promotionCodeId && event.price != null && event.price > 0) {
-    try {
-      const stripe = getStripe();
-      const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
-        expand: ["coupon"],
-      });
-      const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
-      if (coupon) {
-        let discounted = event.price;
-        if (coupon.amount_off != null) {
-          discounted = Math.max(0, event.price - coupon.amount_off / 100);
-        } else if (coupon.percent_off != null) {
-          discounted = Math.max(0, event.price * (1 - coupon.percent_off / 100));
+  const cashWithPromo = effectivePaymentMethod !== "Stripe" && event.price != null && event.price > 0 && (promotionCodeId || typeof clientDiscountedSubtotal === "number");
+  if (cashWithPromo) {
+    let resolvedAmount: number | null = null;
+    if (typeof clientDiscountedSubtotal === "number" && clientDiscountedSubtotal >= 0) {
+      resolvedAmount = roundCurrency(clientDiscountedSubtotal);
+    }
+    if (resolvedAmount === null && promotionCodeId) {
+      try {
+        const stripe = getStripe();
+        const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
+          expand: ["coupon"],
+        });
+        const coupon = (promo as { coupon?: Stripe.Coupon }).coupon;
+        if (coupon) {
+          let discounted = event.price;
+          if (coupon.amount_off != null) {
+            discounted = Math.max(0, event.price - coupon.amount_off / 100);
+          } else if (coupon.percent_off != null) {
+            discounted = Math.max(0, event.price * (1 - coupon.percent_off / 100));
+          }
+          resolvedAmount = roundCurrency(discounted);
         }
-        paid = discounted <= 0;
-        amountOwed = discounted;
+      } catch (e) {
+        console.error("Event signup: could not resolve promo for paid check", e);
       }
-    } catch (e) {
-      console.error("Event signup: could not resolve promo for paid check", e);
+    }
+    if (resolvedAmount !== null) {
+      amountOwed = resolvedAmount;
+      paid = amountOwed <= 0;
     }
   }
 
@@ -199,11 +210,12 @@ export async function POST(req: NextRequest) {
   const paymentLink = `${base}/events/pay/${signupId}`;
   
   const paymentSection =
-    effectivePaymentMethod === "Cash" && event.price && event.price > 0
+    effectivePaymentMethod === "Cash" && event.price != null && event.price > 0
       ? paid
         ? `
       <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
-        <p style="margin: 0;"><strong>Payment:</strong> No payment needed &mdash; your promotion code covered the full cost.</p>
+        <p style="margin: 0;"><strong>Payment:</strong> Paid.</p>
+        <p style="margin: 8px 0 0 0;">Your promotion code covered the full cost. No payment is required.</p>
       </div>
     `
         : `
@@ -276,7 +288,7 @@ export async function POST(req: NextRequest) {
               ${event.price != null ? `
               <div class="detail-row">
                 <div class="detail-label">Amount due (after discount)</div>
-                <div class="detail-value">$${amountOwed.toFixed(2)}</div>
+                <div class="detail-value">$${amountOwed.toFixed(2)}${paid ? ' — Paid in full by promotion code' : ''}</div>
               </div>
               ` : ""}
               <div class="detail-row">
@@ -286,7 +298,7 @@ export async function POST(req: NextRequest) {
               <div class="detail-row">
                 <div class="detail-label">Payment Status</div>
                 <div class="detail-value" style="color: ${paid ? '#28a745' : '#f2c94c'}; font-weight: bold;">
-                  ${paid ? '✓ No payment required' : effectivePaymentMethod === 'Cash' ? '⏳ Pending - Pay at door' : '✓ Confirmed'}
+                  ${paid ? '✓ Paid' : effectivePaymentMethod === 'Cash' ? '⏳ Pending - Pay at door' : '✓ Confirmed'}
                 </div>
               </div>
             </div>

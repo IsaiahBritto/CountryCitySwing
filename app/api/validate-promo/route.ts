@@ -62,13 +62,13 @@ export async function POST(req: NextRequest) {
       });
       let expandedCoupon: unknown = (promoWithCoupon as { coupon?: unknown }).coupon;
       if (!expandedCoupon || typeof expandedCoupon !== "object") {
-        const promoNoExpand = await stripe.promotionCodes.retrieve(promo.id);
-        const id = (promoNoExpand as { coupon?: string }).coupon;
+        const id =
+          typeof expandedCoupon === "string" && expandedCoupon.startsWith("coupon_")
+            ? expandedCoupon
+            : (await stripe.promotionCodes.retrieve(promo.id) as { coupon?: string }).coupon;
         if (typeof id === "string" && id.startsWith("coupon_")) {
           expandedCoupon = await stripe.coupons.retrieve(id);
         }
-      } else if (typeof expandedCoupon === "string" && expandedCoupon.startsWith("coupon_")) {
-        expandedCoupon = await stripe.coupons.retrieve(expandedCoupon);
       }
       if (expandedCoupon && typeof expandedCoupon === "object") {
         discountedSubtotal = getDiscountedSubtotalFromCoupon(

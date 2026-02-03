@@ -96,13 +96,13 @@ export async function POST(req: NextRequest) {
           });
           let coupon: unknown = (promo as { coupon?: unknown }).coupon;
           if (!coupon || typeof coupon !== "object") {
-            const promoNoExpand = await stripe.promotionCodes.retrieve(promotionCodeId);
-            const id = (promoNoExpand as { coupon?: string }).coupon;
+            const id =
+              typeof coupon === "string" && coupon.startsWith("coupon_")
+                ? coupon
+                : (await stripe.promotionCodes.retrieve(promotionCodeId) as { coupon?: string }).coupon;
             if (typeof id === "string" && id.startsWith("coupon_")) {
               coupon = await stripe.coupons.retrieve(id);
             }
-          } else if (typeof coupon === "string" && coupon.startsWith("coupon_")) {
-            coupon = await stripe.coupons.retrieve(coupon);
           }
           if (coupon && typeof coupon === "object") {
             amountDue = roundCurrency(

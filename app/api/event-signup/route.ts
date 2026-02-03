@@ -187,6 +187,16 @@ export async function POST(req: NextRequest) {
   // If Cash + promo, apply discount: prefer server-side Stripe when we have promotionCodeId
   const isCashPath = effectivePaymentMethod !== "Stripe";
 
+  // Log so you can see in Vercel Logs (Project → Logs): whether we have promo and which path we're on
+  console.log("[event-signup]", JSON.stringify({
+    paymentMethod: paymentMethodNorm?.slice(0, 20),
+    effectivePaymentMethod: effectivePaymentMethod?.slice(0, 20),
+    isCashPath,
+    eventPrice,
+    hasPromoId: !!promotionCodeId,
+    clientDiscountedSubtotal: clientDiscountedSubtotal ?? null,
+  }));
+
   if (isCashPath && (eventPrice > 0 || promotionCodeId != null)) {
     let resolvedAmount: number | null = null;
     if (promotionCodeId) {
@@ -204,6 +214,9 @@ export async function POST(req: NextRequest) {
         if (coupon && typeof coupon === "object") {
           const discounted = getDiscountedSubtotalFromCoupon(coupon, eventPrice);
           resolvedAmount = roundCurrency(discounted);
+          console.log("[event-signup] Stripe coupon applied", { discounted, resolvedAmount, amountOff: (coupon as Record<string, unknown>).amount_off, percentOff: (coupon as Record<string, unknown>).percent_off });
+        } else {
+          console.log("[event-signup] coupon missing or not object", { couponType: typeof coupon });
         }
       } catch (e) {
         console.error("Event signup: could not resolve promo for paid check", e);
@@ -214,22 +227,13 @@ export async function POST(req: NextRequest) {
         !Number.isNaN(clientDiscountedSubtotal) &&
         clientDiscountedSubtotal >= 0) {
       resolvedAmount = roundCurrency(clientDiscountedSubtotal);
+      console.log("[event-signup] used clientDiscountedSubtotal", { resolvedAmount });
     }
     if (resolvedAmount !== null) {
       amountOwed = resolvedAmount;
       paid = amountOwed <= 0;
     }
-  }
-
-  // Debug: remove after confirming discount works (check server logs)
-  if (process.env.NODE_ENV !== "production" && promotionCodeId) {
-    console.error("[event-signup] promo applied", {
-      isCashPath,
-      eventPrice,
-      amountOwed,
-      paid,
-      hasPromoId: !!promotionCodeId,
-    });
+    console.log("[event-signup] after discount block", { amountOwed, paid });
   }
 
   const { data: insertedSignup, error: insertError } = await supabaseServer

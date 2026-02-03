@@ -250,14 +250,19 @@ export async function POST(req: NextRequest) {
                 { headers: { Authorization: `Bearer ${secretKey ?? ""}` } }
               );
               const data = (await res.json()) as Record<string, unknown>;
+              // Stripe API returns "promotion" (coupon id or object), not "coupon"
+              const couponRef = data?.coupon ?? data?.promotion ?? data?.coupon_id;
               console.log("[event-signup] Stripe REST response", {
                 ok: res.ok,
                 status: res.status,
-                coupon: data?.coupon,
+                couponRef: typeof couponRef === "object" ? "object" : couponRef,
                 keys: Object.keys(data || {}),
               });
-              const c = data?.coupon;
-              if (typeof c === "string" && c.startsWith("coupon_")) couponId = c;
+              if (typeof couponRef === "string" && couponRef.startsWith("coupon_")) {
+                couponId = couponRef;
+              } else if (couponRef && typeof couponRef === "object" && !Array.isArray(couponRef)) {
+                coupon = couponRef; // expanded coupon: use directly
+              }
             } catch (fetchErr) {
               console.error("[event-signup] Stripe REST fetch failed", fetchErr);
             }

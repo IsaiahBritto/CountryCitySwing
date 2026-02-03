@@ -205,18 +205,58 @@ export async function POST(req: NextRequest) {
         const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
           expand: ["coupon"],
         });
-        let coupon: unknown = (promo as { coupon?: unknown }).coupon;
-        // Expand often returns undefined in Vercel/serverless; fetch coupon by ID (retrieve without expand gives id)
+        const promoAny = promo as unknown as Record<string, unknown>;
+        let coupon: unknown = promoAny.coupon;
+        // Expand often returns undefined in Vercel/serverless; get coupon ID from raw response or second retrieve
         if (!coupon || typeof coupon !== "object") {
-          const couponId =
-            typeof coupon === "string" ? coupon : undefined;
+          let couponId: string | undefined =
+            typeof coupon === "string" && coupon.startsWith("coupon_") ? coupon : undefined;
+          if (!couponId && promoAny.lastResponse) {
+            try {
+              const lr = promoAny.lastResponse as { body?: unknown };
+              const body = typeof lr.body === "string" ? JSON.parse(lr.body as string) : lr.body;
+              const c = (body as Record<string, unknown>)?.coupon;
+              if (typeof c === "string" && c.startsWith("coupon_")) couponId = c;
+            } catch (_) {
+              /* ignore */
+            }
+          }
           if (!couponId) {
             const promoNoExpand = await stripe.promotionCodes.retrieve(promotionCodeId);
-            const id = (promoNoExpand as { coupon?: string }).coupon;
-            if (typeof id === "string" && id.startsWith("coupon_")) {
-              coupon = await stripe.coupons.retrieve(id);
+            const noExpandAny = promoNoExpand as unknown as Record<string, unknown>;
+            if (typeof noExpandAny.coupon === "string" && noExpandAny.coupon.startsWith("coupon_")) {
+              couponId = noExpandAny.coupon;
+            } else if (noExpandAny.lastResponse) {
+              try {
+                const lr = noExpandAny.lastResponse as { body?: unknown };
+                const body = typeof lr.body === "string" ? JSON.parse(lr.body as string) : lr.body;
+                const c = (body as Record<string, unknown>)?.coupon;
+                if (typeof c === "string" && c.startsWith("coupon_")) couponId = c;
+              } catch (_) {
+                /* ignore */
+              }
             }
-          } else if (couponId.startsWith("coupon_")) {
+          }
+          // Last resort: Stripe REST API (SDK can omit coupon in some serverless envs)
+          if (!couponId && process.env.STRIPE_SECRET_KEY) {
+            try {
+              const res = await fetch(
+                `https://api.stripe.com/v1/promotion_codes/${encodeURIComponent(promotionCodeId)}`,
+                { headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` } }
+              );
+              const data = (await res.json()) as Record<string, unknown>;
+              console.log("[event-signup] Stripe REST response", {
+                ok: res.ok,
+                coupon: data?.coupon,
+                keys: Object.keys(data || {}),
+              });
+              const c = data?.coupon;
+              if (typeof c === "string" && c.startsWith("coupon_")) couponId = c;
+            } catch (_) {
+              /* ignore */
+            }
+          }
+          if (typeof couponId === "string" && couponId.startsWith("coupon_")) {
             coupon = await stripe.coupons.retrieve(couponId);
           }
         }

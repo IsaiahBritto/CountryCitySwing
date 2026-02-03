@@ -264,9 +264,9 @@ export async function POST(req: NextRequest) {
                 });
               }
               // Stripe promotion_codes API returns promotion: { type: "coupon", coupon: "<id>" }.
-              // The coupon field is always a coupon ID string; amount_off/percent_off are on the Coupon object only.
+              // Coupon ID is short form (e.g. kyLZttV0); use as-is for GET /v1/coupons/:id.
               if (typeof couponRef === "string" && couponRef.length > 0) {
-                couponId = couponRef.startsWith("coupon_") ? couponRef : `coupon_${couponRef}`;
+                couponId = couponRef;
               } else if (couponRef && typeof couponRef === "object" && !Array.isArray(couponRef)) {
                 const pr = couponRef as Record<string, unknown>;
                 const innerId = pr.coupon ?? pr.coupon_id ?? (typeof pr.id === "string" ? pr.id : null);
@@ -286,8 +286,8 @@ export async function POST(req: NextRequest) {
           }
           if (typeof couponId === "string" && couponId.length > 0) {
             try {
-              const idToUse = couponId.startsWith("coupon_") ? couponId : `coupon_${couponId}`;
-              coupon = await stripe.coupons.retrieve(idToUse);
+              // Stripe coupon IDs are short form (e.g. kyLZttV0); API is GET /v1/coupons/:id — do not prefix "coupon_"
+              coupon = await stripe.coupons.retrieve(couponId);
             } catch (retrieveErr) {
               console.error("[event-signup] stripe.coupons.retrieve failed", retrieveErr);
             }

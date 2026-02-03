@@ -17,6 +17,102 @@ function getBaseUrl(request: NextRequest): string {
   return `${proto}://${host}`;
 }
 
+/**
+ * Resolve Stripe promotion code to a coupon and return the discounted amount (dollars).
+ * Uses expand, lastResponse, second retrieve, and REST API + coupons.retrieve(short id) fallbacks.
+ * Returns null if promo cannot be resolved.
+ */
+async function getDiscountedAmountForPromotion(
+  promotionCodeId: string,
+  amountDollars: number
+): Promise<number | null> {
+  const stripe = getStripe();
+  let coupon: unknown = null;
+  try {
+    const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
+      expand: ["coupon"],
+    });
+    const promoAny = promo as unknown as Record<string, unknown>;
+    coupon = promoAny.coupon;
+    if (!coupon || typeof coupon !== "object") {
+      let couponId: string | undefined =
+        typeof coupon === "string" && coupon.startsWith("coupon_") ? coupon : undefined;
+      if (!couponId && promoAny.lastResponse) {
+        try {
+          const lr = promoAny.lastResponse as { body?: unknown };
+          const body = typeof lr.body === "string" ? JSON.parse(lr.body as string) : lr.body;
+          const c = (body as Record<string, unknown>)?.coupon;
+          if (typeof c === "string" && c.startsWith("coupon_")) couponId = c;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      if (!couponId) {
+        const promoNoExpand = await stripe.promotionCodes.retrieve(promotionCodeId);
+        const noExpandAny = promoNoExpand as unknown as Record<string, unknown>;
+        if (typeof noExpandAny.coupon === "string" && noExpandAny.coupon.startsWith("coupon_")) {
+          couponId = noExpandAny.coupon;
+        } else if (noExpandAny.lastResponse) {
+          try {
+            const lr = noExpandAny.lastResponse as { body?: unknown };
+            const body = typeof lr.body === "string" ? JSON.parse(lr.body as string) : lr.body;
+            const c = (body as Record<string, unknown>)?.coupon;
+            if (typeof c === "string" && c.startsWith("coupon_")) couponId = c;
+          } catch (_) {
+            /* ignore */
+          }
+        }
+      }
+      if (!couponId) {
+        const secretKey = process.env.STRIPE_SECRET_KEY;
+        try {
+          const res = await fetch(
+            `https://api.stripe.com/v1/promotion_codes/${encodeURIComponent(promotionCodeId)}`,
+            { headers: { Authorization: `Bearer ${secretKey ?? ""}` } }
+          );
+          const data = (await res.json()) as Record<string, unknown>;
+          const couponRef = data?.coupon ?? data?.promotion ?? data?.coupon_id;
+          if (typeof couponRef === "string" && couponRef.length > 0) {
+            couponId = couponRef;
+          } else if (couponRef && typeof couponRef === "object" && !Array.isArray(couponRef)) {
+            const pr = couponRef as Record<string, unknown>;
+            const innerId = pr.coupon ?? pr.coupon_id ?? (typeof pr.id === "string" ? pr.id : null);
+            if (typeof innerId === "string" && innerId.length > 0) {
+              couponId = innerId;
+            } else if (innerId && typeof innerId === "object" && !Array.isArray(innerId)) {
+              coupon = innerId;
+            } else if (pr.amount_off != null || pr.percent_off != null) {
+              coupon = couponRef;
+            }
+          }
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      if (!coupon && typeof couponId === "string" && couponId.length > 0) {
+        try {
+          coupon = await stripe.coupons.retrieve(couponId);
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+    if (coupon && typeof coupon === "object") {
+      const couponObj = coupon as Record<string, unknown>;
+      const innerCoupon = couponObj.coupon ?? couponObj.coupon_id;
+      const couponForDiscount =
+        innerCoupon && typeof innerCoupon === "object" && !Array.isArray(innerCoupon)
+          ? innerCoupon
+          : coupon;
+      const discounted = getDiscountedSubtotalFromCoupon(couponForDiscount, amountDollars);
+      return roundCurrency(discounted);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   console.log("[event-signup] POST /api/event-signup called");
   const data = await req.json();
@@ -87,24 +183,11 @@ export async function POST(req: NextRequest) {
   // 1️⃣ Stripe path: if promo brings total to ≤$0.50, treat as Cash with no payment (never create Stripe session ≤$0.50)
   if (effectivePaymentMethod === "Stripe" && eventPrice > 0) {
     const processingFee = roundCurrency(calculateProcessingFee(eventPrice));
-    let discountedTotal = eventPrice + processingFee;
+    const totalBeforeDiscount = eventPrice + processingFee;
+    let discountedTotal = totalBeforeDiscount;
     if (promotionCodeId) {
-      try {
-        const stripe = getStripe();
-        const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
-          expand: ["coupon"],
-        });
-        const coupon = (promo as { coupon?: unknown }).coupon;
-        if (coupon) {
-          const totalBeforeDiscount = eventPrice + processingFee;
-          discountedTotal = getDiscountedSubtotalFromCoupon(
-            coupon,
-            totalBeforeDiscount
-          );
-        }
-      } catch (e) {
-        console.error("Event signup: could not resolve promo for Stripe total check", e);
-      }
+      const discounted = await getDiscountedAmountForPromotion(promotionCodeId, totalBeforeDiscount);
+      if (discounted !== null) discountedTotal = discounted;
     }
     if (discountedTotal <= 0.5) {
       effectivePaymentMethod = "Cash";
@@ -201,112 +284,9 @@ export async function POST(req: NextRequest) {
   if (isCashPath && (eventPrice > 0 || promotionCodeId != null)) {
     let resolvedAmount: number | null = null;
     if (promotionCodeId) {
-      try {
-        console.log("[event-signup] resolving promo", { promotionCodeId: promotionCodeId.slice(0, 24) });
-        const stripe = getStripe();
-        const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
-          expand: ["coupon"],
-        });
-        const promoAny = promo as unknown as Record<string, unknown>;
-        let coupon: unknown = promoAny.coupon;
-        // Expand often returns undefined in Vercel/serverless; get coupon ID from raw response or second retrieve
-        if (!coupon || typeof coupon !== "object") {
-          console.log("[event-signup] coupon fallback: expand returned no object");
-          let couponId: string | undefined =
-            typeof coupon === "string" && coupon.startsWith("coupon_") ? coupon : undefined;
-          if (!couponId && promoAny.lastResponse) {
-            try {
-              const lr = promoAny.lastResponse as { body?: unknown };
-              const body = typeof lr.body === "string" ? JSON.parse(lr.body as string) : lr.body;
-              const c = (body as Record<string, unknown>)?.coupon;
-              if (typeof c === "string" && c.startsWith("coupon_")) couponId = c;
-            } catch (_) {
-              /* ignore */
-            }
-          }
-          if (!couponId) {
-            const promoNoExpand = await stripe.promotionCodes.retrieve(promotionCodeId);
-            const noExpandAny = promoNoExpand as unknown as Record<string, unknown>;
-            if (typeof noExpandAny.coupon === "string" && noExpandAny.coupon.startsWith("coupon_")) {
-              couponId = noExpandAny.coupon;
-            } else if (noExpandAny.lastResponse) {
-              try {
-                const lr = noExpandAny.lastResponse as { body?: unknown };
-                const body = typeof lr.body === "string" ? JSON.parse(lr.body as string) : lr.body;
-                const c = (body as Record<string, unknown>)?.coupon;
-                if (typeof c === "string" && c.startsWith("coupon_")) couponId = c;
-              } catch (_) {
-                /* ignore */
-              }
-            }
-            console.log("[event-signup] after second retrieve", { couponId: couponId ?? null, hasLastResponse: !!noExpandAny.lastResponse });
-          }
-          // Last resort: Stripe REST API (SDK can omit coupon in some serverless envs)
-          if (!couponId) {
-            const secretKey = process.env.STRIPE_SECRET_KEY;
-            console.log("[event-signup] trying Stripe REST API", { hasKey: !!secretKey });
-            try {
-              const res = await fetch(
-                `https://api.stripe.com/v1/promotion_codes/${encodeURIComponent(promotionCodeId)}`,
-                { headers: { Authorization: `Bearer ${secretKey ?? ""}` } }
-              );
-              const data = (await res.json()) as Record<string, unknown>;
-              // Stripe API returns "promotion" (nested object with coupon reference)
-              const couponRef = data?.coupon ?? data?.promotion ?? data?.coupon_id;
-              if (couponRef && typeof couponRef === "object" && !Array.isArray(couponRef)) {
-                const pr = couponRef as Record<string, unknown>;
-                console.log("[event-signup] promotion object", {
-                  keys: Object.keys(pr),
-                  coupon: pr.coupon,
-                  coupon_type: typeof pr.coupon,
-                  amount_off: pr.amount_off,
-                  percent_off: pr.percent_off,
-                });
-              }
-              // Stripe promotion_codes API returns promotion: { type: "coupon", coupon: "<id>" }.
-              // Coupon ID is short form (e.g. kyLZttV0); use as-is for GET /v1/coupons/:id.
-              if (typeof couponRef === "string" && couponRef.length > 0) {
-                couponId = couponRef;
-              } else if (couponRef && typeof couponRef === "object" && !Array.isArray(couponRef)) {
-                const pr = couponRef as Record<string, unknown>;
-                const innerId = pr.coupon ?? pr.coupon_id ?? (typeof pr.id === "string" ? pr.id : null);
-                if (typeof innerId === "string" && innerId.length > 0) {
-                  // promotion.coupon is the coupon ID; fetch full coupon to get amount_off/percent_off
-                  couponId = innerId;
-                } else if (innerId && typeof innerId === "object" && !Array.isArray(innerId)) {
-                  coupon = innerId; // nested expanded coupon object
-                } else if (pr.amount_off != null || pr.percent_off != null) {
-                  coupon = couponRef; // top level has discount fields
-                }
-                // If we still have no coupon/couponId, promotion only had a coupon ID string — couponId set above
-              }
-            } catch (fetchErr) {
-              console.error("[event-signup] Stripe REST fetch failed", fetchErr);
-            }
-          }
-          if (typeof couponId === "string" && couponId.length > 0) {
-            try {
-              // Stripe coupon IDs are short form (e.g. kyLZttV0); API is GET /v1/coupons/:id — do not prefix "coupon_"
-              coupon = await stripe.coupons.retrieve(couponId);
-            } catch (retrieveErr) {
-              console.error("[event-signup] stripe.coupons.retrieve failed", retrieveErr);
-            }
-          }
-        }
-        if (coupon && typeof coupon === "object") {
-          // Stripe "promotion" object may nest the actual coupon under .coupon
-          const couponObj = coupon as Record<string, unknown>;
-          const innerCoupon = couponObj.coupon ?? couponObj.coupon_id;
-          const couponForDiscount =
-            innerCoupon && typeof innerCoupon === "object" && !Array.isArray(innerCoupon)
-              ? innerCoupon
-              : coupon;
-          const discounted = getDiscountedSubtotalFromCoupon(couponForDiscount, eventPrice);
-          resolvedAmount = roundCurrency(discounted);
-          console.log("[event-signup] Stripe coupon applied", { discounted, resolvedAmount });
-        }
-      } catch (e) {
-        console.error("Event signup: could not resolve promo for paid check", e);
+      resolvedAmount = await getDiscountedAmountForPromotion(promotionCodeId, eventPrice);
+      if (resolvedAmount !== null) {
+        console.log("[event-signup] Stripe coupon applied", { resolvedAmount });
       }
     }
     if (resolvedAmount === null &&

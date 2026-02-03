@@ -30,6 +30,8 @@ export default function RegistrationPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [signups, setSignups] = useState<Signup[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [checkedInCount, setCheckedInCount] = useState(0);
   const [filter, setFilter] = useState<FilterType>("all");
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -174,6 +176,8 @@ export default function RegistrationPage() {
       if (!session) {
         console.error("No session found");
         setSignups([]);
+        setTotalCount(0);
+        setCheckedInCount(0);
         return;
       }
 
@@ -201,20 +205,28 @@ export default function RegistrationPage() {
           userRole
         });
         setSignups([]);
+        setTotalCount(0);
+        setCheckedInCount(0);
         return;
       }
 
-      const { signups } = await response.json();
-      console.log("Signups loaded successfully:", signups?.length || 0, "signups for event", eventId);
-      
+      const data = await response.json();
+      const signupsList = data.signups || [];
+      console.log("Signups loaded successfully:", signupsList.length, "signups for event", eventId);
+
+      setTotalCount(typeof data.total === "number" ? data.total : signupsList.length);
+      setCheckedInCount(typeof data.checked_in === "number" ? data.checked_in : signupsList.filter((s: Signup) => s.checked_in).length);
+
       // Sort by first name alphabetically (case-insensitive)
-      const sorted = (signups || []).sort((a: Signup, b: Signup) => 
-        a.first_name.localeCompare(b.first_name, undefined, { sensitivity: 'base' })
+      const sorted = signupsList.sort((a: Signup, b: Signup) =>
+        a.first_name.localeCompare(b.first_name, undefined, { sensitivity: "base" })
       );
       setSignups(sorted);
     } catch (err) {
       console.error("Error loading signups:", err);
       setSignups([]);
+      setTotalCount(0);
+      setCheckedInCount(0);
     }
   };
 
@@ -394,6 +406,9 @@ export default function RegistrationPage() {
               </button>
             </div>
           </div>
+          <p className="text-gray-400 text-sm mt-1 mb-2">
+            {totalCount} signed up · {checkedInCount} checked in
+          </p>
 
           {signups.length === 0 ? (
             <p className="text-gray-400">No signups found for this event.</p>

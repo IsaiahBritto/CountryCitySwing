@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
-// Helper to get user from access token
+// Helper to get user from access token (catches network/timeout so we don't throw)
 async function getUserFromToken(accessToken: string) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  
+
   const client = createClient(supabaseUrl, supabaseAnonKey, {
     global: {
       headers: {
@@ -14,9 +14,25 @@ async function getUserFromToken(accessToken: string) {
       },
     },
   });
-  
-  const { data: { user }, error } = await client.auth.getUser(accessToken);
-  return { user, error };
+
+  try {
+    const { data: { user }, error } = await client.auth.getUser(accessToken);
+    return { user, error };
+  } catch (err: unknown) {
+    // Network/timeout (e.g. ConnectTimeoutError) - don't throw; return so caller can return 503
+    const message = err instanceof Error ? err.message : "Auth request failed";
+    const cause = err instanceof Error && "cause" in err ? (err as { cause?: Error }).cause : undefined;
+    const isTimeout =
+      message.includes("fetch failed") ||
+      message.includes("timeout") ||
+      message.includes("Timeout") ||
+      (cause instanceof Error && (cause.message?.includes("timeout") || (cause as { code?: string }).code === "UND_ERR_CONNECT_TIMEOUT"));
+    return {
+      user: null,
+      error: { message: isTimeout ? "Auth service temporarily unavailable (timeout)" : message },
+      isNetworkError: !!isTimeout,
+    };
+  }
 }
 
 // GET - Fetch signups for an event (admin and instructor only)
@@ -32,13 +48,14 @@ export async function GET(req: NextRequest) {
     }
 
     const accessToken = authHeader.replace("Bearer ", "");
-    const { user, error: authError } = await getUserFromToken(accessToken);
+    const { user, error: authError, isNetworkError } = await getUserFromToken(accessToken);
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Unauthorized: Invalid token" },
-        { status: 401 }
-      );
+      const status = isNetworkError ? 503 : 401;
+      const message = isNetworkError
+        ? "Auth service temporarily unavailable. Please check your connection and try again."
+        : "Unauthorized: Invalid token";
+      return NextResponse.json({ error: message }, { status });
     }
 
     // Check user role using service role client (bypasses RLS)
@@ -79,22 +96,12 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Build query
-    // Note: event_id is a UUID, not an integer, so don't parse it
-    let query = supabaseServer
+    // Fetch all signups for this event so we can return total + checked_in counts
+    const { data: allSignups, error } = await supabaseServer
       .from("signups")
       .select("*")
       .eq("event_id", eventId)
       .order("first_name", { ascending: true });
-
-    // Apply filter
-    if (filter === "not_checked_in") {
-      query = query.eq("checked_in", false);
-    } else if (filter === "checked_in") {
-      query = query.eq("checked_in", true);
-    }
-
-    const { data, error } = await query;
 
     if (error) {
       console.error("Error fetching signups:", error);
@@ -104,7 +111,19 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ signups: data || [] });
+    const list = allSignups || [];
+    const total = list.length;
+    const checked_in = list.filter((s: { checked_in?: boolean }) => s.checked_in === true).length;
+
+    // Apply filter to list
+    let signups = list;
+    if (filter === "not_checked_in") {
+      signups = list.filter((s: { checked_in?: boolean }) => s.checked_in !== true);
+    } else if (filter === "checked_in") {
+      signups = list.filter((s: { checked_in?: boolean }) => s.checked_in === true);
+    }
+
+    return NextResponse.json({ signups, total, checked_in });
   } catch (error: any) {
     console.error("Error:", error);
     return NextResponse.json(
@@ -127,13 +146,14 @@ export async function PATCH(req: NextRequest) {
     }
 
     const accessToken = authHeader.replace("Bearer ", "");
-    const { user, error: authError } = await getUserFromToken(accessToken);
+    const { user, error: authError, isNetworkError } = await getUserFromToken(accessToken);
 
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Unauthorized: Invalid token" },
-        { status: 401 }
-      );
+      const status = isNetworkError ? 503 : 401;
+      const message = isNetworkError
+        ? "Auth service temporarily unavailable. Please check your connection and try again."
+        : "Unauthorized: Invalid token";
+      return NextResponse.json({ error: message }, { status });
     }
 
     // Check user role

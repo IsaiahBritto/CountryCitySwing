@@ -5,6 +5,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { parseLocalDate } from "@/lib/utils/dateHelpers";
 
 /* ---------- Validation Schema ---------- */
 const baseSchema = z.object({
@@ -270,7 +271,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
         <div className="p-6 text-left space-y-4">
           <p className="text-gray-300 text-sm">
             <strong>Date:</strong>{" "}
-            {new Date(event.date).toLocaleDateString(undefined, {
+            {parseLocalDate(event.date.slice(0, 10)).toLocaleDateString(undefined, {
               weekday: "long",
               month: "long",
               day: "numeric",

@@ -323,7 +323,8 @@ export async function POST(req: NextRequest) {
       html,
       "confirmation@countrycityswing.dance"
     );
-    if (paymentMethod === "Stripe" && effectivePaymentMethod === "Cash" && paid) {
+    // Same success message for Cash or Stripe→Cash when promo covered full cost
+    if (effectivePaymentMethod === "Cash" && paid) {
       return NextResponse.json({
         success: true,
         noRedirect: true,

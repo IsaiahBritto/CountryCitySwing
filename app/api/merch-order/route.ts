@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { getStripe } from "@/lib/stripe";
-import { calculateProcessingFee, roundCurrency, shouldAddProcessingFee } from "@/lib/utils/paymentHelpers";
+import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getMerchandiseTaxCode, getShippingTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -101,9 +101,8 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Add processing fee only when subtotal exceeds threshold so fully discounted orders can total $0
-        const effectiveProcessingFee = processingFee > 0 && shouldAddProcessingFee(subtotalForFee) ? processingFee : 0;
-        if (effectiveProcessingFee > 0) {
+        // Add processing fee
+        if (processingFee > 0) {
           lineItems.push({
             price_data: {
               currency: "usd",
@@ -141,7 +140,7 @@ export async function POST(request: NextRequest) {
             items: JSON.stringify(orderData.items),
             subtotal: String(orderData.subtotal),
             shipping: String(orderData.shipping),
-            processing_fee: String(effectiveProcessingFee),
+            processing_fee: String(processingFee),
             total: String(orderData.total),
             payment_method: paymentMethod,
             payment_type: "merch_order",

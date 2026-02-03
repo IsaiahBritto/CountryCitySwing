@@ -57,9 +57,8 @@ export async function POST(req: NextRequest) {
         },
       ];
 
-      // Add processing fee only when subtotal exceeds threshold so fully discounted orders can total $0
-      const effectiveProcessingFee = processingFee > 0 && shouldAddProcessingFee(event.price) ? processingFee : 0;
-      if (effectiveProcessingFee > 0) {
+      // Add processing fee
+      if (processingFee > 0) {
         lineItems.push({
             price_data: {
               currency: "usd",
@@ -103,7 +102,7 @@ export async function POST(req: NextRequest) {
           accept_payment: String(acceptPayment),
           payment_type: "stripe_checkout",
           subtotal: String(event.price),
-          processing_fee: String(effectiveProcessingFee),
+          processing_fee: String(processingFee),
         },
         success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${base}/events?payment=cancelled`,

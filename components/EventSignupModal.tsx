@@ -67,6 +67,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
   const [promoError, setPromoError] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
   const beenBefore = watch("beenBefore");
+  const paymentMethod = watch("paymentMethod");
 
   // Fetch and prefill user information when modal opens
   useEffect(() => {
@@ -127,6 +128,15 @@ export default function EventSignupModal({ event, open, onClose }: any) {
     }
   }, [beenBefore, unregister]);
 
+  // Clear promo when switching away from Class Voucher (discount code only applies to Class Voucher)
+  useEffect(() => {
+    if (paymentMethod && paymentMethod !== "Class Voucher") {
+      setAppliedPromo(null);
+      setPromoCodeInput("");
+      setPromoError("");
+    }
+  }, [paymentMethod]);
+
   // Close with ESC key
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -162,7 +172,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
         if (
           result.discountedSubtotal != null &&
           result.discountedSubtotal <= 0.5 &&
-          watch("paymentMethod") === "Stripe"
+          paymentMethod === "Stripe"
         ) {
           setValue("paymentMethod", "Cash");
         }
@@ -192,7 +202,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
         ? { ...event, price: event.price ?? (event as Record<string, unknown>).price }
         : undefined;
       const body: Record<string, unknown> = { ...data, event: eventPayload };
-      if (appliedPromo) {
+      if (data.paymentMethod === "Class Voucher" && appliedPromo) {
         body.promotionCodeId = appliedPromo.promotionCodeId;
         body.discountedSubtotal =
           appliedPromo.discountedSubtotal !== undefined && appliedPromo.discountedSubtotal !== null
@@ -381,8 +391,8 @@ export default function EventSignupModal({ event, open, onClose }: any) {
               ))}
             </div>
 
-            {/* Promo code - only when event has a price (Stripe is an option) */}
-            {event.price != null && event.price > 0 && (
+            {/* Promo code - only when Class Voucher is selected */}
+            {event.price != null && event.price > 0 && paymentMethod === "Class Voucher" && (
               <div>
                 <p className="font-medium mb-1">Promotion code</p>
                 {appliedPromo ? (

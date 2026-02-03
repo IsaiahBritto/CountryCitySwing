@@ -41,9 +41,9 @@ export default function EventPaymentPage() {
           return;
         }
 
-        // Check if payment method is Cash
-        if (data.payment_method !== "Cash") {
-          setError("This signup is not eligible for cash payment conversion.");
+        // Pay page is for Cash or Class Voucher signups (complete payment / apply voucher)
+        if (data.payment_method !== "Cash" && data.payment_method !== "Class Voucher") {
+          setError("This signup is not eligible for this payment page.");
           setLoading(false);
           return;
         }
@@ -253,8 +253,8 @@ export default function EventPaymentPage() {
           </p>
         </div>
 
-        {/* Promo code */}
-        {eventPrice > 0 && !signup.paid && (
+        {/* Promo code - only for Class Voucher (voucher/discount flow) */}
+        {eventPrice > 0 && !signup.paid && signup.payment_method === "Class Voucher" && (
           <div className="bg-neutral-800 rounded-lg p-6 mb-6">
             <h3 className="text-lg font-semibold text-white mb-2">Promotion code</h3>
             {appliedPromo ? (

@@ -251,31 +251,46 @@ export async function POST(req: NextRequest) {
                 { headers: { Authorization: `Bearer ${secretKey ?? ""}` } }
               );
               const data = (await res.json()) as Record<string, unknown>;
-              // Stripe API returns "promotion" (coupon id or object), not "coupon"
+              // Stripe API returns "promotion" (nested object with coupon reference)
               const couponRef = data?.coupon ?? data?.promotion ?? data?.coupon_id;
-              console.log("[event-signup] Stripe REST response", {
-                ok: res.ok,
-                status: res.status,
-                couponRef: typeof couponRef === "object" ? "object" : couponRef,
-                keys: Object.keys(data || {}),
-              });
-              if (typeof couponRef === "string" && couponRef.startsWith("coupon_")) {
-                couponId = couponRef;
+              if (couponRef && typeof couponRef === "object" && !Array.isArray(couponRef)) {
+                const pr = couponRef as Record<string, unknown>;
+                console.log("[event-signup] promotion object", {
+                  keys: Object.keys(pr),
+                  coupon: pr.coupon,
+                  coupon_type: typeof pr.coupon,
+                  amount_off: pr.amount_off,
+                  percent_off: pr.percent_off,
+                });
+              }
+              // Stripe promotion_codes API returns promotion: { type: "coupon", coupon: "<id>" }.
+              // The coupon field is always a coupon ID string; amount_off/percent_off are on the Coupon object only.
+              if (typeof couponRef === "string" && couponRef.length > 0) {
+                couponId = couponRef.startsWith("coupon_") ? couponRef : `coupon_${couponRef}`;
               } else if (couponRef && typeof couponRef === "object" && !Array.isArray(couponRef)) {
                 const pr = couponRef as Record<string, unknown>;
-                const innerId = pr.coupon ?? pr.coupon_id;
-                if (typeof innerId === "string" && innerId.startsWith("coupon_")) {
-                  couponId = innerId; // promotion object with coupon id: fetch it
-                } else {
-                  coupon = couponRef; // expanded coupon at top level: use directly
+                const innerId = pr.coupon ?? pr.coupon_id ?? (typeof pr.id === "string" ? pr.id : null);
+                if (typeof innerId === "string" && innerId.length > 0) {
+                  // promotion.coupon is the coupon ID; fetch full coupon to get amount_off/percent_off
+                  couponId = innerId;
+                } else if (innerId && typeof innerId === "object" && !Array.isArray(innerId)) {
+                  coupon = innerId; // nested expanded coupon object
+                } else if (pr.amount_off != null || pr.percent_off != null) {
+                  coupon = couponRef; // top level has discount fields
                 }
+                // If we still have no coupon/couponId, promotion only had a coupon ID string — couponId set above
               }
             } catch (fetchErr) {
               console.error("[event-signup] Stripe REST fetch failed", fetchErr);
             }
           }
-          if (typeof couponId === "string" && couponId.startsWith("coupon_")) {
-            coupon = await stripe.coupons.retrieve(couponId);
+          if (typeof couponId === "string" && couponId.length > 0) {
+            try {
+              const idToUse = couponId.startsWith("coupon_") ? couponId : `coupon_${couponId}`;
+              coupon = await stripe.coupons.retrieve(idToUse);
+            } catch (retrieveErr) {
+              console.error("[event-signup] stripe.coupons.retrieve failed", retrieveErr);
+            }
           }
         }
         if (coupon && typeof coupon === "object") {

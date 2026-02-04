@@ -154,6 +154,30 @@ export default function CompSignupModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Lock document scroll when modal is open (html + body; position:fixed on body for iOS)
+  useEffect(() => {
+    if (!open || embedded) return;
+    const scrollY = window.scrollY ?? window.pageYOffset;
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevBodyPosition = document.body.style.position;
+    const prevBodyTop = document.body.style.top;
+    const prevBodyWidth = document.body.style.width;
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = "100%";
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.body.style.position = prevBodyPosition;
+      document.body.style.top = prevBodyTop;
+      document.body.style.width = prevBodyWidth;
+      window.scrollTo(0, scrollY);
+    };
+  }, [open, embedded]);
+
   const validate = (): string | null => {
     if (!strictlySelected && !jnjSelected) return "Please select at least one: Strictly or JnJ.";
     if (strictlySelected && hasStrictly) {
@@ -562,20 +586,20 @@ export default function CompSignupModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md bg-black/60"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-4 pb-4 sm:pt-6 backdrop-blur-md bg-black/60"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-neutral-900 text-white max-w-lg w-full mx-4 rounded-lg shadow-[0_0_25px_rgba(187,134,252,0.6)]"
+        className="bg-neutral-900 text-white max-w-lg w-full mx-4 rounded-lg shadow-[0_0_25px_rgba(187,134,252,0.6)] flex flex-col min-h-0 h-[calc(100dvh-2rem)] max-h-[calc(100vh-2rem)] sm:h-auto sm:max-h-[90vh]"
       >
-        <div className="flex justify-between items-center p-4 border-b border-neutral-700">
+        <div className="flex justify-between items-center p-4 border-b border-neutral-700 flex-shrink-0">
           <h3 className="text-2xl font-bold text-primary">{event.title}</h3>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-white">
             ✕
           </button>
         </div>
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto overflow-x-hidden scrollbar-hide flex-1 min-h-0">
           {formContent}
         </div>
       </div>

@@ -586,20 +586,20 @@ export default function CompSignupModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-4 pb-4 sm:pt-6 backdrop-blur-md bg-black/60"
+      className="fixed inset-0 z-50 flex flex-col items-center overflow-hidden backdrop-blur-md bg-black/60 p-3 sm:p-6 min-h-0 modal-overlay-full"
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-neutral-900 text-white max-w-lg w-full mx-4 rounded-lg shadow-[0_0_25px_rgba(187,134,252,0.6)] flex flex-col min-h-0 h-[calc(100dvh-2rem)] max-h-[calc(100vh-2rem)] sm:h-auto sm:max-h-[90vh]"
+        className="bg-neutral-900 text-white w-full max-w-lg rounded-lg shadow-[0_0_25px_rgba(187,134,252,0.6)] flex flex-col flex-1 min-h-0 overflow-hidden"
       >
-        <div className="flex justify-between items-center p-4 border-b border-neutral-700 flex-shrink-0">
-          <h3 className="text-2xl font-bold text-primary">{event.title}</h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-white">
+        <div className="flex justify-between items-center gap-2 p-4 border-b border-neutral-700 flex-shrink-0">
+          <h3 className="text-xl sm:text-2xl font-bold text-primary truncate min-w-0">{event.title}</h3>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-white flex-shrink-0" aria-label="Close">
             ✕
           </button>
         </div>
-        <div className="p-6 overflow-y-auto overflow-x-hidden scrollbar-hide flex-1 min-h-0">
+        <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden scrollbar-hide flex-1 min-h-0">
           {formContent}
         </div>
       </div>

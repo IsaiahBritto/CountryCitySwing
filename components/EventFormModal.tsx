@@ -11,7 +11,9 @@ interface Event {
   description?: string;
   signupLink?: string;
   signup_link?: string; // Database column name
-  price?: number;
+  price?: number | null;
+  strictly_price?: number | null;
+  jnj_price?: number | null;
   start_time?: string;
   type?: string;
 }
@@ -36,6 +38,8 @@ export default function EventFormModal({
     description: "",
     signupLink: "",
     price: undefined,
+    strictly_price: undefined,
+    jnj_price: undefined,
     start_time: "",
     type: "",
   });
@@ -60,7 +64,9 @@ export default function EventFormModal({
           location: event.location || "",
           description: event.description || "",
           signupLink: event.signupLink || event.signup_link || "",
-          price: event.price || undefined,
+          price: event.price ?? undefined,
+          strictly_price: event.strictly_price ?? undefined,
+          jnj_price: event.jnj_price ?? undefined,
           start_time: timeStr,
           type: event.type || "",
         });
@@ -73,6 +79,8 @@ export default function EventFormModal({
           description: "",
           signupLink: "",
           price: undefined,
+          strictly_price: undefined,
+          jnj_price: undefined,
           start_time: "",
           type: "",
         });
@@ -101,7 +109,9 @@ export default function EventFormModal({
 
       if (formData.description !== undefined) submitData.description = formData.description || "";
       if (formData.signupLink !== undefined) submitData.signupLink = formData.signupLink || "";
-      if (formData.price !== undefined) submitData.price = formData.price ? parseFloat(formData.price.toString()) : null;
+      if (formData.price !== undefined) submitData.price = formData.price != null && formData.price !== "" ? parseFloat(String(formData.price)) : null;
+      if (formData.strictly_price !== undefined) submitData.strictly_price = formData.strictly_price != null && formData.strictly_price !== "" ? parseFloat(String(formData.strictly_price)) : null;
+      if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null && formData.jnj_price !== "" ? parseFloat(String(formData.jnj_price)) : null;
       if (formData.start_time) {
         // Convert datetime-local to ISO string
         submitData.start_time = new Date(formData.start_time).toISOString();
@@ -240,25 +250,86 @@ export default function EventFormModal({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Price ($)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.price || ""}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    price: e.target.value ? parseFloat(e.target.value) : undefined,
-                  })
-                }
-                className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-
+            {formData.type === "Comp" ? (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Price ($) — optional
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.price ?? ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        price: e.target.value ? parseFloat(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="Leave blank to hide"
+                    className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Strictly Price ($) — optional
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.strictly_price ?? ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        strictly_price: e.target.value ? parseFloat(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="Leave blank to hide"
+                    className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    JnJ Price ($) — optional
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.jnj_price ?? ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        jnj_price: e.target.value ? parseFloat(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="Leave blank to hide"
+                    className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              </>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Price ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.price || ""}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      price: e.target.value ? parseFloat(e.target.value) : undefined,
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            )}
           </div>
 
           <div>

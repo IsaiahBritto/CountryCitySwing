@@ -106,6 +106,105 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Comp signup (How's My Dancing): create record on first Stripe checkout, or update to paid for cash_to_stripe
+      const isCompSignup =
+        session.metadata?.payment_type === "comp_signup" ||
+        session.metadata?.payment_type === "comp_signup_cash_to_stripe";
+      if (isCompSignup) {
+        const compSignupId = session.metadata?.comp_signup_id || referenceId;
+        const metadata = session.metadata || {};
+        const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
+        const processingFee = Number(metadata.processing_fee || 0);
+        const subtotal = Number(metadata.subtotal || 0);
+        const actualTotal =
+          session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+
+        const { data: existingComp } = await supabaseServer
+          .from("comp_signups")
+          .select("id, paid")
+          .eq("id", compSignupId)
+          .single();
+
+        if (existingComp) {
+          if (existingComp.paid) {
+            console.log("Webhook: Comp signup already paid", compSignupId);
+            return NextResponse.json({ received: true });
+          }
+          const { error: compUpdateError } = await supabaseServer
+            .from("comp_signups")
+            .update({
+              paid: true,
+              payment_method: "Stripe",
+              stripe_tax_amount: taxAmount,
+              stripe_processing_fee: processingFee,
+              stripe_total_paid: actualTotal,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", compSignupId);
+          if (compUpdateError) {
+            console.error("Webhook: comp_signup update failed", compSignupId, compUpdateError);
+            return NextResponse.json(
+              { error: "Failed to update comp signup" },
+              { status: 500 }
+            );
+          }
+          console.log("Webhook: Comp signup marked paid", compSignupId);
+          return NextResponse.json({ received: true });
+        }
+
+        // No record exists: initial Stripe checkout (record created only after payment, like event signup)
+        if (session.metadata?.payment_type !== "comp_signup") {
+          console.error("Webhook: comp_signup_cash_to_stripe but record not found", compSignupId);
+          return NextResponse.json(
+            { error: "Comp signup record not found for cash_to_stripe" },
+            { status: 500 }
+          );
+        }
+
+        const { error: compInsertError } = await supabaseServer
+          .from("comp_signups")
+          .insert([
+            {
+              id: compSignupId,
+              event_id: metadata.event_id,
+              event_title: metadata.event_title || "Comp Event",
+              strictly_selected: metadata.strictly_selected === "true",
+              strictly_price: metadata.strictly_price ? Number(metadata.strictly_price) : null,
+              strictly_lead_first_name: metadata.strictly_lead_first_name || null,
+              strictly_lead_last_name: metadata.strictly_lead_last_name || null,
+              strictly_lead_email: metadata.strictly_lead_email || null,
+              strictly_follow_first_name: metadata.strictly_follow_first_name || null,
+              strictly_follow_last_name: metadata.strictly_follow_last_name || null,
+              strictly_follow_email: metadata.strictly_follow_email || null,
+              jnj_selected: metadata.jnj_selected === "true",
+              jnj_price: metadata.jnj_price ? Number(metadata.jnj_price) : null,
+              jnj_lead_first_name: metadata.jnj_lead_first_name || null,
+              jnj_lead_last_name: metadata.jnj_lead_last_name || null,
+              jnj_lead_email: metadata.jnj_lead_email || null,
+              jnj_follow_first_name: metadata.jnj_follow_first_name || null,
+              jnj_follow_last_name: metadata.jnj_follow_last_name || null,
+              jnj_follow_email: metadata.jnj_follow_email || null,
+              payment_method: "Stripe",
+              amount_owed: Number(metadata.amount_owed || 0),
+              paid: true,
+              accept_liability: metadata.accept_liability === "true",
+              accept_payment: metadata.accept_payment === "true",
+              stripe_tax_amount: taxAmount,
+              stripe_processing_fee: processingFee,
+              stripe_total_paid: actualTotal,
+            },
+          ]);
+        if (compInsertError) {
+          console.error("Webhook: comp_signup create failed", compSignupId, compInsertError);
+          return NextResponse.json(
+            { error: "Failed to create comp signup", details: compInsertError.message },
+            { status: 500 }
+          );
+        }
+        console.log("Webhook: Comp signup created and marked paid", compSignupId);
+        return NextResponse.json({ received: true });
+      }
+
       // Check if this is an event signup payment
       // Event signups have signup_id in metadata, or payment_type === "cash_to_stripe" or "stripe_checkout"
       const hasSignupId = !!session.metadata?.signup_id;

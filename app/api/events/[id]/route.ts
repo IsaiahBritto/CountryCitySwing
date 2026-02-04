@@ -33,7 +33,9 @@ export async function PUT(
     // Add optional fields only if they're provided
     if (eventData.description !== undefined) updateData.description = eventData.description || null;
     if (eventData.signupLink !== undefined) updateData.signup_link = eventData.signupLink || null;
-    if (eventData.price !== undefined) updateData.price = eventData.price || null;
+    if (eventData.price !== undefined) updateData.price = eventData.price ?? null;
+    if (eventData.strictly_price !== undefined) updateData.strictly_price = eventData.strictly_price ?? null;
+    if (eventData.jnj_price !== undefined) updateData.jnj_price = eventData.jnj_price ?? null;
     if (eventData.start_time !== undefined) updateData.start_time = eventData.start_time || null;
     if (eventData.type !== undefined) updateData.type = eventData.type || null;
 

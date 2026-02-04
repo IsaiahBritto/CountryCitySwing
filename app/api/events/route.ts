@@ -50,7 +50,9 @@ export async function POST(req: NextRequest) {
     // Add optional fields only if they're provided
     if (eventData.description !== undefined) insertData.description = eventData.description || null;
     if (eventData.signupLink !== undefined) insertData.signup_link = eventData.signupLink || null;
-    if (eventData.price !== undefined) insertData.price = eventData.price || null;
+    if (eventData.price !== undefined) insertData.price = eventData.price ?? null;
+    if (eventData.strictly_price !== undefined) insertData.strictly_price = eventData.strictly_price ?? null;
+    if (eventData.jnj_price !== undefined) insertData.jnj_price = eventData.jnj_price ?? null;
     if (eventData.start_time !== undefined) insertData.start_time = eventData.start_time || null;
     if (eventData.type !== undefined) insertData.type = eventData.type || null;
 

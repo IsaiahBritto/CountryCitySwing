@@ -8,6 +8,7 @@ import Calendar from "@/components/Calendar";
 import WorkshopSpotlight from "@/components/WorkshopSpotlight";
 import EventCarousel from "@/components/EventCarousel";
 import EventSignupModal from "@/components/EventSignupModal";
+import CompSignupModal from "@/components/CompSignupModal";
 import EventFormModal from "@/components/EventFormModal";
 import EventsListSkeleton from "@/components/EventsListSkeleton";
 import { parseLocalDate } from "@/lib/utils/dateHelpers";
@@ -55,7 +56,6 @@ export default function EventsPage() {
       const normalizedEvents = (data || []).map((event: any) => ({
         ...event,
         signupLink: event.signup_link || event.signupLink || "",
-        // Remove time field if it exists (it's not in the schema)
         time: undefined,
       }));
       setEvents(normalizedEvents);
@@ -188,15 +188,16 @@ export default function EventsPage() {
                 <p className="text-neutral-200 mb-3">{event.description}</p>
               )}
               <div className="flex justify-center gap-3">
-                {event.type === "Comp" && (event.signupLink || event.signup_link) ? (
-                  <a
-                    href={event.signupLink || event.signup_link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn-signup inline-block"
+                {event.type === "Comp" ? (
+                  <button
+                    onClick={() => {
+                      setSelectedEvent(event);
+                      setShowSignup(true);
+                    }}
+                    className="btn-signup"
                   >
                     Sign Up
-                  </a>
+                  </button>
                 ) : (
                   <button
                     onClick={() => {
@@ -222,9 +223,17 @@ export default function EventsPage() {
         </div>
       )}
 
-      {/* --- Event Signup Modal (never for Comp — those use external signup link) --- */}
+      {/* --- Event Signup Modal (non-Comp events) --- */}
       {selectedEvent && selectedEvent.type !== "Comp" && (
         <EventSignupModal
+          event={selectedEvent}
+          open={showSignup}
+          onClose={() => setShowSignup(false)}
+        />
+      )}
+      {/* --- Comp Signup Modal (How's My Dancing) --- */}
+      {selectedEvent && selectedEvent.type === "Comp" && (
+        <CompSignupModal
           event={selectedEvent}
           open={showSignup}
           onClose={() => setShowSignup(false)}

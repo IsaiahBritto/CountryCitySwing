@@ -7,6 +7,7 @@ import isoWeek from "dayjs/plugin/isoWeek";
 import advancedFormat from "dayjs/plugin/advancedFormat";
 import { StarIcon, XMarkIcon } from "@heroicons/react/24/solid";
 import EventSignupModal from "@/components/EventSignupModal";
+import CompSignupModal from "@/components/CompSignupModal";
 
 dayjs.extend(weekday);
 dayjs.extend(isoWeek);
@@ -20,7 +21,9 @@ interface CalendarEvent {
   signupLink?: string;
   signup_link?: string;
   description: string;
-  price?: number;
+  price?: number | null;
+  strictly_price?: number | null;
+  jnj_price?: number | null;
   start_time?: string;
   type?: string;
 }
@@ -331,17 +334,41 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
             <p className="text-gray-300 mb-2 italic">
               📍 {selectedEvent.location}
             </p>
-            {selectedEvent.price && (
+            {selectedEvent.type === "Comp" ? (
+              <>
+                {selectedEvent.strictly_price != null && Number(selectedEvent.strictly_price) >= 0 && (
+                  <p className="text-yellow-400 font-semibold mb-1">Strictly: ${Number(selectedEvent.strictly_price).toFixed(2)}</p>
+                )}
+                {selectedEvent.jnj_price != null && Number(selectedEvent.jnj_price) >= 0 && (
+                  <p className="text-yellow-400 font-semibold mb-1">JnJ: ${Number(selectedEvent.jnj_price).toFixed(2)}</p>
+                )}
+                {selectedEvent.price != null && Number(selectedEvent.price) >= 0 && (
+                  <p className="text-yellow-400 font-semibold mb-2">Price: ${Number(selectedEvent.price).toFixed(2)}</p>
+                )}
+              </>
+            ) : selectedEvent.price != null && Number(selectedEvent.price) >= 0 ? (
               <p className="text-yellow-400 font-semibold mb-4">
-                Price: ${selectedEvent.price.toFixed(2)}
+                Price: ${Number(selectedEvent.price).toFixed(2)}
               </p>
-            )}
-            <p className="text-neutral-200 leading-relaxed mb-6">
+            ) : null}
+            <p className="text-neutral-200 leading-relaxed mb-4">
               {selectedEvent.description}
             </p>
 
-            {/* Signup button or Closed state */}
-            <div className="flex justify-center gap-3">
+            {/* Comp: link + form inline in this overlay (no nested modal) */}
+            {selectedEvent.type === "Comp" && !dayjs(selectedEvent.date).isBefore(dayjs(), "day") && (
+              <div className="mt-4 pt-4 border-t border-neutral-700">
+                <CompSignupModal
+                  event={selectedEvent}
+                  open={true}
+                  onClose={closeAll}
+                  embedded={true}
+                />
+              </div>
+            )}
+
+            {/* Non-Comp: Signup button; Comp (past): Closed; Edit */}
+            <div className="flex justify-center gap-3 mt-4">
               {dayjs(selectedEvent.date).isBefore(dayjs(), "day") ? (
                 <button
                   disabled
@@ -349,26 +376,17 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
                 >
                   Closed
                 </button>
-              ) : selectedEvent.type === "Comp" && (selectedEvent.signupLink || selectedEvent.signup_link) ? (
-                <a
-                  href={selectedEvent.signupLink || selectedEvent.signup_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-signup inline-block text-center"
-                >
-                  Sign Up
-                </a>
-              ) : (
+              ) : selectedEvent.type !== "Comp" ? (
                 <button
                   onClick={() => {
-                    setIsVisible(false);   // close event details
-                    setShowSignup(true);   // open signup modal
+                    setIsVisible(false);
+                    setShowSignup(true);
                   }}
                   className="btn-signup inline-block"
                 >
                   Sign Up
                 </button>
-              )}
+              ) : null}
               {isAdmin && onEditEvent && (
                 <button
                   onClick={() => {
@@ -385,7 +403,7 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
         </div>
       )}
 
-      {/* --- Event Signup Modal --- */}
+      {/* --- Event Signup Modal (non-Comp only; Comp form is inline above) --- */}
       {selectedEvent && selectedEvent.type !== "Comp" && (
         <EventSignupModal
           event={selectedEvent}

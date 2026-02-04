@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/solid";
 import { parseLocalDate } from "@/lib/utils/dateHelpers";
 import EventSignupModal from "@/components/EventSignupModal";
+import CompSignupModal from "@/components/CompSignupModal";
 
 export interface CarouselEvent {
   id: number;
@@ -14,7 +15,9 @@ export interface CarouselEvent {
   signupLink?: string;
   signup_link?: string;
   description: string;
-  price?: number;
+  price?: number | null;
+  strictly_price?: number | null;
+  jnj_price?: number | null;
   start_time?: string;
   type?: string;
 }
@@ -105,11 +108,23 @@ export default function EventCarousel({ events, isAdmin = false, onEditEvent }: 
                   <p className="text-gray-400 italic mb-2">
                     📍 {event.location}
                   </p>
-                  {event.price && (
+                  {event.type === "Comp" ? (
+                    <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mb-2">
+                      {event.strictly_price != null && Number(event.strictly_price) >= 0 && (
+                        <span className="text-yellow-400 font-semibold">Strictly: ${Number(event.strictly_price).toFixed(2)}</span>
+                      )}
+                      {event.jnj_price != null && Number(event.jnj_price) >= 0 && (
+                        <span className="text-yellow-400 font-semibold">JnJ: ${Number(event.jnj_price).toFixed(2)}</span>
+                      )}
+                      {event.price != null && Number(event.price) >= 0 && (
+                        <span className="text-yellow-400 font-semibold">Price: ${Number(event.price).toFixed(2)}</span>
+                      )}
+                    </div>
+                  ) : event.price != null && Number(event.price) >= 0 ? (
                     <p className="text-yellow-400 font-semibold mb-4">
-                      Price: ${event.price.toFixed(2)}
+                      Price: ${Number(event.price).toFixed(2)}
                     </p>
-                  )}
+                  ) : null}
 
                   <p className="text-neutral-200 mb-6">{event.description}</p>
 
@@ -122,15 +137,13 @@ export default function EventCarousel({ events, isAdmin = false, onEditEvent }: 
                       >
                         Closed
                       </button>
-                    ) : event.type === "Comp" && (event.signupLink || event.signup_link) ? (
-                      <a
-                        href={event.signupLink || event.signup_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                    ) : event.type === "Comp" ? (
+                      <button
+                        onClick={() => setSelectedEvent(event)}
                         className="btn-signup inline-block text-center"
                       >
                         Sign Up
-                      </a>
+                      </button>
                     ) : (
                       <button
                         onClick={() => setSelectedEvent(event)}
@@ -184,9 +197,16 @@ export default function EventCarousel({ events, isAdmin = false, onEditEvent }: 
         </div>
       </div>
 
-      {/* --- Modal --- */}
+      {/* --- Modals --- */}
       {selectedEvent && selectedEvent.type !== "Comp" && (
         <EventSignupModal
+          event={selectedEvent}
+          open={!!selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+        />
+      )}
+      {selectedEvent && selectedEvent.type === "Comp" && (
+        <CompSignupModal
           event={selectedEvent}
           open={!!selectedEvent}
           onClose={() => setSelectedEvent(null)}

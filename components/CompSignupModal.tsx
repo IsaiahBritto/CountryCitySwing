@@ -292,43 +292,41 @@ export default function CompSignupModal({
   const visible = embedded ? !!event : (open && !!event);
   if (!visible || !event) return null;
 
-  const formContent = (
-    <div className="text-left space-y-4">
-      {!embedded && (
-        <p className="text-gray-300 text-sm">
-          <strong>Date:</strong>{" "}
-          {parseLocalDate(String(event.date).slice(0, 10)).toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-          })}
-          {event.start_time
-            ? ` • ${new Date(event.start_time).toLocaleTimeString(undefined, {
-                hour: "numeric",
-                minute: "2-digit",
-              })}`
-            : ""}
-          <br />
-          <strong>Location:</strong> {event.location || "—"}
-        </p>
-      )}
+  const dateBlock = (
+    <p className="text-gray-300 text-sm">
+      <strong>Date:</strong>{" "}
+      {parseLocalDate(String(event.date).slice(0, 10)).toLocaleDateString(undefined, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      })}
+      {event.start_time
+        ? ` • ${new Date(event.start_time).toLocaleTimeString(undefined, {
+            hour: "numeric",
+            minute: "2-digit",
+          })}`
+        : ""}
+      <br />
+      <strong>Location:</strong> {event.location || "—"}
+    </p>
+  );
 
-      {/* How's My Dancing link - external site */}
-          {howsMyDancingUrl && (
-            <div className="pb-4 border-b border-neutral-700">
-              <a
-                href={howsMyDancingUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-signup inline-block w-full text-center py-2"
-              >
-                How&apos;s My Dancing
-              </a>
-              <p className="text-gray-400 text-xs mt-2 text-center">Opens the How&apos;s My Dancing site in a new tab.</p>
-            </div>
-          )}
+  const howsMyDancingBlock = howsMyDancingUrl ? (
+    <div className="pb-4 border-b border-neutral-700">
+      <a
+        href={howsMyDancingUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="btn-signup inline-block w-full text-center py-2"
+      >
+        How&apos;s My Dancing
+      </a>
+      <p className="text-gray-400 text-xs mt-2 text-center">Opens the How&apos;s My Dancing site in a new tab.</p>
+    </div>
+  ) : null;
 
-          <form onSubmit={onSubmit} className="space-y-4">
+  const formBlock = (
+    <form onSubmit={onSubmit} className="space-y-4">
             <p className="font-medium text-gray-200">Comp registration — at least one division required</p>
 
             {/* Strictly */}
@@ -556,14 +554,23 @@ export default function CompSignupModal({
               </button>
             </div>
           </form>
-        </div>
   );
 
-  if (embedded) return formContent;
+  if (embedded) {
+    return (
+      <div className="text-left space-y-4">
+        {dateBlock}
+        {howsMyDancingBlock}
+        {formBlock}
+      </div>
+    );
+  }
 
   return (
     <SignupModalShell title={event.title} onClose={onClose}>
-      {formContent}
+      {dateBlock}
+      {howsMyDancingBlock}
+      {formBlock}
     </SignupModalShell>
   );
 }

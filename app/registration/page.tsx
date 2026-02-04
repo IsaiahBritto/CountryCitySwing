@@ -150,14 +150,14 @@ export default function RegistrationPage() {
         }
       });
 
-    // Cleanup subscription on unmount or when selectedEvent changes
+    // Cleanup subscription on unmount or when selectedEvent or filter changes
     return () => {
       console.log("Cleaning up realtime subscription for signups", channelName);
       supabaseBrowser.removeChannel(channel);
     };
-  }, [selectedEvent]);
+  }, [selectedEvent, filter]);
 
-  // Polling fallback: refresh signups every 10 seconds as backup
+  // Polling fallback: refresh signups every 20 seconds as backup
   useEffect(() => {
     if (!selectedEvent) return;
 
@@ -167,7 +167,7 @@ export default function RegistrationPage() {
     }, 20000); // Poll every 20 seconds
 
     return () => clearInterval(intervalId);
-  }, [selectedEvent]);
+  }, [selectedEvent, filter]);
 
   const loadSignups = async (eventId: string) => {
     try {

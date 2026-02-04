@@ -37,6 +37,7 @@ interface Event {
   date: string;
   location: string;
   price: number | null;
+  type?: string;
 }
 
 interface Signup {
@@ -45,6 +46,17 @@ interface Signup {
   payment_method: string;
   paid: boolean;
   checked_in: boolean;
+  stripe_tax_amount?: number | null;
+  stripe_processing_fee?: number | null;
+}
+
+interface CompSignup {
+  id: string;
+  event_id: string;
+  payment_method: string;
+  paid: boolean;
+  checked_in?: boolean;
+  amount_owed: number;
   stripe_tax_amount?: number | null;
   stripe_processing_fee?: number | null;
 }
@@ -86,6 +98,41 @@ function computeStats(
   };
 }
 
+function computeStatsComp(
+  compSignups: CompSignup[]
+): {
+  totalSignups: number;
+  checkedIn: number;
+  cashTotal: number;
+  stripeTotal: number;
+  stripeTaxesFees: number;
+} {
+  let cashTotal = 0;
+  let stripeTotal = 0;
+  let stripeTaxesFees = 0;
+
+  for (const s of compSignups) {
+    const pm = (s.payment_method || "").toLowerCase();
+    const amount = Number(s.amount_owed) || 0;
+    // Cash: count when checked in (same semantics as regular events: "Cash + checked in")
+    if (pm === "cash" && s.checked_in) {
+      cashTotal += amount;
+    }
+    if (pm === "stripe" && s.paid) {
+      stripeTotal += amount;
+      stripeTaxesFees += (s.stripe_tax_amount ?? 0) + (s.stripe_processing_fee ?? 0);
+    }
+  }
+
+  return {
+    totalSignups: compSignups.length,
+    checkedIn: compSignups.filter((s) => s.checked_in).length,
+    cashTotal,
+    stripeTotal,
+    stripeTaxesFees,
+  };
+}
+
 function aggregateStats(
   eventStats: { totalSignups: number; checkedIn: number; cashTotal: number; stripeTotal: number; stripeTaxesFees: number }[]
 ): {
@@ -113,6 +160,8 @@ export default function AdminFinancesPage() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [signups, setSignups] = useState<Signup[]>([]);
+  const [compSignups, setCompSignups] = useState<CompSignup[]>([]);
+  const [isCompEvent, setIsCompEvent] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingSignups, setLoadingSignups] = useState(false);
   const [overviewStats, setOverviewStats] = useState<{
@@ -213,7 +262,7 @@ export default function AdminFinancesPage() {
       setError(null);
       const { data, error: e } = await supabaseBrowser
         .from("events")
-        .select("id, title, date, location, price")
+        .select("id, title, date, location, price, type")
         .order("date", { ascending: false });
 
       if (e) {
@@ -249,6 +298,8 @@ export default function AdminFinancesPage() {
   useEffect(() => {
     if (!isAdmin || eventsView === "overview" || !selectedEvent) {
       setSignups([]);
+      setCompSignups([]);
+      setIsCompEvent(false);
       setSignupsError(null);
       return;
     }
@@ -262,6 +313,8 @@ export default function AdminFinancesPage() {
         } = await supabaseBrowser.auth.getSession();
         if (!session) {
           setSignups([]);
+          setCompSignups([]);
+          setIsCompEvent(false);
           setSignupsError("Session expired. Please sign in again.");
           setLoadingSignups(false);
           return;
@@ -286,15 +339,27 @@ export default function AdminFinancesPage() {
                 : "Failed to load signups. Check your connection and try again.");
           setSignupsError(msg);
           setSignups([]);
+          setCompSignups([]);
+          setIsCompEvent(false);
         } else {
-          const { signups: data } = await res.json();
-          setSignups(data || []);
+          const json = await res.json();
+          const isComp = !!json.isComp;
+          setIsCompEvent(isComp);
+          if (isComp) {
+            setCompSignups(json.compSignups || []);
+            setSignups([]);
+          } else {
+            setSignups(json.signups || []);
+            setCompSignups([]);
+          }
         }
       } catch (e) {
         setSignupsError(
           "Connection failed. Check your network and try again."
         );
         setSignups([]);
+        setCompSignups([]);
+        setIsCompEvent(false);
       } finally {
         setLoadingSignups(false);
       }
@@ -332,8 +397,11 @@ export default function AdminFinancesPage() {
               const body = await res.json().catch(() => ({}));
               throw new Error((body as { error?: string })?.error || "Failed to load signups");
             }
-            const { signups: data } = await res.json();
-            return computeStats(data || [], ev.price);
+            const json = await res.json();
+            if (json.isComp) {
+              return computeStatsComp(json.compSignups || []);
+            }
+            return computeStats(json.signups || [], ev.price);
           })
         );
 
@@ -452,7 +520,9 @@ export default function AdminFinancesPage() {
 
   const stats = eventsView === "overview" && overviewStats
     ? overviewStats
-    : computeStats(signups, selectedEvent?.price ?? null);
+    : isCompEvent
+      ? computeStatsComp(compSignups)
+      : computeStats(signups, selectedEvent?.price ?? null);
 
   const stripeTaxesFees = stats.stripeTaxesFees ?? 0;
 

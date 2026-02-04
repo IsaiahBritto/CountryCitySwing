@@ -96,7 +96,56 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Fetch all signups for this event so we can return total + checked_in counts
+    // Resolve event type to decide signups vs comp_signups
+    const { data: eventRow, error: eventError } = await supabaseServer
+      .from("events")
+      .select("type")
+      .eq("id", eventId)
+      .single();
+
+    if (eventError || !eventRow) {
+      return NextResponse.json(
+        { error: "Event not found" },
+        { status: 404 }
+      );
+    }
+
+    const isComp = (eventRow.type || "").toString().toLowerCase() === "comp";
+
+    if (isComp) {
+      const { data: compList, error: compError } = await supabaseServer
+        .from("comp_signups")
+        .select("*")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: false });
+
+      if (compError) {
+        console.error("Error fetching comp signups:", compError);
+        return NextResponse.json(
+          { error: "Failed to fetch comp signups" },
+          { status: 500 }
+        );
+      }
+
+      const list = compList || [];
+      const compCheckedIn = list.filter((c: { checked_in?: boolean }) => c.checked_in === true).length;
+      let compSignups = list;
+      if (filter === "not_checked_in") {
+        compSignups = list.filter((c: { checked_in?: boolean }) => c.checked_in !== true);
+      } else if (filter === "checked_in") {
+        compSignups = list.filter((c: { checked_in?: boolean }) => c.checked_in === true);
+      }
+
+      return NextResponse.json({
+        signups: [],
+        compSignups,
+        isComp: true,
+        total: list.length,
+        checked_in: compCheckedIn,
+      });
+    }
+
+    // Regular event: fetch from signups table
     const { data: allSignups, error } = await supabaseServer
       .from("signups")
       .select("*")
@@ -123,7 +172,7 @@ export async function GET(req: NextRequest) {
       signups = list.filter((s: { checked_in?: boolean }) => s.checked_in === true);
     }
 
-    return NextResponse.json({ signups, total, checked_in });
+    return NextResponse.json({ signups, compSignups: [], isComp: false, total, checked_in });
   } catch (error: any) {
     console.error("Error:", error);
     return NextResponse.json(
@@ -183,13 +232,45 @@ export async function PATCH(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { signupId, field, value } = body;
+    const { signupId, field, value, isComp } = body;
 
     if (!signupId || !field || value === undefined) {
       return NextResponse.json(
         { error: "Missing required fields: signupId, field, value" },
         { status: 400 }
       );
+    }
+
+    if (isComp) {
+      if (field !== "paid" && field !== "checked_in") {
+        return NextResponse.json(
+          { error: "Comp signups can only update 'paid' or 'checked_in'" },
+          { status: 400 }
+        );
+      }
+      const updatePayload: { paid?: boolean; checked_in?: boolean; updated_at: string } = {
+        updated_at: new Date().toISOString(),
+      };
+      if (field === "paid") {
+        updatePayload.paid = !!value;
+      } else {
+        updatePayload.checked_in = !!value;
+        if (value === true) updatePayload.paid = true;
+      }
+      const { data, error } = await supabaseServer
+        .from("comp_signups")
+        .update(updatePayload)
+        .eq("id", signupId)
+        .select()
+        .single();
+      if (error) {
+        console.error("Error updating comp signup:", error);
+        return NextResponse.json(
+          { error: "Failed to update comp signup" },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ success: true, signup: data });
     }
 
     if (!["paid", "checked_in"].includes(field)) {
@@ -199,10 +280,7 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Build update data
     const updateData: any = { [field]: value };
-    
-    // If checking in, also mark as paid
     if (field === "checked_in" && value === true) {
       updateData.paid = true;
     }

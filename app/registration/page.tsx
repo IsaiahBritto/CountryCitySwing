@@ -9,6 +9,7 @@ interface Event {
   title: string;
   date: string;
   location: string;
+  type?: string;
 }
 
 interface Signup {
@@ -24,12 +25,39 @@ interface Signup {
   created_at: string;
 }
 
+interface CompSignup {
+  id: string;
+  event_id: string;
+  event_title: string;
+  strictly_selected: boolean;
+  strictly_lead_first_name?: string | null;
+  strictly_lead_last_name?: string | null;
+  strictly_lead_email?: string | null;
+  strictly_follow_first_name?: string | null;
+  strictly_follow_last_name?: string | null;
+  strictly_follow_email?: string | null;
+  jnj_selected: boolean;
+  jnj_lead_first_name?: string | null;
+  jnj_lead_last_name?: string | null;
+  jnj_lead_email?: string | null;
+  jnj_follow_first_name?: string | null;
+  jnj_follow_last_name?: string | null;
+  jnj_follow_email?: string | null;
+  payment_method: string;
+  amount_owed: number;
+  paid: boolean;
+  checked_in?: boolean;
+  created_at: string;
+}
+
 type FilterType = "all" | "not_checked_in" | "checked_in";
 
 export default function RegistrationPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [signups, setSignups] = useState<Signup[]>([]);
+  const [compSignups, setCompSignups] = useState<CompSignup[]>([]);
+  const [isCompEvent, setIsCompEvent] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [checkedInCount, setCheckedInCount] = useState(0);
   const [filter, setFilter] = useState<FilterType>("all");
@@ -113,26 +141,26 @@ export default function RegistrationPage() {
     }
   }, [selectedEvent, filter]);
 
-  // Set up real-time subscription for signups changes
+  // Set up real-time subscription for signups or comp_signups changes
   useEffect(() => {
     if (!selectedEvent) return;
 
-    const channelName = `signups_changes_${selectedEvent.id}`;
+    const isComp = (selectedEvent.type || "").toLowerCase() === "comp";
+    const table = isComp ? "comp_signups" : "signups";
+    const channelName = `${table}_changes_${selectedEvent.id}`;
     const channel = supabaseBrowser.channel(channelName);
 
-    // Subscribe to signups changes for this event
     channel
       .on(
         "postgres_changes",
         {
-          event: "*", // Listen for INSERT, UPDATE, DELETE
+          event: "*",
           schema: "public",
-          table: "signups",
-          filter: `event_id=eq.${selectedEvent.id}`, // Only listen for this event's signups
+          table,
+          filter: `event_id=eq.${selectedEvent.id}`,
         },
         (payload) => {
-          console.log("Realtime update - signups:", payload);
-          // Reload signups when changes are detected
+          console.log("Realtime update -", table, payload);
           loadSignups(selectedEvent.id);
         }
       )
@@ -205,26 +233,40 @@ export default function RegistrationPage() {
           userRole
         });
         setSignups([]);
+        setCompSignups([]);
+        setIsCompEvent(false);
         setTotalCount(0);
         setCheckedInCount(0);
         return;
       }
 
       const data = await response.json();
-      const signupsList = data.signups || [];
-      console.log("Signups loaded successfully:", signupsList.length, "signups for event", eventId);
+      const isComp = !!data.isComp;
+      setIsCompEvent(isComp);
 
-      setTotalCount(typeof data.total === "number" ? data.total : signupsList.length);
-      setCheckedInCount(typeof data.checked_in === "number" ? data.checked_in : signupsList.filter((s: Signup) => s.checked_in).length);
-
-      // Sort by first name alphabetically (case-insensitive)
-      const sorted = signupsList.sort((a: Signup, b: Signup) =>
-        a.first_name.localeCompare(b.first_name, undefined, { sensitivity: "base" })
-      );
-      setSignups(sorted);
+      if (isComp) {
+        const list = data.compSignups || [];
+        setCompSignups(list);
+        setSignups([]);
+        setTotalCount(typeof data.total === "number" ? data.total : list.length);
+        setCheckedInCount(typeof data.checked_in === "number" ? data.checked_in : list.filter((c: CompSignup) => c.checked_in).length);
+        console.log("Comp signups loaded:", list.length, "for event", eventId);
+      } else {
+        const signupsList = data.signups || [];
+        setCompSignups([]);
+        setTotalCount(typeof data.total === "number" ? data.total : signupsList.length);
+        setCheckedInCount(typeof data.checked_in === "number" ? data.checked_in : signupsList.filter((s: Signup) => s.checked_in).length);
+        const sorted = signupsList.sort((a: Signup, b: Signup) =>
+          a.first_name.localeCompare(b.first_name, undefined, { sensitivity: "base" })
+        );
+        setSignups(sorted);
+        console.log("Signups loaded successfully:", signupsList.length, "for event", eventId);
+      }
     } catch (err) {
       console.error("Error loading signups:", err);
       setSignups([]);
+      setCompSignups([]);
+      setIsCompEvent(false);
       setTotalCount(0);
       setCheckedInCount(0);
     }
@@ -233,7 +275,8 @@ export default function RegistrationPage() {
   const updateSignupStatus = async (
     signupId: string,
     field: "paid" | "checked_in",
-    value: boolean
+    value: boolean,
+    isCompSignup = false
   ) => {
     setUpdating(signupId);
     try {
@@ -256,6 +299,7 @@ export default function RegistrationPage() {
           signupId,
           field,
           value,
+          ...(isCompSignup ? { isComp: true } : {}),
         }),
       });
 
@@ -270,30 +314,39 @@ export default function RegistrationPage() {
       } else {
         // If checking in while viewing "not_checked_in" filter, trigger fade-out
         if (field === "checked_in" && value === true && filter === "not_checked_in") {
-          // Add to fading out set
           setFadingOut((prev) => new Set(prev).add(signupId));
-          
-          // Update the signup locally to show green color immediately
-          setSignups((prev) =>
-            prev.map((s) =>
-              s.id === signupId ? { ...s, checked_in: true, paid: true } : s
-            )
-          );
-          
-          // Remove from list after 2 seconds
-          setTimeout(() => {
-            setSignups((prev) => prev.filter((s) => s.id !== signupId));
-            setFadingOut((prev) => {
-              const next = new Set(prev);
-              next.delete(signupId);
-              return next;
-            });
-          }, 2000);
-        } else {
-          // Reload signups normally for other cases
-          if (selectedEvent) {
-            loadSignups(selectedEvent.id);
+          if (isCompSignup) {
+            setCheckedInCount((prev) => prev + 1);
+            setCompSignups((prev) =>
+              prev.map((c) =>
+                c.id === signupId ? { ...c, checked_in: true, paid: true } : c
+              )
+            );
+            setTimeout(() => {
+              setCompSignups((prev) => prev.filter((c) => c.id !== signupId));
+              setFadingOut((prev) => {
+                const next = new Set(prev);
+                next.delete(signupId);
+                return next;
+              });
+            }, 2000);
+          } else {
+            setSignups((prev) =>
+              prev.map((s) =>
+                s.id === signupId ? { ...s, checked_in: true, paid: true } : s
+              )
+            );
+            setTimeout(() => {
+              setSignups((prev) => prev.filter((s) => s.id !== signupId));
+              setFadingOut((prev) => {
+                const next = new Set(prev);
+                next.delete(signupId);
+                return next;
+              });
+            }, 2000);
           }
+        } else {
+          if (selectedEvent) loadSignups(selectedEvent.id);
         }
       }
     } catch (err) {
@@ -304,12 +357,22 @@ export default function RegistrationPage() {
     }
   };
 
+  const updateCompSignupPaid = async (compSignupId: string, paid: boolean) => {
+    await updateSignupStatus(compSignupId, "paid", paid, true);
+  };
+
   const getRowColor = (signup: Signup) => {
     if (signup.checked_in) {
       return "bg-green-900/30 border-green-600";
     } else if (signup.paid) {
       return "bg-yellow-900/30 border-yellow-600";
     }
+    return "bg-neutral-800 border-neutral-700";
+  };
+
+  const getRowColorComp = (c: CompSignup) => {
+    if (c.checked_in) return "bg-green-900/30 border-green-600";
+    if (c.paid) return "bg-yellow-900/30 border-yellow-600";
     return "bg-neutral-800 border-neutral-700";
   };
 
@@ -407,10 +470,77 @@ export default function RegistrationPage() {
             </div>
           </div>
           <p className="text-gray-400 text-sm mt-1 mb-2">
-            {totalCount} signed up · {checkedInCount} checked in
+            {isCompEvent ? `${totalCount} comp registration(s) · ${checkedInCount} checked in` : `${totalCount} signed up · ${checkedInCount} checked in`}
           </p>
 
-          {signups.length === 0 ? (
+          {isCompEvent ? (
+            compSignups.length === 0 ? (
+              <p className="text-gray-400">No comp signups found for this event.</p>
+            ) : (
+              <div className="space-y-3">
+                {compSignups.map((c) => (
+                  <div
+                    key={c.id}
+                    className={`p-3 md:p-4 rounded-lg border-2 transition-opacity duration-2000 ease-out ${
+                      fadingOut.has(c.id) ? "opacity-0" : "opacity-100"
+                    } ${getRowColorComp(c)}`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 text-sm">
+                      <div className="flex-1 min-w-0">
+                        {c.strictly_selected && (
+                          <p className="text-white">
+                            <span className="text-primary font-medium">Strictly:</span>{" "}
+                            {[c.strictly_lead_first_name, c.strictly_lead_last_name].filter(Boolean).join(" ")}
+                            {([c.strictly_lead_first_name, c.strictly_lead_last_name].some(Boolean) && [c.strictly_follow_first_name, c.strictly_follow_last_name].some(Boolean)) ? " / " : ""}
+                            {[c.strictly_follow_first_name, c.strictly_follow_last_name].filter(Boolean).join(" ")}
+                          </p>
+                        )}
+                        {c.jnj_selected && (
+                          <p className="text-white">
+                            <span className="text-primary font-medium">JnJ:</span>{" "}
+                            {[c.jnj_lead_first_name, c.jnj_lead_last_name].filter(Boolean).join(" ") ||
+                              [c.jnj_follow_first_name, c.jnj_follow_last_name].filter(Boolean).join(" ")}
+                          </p>
+                        )}
+                        <p className="text-gray-400">
+                          Payment: {c.payment_method} · ${Number(c.amount_owed).toFixed(2)} · {c.paid ? "Paid" : "Unpaid"}
+                        </p>
+                        <p className="text-gray-500 text-xs">
+                          {new Date(c.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                        <button
+                          onClick={() => updateCompSignupPaid(c.id, !c.paid)}
+                          disabled={updating === c.id || !!c.checked_in}
+                          className={`px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap ${
+                            c.paid
+                              ? "bg-yellow-500 text-black hover:bg-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.5)]"
+                              : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                          } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-neutral-700`}
+                        >
+                          {c.paid ? "✓ Paid" : "Paid"}
+                        </button>
+                        <button
+                          onClick={() =>
+                            updateSignupStatus(c.id, "checked_in", !c.checked_in, true)
+                          }
+                          disabled={updating === c.id}
+                          className={`px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap ${
+                            c.checked_in
+                              ? "bg-green-600 text-white hover:bg-green-500 shadow-[0_0_10px_rgba(22,163,74,0.5)]"
+                              : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                          } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-neutral-700`}
+                        >
+                          {c.checked_in ? "✓ Checked In" : "Check In"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          ) : signups.length === 0 ? (
             <p className="text-gray-400">No signups found for this event.</p>
           ) : (
             <div className="space-y-3">

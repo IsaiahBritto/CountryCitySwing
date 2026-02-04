@@ -109,9 +109,9 @@ export default function EventFormModal({
 
       if (formData.description !== undefined) submitData.description = formData.description || "";
       if (formData.signupLink !== undefined) submitData.signupLink = formData.signupLink || "";
-      if (formData.price !== undefined) submitData.price = formData.price != null && formData.price !== "" ? parseFloat(String(formData.price)) : null;
-      if (formData.strictly_price !== undefined) submitData.strictly_price = formData.strictly_price != null && formData.strictly_price !== "" ? parseFloat(String(formData.strictly_price)) : null;
-      if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null && formData.jnj_price !== "" ? parseFloat(String(formData.jnj_price)) : null;
+      if (formData.price !== undefined) submitData.price = formData.price != null ? Number(formData.price) : null;
+      if (formData.strictly_price !== undefined) submitData.strictly_price = formData.strictly_price != null ? Number(formData.strictly_price) : null;
+      if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null ? Number(formData.jnj_price) : null;
       if (formData.start_time) {
         // Convert datetime-local to ISO string
         submitData.start_time = new Date(formData.start_time).toISOString();

@@ -355,19 +355,7 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
               {selectedEvent.description}
             </p>
 
-            {/* Comp: link + form inline in this overlay (no nested modal) */}
-            {selectedEvent.type === "Comp" && !dayjs(selectedEvent.date).isBefore(dayjs(), "day") && (
-              <div className="mt-4 pt-4 border-t border-neutral-700">
-                <CompSignupModal
-                  event={selectedEvent}
-                  open={true}
-                  onClose={closeAll}
-                  embedded={true}
-                />
-              </div>
-            )}
-
-            {/* Non-Comp: Signup button; Comp (past): Closed; Edit */}
+            {/* Sign Up button (same for Comp and non-Comp); past events: Closed */}
             <div className="flex justify-center gap-3 mt-4">
               {dayjs(selectedEvent.date).isBefore(dayjs(), "day") ? (
                 <button
@@ -376,7 +364,7 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
                 >
                   Closed
                 </button>
-              ) : selectedEvent.type !== "Comp" ? (
+              ) : (
                 <button
                   onClick={() => {
                     setIsVisible(false);
@@ -386,7 +374,7 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
                 >
                   Sign Up
                 </button>
-              ) : null}
+              )}
               {isAdmin && onEditEvent && (
                 <button
                   onClick={() => {
@@ -403,9 +391,17 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
         </div>
       )}
 
-      {/* --- Event Signup Modal (non-Comp only; Comp form is inline above) --- */}
+      {/* --- Event Signup Modal (non-Comp) --- */}
       {selectedEvent && selectedEvent.type !== "Comp" && (
         <EventSignupModal
+          event={selectedEvent}
+          open={showSignup}
+          onClose={closeAll}
+        />
+      )}
+      {/* --- Comp Signup Modal (full modal when Sign Up is clicked from detail) --- */}
+      {selectedEvent && selectedEvent.type === "Comp" && (
+        <CompSignupModal
           event={selectedEvent}
           open={showSignup}
           onClose={closeAll}

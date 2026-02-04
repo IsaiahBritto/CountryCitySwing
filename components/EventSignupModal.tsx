@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { parseLocalDate } from "@/lib/utils/dateHelpers";
+import SignupModalShell from "@/components/SignupModalShell";
 
 /* ---------- Validation Schema ---------- */
 const baseSchema = z.object({
@@ -251,25 +252,8 @@ export default function EventSignupModal({ event, open, onClose }: any) {
   if (!open || !event) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md bg-black/60"
-      onClick={onClose}                       // 👈 close when background clicked
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}  // 👈 ignore clicks inside the modal
-        className="bg-neutral-900 text-white max-w-lg w-full mx-4 rounded-lg shadow-[0_0_25px_rgba(187,134,252,0.6)] overflow-y-auto max-h-[90vh]"
-      >
-        {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b border-neutral-700">
-          <h3 className="text-2xl font-bold text-primary">{event.title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
-            ✕
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-6 text-left space-y-4">
-          <p className="text-gray-300 text-sm">
+    <SignupModalShell title={event.title} onClose={onClose}>
+      <p className="text-gray-300 text-sm">
             <strong>Date:</strong>{" "}
             {parseLocalDate(event.date.slice(0, 10)).toLocaleDateString(undefined, {
               weekday: "long",
@@ -525,8 +509,6 @@ export default function EventSignupModal({ event, open, onClose }: any) {
               </p>
             )}
           </form>
-        </div>
-      </div>
-    </div>
+    </SignupModalShell>
   );
 }

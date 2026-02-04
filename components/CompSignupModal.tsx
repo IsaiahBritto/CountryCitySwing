@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { parseLocalDate } from "@/lib/utils/dateHelpers";
+import SignupModalShell from "@/components/SignupModalShell";
 
 type CompEvent = {
   id: string | number;
@@ -561,24 +562,8 @@ export default function CompSignupModal({
   if (embedded) return formContent;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md bg-black/60"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-neutral-900 text-white max-w-lg w-full mx-4 rounded-lg shadow-[0_0_25px_rgba(187,134,252,0.6)] overflow-y-auto overflow-x-hidden max-h-[90vh] scrollbar-hide"
-      >
-        <div className="flex justify-between items-center p-4 border-b border-neutral-700">
-          <h3 className="text-2xl font-bold text-primary">{event.title}</h3>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-white">
-            ✕
-          </button>
-        </div>
-        <div className="p-6">
-          {formContent}
-        </div>
-      </div>
-    </div>
+    <SignupModalShell title={event.title} onClose={onClose}>
+      {formContent}
+    </SignupModalShell>
   );
 }

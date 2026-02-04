@@ -248,13 +248,6 @@ img {
   scrollbar-color: rgba(0, 0, 0, 0.5) transparent;
 }
 
-/* Full viewport height for modals (dvh with vh fallback) */
-.modal-overlay-full {
-  height: 100vh;
-  height: 100dvh;
-  max-height: -webkit-fill-available;
-}
-
 /* Hide scrollbar but keep scroll behavior (e.g. modal content on mobile) */
 .scrollbar-hide {
   -ms-overflow-style: none;

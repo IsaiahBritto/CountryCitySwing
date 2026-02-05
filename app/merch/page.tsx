@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
-import { ShoppingCartIcon } from "@heroicons/react/24/outline";
+import { ShoppingCartIcon, ClipboardDocumentListIcon } from "@heroicons/react/24/outline";
 import ProductModal from "@/components/ProductModal";
 import Cart from "@/components/Cart";
 import AdminDashboard from "@/components/AdminDashboard";
@@ -32,14 +33,16 @@ export default function MerchPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
 
-  // Check if user is admin
+  // Check if user is signed in and admin
   useEffect(() => {
-    async function checkAdmin() {
+    async function checkUser() {
       try {
         const {
           data: { user },
         } = await supabaseBrowser.auth.getUser();
+        setIsSignedIn(!!user);
         if (user) {
           const { data: profile } = await supabaseBrowser
             .from("profiles")
@@ -49,10 +52,10 @@ export default function MerchPage() {
           setIsAdmin(profile?.role === "admin");
         }
       } catch (err) {
-        console.error("Error checking admin status:", err);
+        console.error("Error checking user status:", err);
       }
     }
-    checkAdmin();
+    checkUser();
   }, []);
 
   useEffect(() => {
@@ -142,6 +145,15 @@ export default function MerchPage() {
           Country City Swing Merch
         </h1>
         <div className="flex items-center gap-4">
+          {isSignedIn && (
+            <Link
+              href="/merch/orders"
+              className="btn-signup text-sm px-4 py-2 rounded-md inline-flex items-center gap-2"
+            >
+              <ClipboardDocumentListIcon className="w-5 h-5" />
+              Show Orders
+            </Link>
+          )}
           {isAdmin && (
             <button
               onClick={() => setShowAdminDashboard(true)}

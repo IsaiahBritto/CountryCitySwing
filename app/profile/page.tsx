@@ -36,6 +36,10 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordUpdating, setPasswordUpdating] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     async function loadProfile() {
@@ -137,6 +141,29 @@ export default function ProfilePage() {
       const err = await res.json().catch(() => ({}));
       alert("Error updating profile: " + (err.error ?? res.statusText));
     }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordMessage(null);
+    if (newPassword.length < 6) {
+      setPasswordMessage({ type: "error", text: "Password must be at least 6 characters." });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage({ type: "error", text: "Passwords do not match." });
+      return;
+    }
+    setPasswordUpdating(true);
+    const { error } = await supabaseBrowser.auth.updateUser({ password: newPassword });
+    setPasswordUpdating(false);
+    if (error) {
+      setPasswordMessage({ type: "error", text: error.message });
+      return;
+    }
+    setPasswordMessage({ type: "success", text: "Password updated successfully." });
+    setNewPassword("");
+    setConfirmPassword("");
   };
 
   const handleSignOut = async () => {
@@ -328,6 +355,45 @@ export default function ProfilePage() {
           {updating ? "Updating..." : "Save Changes"}
         </button>
       </form>
+
+      {/* Change password */}
+      <div className="border-t border-neutral-700 pt-6 mt-6">
+        <h3 className="text-lg font-semibold text-primary mb-3">Change password</h3>
+        <form onSubmit={handlePasswordChange} className="space-y-4 max-w-md">
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="New password"
+            className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+            autoComplete="new-password"
+            minLength={6}
+          />
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Confirm new password"
+            className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+            autoComplete="new-password"
+            minLength={6}
+          />
+          {passwordMessage && (
+            <p
+              className={`text-sm ${passwordMessage.type === "success" ? "text-green-400" : "text-red-400"}`}
+            >
+              {passwordMessage.text}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={passwordUpdating}
+            className="btn-signup py-2 px-4 rounded-md"
+          >
+            {passwordUpdating ? "Updating..." : "Update password"}
+          </button>
+        </form>
+      </div>
 
       {/* Slot Manager (only for instructors who enabled scheduling) */}
       {(profile.role === "instructor" || profile.role === "admin") && profile.scheduling_enabled && (

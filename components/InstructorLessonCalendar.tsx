@@ -125,56 +125,52 @@ export default function InstructorLessonCalendar({
     fetchSlots();
   }, [fetchSlots]);
 
-  // --- Set up realtime subscription for live updates ---
+  // --- Set up realtime subscription for live updates (instructor view only) ---
+  // Realtime requires "lesson_slots" and "lesson_bookings" to have replication enabled in Supabase (Database → Replication).
+  // If subscription fails, the calendar still works via fetchSlots(); we don't surface errors to the user.
   useEffect(() => {
+    if (!isInstructorView) return;
+
     const channelName = `lesson_slots_changes_${instructorId}`;
     const channel = supabaseBrowser.channel(channelName);
 
-    // Subscribe to lesson_slots changes
     channel
       .on(
         "postgres_changes",
         {
-          event: "*", // Listen for INSERT, UPDATE, DELETE
+          event: "*",
           schema: "public",
           table: "lesson_slots",
-          filter: `instructor_id=eq.${instructorId}`, // Only listen for this instructor's slots
+          filter: `instructor_id=eq.${instructorId}`,
         },
-        (payload) => {
-          console.log("Realtime update - lesson_slots:", payload);
-          fetchSlots();
-        }
+        () => fetchSlots()
       )
       .on(
         "postgres_changes",
         {
-          event: "*", // Listen for INSERT, UPDATE, DELETE
+          event: "*",
           schema: "public",
           table: "lesson_bookings",
         },
-        (payload) => {
-          console.log("Realtime update - lesson_bookings:", payload);
-          fetchSlots();
-        }
+        () => fetchSlots()
       )
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          console.log("✅ Realtime subscription active for", channelName);
-        } else if (status === "CHANNEL_ERROR") {
-          console.error("❌ Realtime subscription error for", channelName);
-        } else if (status === "TIMED_OUT") {
-          console.warn("⏱️ Realtime subscription timed out for", channelName);
-        } else if (status === "CLOSED") {
-          console.log("🔒 Realtime subscription closed for", channelName);
+          // Realtime active; live updates will refresh the calendar
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          // Replication may be disabled for lesson_slots/lesson_bookings in Supabase. Calendar still works via fetch.
+          console.warn(
+            "[InstructorLessonCalendar] Realtime unavailable for",
+            channelName,
+            "— calendar will still work; enable replication for lesson_slots and lesson_bookings if you want live updates."
+          );
         }
       });
 
-    // Cleanup subscription on unmount
     return () => {
-      console.log("Cleaning up realtime subscription for", channelName);
       supabaseBrowser.removeChannel(channel);
     };
-  }, [instructorId, fetchSlots]);
+  }, [instructorId, fetchSlots, isInstructorView]);
 
   const today = dayjs().format("YYYY-MM-DD");
   const daysInMonth = currentMonth.daysInMonth();

@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     jnj_follow_email: data.jnj_follow_email ?? null,
     payment_method: effectivePayment,
     amount_owed: amountOwed,
-    paid: effectivePayment === "Venmo",
+    paid: false, // Only Stripe checkout sets paid: true (via webhook or below for $0)
     accept_liability: acceptLiability,
     accept_payment: acceptPayment,
   };

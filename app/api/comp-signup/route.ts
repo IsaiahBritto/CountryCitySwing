@@ -47,6 +47,65 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Sanity check: reject only if the same email is already registered for the *same division*
+  // (User may submit one form for Strictly and another for JnJ.)
+  const norm = (e: unknown) =>
+    typeof e === "string" && e.trim() !== "" ? e.trim().toLowerCase() : null;
+  const strictlyEmailsThisRequest = [
+    norm(data.strictly_lead_email),
+    norm(data.strictly_follow_email),
+  ].filter((e): e is string => e !== null);
+  const jnjEmailsThisRequest = [
+    norm(data.jnj_lead_email),
+    norm(data.jnj_follow_email),
+  ].filter((e): e is string => e !== null);
+
+  if (strictlyEmailsThisRequest.length > 0 || jnjEmailsThisRequest.length > 0) {
+    const { data: existingSignups } = await supabaseServer
+      .from("comp_signups")
+      .select("strictly_selected, strictly_lead_email, strictly_follow_email, jnj_selected, jnj_lead_email, jnj_follow_email")
+      .eq("event_id", eventId);
+
+    const existingStrictlyEmails = new Set<string>();
+    const existingJnJEmails = new Set<string>();
+    for (const row of existingSignups ?? []) {
+      const r = row as Record<string, string | null | boolean>;
+      if (r.strictly_selected) {
+        const a = norm(r.strictly_lead_email);
+        const b = norm(r.strictly_follow_email);
+        if (a) existingStrictlyEmails.add(a);
+        if (b) existingStrictlyEmails.add(b);
+      }
+      if (r.jnj_selected) {
+        const a = norm(r.jnj_lead_email);
+        const b = norm(r.jnj_follow_email);
+        if (a) existingJnJEmails.add(a);
+        if (b) existingJnJEmails.add(b);
+      }
+    }
+
+    const duplicateStrictly = strictlyEmailsThisRequest.some((e) => existingStrictlyEmails.has(e));
+    const duplicateJnJ = jnjEmailsThisRequest.some((e) => existingJnJEmails.has(e));
+    if (duplicateStrictly || duplicateJnJ) {
+      const eventDate = event.date
+        ? new Date(event.date).toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+          })
+        : "";
+      return NextResponse.json(
+        {
+          error: "Already registered",
+          alreadyRegistered: true,
+          eventTitle,
+          eventDate,
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   const effectivePayment =
     paymentMethod.toLowerCase() === "cash"
       ? "Cash"

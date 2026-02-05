@@ -66,6 +66,10 @@ export default function CompSignupModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
+  const [alreadyRegistered, setAlreadyRegistered] = useState<{
+    eventTitle: string;
+    eventDate: string;
+  } | null>(null);
 
   const total =
     (strictlySelected && hasStrictly ? Number(event!.strictly_price) || 0 : 0) +
@@ -146,6 +150,7 @@ export default function CompSignupModal({
       setAcceptPayment(false);
       setSubmitError("");
       setSubmitSuccess("");
+      setAlreadyRegistered(null);
     }
   }, [open, embedded]);
 
@@ -228,6 +233,7 @@ export default function CompSignupModal({
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError("");
+    setAlreadyRegistered(null);
     const err = validate();
     if (err) {
       setSubmitError(err);
@@ -268,6 +274,13 @@ export default function CompSignupModal({
       });
       const data = await res.json();
       if (!res.ok) {
+        if (data.alreadyRegistered && data.eventTitle) {
+          setAlreadyRegistered({
+            eventTitle: data.eventTitle,
+            eventDate: data.eventDate || "",
+          });
+          return;
+        }
         setSubmitError(data.error || "Failed to submit signup");
         return;
       }
@@ -533,6 +546,35 @@ export default function CompSignupModal({
               I understand I will need to complete payment (Stripe or cash at the door) and show confirmation as required.
             </label>
 
+            {alreadyRegistered && (
+              <div
+                role="alert"
+                className="rounded-lg border border-amber-500/60 bg-amber-950/40 p-4 text-amber-100 shadow-lg"
+              >
+                <p className="font-semibold text-amber-200">
+                  You&apos;re already registered for this event
+                </p>
+                <p className="mt-2 text-sm">
+                  <span className="font-medium">{alreadyRegistered.eventTitle}</span>
+                  {alreadyRegistered.eventDate && (
+                    <>
+                      <br />
+                      <span className="text-amber-200/90">{alreadyRegistered.eventDate}</span>
+                    </>
+                  )}
+                </p>
+                <p className="mt-2 text-sm text-amber-200/80">
+                  No need to sign up again — we&apos;ll see you there!
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setAlreadyRegistered(null)}
+                  className="mt-3 rounded-md bg-amber-600/80 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+                >
+                  OK
+                </button>
+              </div>
+            )}
             {submitError && (
               <div className="bg-red-900/20 border border-red-500 rounded-lg p-3 text-red-400 text-sm">
                 {submitError}

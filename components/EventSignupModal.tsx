@@ -120,6 +120,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
       setAppliedPromo(null);
       setPromoError("");
       setSubmitSuccessMessage("");
+      setAlreadyRegistered(null);
     }
   }, [open, reset]);
 
@@ -148,6 +149,10 @@ export default function EventSignupModal({ event, open, onClose }: any) {
 
   const [submitError, setSubmitError] = useState("");
   const [submitSuccessMessage, setSubmitSuccessMessage] = useState("");
+  const [alreadyRegistered, setAlreadyRegistered] = useState<{
+    eventTitle: string;
+    eventDate: string;
+  } | null>(null);
 
   const applyPromo = async () => {
     const code = promoCodeInput.trim();
@@ -198,6 +203,7 @@ export default function EventSignupModal({ event, open, onClose }: any) {
 
   const onSubmit = async (data: any) => {
     setSubmitError("");
+    setAlreadyRegistered(null);
     try {
       // Ensure event and price are always sent so server can apply promo for Cash
       const eventPayload = event
@@ -220,6 +226,13 @@ export default function EventSignupModal({ event, open, onClose }: any) {
       const result = await response.json();
 
       if (!response.ok) {
+        if (result.alreadyRegistered && result.eventTitle) {
+          setAlreadyRegistered({
+            eventTitle: result.eventTitle,
+            eventDate: result.eventDate || "",
+          });
+          return;
+        }
         const errorMsg = result.error || "Failed to submit signup";
         const details = result.details ? ` (${result.details})` : "";
         setSubmitError(errorMsg + details);
@@ -275,6 +288,36 @@ export default function EventSignupModal({ event, open, onClose }: any) {
               </>
             )}
           </p>
+
+          {alreadyRegistered && (
+            <div
+              role="alert"
+              className="rounded-lg border border-amber-500/60 bg-amber-950/40 p-4 text-amber-100 shadow-lg"
+            >
+              <p className="font-semibold text-amber-200">
+                You&apos;re already registered for this event
+              </p>
+              <p className="mt-2 text-sm">
+                <span className="font-medium">{alreadyRegistered.eventTitle}</span>
+                {alreadyRegistered.eventDate && (
+                  <>
+                    <br />
+                    <span className="text-amber-200/90">{alreadyRegistered.eventDate}</span>
+                  </>
+                )}
+              </p>
+              <p className="mt-2 text-sm text-amber-200/80">
+                No need to sign up again — we&apos;ll see you there!
+              </p>
+              <button
+                type="button"
+                onClick={() => setAlreadyRegistered(null)}
+                className="mt-3 rounded-md bg-amber-600/80 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+              >
+                OK
+              </button>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             {/* Names */}

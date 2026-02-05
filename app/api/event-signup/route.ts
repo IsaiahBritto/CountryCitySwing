@@ -132,6 +132,38 @@ export async function POST(req: NextRequest) {
 
   // Normalize event and price (client may send snake_case or price as string)
   const event = eventPayload ?? data.event ?? {};
+  const eventId = event?.id;
+  const emailTrimmed = typeof email === "string" ? email.trim().toLowerCase() : "";
+
+  // Sanity check: reject if already registered for this event (event_id + email)
+  if (eventId && emailTrimmed) {
+    const { data: existing } = await supabaseServer
+      .from("signups")
+      .select("id")
+      .eq("event_id", eventId)
+      .ilike("email", emailTrimmed)
+      .maybeSingle();
+    if (existing) {
+      const eventTitle = event.title ?? "This event";
+      const eventDate = event.date
+        ? new Date(event.date).toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+          })
+        : "";
+      return NextResponse.json(
+        {
+          error: "Already registered",
+          alreadyRegistered: true,
+          eventTitle,
+          eventDate,
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   const eventPriceNum =
     typeof event.price === "number"
       ? event.price

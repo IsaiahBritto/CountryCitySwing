@@ -376,6 +376,9 @@ export default function RegistrationPage() {
     return "bg-neutral-800 border-neutral-700";
   };
 
+  const isSignedUpOnEventDay = (createdAt: string) =>
+    !!selectedEvent && dayjs(createdAt).isSame(dayjs(selectedEvent.date), "day");
+
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto mt-10 text-center">
@@ -560,6 +563,10 @@ export default function RegistrationPage() {
                       <p className="text-xs md:text-sm text-gray-400">
                         Payment: {signup.payment_method}
                       </p>
+                      {selectedEvent?.type?.toLowerCase() === "workshop" &&
+                        isSignedUpOnEventDay(signup.created_at) && (
+                          <p className="text-red-500 font-medium text-sm">Signed Up Today</p>
+                        )}
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                       <button

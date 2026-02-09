@@ -24,6 +24,7 @@ interface CalendarEvent {
   price?: number | null;
   strictly_price?: number | null;
   jnj_price?: number | null;
+  ccs_team_price?: number | null;
   start_time?: string;
   type?: string;
 }
@@ -31,12 +32,18 @@ interface CalendarEvent {
 interface CalendarProps {
   events?: CalendarEvent[];
   isAdmin?: boolean;
+  isInstructor?: boolean;
   onEditEvent?: (event: CalendarEvent) => void;
 }
 
 const today = dayjs().format("YYYY-MM-DD");
 
-export default function Calendar({ events = [], isAdmin = false, onEditEvent }: CalendarProps) {
+function eventDisplayPrice(event: CalendarEvent, isInstructor: boolean): number | null | undefined {
+  if (isInstructor && event.ccs_team_price != null) return event.ccs_team_price;
+  return event.price;
+}
+
+export default function Calendar({ events = [], isAdmin = false, isInstructor = false, onEditEvent }: CalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(dayjs());
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [selectedDayEvents, setSelectedDayEvents] = useState<CalendarEvent[]>([]);
@@ -268,9 +275,9 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
                             </span>
                           )}
                         </div>
-                        {event.price && (
+                        {eventDisplayPrice(event, isInstructor) != null && (
                           <p className="text-yellow-400 font-semibold mt-2">
-                            ${event.price.toFixed(2)}
+                            ${Number(eventDisplayPrice(event, isInstructor)).toFixed(2)}
                           </p>
                         )}
                       </div>
@@ -342,13 +349,13 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
                 {selectedEvent.jnj_price != null && Number(selectedEvent.jnj_price) >= 0 && (
                   <p className="text-yellow-400 font-semibold mb-1">JnJ: ${Number(selectedEvent.jnj_price).toFixed(2)}</p>
                 )}
-                {selectedEvent.price != null && Number(selectedEvent.price) >= 0 && (
-                  <p className="text-yellow-400 font-semibold mb-2">Price: ${Number(selectedEvent.price).toFixed(2)}</p>
+                {eventDisplayPrice(selectedEvent, isInstructor) != null && Number(eventDisplayPrice(selectedEvent, isInstructor)) >= 0 && (
+                  <p className="text-yellow-400 font-semibold mb-2">Price: ${Number(eventDisplayPrice(selectedEvent, isInstructor)).toFixed(2)}</p>
                 )}
               </>
-            ) : selectedEvent.price != null && Number(selectedEvent.price) >= 0 ? (
+            ) : eventDisplayPrice(selectedEvent, isInstructor) != null && Number(eventDisplayPrice(selectedEvent, isInstructor)) >= 0 ? (
               <p className="text-yellow-400 font-semibold mb-4">
-                Price: ${Number(selectedEvent.price).toFixed(2)}
+                Price: ${Number(eventDisplayPrice(selectedEvent, isInstructor)).toFixed(2)}
               </p>
             ) : null}
             <p className="text-neutral-200 leading-relaxed mb-4">
@@ -397,6 +404,7 @@ export default function Calendar({ events = [], isAdmin = false, onEditEvent }: 
           event={selectedEvent}
           open={showSignup}
           onClose={closeAll}
+          isInstructor={isInstructor}
         />
       )}
       {/* --- Comp Signup Modal (full modal when Sign Up is clicked from detail) --- */}

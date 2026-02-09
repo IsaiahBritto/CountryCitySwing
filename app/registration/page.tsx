@@ -68,6 +68,10 @@ export default function RegistrationPage() {
   const [userRole, setUserRole] = useState<string>("");
   const [isInstructor, setIsInstructor] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [eventsView, setEventsView] = useState<"current" | "past">("current");
+  const [pastEventsMonth, setPastEventsMonth] = useState(() =>
+    dayjs().format("YYYY-MM")
+  );
 
   useEffect(() => {
     const loadUser = async () => {
@@ -96,25 +100,29 @@ export default function RegistrationPage() {
 
   useEffect(() => {
     loadEvents();
-  }, [isInstructor, isAdmin]);
+  }, [isInstructor, isAdmin, eventsView, pastEventsMonth]);
 
   const loadEvents = async () => {
     setLoading(true);
     try {
       const today = dayjs().startOf("day");
-      
+
       let query = supabaseBrowser
         .from("events")
         .select("*")
         .order("date", { ascending: true });
 
-      // Instructors only see events happening today
-      // Admins see all upcoming events (today and future)
-      if (isInstructor && !isAdmin) {
+      if (isAdmin && eventsView === "past") {
+        const monthStart = dayjs(pastEventsMonth + "-01").startOf("day");
+        const monthEnd = monthStart.add(1, "month").format("YYYY-MM-DD");
+        const monthStartStr = monthStart.format("YYYY-MM-DD");
+        query = query
+          .gte("date", monthStartStr)
+          .lt("date", monthEnd);
+      } else if (isInstructor && !isAdmin) {
         const todayStr = today.format("YYYY-MM-DD");
         query = query.eq("date", todayStr);
       } else {
-        // Admins see all upcoming events (today and future)
         query = query.gte("date", today.format("YYYY-MM-DD"));
       }
 
@@ -123,9 +131,11 @@ export default function RegistrationPage() {
       if (error) {
         console.error("Error loading events:", error);
       } else {
-        setEvents(data || []);
-        if (data && data.length > 0 && !selectedEvent) {
-          setSelectedEvent(data[0]);
+        const list = (data || []) as Event[];
+        setEvents(list);
+        const ids = new Set(list.map((e) => e.id));
+        if (!selectedEvent || !ids.has(selectedEvent.id)) {
+          setSelectedEvent(list.length > 0 ? list[0] : null);
         }
       }
     } catch (err) {
@@ -387,20 +397,95 @@ export default function RegistrationPage() {
     );
   }
 
+  const isViewingPastMonth = isAdmin && eventsView === "past";
+  const pastMonthStart = dayjs(pastEventsMonth + "-01");
+  const canGoForward =
+    isViewingPastMonth &&
+    pastMonthStart.isBefore(dayjs().startOf("month"));
+
   return (
     <div className="max-w-6xl mx-auto mt-4 md:mt-10 px-4 pb-6">
       <h1 className="text-2xl md:text-3xl font-bold text-primary mb-4 md:mb-6">Event Registration</h1>
 
+      {/* Admin only: Current vs Past Events toggle and month navigation */}
+      {isAdmin && (
+        <div className="bg-neutral-800 rounded-lg p-4 md:p-6 mb-4 md:mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <span className="text-gray-400 text-sm font-medium">View:</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEventsView("current")}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  eventsView === "current"
+                    ? "bg-primary text-black"
+                    : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                }`}
+              >
+                Current Events
+              </button>
+              <button
+                type="button"
+                onClick={() => setEventsView("past")}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  eventsView === "past"
+                    ? "bg-primary text-black"
+                    : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                }`}
+              >
+                Past Events
+              </button>
+            </div>
+            {isViewingPastMonth && (
+              <div className="flex items-center gap-2 sm:ml-4">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPastEventsMonth(
+                      pastMonthStart.subtract(1, "month").format("YYYY-MM")
+                    )
+                  }
+                  className="px-3 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors"
+                >
+                  ← Previous month
+                </button>
+                <span className="text-white font-semibold min-w-[140px] text-center">
+                  {pastMonthStart.format("MMMM YYYY")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPastEventsMonth(
+                      pastMonthStart.add(1, "month").format("YYYY-MM")
+                    )
+                  }
+                  disabled={!canGoForward}
+                  className="px-3 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-neutral-700"
+                >
+                  Next month →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Events List */}
       <div className="bg-neutral-800 rounded-lg p-4 md:p-6 mb-4 md:mb-6">
         <h2 className="text-lg md:text-xl font-semibold text-white mb-3 md:mb-4">
-          {isInstructor && !isAdmin ? "Today's Events" : "Upcoming Events"}
+          {isViewingPastMonth
+            ? `Past Events — ${pastMonthStart.format("MMMM YYYY")}`
+            : isInstructor && !isAdmin
+              ? "Today's Events"
+              : "Upcoming Events"}
         </h2>
         {events.length === 0 ? (
           <p className="text-gray-400">
-            {isInstructor && !isAdmin
-              ? "No events scheduled for today"
-              : "No upcoming events"}
+            {isViewingPastMonth
+              ? "No events in this month"
+              : isInstructor && !isAdmin
+                ? "No events scheduled for today"
+                : "No upcoming events"}
           </p>
         ) : (
           <div className="space-y-2">

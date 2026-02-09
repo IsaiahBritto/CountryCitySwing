@@ -180,7 +180,7 @@ export default function MerchOrdersPage() {
           </h2>
           <p className="text-gray-400 max-w-md mx-auto mb-6">
             You don&apos;t have any orders to display at this time. No worries —
-            grab something from the merch page and place an order; it&apos;ll show
+            pick something from the merch page and place an order; it&apos;ll show
             up here faster than you can say &ldquo;swing out&rdquo;!
           </p>
           <Link

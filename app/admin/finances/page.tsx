@@ -29,6 +29,16 @@ interface NashvilleFinances {
   updated_at: string;
 }
 
+interface WorkshopFinances {
+  id: string;
+  event_id: string;
+  studio_cost: number;
+  total_override: number | null;
+  guest_instructor_amount: number | null;
+  ccs_amount: number | null;
+  updated_at: string;
+}
+
 type EventsView = "upcoming" | "past" | "overview";
 
 interface Event {
@@ -37,6 +47,7 @@ interface Event {
   date: string;
   location: string;
   price: number | null;
+  ccs_team_price?: number | null;
   type?: string;
 }
 
@@ -46,6 +57,8 @@ interface Signup {
   payment_method: string;
   paid: boolean;
   checked_in: boolean;
+  is_ccs_team?: boolean;
+  amount_owed?: number | null;
   stripe_tax_amount?: number | null;
   stripe_processing_fee?: number | null;
 }
@@ -56,6 +69,7 @@ interface CompSignup {
   payment_method: string;
   paid: boolean;
   checked_in?: boolean;
+  is_ccs_team?: boolean;
   amount_owed: number;
   stripe_tax_amount?: number | null;
   stripe_processing_fee?: number | null;
@@ -63,29 +77,50 @@ interface CompSignup {
 
 function computeStats(
   signups: Signup[],
-  eventPrice: number | null
+  eventPrice: number | null,
+  eventCcsTeamPrice: number | null | undefined
 ): {
   totalSignups: number;
   checkedIn: number;
   cashTotal: number;
   stripeTotal: number;
+  otherTotal: number;
+  ccsTeamCashTotal: number;
+  ccsTeamStripeTotal: number;
+  ccsTeamTotal: number;
   stripeTaxesFees: number;
 } {
   const price = eventPrice ?? 0;
+  const ccsTeamPrice = eventCcsTeamPrice != null ? Number(eventCcsTeamPrice) : 0;
   let cashTotal = 0;
   let stripeTotal = 0;
+  let otherTotal = 0;
+  let ccsTeamCashTotal = 0;
+  let ccsTeamStripeTotal = 0;
   let stripeTaxesFees = 0;
 
   for (const s of signups) {
-    const pm = (s.payment_method || "").toLowerCase();
-    if (pm === "cash" && s.checked_in) {
-      cashTotal += price;
-    }
-    if (pm === "stripe" && s.paid) {
-      stripeTotal += price;
-      const tax = s.stripe_tax_amount ?? 0;
-      const fee = s.stripe_processing_fee ?? 0;
-      stripeTaxesFees += tax + fee;
+    const pm = (s.payment_method || "").toLowerCase().trim();
+    const isCcsTeam = s.is_ccs_team === true || pm === "ccs team";
+
+    if (isCcsTeam) {
+      // CCS TEAM: always use event ccs_team_price; split by payment method (Cash vs Stripe)
+      const amount = ccsTeamPrice;
+      if (pm === "cash" && s.checked_in) ccsTeamCashTotal += amount;
+      else if (pm === "stripe" && s.paid) ccsTeamStripeTotal += amount;
+      else if (pm === "ccs team" && s.checked_in) ccsTeamCashTotal += amount; // legacy or $0: no channel stored, count as Cash
+    } else {
+      // Per-signup amount (e.g. discount); fallback to event price
+      const amount = s.amount_owed != null ? Number(s.amount_owed) : price;
+      if (pm === "cash" && s.checked_in) {
+        cashTotal += amount;
+      } else if (pm === "stripe" && s.paid) {
+        stripeTotal += amount;
+        stripeTaxesFees += (s.stripe_tax_amount ?? 0) + (s.stripe_processing_fee ?? 0);
+      } else if (s.checked_in) {
+        // Other payment method (Venmo, check, etc.) but checked in → count as revenue
+        otherTotal += amount;
+      }
     }
   }
 
@@ -94,6 +129,10 @@ function computeStats(
     checkedIn: signups.filter((s) => s.checked_in).length,
     cashTotal,
     stripeTotal,
+    otherTotal,
+    ccsTeamCashTotal,
+    ccsTeamStripeTotal,
+    ccsTeamTotal: ccsTeamCashTotal + ccsTeamStripeTotal,
     stripeTaxesFees,
   };
 }
@@ -105,22 +144,32 @@ function computeStatsComp(
   checkedIn: number;
   cashTotal: number;
   stripeTotal: number;
+  otherTotal: number;
+  ccsTeamCashTotal: number;
+  ccsTeamStripeTotal: number;
+  ccsTeamTotal: number;
   stripeTaxesFees: number;
 } {
   let cashTotal = 0;
   let stripeTotal = 0;
+  let otherTotal = 0;
+  let ccsTeamCashTotal = 0;
+  let ccsTeamStripeTotal = 0;
   let stripeTaxesFees = 0;
 
   for (const s of compSignups) {
-    const pm = (s.payment_method || "").toLowerCase();
+    const pm = (s.payment_method || "").toLowerCase().trim();
     const amount = Number(s.amount_owed) || 0;
-    // Cash: count when checked in (same semantics as regular events: "Cash + checked in")
-    if (pm === "cash" && s.checked_in) {
-      cashTotal += amount;
-    }
-    if (pm === "stripe" && s.paid) {
-      stripeTotal += amount;
-      stripeTaxesFees += (s.stripe_tax_amount ?? 0) + (s.stripe_processing_fee ?? 0);
+    const isCcsTeam = s.is_ccs_team === true || pm === "ccs team";
+    if (isCcsTeam) {
+      if (pm === "cash" && s.checked_in) ccsTeamCashTotal += amount;
+      else if (pm === "stripe" && s.paid) ccsTeamStripeTotal += amount;
+    } else {
+      if (pm === "cash" && s.checked_in) cashTotal += amount;
+      else if (pm === "stripe" && s.paid) {
+        stripeTotal += amount;
+        stripeTaxesFees += (s.stripe_tax_amount ?? 0) + (s.stripe_processing_fee ?? 0);
+      } else if (s.checked_in) otherTotal += amount;
     }
   }
 
@@ -129,17 +178,25 @@ function computeStatsComp(
     checkedIn: compSignups.filter((s) => s.checked_in).length,
     cashTotal,
     stripeTotal,
+    otherTotal,
+    ccsTeamCashTotal,
+    ccsTeamStripeTotal,
+    ccsTeamTotal: ccsTeamCashTotal + ccsTeamStripeTotal,
     stripeTaxesFees,
   };
 }
 
 function aggregateStats(
-  eventStats: { totalSignups: number; checkedIn: number; cashTotal: number; stripeTotal: number; stripeTaxesFees: number }[]
+  eventStats: { totalSignups: number; checkedIn: number; cashTotal: number; stripeTotal: number; otherTotal: number; ccsTeamCashTotal: number; ccsTeamStripeTotal: number; ccsTeamTotal: number; stripeTaxesFees: number }[]
 ): {
   totalSignups: number;
   checkedIn: number;
   cashTotal: number;
   stripeTotal: number;
+  otherTotal: number;
+  ccsTeamCashTotal: number;
+  ccsTeamStripeTotal: number;
+  ccsTeamTotal: number;
   stripeTaxesFees: number;
 } {
   return eventStats.reduce(
@@ -148,9 +205,13 @@ function aggregateStats(
       checkedIn: acc.checkedIn + s.checkedIn,
       cashTotal: acc.cashTotal + s.cashTotal,
       stripeTotal: acc.stripeTotal + s.stripeTotal,
+      otherTotal: acc.otherTotal + (s.otherTotal ?? 0),
+      ccsTeamCashTotal: acc.ccsTeamCashTotal + (s.ccsTeamCashTotal ?? 0),
+      ccsTeamStripeTotal: acc.ccsTeamStripeTotal + (s.ccsTeamStripeTotal ?? 0),
+      ccsTeamTotal: acc.ccsTeamTotal + (s.ccsTeamTotal ?? 0),
       stripeTaxesFees: acc.stripeTaxesFees + s.stripeTaxesFees,
     }),
-    { totalSignups: 0, checkedIn: 0, cashTotal: 0, stripeTotal: 0, stripeTaxesFees: 0 }
+    { totalSignups: 0, checkedIn: 0, cashTotal: 0, stripeTotal: 0, otherTotal: 0, ccsTeamCashTotal: 0, ccsTeamStripeTotal: 0, ccsTeamTotal: 0, stripeTaxesFees: 0 }
   );
 }
 
@@ -169,6 +230,10 @@ export default function AdminFinancesPage() {
     checkedIn: number;
     cashTotal: number;
     stripeTotal: number;
+    otherTotal: number;
+    ccsTeamCashTotal: number;
+    ccsTeamStripeTotal: number;
+    ccsTeamTotal: number;
     stripeTaxesFees: number;
   } | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
@@ -182,6 +247,10 @@ export default function AdminFinancesPage() {
   const [nashvilleSaving, setNashvilleSaving] = useState(false);
   const [nashvilleCashInput, setNashvilleCashInput] = useState("");
   const [nashvilleStripeInput, setNashvilleStripeInput] = useState("");
+  const [workshopFinances, setWorkshopFinances] = useState<WorkshopFinances | null>(null);
+  const [loadingWorkshop, setLoadingWorkshop] = useState(false);
+  const [workshopError, setWorkshopError] = useState<string | null>(null);
+  const [workshopSaving, setWorkshopSaving] = useState(false);
 
   const filteredEvents = useMemo(() => {
     const t = dayjs().startOf("day");
@@ -262,7 +331,7 @@ export default function AdminFinancesPage() {
       setError(null);
       const { data, error: e } = await supabaseBrowser
         .from("events")
-        .select("id, title, date, location, price, type")
+        .select("id, title, date, location, price, ccs_team_price, type")
         .order("date", { ascending: false });
 
       if (e) {
@@ -401,7 +470,7 @@ export default function AdminFinancesPage() {
             if (json.isComp) {
               return computeStatsComp(json.compSignups || []);
             }
-            return computeStats(json.signups || [], ev.price);
+            return computeStats(json.signups || [], ev.price, ev.ccs_team_price ?? null);
           })
         );
 
@@ -420,6 +489,7 @@ export default function AdminFinancesPage() {
   }, [isAdmin, eventsView, selectedYear, eventsInSelectedYear]);
 
   const isNashvilleEvent = selectedEvent?.title === NASHVILLE_EVENT_TITLE;
+  const isWorkshopEvent = (selectedEvent?.type ?? "").toLowerCase() === "workshop";
 
   useEffect(() => {
     if (
@@ -470,6 +540,96 @@ export default function AdminFinancesPage() {
 
     load();
   }, [isAdmin, eventsView, selectedEvent?.id, isNashvilleEvent]);
+
+  useEffect(() => {
+    if (
+      !isAdmin ||
+      eventsView === "overview" ||
+      !selectedEvent ||
+      !isWorkshopEvent ||
+      isNashvilleEvent
+    ) {
+      setWorkshopFinances(null);
+      setWorkshopError(null);
+      return;
+    }
+
+    const load = async () => {
+      setLoadingWorkshop(true);
+      setWorkshopError(null);
+      try {
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        if (!session) {
+          setWorkshopError("Session expired. Please sign in again.");
+          setWorkshopFinances(null);
+          setLoadingWorkshop(false);
+          return;
+        }
+        const params = new URLSearchParams({ event_id: selectedEvent.id });
+        const res = await fetch(`/api/admin/workshop-finances?${params}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setWorkshopError(
+            (body as { error?: string })?.error || "Failed to load workshop finances"
+          );
+          setWorkshopFinances(null);
+        } else {
+          const { data } = await res.json();
+          setWorkshopFinances(data ?? null);
+        }
+      } catch (e) {
+        setWorkshopError(
+          e instanceof Error ? e.message : "Connection failed. Check your network and try again."
+        );
+        setWorkshopFinances(null);
+      } finally {
+        setLoadingWorkshop(false);
+      }
+    };
+
+    load();
+  }, [isAdmin, eventsView, selectedEvent?.id, isWorkshopEvent, isNashvilleEvent]);
+
+  const patchWorkshop = useCallback(
+    async (updates: {
+      studio_cost?: number;
+      total_override?: number | null;
+      guest_instructor_amount?: number | null;
+      ccs_amount?: number | null;
+    }) => {
+      if (!selectedEvent || !isWorkshopEvent) return;
+      setWorkshopSaving(true);
+      try {
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        if (!session) return;
+        const res = await fetch("/api/admin/workshop-finances", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            event_id: selectedEvent.id,
+            ...updates,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string })?.error || "Failed to save");
+        }
+        const { data } = await res.json();
+        setWorkshopFinances(data);
+      } catch (e) {
+        console.error("Workshop PATCH:", e);
+        setWorkshopError(e instanceof Error ? e.message : "Failed to save");
+      } finally {
+        setWorkshopSaving(false);
+      }
+    },
+    [selectedEvent?.id, isWorkshopEvent]
+  );
 
   const patchNashville = useCallback(
     async (updates: {
@@ -522,7 +682,7 @@ export default function AdminFinancesPage() {
     ? overviewStats
     : isCompEvent
       ? computeStatsComp(compSignups)
-      : computeStats(signups, selectedEvent?.price ?? null);
+      : computeStats(signups, selectedEvent?.price ?? null, selectedEvent?.ccs_team_price ?? null);
 
   const stripeTaxesFees = stats.stripeTaxesFees ?? 0;
 
@@ -793,16 +953,60 @@ export default function AdminFinancesPage() {
                             paid via Stripe
                           </p>
                         </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            CCS TEAM · Cash
+                          </p>
+                          <p className="mt-1 text-2xl font-bold text-yellow-400">
+                            ${(overviewStats.ccsTeamCashTotal ?? 0).toFixed(2)}
+                          </p>
+                          <p className="mt-0.5 text-sm text-neutral-400">
+                            team price, paid cash
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            CCS TEAM · Stripe
+                          </p>
+                          <p className="mt-1 text-2xl font-bold text-yellow-400">
+                            ${(overviewStats.ccsTeamStripeTotal ?? 0).toFixed(2)}
+                          </p>
+                          <p className="mt-0.5 text-sm text-neutral-400">
+                            team price, paid Stripe
+                          </p>
+                        </div>
+                        {(overviewStats.otherTotal ?? 0) > 0 && (
+                          <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                            <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                              Other
+                            </p>
+                            <p className="mt-1 text-2xl font-bold text-neutral-300">
+                              ${(overviewStats.otherTotal ?? 0).toFixed(2)}
+                            </p>
+                            <p className="mt-0.5 text-sm text-neutral-400">
+                              other payment, checked in
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg border border-yellow-500/30 bg-neutral-800/30 px-4 py-3">
+                        <span className="text-sm font-medium text-neutral-300">
+                          CCS TEAM total
+                        </span>
+                        <span className="text-lg font-bold text-yellow-400">
+                          ${(overviewStats.ccsTeamTotal ?? 0).toFixed(2)}
+                        </span>
                       </div>
 
                       <div className="mt-6 flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/30 px-4 py-3">
                             <span className="text-sm font-medium text-neutral-300">
-                              Total revenue (Cash + Stripe)
+                              Combined total (Cash + Stripe + Other + CCS TEAM)
                             </span>
                             <div className="flex flex-col gap-1">
                               <span className="text-lg font-bold text-primary">
                                 $
-                                {(overviewStats.cashTotal + overviewStats.stripeTotal).toFixed(2)}
+                                {(overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0)).toFixed(2)}
                               </span>
                               {overviewStats.stripeTaxesFees > 0 && (
                                 <span className="text-xs text-neutral-400">
@@ -950,18 +1154,60 @@ export default function AdminFinancesPage() {
                               paid via Stripe
                             </p>
                           </div>
+                          <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                            <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                              CCS TEAM · Cash
+                            </p>
+                            <p className="mt-1 text-2xl font-bold text-yellow-400">
+                              ${(stats.ccsTeamCashTotal ?? 0).toFixed(2)}
+                            </p>
+                            <p className="mt-0.5 text-sm text-neutral-400">
+                              team price, paid cash
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                            <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                              CCS TEAM · Stripe
+                            </p>
+                            <p className="mt-1 text-2xl font-bold text-yellow-400">
+                              ${(stats.ccsTeamStripeTotal ?? 0).toFixed(2)}
+                            </p>
+                            <p className="mt-0.5 text-sm text-neutral-400">
+                              team price, paid Stripe
+                            </p>
+                          </div>
+                          {(stats.otherTotal ?? 0) > 0 && (
+                            <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                              <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                Other
+                              </p>
+                              <p className="mt-1 text-2xl font-bold text-neutral-300">
+                                ${(stats.otherTotal ?? 0).toFixed(2)}
+                              </p>
+                              <p className="mt-0.5 text-sm text-neutral-400">
+                                other payment, checked in
+                              </p>
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
 
+                    <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg border border-yellow-500/30 bg-neutral-800/30 px-4 py-3">
+                      <span className="text-sm font-medium text-neutral-300">CCS TEAM total</span>
+                      <span className="text-lg font-bold text-yellow-400">
+                        ${(stats.ccsTeamTotal ?? 0).toFixed(2)}
+                      </span>
+                    </div>
+
                     <div className="mt-6 flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/30 px-4 py-3">
                       <span className="text-sm font-medium text-neutral-300">
-                        Total revenue (Cash + Stripe)
+                        Combined total (Cash + Stripe + Other + CCS TEAM)
                       </span>
                       <div className="flex flex-col gap-1">
                         <span className="text-lg font-bold text-primary">
                           $
-                          {(isNashvilleEvent ? effectiveCash + effectiveStripe : stats.cashTotal + stats.stripeTotal).toFixed(2)}
+                          {(isNashvilleEvent ? effectiveCash + effectiveStripe : stats.cashTotal + stats.stripeTotal + (stats.otherTotal ?? 0) + (stats.ccsTeamTotal ?? 0)).toFixed(2)}
                         </span>
                         {stripeTaxesFees > 0 && (
                           <span className="text-xs text-neutral-400">
@@ -987,6 +1233,17 @@ export default function AdminFinancesPage() {
                         onPatch={patchNashville}
                       />
                     )}
+
+                    {isWorkshopEvent && !isNashvilleEvent && (
+                      <WorkshopBreakdown
+                        computedTotalRevenue={stats.cashTotal + stats.stripeTotal + (stats.otherTotal ?? 0) + (stats.ccsTeamTotal ?? 0)}
+                        workshop={workshopFinances}
+                        loading={loadingWorkshop}
+                        error={workshopError}
+                        saving={workshopSaving}
+                        onPatch={patchWorkshop}
+                      />
+                    )}
                   </>
                 )}
               </>
@@ -994,6 +1251,213 @@ export default function AdminFinancesPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function WorkshopBreakdown({
+  computedTotalRevenue,
+  workshop,
+  loading,
+  error,
+  saving,
+  onPatch,
+}: {
+  computedTotalRevenue: number;
+  workshop: WorkshopFinances | null;
+  loading: boolean;
+  error: string | null;
+  saving: boolean;
+  onPatch: (u: {
+    studio_cost?: number;
+    total_override?: number | null;
+    guest_instructor_amount?: number | null;
+    ccs_amount?: number | null;
+  }) => Promise<void>;
+}) {
+  const effectiveTotalRevenue =
+    workshop?.total_override != null ? Number(workshop.total_override) : computedTotalRevenue;
+  const studioCost = workshop?.studio_cost != null ? Number(workshop.studio_cost) : 0;
+  const remaining = Math.max(0, effectiveTotalRevenue - studioCost);
+  const defaultGuest = Math.round(remaining * 0.9 * 100) / 100;
+  const defaultCcs = Math.round(remaining * 0.1 * 100) / 100;
+  const guestInstructorAmount =
+    workshop?.guest_instructor_amount != null
+      ? Number(workshop.guest_instructor_amount)
+      : defaultGuest;
+  const ccsAmount =
+    workshop?.ccs_amount != null ? Number(workshop.ccs_amount) : defaultCcs;
+
+  const [totalInput, setTotalInput] = useState(String(effectiveTotalRevenue));
+  const [studioCostInput, setStudioCostInput] = useState(String(studioCost));
+  const [guestInput, setGuestInput] = useState(String(guestInstructorAmount));
+  const [ccsInput, setCcsInput] = useState(String(ccsAmount));
+
+  useEffect(() => {
+    setTotalInput(String(effectiveTotalRevenue));
+  }, [effectiveTotalRevenue]);
+  useEffect(() => {
+    setStudioCostInput(String(studioCost));
+  }, [studioCost]);
+  useEffect(() => {
+    setGuestInput(String(guestInstructorAmount));
+  }, [guestInstructorAmount]);
+  useEffect(() => {
+    setCcsInput(String(ccsAmount));
+  }, [ccsAmount]);
+
+  const saveTotal = useCallback(() => {
+    const v = parseFloat(totalInput);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ total_override: v });
+  }, [totalInput, onPatch]);
+  const saveStudioCost = useCallback(() => {
+    const v = parseFloat(studioCostInput);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ studio_cost: v });
+  }, [studioCostInput, onPatch]);
+  const saveGuest = useCallback(() => {
+    const v = parseFloat(guestInput);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ guest_instructor_amount: v });
+  }, [guestInput, onPatch]);
+  const saveCcs = useCallback(() => {
+    const v = parseFloat(ccsInput);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ ccs_amount: v });
+  }, [ccsInput, onPatch]);
+
+  if (loading) {
+    return (
+      <div className="mt-8 rounded-xl border border-neutral-700 bg-neutral-800/30 px-4 py-8 text-center text-neutral-400">
+        Loading workshop breakdown…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mt-8 rounded-lg border border-primary/50 bg-primary/10 px-4 py-4 text-primary">
+        <p className="font-medium">{error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-8 rounded-xl border border-primary/40 bg-neutral-800/30 p-6 ring-1 ring-primary/20">
+      <h3 className="mb-4 text-base font-semibold text-primary">Workshop breakdown</h3>
+
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-neutral-300">Total revenue</label>
+          <div className="flex items-baseline gap-1">
+            <span className="text-neutral-500">$</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={totalInput}
+              onChange={(e) => setTotalInput(e.target.value)}
+              onBlur={saveTotal}
+              disabled={saving}
+              className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+            />
+          </div>
+          <span className="text-xs text-neutral-500">
+            {workshop?.total_override != null ? "Override" : "From signups"}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-neutral-300">Studio cost</label>
+          <div className="flex items-baseline gap-1">
+            <span className="text-neutral-500">$</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={studioCostInput}
+              onChange={(e) => setStudioCostInput(e.target.value)}
+              onBlur={saveStudioCost}
+              disabled={saving}
+              className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-neutral-300">Remaining</span>
+          <span className="text-lg font-bold text-white">${remaining.toFixed(2)}</span>
+          <span className="text-xs text-neutral-500">(Total revenue − Studio cost)</span>
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-4 rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-neutral-300">Guest Instructor (90%)</label>
+          <div className="flex items-baseline gap-1">
+            <span className="text-neutral-500">$</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={guestInput}
+              onChange={(e) => setGuestInput(e.target.value)}
+              onBlur={saveGuest}
+              disabled={saving}
+              className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 font-semibold text-yellow-400 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+            />
+          </div>
+          {workshop?.guest_instructor_amount == null && (
+            <span className="text-xs text-neutral-500">Auto (90%)</span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-neutral-300">CCS (10%)</label>
+          <div className="flex items-baseline gap-1">
+            <span className="text-neutral-500">$</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={ccsInput}
+              onChange={(e) => setCcsInput(e.target.value)}
+              onBlur={saveCcs}
+              disabled={saving}
+              className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 font-semibold text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+            />
+          </div>
+          {workshop?.ccs_amount == null && (
+            <span className="text-xs text-neutral-500">Auto (10%)</span>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-lg border border-neutral-700 bg-neutral-900/40 p-4">
+        <p className="mb-2 text-sm font-medium uppercase tracking-wider text-neutral-500">
+          Itemized
+        </p>
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>Total revenue</span>
+            <span className="font-semibold text-white">${effectiveTotalRevenue.toFixed(2)}</span>
+          </div>
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>Studio cost</span>
+            <span className="font-semibold text-white">−${studioCost.toFixed(2)}</span>
+          </div>
+          <div className="my-2 border-t border-neutral-800" />
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>Remaining</span>
+            <span className="font-semibold text-white">${remaining.toFixed(2)}</span>
+          </div>
+          <div className="my-2 border-t border-neutral-800" />
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>Guest Instructor</span>
+            <span className="font-semibold text-yellow-400">${guestInstructorAmount.toFixed(2)}</span>
+          </div>
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>CCS</span>
+            <span className="font-semibold text-primary">${ccsAmount.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

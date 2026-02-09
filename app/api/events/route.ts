@@ -53,6 +53,8 @@ export async function POST(req: NextRequest) {
     if (eventData.price !== undefined) insertData.price = eventData.price ?? null;
     if (eventData.strictly_price !== undefined) insertData.strictly_price = eventData.strictly_price ?? null;
     if (eventData.jnj_price !== undefined) insertData.jnj_price = eventData.jnj_price ?? null;
+    if (eventData.ccs_team_price !== undefined) insertData.ccs_team_price = eventData.ccs_team_price ?? null;
+    if (eventData.ccs_team_price !== undefined) insertData.ccs_team_price = eventData.ccs_team_price ?? null;
     if (eventData.start_time !== undefined) insertData.start_time = eventData.start_time || null;
     if (eventData.type !== undefined) insertData.type = eventData.type || null;
 

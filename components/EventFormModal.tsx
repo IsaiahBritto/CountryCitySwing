@@ -14,6 +14,7 @@ interface Event {
   price?: number | null;
   strictly_price?: number | null;
   jnj_price?: number | null;
+  ccs_team_price?: number | null;
   start_time?: string;
   type?: string;
 }
@@ -40,6 +41,7 @@ export default function EventFormModal({
     price: undefined,
     strictly_price: undefined,
     jnj_price: undefined,
+    ccs_team_price: undefined,
     start_time: "",
     type: "",
   });
@@ -67,6 +69,7 @@ export default function EventFormModal({
           price: event.price ?? undefined,
           strictly_price: event.strictly_price ?? undefined,
           jnj_price: event.jnj_price ?? undefined,
+          ccs_team_price: event.ccs_team_price ?? undefined,
           start_time: timeStr,
           type: event.type || "",
         });
@@ -81,6 +84,7 @@ export default function EventFormModal({
           price: undefined,
           strictly_price: undefined,
           jnj_price: undefined,
+          ccs_team_price: undefined,
           start_time: "",
           type: "",
         });
@@ -112,6 +116,7 @@ export default function EventFormModal({
       if (formData.price !== undefined) submitData.price = formData.price != null ? Number(formData.price) : null;
       if (formData.strictly_price !== undefined) submitData.strictly_price = formData.strictly_price != null ? Number(formData.strictly_price) : null;
       if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null ? Number(formData.jnj_price) : null;
+      if (formData.ccs_team_price !== undefined) submitData.ccs_team_price = formData.ccs_team_price != null ? Number(formData.ccs_team_price) : null;
       if (formData.start_time) {
         // Convert datetime-local to ISO string
         submitData.start_time = new Date(formData.start_time).toISOString();
@@ -309,26 +314,66 @@ export default function EventFormModal({
                     className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    CCS Team Price ($) — optional, shown to instructors
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.ccs_team_price ?? ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        ccs_team_price: e.target.value ? parseFloat(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="Leave blank to use regular price"
+                    className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
               </>
             ) : (
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Price ($)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={formData.price || ""}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      price: e.target.value ? parseFloat(e.target.value) : undefined,
-                    })
-                  }
-                  className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-              </div>
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Price ($)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.price || ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        price: e.target.value ? parseFloat(e.target.value) : undefined,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    CCS Team Price ($) — optional, shown to instructors
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.ccs_team_price ?? ""}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        ccs_team_price: e.target.value ? parseFloat(e.target.value) : undefined,
+                      })
+                    }
+                    placeholder="Leave blank to use regular price"
+                    className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </div>
+              </>
             )}
           </div>
 

@@ -18,17 +18,24 @@ export interface CarouselEvent {
   price?: number | null;
   strictly_price?: number | null;
   jnj_price?: number | null;
+  ccs_team_price?: number | null;
   start_time?: string;
   type?: string;
+}
+
+function eventDisplayPrice(event: CarouselEvent, isInstructor: boolean): number | null | undefined {
+  if (isInstructor && event.ccs_team_price != null) return event.ccs_team_price;
+  return event.price;
 }
 
 interface EventCarouselProps {
   events: CarouselEvent[];
   isAdmin?: boolean;
+  isInstructor?: boolean;
   onEditEvent?: (event: CarouselEvent) => void;
 }
 
-export default function EventCarousel({ events, isAdmin = false, onEditEvent }: EventCarouselProps) {
+export default function EventCarousel({ events, isAdmin = false, isInstructor = false, onEditEvent }: EventCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedEvent, setSelectedEvent] = useState<CarouselEvent | null>(null);
   const touchStartX = useRef<number | null>(null);
@@ -116,13 +123,13 @@ export default function EventCarousel({ events, isAdmin = false, onEditEvent }: 
                       {event.jnj_price != null && Number(event.jnj_price) >= 0 && (
                         <span className="text-yellow-400 font-semibold">JnJ: ${Number(event.jnj_price).toFixed(2)}</span>
                       )}
-                      {event.price != null && Number(event.price) >= 0 && (
-                        <span className="text-yellow-400 font-semibold">Price: ${Number(event.price).toFixed(2)}</span>
+                      {eventDisplayPrice(event, isInstructor) != null && Number(eventDisplayPrice(event, isInstructor)) >= 0 && (
+                        <span className="text-yellow-400 font-semibold">Price: ${Number(eventDisplayPrice(event, isInstructor)).toFixed(2)}</span>
                       )}
                     </div>
-                  ) : event.price != null && Number(event.price) >= 0 ? (
+                  ) : eventDisplayPrice(event, isInstructor) != null && Number(eventDisplayPrice(event, isInstructor)) >= 0 ? (
                     <p className="text-yellow-400 font-semibold mb-4">
-                      Price: ${Number(event.price).toFixed(2)}
+                      Price: ${Number(eventDisplayPrice(event, isInstructor)).toFixed(2)}
                     </p>
                   ) : null}
 
@@ -203,6 +210,7 @@ export default function EventCarousel({ events, isAdmin = false, onEditEvent }: 
           event={selectedEvent}
           open={!!selectedEvent}
           onClose={() => setSelectedEvent(null)}
+          isInstructor={isInstructor}
         />
       )}
       {selectedEvent && selectedEvent.type === "Comp" && (

@@ -125,10 +125,12 @@ export async function POST(req: NextRequest) {
     paymentMethod,
     acceptLiability,
     acceptPayment,
+    is_ccs_team: isCcsTeamFromBody,
     event: eventPayload,
     promotionCodeId: promotionCodeIdFromBody,
     discountedSubtotal: clientDiscountedSubtotalFromBody,
   } = data;
+  const isCcsTeam = isCcsTeamFromBody === true || isCcsTeamFromBody === "true";
 
   // Normalize event and price (client may send snake_case or price as string)
   const event = eventPayload ?? data.event ?? {};
@@ -334,6 +336,8 @@ export async function POST(req: NextRequest) {
     console.log("[event-signup] after discount block", { amountOwed, paid });
   }
 
+  if (amountOwed <= 0) paid = true;
+
   const { data: insertedSignup, error: insertError } = await supabaseServer
     .from("signups")
     .insert([
@@ -350,6 +354,7 @@ export async function POST(req: NextRequest) {
         accept_payment: acceptPayment,
         paid,
         amount_owed: roundCurrency(amountOwed),
+        is_ccs_team: isCcsTeam,
       },
     ])
     .select()

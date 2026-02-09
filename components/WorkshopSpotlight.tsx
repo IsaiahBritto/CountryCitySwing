@@ -9,13 +9,19 @@ import { CarouselEvent } from "./EventCarousel";
 
 dayjs.extend(isSameOrAfter);
 
+function eventDisplayPrice(event: CarouselEvent, isInstructor: boolean): number | null | undefined {
+  if (isInstructor && event.ccs_team_price != null) return event.ccs_team_price;
+  return event.price;
+}
+
 interface WorkshopSpotlightProps {
   events: CarouselEvent[];
   isAdmin?: boolean;
+  isInstructor?: boolean;
   onEditEvent?: (event: CarouselEvent) => void;
 }
 
-export default function WorkshopSpotlight({ events, isAdmin = false, onEditEvent }: WorkshopSpotlightProps) {
+export default function WorkshopSpotlight({ events, isAdmin = false, isInstructor = false, onEditEvent }: WorkshopSpotlightProps) {
   const today = dayjs().startOf("day");
   const [showSignup, setShowSignup] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CarouselEvent | null>(null);
@@ -64,9 +70,9 @@ export default function WorkshopSpotlight({ events, isAdmin = false, onEditEvent
         <p className="text-gray-400 italic mb-2">
           📍 {upcomingWorkshop.location}
         </p>
-        {upcomingWorkshop.price && (
+        {eventDisplayPrice(upcomingWorkshop, isInstructor) != null && (
           <p className="text-yellow-400 font-semibold mb-3">
-            Price: ${upcomingWorkshop.price.toFixed(2)}
+            Price: ${Number(eventDisplayPrice(upcomingWorkshop, isInstructor)).toFixed(2)}
           </p>
         )}
         <p className="text-neutral-200 mb-5">{upcomingWorkshop.description}</p>
@@ -100,6 +106,7 @@ export default function WorkshopSpotlight({ events, isAdmin = false, onEditEvent
         event={selectedEvent}
         open={showSignup}
         onClose={closeSignup}
+        isInstructor={isInstructor}
       />
     </>
   );

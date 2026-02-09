@@ -22,9 +22,10 @@ export default function EventsPage() {
   const [showEventForm, setShowEventForm] = useState(false);
   const [eventToEdit, setEventToEdit] = useState<any | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isInstructor, setIsInstructor] = useState(false);
 
   useEffect(() => {
-    const checkAdmin = async () => {
+    const checkRole = async () => {
       const { data: { user } } = await supabaseBrowser.auth.getUser();
       if (user) {
         const { data: profile } = await supabaseBrowser
@@ -32,10 +33,12 @@ export default function EventsPage() {
           .select("role")
           .eq("id", user.id)
           .single();
-        setIsAdmin(profile?.role === "admin");
+        const roleLower = (profile?.role ?? "").toLowerCase();
+        setIsAdmin(roleLower === "admin");
+        setIsInstructor(roleLower === "instructor");
       }
     };
-    checkAdmin();
+    checkRole();
   }, []);
 
   useEffect(() => {
@@ -143,16 +146,19 @@ export default function EventsPage() {
             <WorkshopSpotlight 
               events={upcomingEvents} 
               isAdmin={isAdmin}
+              isInstructor={isInstructor}
               onEditEvent={handleEditEvent}
             />
             <Calendar 
               events={events} 
               isAdmin={isAdmin}
+              isInstructor={isInstructor}
               onEditEvent={handleEditEvent}
             />
             <EventCarousel 
               events={upcomingEvents} 
               isAdmin={isAdmin}
+              isInstructor={isInstructor}
               onEditEvent={handleEditEvent}
             />
           </section>
@@ -229,6 +235,7 @@ export default function EventsPage() {
           event={selectedEvent}
           open={showSignup}
           onClose={() => setShowSignup(false)}
+          isInstructor={isInstructor}
         />
       )}
       {/* --- Comp Signup Modal (How's My Dancing) --- */}

@@ -127,7 +127,7 @@ export async function PATCH(req: NextRequest) {
     if (authErr) return authErr;
 
     const body = await req.json();
-    const { event_id: eventId, studio_cost: studioCost, judges: judgesInput } = body;
+    const { event_id: eventId, studio_cost: studioCost, judges: judgesInput, mark_judge_paid: markJudgePaidId } = body;
 
     if (!eventId) {
       return NextResponse.json(
@@ -137,6 +137,21 @@ export async function PATCH(req: NextRequest) {
     }
 
     const now = new Date().toISOString();
+
+    if (typeof markJudgePaidId === "string" && markJudgePaidId.trim()) {
+      const { error: updateErr } = await supabaseServer
+        .from("comp_judge_payouts")
+        .update({ paid: true, paid_at: now, updated_at: now })
+        .eq("id", markJudgePaidId.trim())
+        .eq("event_id", eventId);
+      if (updateErr) {
+        console.error("comp-finances PATCH mark_judge_paid:", updateErr);
+        return NextResponse.json(
+          { error: "Failed to mark judge as paid" },
+          { status: 500 }
+        );
+      }
+    }
 
     if (typeof studioCost === "number" && studioCost >= 0) {
       const { data: existing } = await supabaseServer
@@ -217,7 +232,7 @@ export async function PATCH(req: NextRequest) {
         .maybeSingle(),
       supabaseServer
         .from("comp_judge_payouts")
-        .select("id, judge_name, amount_paid")
+        .select("id, judge_name, amount_paid, paid, paid_at")
         .eq("event_id", eventId)
         .order("created_at", { ascending: true }),
     ]);
@@ -229,6 +244,8 @@ export async function PATCH(req: NextRequest) {
       id: j.id,
       judge_name: j.judge_name ?? "",
       amount_paid: Number(j.amount_paid) || 0,
+      paid: !!j.paid,
+      paid_at: j.paid_at ?? null,
     }));
 
     return NextResponse.json({

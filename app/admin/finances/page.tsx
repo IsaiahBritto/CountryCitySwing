@@ -43,6 +43,8 @@ interface CompJudgePayout {
   id: string;
   judge_name: string;
   amount_paid: number;
+  paid?: boolean;
+  paid_at?: string | null;
 }
 
 /** Payload for PATCH judges: id is optional (new judges have no id until saved). */
@@ -665,7 +667,7 @@ export default function AdminFinancesPage() {
   }, [isAdmin, eventsView, selectedEvent?.id, isCompEvent]);
 
   const patchCompFinances = useCallback(
-    async (updates: { studio_cost?: number; judges?: CompJudgePayoutInput[] }) => {
+    async (updates: { studio_cost?: number; judges?: CompJudgePayoutInput[]; mark_judge_paid?: string }) => {
       if (!selectedEvent || !isCompEvent) return;
       setCompFinancesSaving(true);
       try {
@@ -1592,7 +1594,7 @@ function CompBreakdown({
   loading: boolean;
   error: string | null;
   saving: boolean;
-  onPatch: (u: { studio_cost?: number; judges?: CompJudgePayoutInput[] }) => Promise<void>;
+  onPatch: (u: { studio_cost?: number; judges?: CompJudgePayoutInput[]; mark_judge_paid?: string }) => Promise<void>;
 }) {
   const studioCost = compFinances?.studio_cost != null ? Number(compFinances.studio_cost) : 0;
   const judges = compFinances?.judges ?? [];
@@ -1601,7 +1603,7 @@ function CompBreakdown({
   const profitAfterJudges = Math.round((profit - judgesTotal) * 100) / 100;
 
   const [studioCostInput, setStudioCostInput] = useState(String(studioCost));
-  const [judgeRows, setJudgeRows] = useState<{ id: string; judge_name: string; amount_paid: number }[]>([]);
+  const [judgeRows, setJudgeRows] = useState<{ id: string; judge_name: string; amount_paid: number; paid: boolean; paid_at: string | null }[]>([]);
   const prevJudgesKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1609,7 +1611,7 @@ function CompBreakdown({
   }, [studioCost]);
 
   useEffect(() => {
-    const key = JSON.stringify(judges.map((j) => [j.id, j.judge_name, Number(j.amount_paid) || 0]));
+    const key = JSON.stringify(judges.map((j) => [j.id, j.judge_name, Number(j.amount_paid) || 0, !!j.paid, j.paid_at ?? null]));
     if (prevJudgesKeyRef.current === key) return;
     prevJudgesKeyRef.current = key;
     setJudgeRows(
@@ -1617,6 +1619,8 @@ function CompBreakdown({
         id: j.id,
         judge_name: j.judge_name ?? "",
         amount_paid: Number(j.amount_paid) || 0,
+        paid: !!j.paid,
+        paid_at: j.paid_at ?? null,
       }))
     );
   }, [judges]);
@@ -1627,7 +1631,7 @@ function CompBreakdown({
   }, [studioCostInput, onPatch]);
 
   const saveJudges = useCallback(
-    (rows: { id: string; judge_name: string; amount_paid: number }[]) => {
+    (rows: { id: string; judge_name: string; amount_paid: number; paid: boolean; paid_at: string | null }[]) => {
       onPatch({
         judges: rows.map((r) => ({
           judge_name: r.judge_name.trim(),
@@ -1638,10 +1642,18 @@ function CompBreakdown({
     [onPatch]
   );
 
+  const markJudgePaid = useCallback(
+    (judgeId: string) => {
+      if (!judgeId || judgeId.startsWith("new-")) return;
+      onPatch({ mark_judge_paid: judgeId });
+    },
+    [onPatch]
+  );
+
   const addJudge = useCallback(() => {
     const newRows = [
       ...judgeRows,
-      { id: `new-${Date.now()}`, judge_name: "", amount_paid: 0 },
+      { id: `new-${Date.now()}`, judge_name: "", amount_paid: 0, paid: false, paid_at: null },
     ];
     setJudgeRows(newRows);
     saveJudges(newRows);
@@ -1777,6 +1789,29 @@ function CompBreakdown({
                 >
                   Remove
                 </button>
+                {!row.id.startsWith("new-") && (
+                  <div className="shrink-0">
+                    {row.paid ? (
+                      <div className="rounded-lg border border-primary/50 bg-primary/10 px-3 py-2 text-center">
+                        <p className="text-xs font-medium text-primary">Paid</p>
+                        {row.paid_at && (
+                          <p className="text-xs text-neutral-400">
+                            {dayjs(row.paid_at).format("MMM D, YYYY")}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => markJudgePaid(row.id)}
+                        disabled={saving}
+                        className="rounded-lg bg-[#F2C94C] px-4 py-2 font-semibold text-black shadow-[0_0_10px_rgba(242,201,76,0.35)] transition hover:opacity-90 disabled:opacity-60"
+                      >
+                        Mark as paid
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

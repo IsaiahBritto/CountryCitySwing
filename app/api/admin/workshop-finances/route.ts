@@ -132,6 +132,20 @@ export async function PATCH(req: NextRequest) {
     if ("guest_instructor_amount" in body) updates.guest_instructor_amount = typeof guestInstructorAmount === "number" ? guestInstructorAmount : null;
     if ("ccs_amount" in body) updates.ccs_amount = typeof ccsAmount === "number" ? ccsAmount : null;
 
+    // If guest_instructor_amount or ccs_amount are still unset, compute 90/10 from (total - studio) when we have both values
+    const effectiveTotal = (updates.total_override as number | null | undefined) ?? existing?.total_override ?? null;
+    const effectiveStudio = (typeof updates.studio_cost === "number" ? updates.studio_cost : null) ?? (existing?.studio_cost != null ? Number(existing.studio_cost) : null);
+    if (
+      effectiveTotal != null && typeof effectiveTotal === "number" &&
+      effectiveStudio != null && typeof effectiveStudio === "number"
+    ) {
+      const remaining = Math.max(0, effectiveTotal - effectiveStudio);
+      const defaultGuest = Math.round(remaining * 0.9 * 100) / 100;
+      const defaultCcs = Math.round(remaining * 0.1 * 100) / 100;
+      if (updates.guest_instructor_amount == null) updates.guest_instructor_amount = defaultGuest;
+      if (updates.ccs_amount == null) updates.ccs_amount = defaultCcs;
+    }
+
     let result;
 
     if (existing) {

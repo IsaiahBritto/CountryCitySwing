@@ -258,6 +258,14 @@ export default function AdminFinancesPage() {
   } | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [overviewFinances, setOverviewFinances] = useState<{
+    totalStudioRentals: number;
+    totalPaidMalissa: number;
+    totalPaidBt1: number;
+    totalPaidBt2: number;
+    totalPaidJudges: number;
+    workshopCcsIncome: number;
+  } | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signupsError, setSignupsError] = useState<string | null>(null);
@@ -464,6 +472,7 @@ export default function AdminFinancesPage() {
   useEffect(() => {
     if (!isAdmin || eventsView !== "overview" || selectedYear == null || !eventsInSelectedYear.length) {
       setOverviewStats(null);
+      setOverviewFinances(null);
       setOverviewError(null);
       return;
     }
@@ -476,9 +485,12 @@ export default function AdminFinancesPage() {
         if (!session) {
           setOverviewError("Session expired. Please sign in again.");
           setOverviewStats(null);
+          setOverviewFinances(null);
           setLoadingOverview(false);
           return;
         }
+
+        const isNashville = (ev: Event) => ev.title === NASHVILLE_EVENT_TITLE;
 
         const results = await Promise.all(
           eventsInSelectedYear.map(async (ev) => {
@@ -491,19 +503,105 @@ export default function AdminFinancesPage() {
               throw new Error((body as { error?: string })?.error || "Failed to load signups");
             }
             const json = await res.json();
-            if (json.isComp) {
-              return computeStatsComp(json.compSignups || []);
+            const isComp = !!json.isComp;
+            const stats = isComp
+              ? computeStatsComp(json.compSignups || [])
+              : computeStats(json.signups || [], ev.price, ev.ccs_team_price ?? null);
+
+            let nashvilleFinances: NashvilleFinances | null = null;
+            let workshopFinances: WorkshopFinances | null = null;
+            let compFinances: CompFinances | null = null;
+
+            if (isNashville(ev)) {
+              const nr = await fetch(`/api/admin/nashville-night-finances?event_id=${ev.id}`, {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              if (nr.ok) {
+                const { data } = await nr.json();
+                nashvilleFinances = data ?? null;
+              }
             }
-            return computeStats(json.signups || [], ev.price, ev.ccs_team_price ?? null);
+            // Fetch workshop finances for every non-Nashville event so we include any event
+            // that has a workshop_finances row (e.g. "Workshop by Juan Aguirre") even if
+            // event.type is not set to "workshop".
+            if (!isNashville(ev)) {
+              const wr = await fetch(`/api/admin/workshop-finances?event_id=${ev.id}`, {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              if (wr.ok) {
+                const { data } = await wr.json();
+                workshopFinances = data ?? null;
+              }
+            }
+            if (isComp) {
+              const cr = await fetch(`/api/admin/comp-finances?event_id=${ev.id}`, {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              if (cr.ok) {
+                const { data } = await cr.json();
+                compFinances = data ?? null;
+              }
+            }
+
+            return { stats, nashvilleFinances, workshopFinances, compFinances };
           })
         );
 
-        setOverviewStats(aggregateStats(results));
+        setOverviewStats(aggregateStats(results.map((r) => r.stats)));
+
+        let totalStudioRentals = 0;
+        let totalPaidMalissa = 0;
+        let totalPaidBt1 = 0;
+        let totalPaidBt2 = 0;
+        let totalPaidJudges = 0;
+        let workshopCcsIncome = 0;
+
+        for (let i = 0; i < results.length; i++) {
+          const r = results[i];
+          const ev = eventsInSelectedYear[i];
+          if (r.nashvilleFinances) {
+            const venueCost = Number(r.nashvilleFinances.venue_cost) || 0;
+            totalStudioRentals += venueCost;
+            const cash = r.stats.cashTotal;
+            const stripe = r.stats.stripeTotal;
+            const payouts = computeNashvillePayouts({
+              cashTotal: cash,
+              stripeTotal: stripe,
+              venueCost,
+              bt1Override: r.nashvilleFinances.bt1_payout_override ?? null,
+              bt2Override: r.nashvilleFinances.bt2_payout_override ?? null,
+              malissaOverride: r.nashvilleFinances.malissa_payout_override ?? null,
+            });
+            totalPaidMalissa += payouts.malissaPayout;
+            totalPaidBt1 += payouts.bt1Payout;
+            totalPaidBt2 += payouts.bt2Payout;
+          }
+          if (r.workshopFinances) {
+            totalStudioRentals += Number(r.workshopFinances.studio_cost) || 0;
+            workshopCcsIncome += Number(r.workshopFinances.ccs_amount) || 0;
+          }
+          if (r.compFinances) {
+            totalStudioRentals += Number(r.compFinances.studio_cost) || 0;
+            for (const j of r.compFinances.judges ?? []) {
+              totalPaidJudges += Number(j.amount_paid) || 0;
+            }
+          }
+        }
+
+        setOverviewFinances({
+          totalStudioRentals: Math.round(totalStudioRentals * 100) / 100,
+          totalPaidMalissa: Math.round(totalPaidMalissa * 100) / 100,
+          totalPaidBt1: Math.round(totalPaidBt1 * 100) / 100,
+          totalPaidBt2: Math.round(totalPaidBt2 * 100) / 100,
+          totalPaidJudges: Math.round(totalPaidJudges * 100) / 100,
+          workshopCcsIncome: Math.round(workshopCcsIncome * 100) / 100,
+        });
       } catch (e) {
         setOverviewError(
           e instanceof Error ? e.message : "Connection failed. Check your network and try again."
         );
         setOverviewStats(null);
+        setOverviewFinances(null);
       } finally {
         setLoadingOverview(false);
       }
@@ -1109,12 +1207,15 @@ export default function AdminFinancesPage() {
 
                       <div className="mt-6 flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/30 px-4 py-3">
                             <span className="text-sm font-medium text-neutral-300">
-                              Combined total (Cash + Stripe + Other + CCS TEAM)
+                              Gross income (Cash + Stripe + Other + CCS TEAM)
                             </span>
                             <div className="flex flex-col gap-1">
                               <span className="text-lg font-bold text-primary">
                                 $
                                 {(overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0)).toFixed(2)}
+                              </span>
+                              <span className="text-xs text-neutral-500">
+                                Cash and Stripe totals above add up to this gross event revenue.
                               </span>
                               {overviewStats.stripeTaxesFees > 0 && (
                                 <span className="text-xs text-neutral-400">
@@ -1127,6 +1228,155 @@ export default function AdminFinancesPage() {
                               )}
                             </div>
                       </div>
+
+                      {overviewFinances && (
+                        <>
+                          <h3 className="mt-8 mb-3 text-base font-semibold text-white">
+                            Payouts &amp; expenses ({selectedYear})
+                          </h3>
+                          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                              <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                Total paid · Malissa
+                              </p>
+                              <p className="mt-1 text-xl font-bold text-primary">
+                                ${overviewFinances.totalPaidMalissa.toFixed(2)}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                              <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                Total paid · Beginner Teacher 1
+                              </p>
+                              <p className="mt-1 text-xl font-bold text-primary">
+                                ${overviewFinances.totalPaidBt1.toFixed(2)}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                              <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                Total paid · Beginner Teacher 2
+                              </p>
+                              <p className="mt-1 text-xl font-bold text-primary">
+                                ${overviewFinances.totalPaidBt2.toFixed(2)}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                              <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                Total paid · Judges
+                              </p>
+                              <p className="mt-1 text-xl font-bold text-accent">
+                                ${overviewFinances.totalPaidJudges.toFixed(2)}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4 sm:col-span-2 lg:col-span-1">
+                              <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                Total studio rentals
+                              </p>
+                              <p className="mt-1 text-xl font-bold text-neutral-300">
+                                ${overviewFinances.totalStudioRentals.toFixed(2)}
+                              </p>
+                              <p className="mt-0.5 text-xs text-neutral-500">
+                                Across all event types (Nashville venue + workshops + comps)
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-8 rounded-xl border border-primary/30 bg-neutral-800/50 p-6 ring-1 ring-primary/20">
+                            <h3 className="mb-4 text-base font-semibold text-primary">
+                              {selectedYear} year summary
+                            </h3>
+                            <div className="space-y-4 text-sm">
+                              <div>
+                                <p className="mb-2 font-medium uppercase tracking-wider text-neutral-500">
+                                  Money in
+                                </p>
+                                <div className="space-y-1.5 rounded-lg border border-neutral-700 bg-neutral-900/40 p-4">
+                                  <div className="flex items-center justify-between text-neutral-300">
+                                    <span>Event revenue (Cash + Stripe + Other + CCS TEAM)</span>
+                                    <span className="font-semibold text-white">
+                                      ${(overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0)).toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-neutral-300">
+                                    <span>Of which CCS from workshops (10%)</span>
+                                    <span className="font-semibold text-primary">
+                                      ${overviewFinances.workshopCcsIncome.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="my-2 border-t border-neutral-700" />
+                                  <div className="flex items-center justify-between font-medium text-white">
+                                    <span>Total money in</span>
+                                    <span>
+                                      ${(overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0)).toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <p className="mt-1.5 text-xs text-neutral-500">
+                                  CCS 10% from workshops is calculated from workshop revenue and included in the total above.
+                                </p>
+                              </div>
+                              <div>
+                                <p className="mb-2 font-medium uppercase tracking-wider text-neutral-500">
+                                  Money out
+                                </p>
+                                <div className="space-y-1.5 rounded-lg border border-neutral-700 bg-neutral-900/40 p-4">
+                                  <div className="flex items-center justify-between text-neutral-300">
+                                    <span>Studio rentals (all event types)</span>
+                                    <span className="font-semibold text-white">
+                                      −${overviewFinances.totalStudioRentals.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-neutral-300">
+                                    <span>Malissa</span>
+                                    <span className="font-semibold text-white">
+                                      −${overviewFinances.totalPaidMalissa.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-neutral-300">
+                                    <span>Beginner Teacher 1</span>
+                                    <span className="font-semibold text-white">
+                                      −${overviewFinances.totalPaidBt1.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-neutral-300">
+                                    <span>Beginner Teacher 2</span>
+                                    <span className="font-semibold text-white">
+                                      −${overviewFinances.totalPaidBt2.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-neutral-300">
+                                    <span>Judges</span>
+                                    <span className="font-semibold text-white">
+                                      −${overviewFinances.totalPaidJudges.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="my-2 border-t border-neutral-700" />
+                                  <div className="flex items-center justify-between font-medium text-white">
+                                    <span>Total money out</span>
+                                    <span>
+                                      −${(overviewFinances.totalStudioRentals + overviewFinances.totalPaidMalissa + overviewFinances.totalPaidBt1 + overviewFinances.totalPaidBt2 + overviewFinances.totalPaidJudges).toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="rounded-lg border-2 border-primary/50 bg-primary/10 px-4 py-4">
+                                <div className="flex items-center justify-between">
+                                  <span className="font-semibold text-primary">Total income for the year</span>
+                                  <span className="text-xl font-bold text-primary">
+                                    $
+                                    {(
+                                      (overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0))
+                                      - (overviewFinances.totalStudioRentals + overviewFinances.totalPaidMalissa + overviewFinances.totalPaidBt1 + overviewFinances.totalPaidBt2 + overviewFinances.totalPaidJudges)
+                                    ).toFixed(2)}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-xs text-neutral-500">
+                                  Money in − Money out
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </>
                   ) : null}
                 </>

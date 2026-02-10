@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ArrowLeftIcon, XMarkIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, XMarkIcon, TruckIcon } from "@heroicons/react/24/outline";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 interface Product {
@@ -46,6 +46,7 @@ interface AdminDashboardProps {
 export default function AdminDashboard({ onBack, products }: AdminDashboardProps) {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [allOrders, setAllOrders] = useState<Order[]>([]); // All orders for CCS x 8CC summary
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [editingInventory, setEditingInventory] = useState<{
@@ -108,6 +109,7 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
         if (profile?.role !== "admin") {
           console.warn("User is not an admin. Cannot view all orders.");
           setOrders([]);
+          setAllOrders([]);
         } else {
           const { data: ordersData, error: ordersError } = await supabaseBrowser
             .from("merch_orders")
@@ -127,6 +129,7 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
             setOrders([]);
           } else if (ordersData !== null && ordersData !== undefined) {
             console.log("Loaded orders:", ordersData.length, ordersData);
+            setAllOrders(ordersData);
             // Filter based on showCompleted
             const filtered = showCompleted
               ? ordersData.filter((o) => o.status === "completed")
@@ -136,6 +139,7 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
           } else {
             console.log("No orders data returned (null/undefined)");
             setOrders([]);
+            setAllOrders([]);
           }
         }
       }
@@ -282,6 +286,65 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
     return inventory.filter((item) => item.product_id === productId);
   };
 
+  // CCS x 8CC preorder product names (match exactly as stored in order items)
+  const CCS_8CC_SHIRT = "Black CCS x 8CC Shirt (Preorder)";
+  const CCS_8CC_CROP = "Black CCS x 8CC Crop (Preorder)";
+
+  const isCCS8CCOrder = (order: Order) =>
+    order.items?.some(
+      (item: any) =>
+        item.productName === CCS_8CC_SHIRT || item.productName === CCS_8CC_CROP
+    );
+
+  const countBySize = (productName: string) => {
+    const bySize: Record<string, number> = {};
+    allOrders.forEach((order) => {
+      order.items?.forEach((item: any) => {
+        if (item.productName === productName) {
+          const size = item.size || "—";
+          bySize[size] = (bySize[size] || 0) + (item.quantity || 0);
+        }
+      });
+    });
+    return bySize;
+  };
+
+  const incomeCCS8CCByMethod = () => {
+    let cash = 0;
+    let stripe = 0;
+    allOrders.forEach((order) => {
+      if (!order.paid || !order.items?.length) return;
+      let orderMerchTotal = 0;
+      order.items.forEach((item: any) => {
+        if (
+          item.productName === CCS_8CC_SHIRT ||
+          item.productName === CCS_8CC_CROP
+        ) {
+          orderMerchTotal += (item.price ?? 0) * (item.quantity ?? 0);
+        }
+      });
+      if (orderMerchTotal === 0) return;
+      const method = (order.payment_method || "").toLowerCase();
+      if (method === "cash") {
+        cash += orderMerchTotal;
+      } else if (method === "stripe") {
+        stripe += orderMerchTotal;
+      }
+    });
+    return { cash, stripe, total: cash + stripe };
+  };
+
+  const ccs8ccIncome = incomeCCS8CCByMethod();
+
+  const shirtBySize = countBySize(CCS_8CC_SHIRT);
+  const cropBySize = countBySize(CCS_8CC_CROP);
+  const totalShirtQty = Object.values(shirtBySize).reduce((a, b) => a + b, 0);
+  const totalCropQty = Object.values(cropBySize).reduce((a, b) => a + b, 0);
+  const totalCCS8CCQty = totalShirtQty + totalCropQty;
+  const hasCCS8CCOrders =
+    allOrders.some(isCCS8CCOrder) &&
+    (Object.keys(shirtBySize).length > 0 || Object.keys(cropBySize).length > 0);
+
   if (loading) {
     return (
       <div className="text-center py-12">
@@ -375,6 +438,67 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
           </label>
         </div>
 
+        {/* CCS x 8CC Preorder summary */}
+        {hasCCS8CCOrders && (
+          <div className="mb-6 p-4 bg-neutral-700/80 rounded-lg border border-neutral-600">
+            <h4 className="text-lg font-semibold text-primary mb-3">
+              CCS x 8CC Preorder Summary
+            </h4>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <p className="text-sm font-medium text-gray-300 mb-1">
+                  {CCS_8CC_SHIRT}
+                </p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-white">
+                  {Object.entries(shirtBySize)
+                    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+                    .map(([size, qty]) => (
+                      <span key={size}>
+                        {size}: <strong>{qty}</strong>
+                      </span>
+                    ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Total: <strong>{totalShirtQty}</strong></p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-300 mb-1">
+                  {CCS_8CC_CROP}
+                </p>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-white">
+                  {Object.entries(cropBySize)
+                    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+                    .map(([size, qty]) => (
+                      <span key={size}>
+                        {size}: <strong>{qty}</strong>
+                      </span>
+                    ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Total: <strong>{totalCropQty}</strong></p>
+              </div>
+              <div className="sm:col-span-2 lg:col-span-1 flex flex-col justify-end gap-2">
+                <p className="text-sm font-medium text-gray-300">
+                  Total quantity ordered:{" "}
+                  <span className="text-white font-bold">{totalCCS8CCQty}</span>
+                </p>
+                <p className="text-sm font-medium text-gray-300">
+                  Total Income from CCS x 8CC:{" "}
+                  <span className="text-primary font-bold">
+                    ${ccs8ccIncome.total.toFixed(2)}
+                  </span>
+                </p>
+                <p className="text-xs text-gray-400">
+                  Cash: <span className="text-white font-semibold">${ccs8ccIncome.cash.toFixed(2)}</span>
+                  {" · "}
+                  Stripe: <span className="text-white font-semibold">${ccs8ccIncome.stripe.toFixed(2)}</span>
+                </p>
+                <span className="text-xs text-gray-500">
+                  Merch only (no shipping, no Stripe fees), paid orders
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {orders.length === 0 ? (
           <p className="text-gray-400 text-center py-8">
             No {showCompleted ? "completed" : "pending"} orders.
@@ -416,7 +540,36 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
                       <p className="text-sm text-gray-400 mt-1">
                         {new Date(order.created_at).toLocaleDateString()}
                       </p>
+                      {order.items?.length > 0 && (
+                        <p className="text-sm text-gray-300 mt-2">
+                          {order.items.map((item: any, i: number) => {
+                            const is8CC =
+                              item.productName === CCS_8CC_SHIRT ||
+                              item.productName === CCS_8CC_CROP;
+                            return (
+                              <span key={i}>
+                                {i > 0 && ", "}
+                                <span
+                                  className={
+                                    is8CC ? "text-yellow-400 font-medium" : ""
+                                  }
+                                >
+                                  {item.productName} ({item.size}) × {item.quantity}
+                                </span>
+                              </span>
+                            );
+                          })}
+                        </p>
+                      )}
                     </div>
+                    {order.delivery_method === "ship" && (
+                      <span
+                        className="shrink-0 p-1.5 rounded bg-amber-500/20 text-amber-400"
+                        title="Shipping required"
+                      >
+                        <TruckIcon className="w-5 h-5" />
+                      </span>
+                    )}
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-primary">
@@ -557,12 +710,20 @@ function OrderDetailModal({
             <div>
               <p className="text-sm text-gray-400">Items</p>
               <div className="mt-2 space-y-1">
-                {order.items.map((item: any, index: number) => (
-                  <p key={index} className="text-white">
-                    {item.productName} ({item.size}) × {item.quantity} - $
-                    {(item.price * item.quantity).toFixed(2)}
-                  </p>
-                ))}
+                {order.items.map((item: any, index: number) => {
+                  const is8CC =
+                    item.productName === "Black CCS x 8CC Shirt (Preorder)" ||
+                    item.productName === "Black CCS x 8CC Crop (Preorder)";
+                  return (
+                    <p
+                      key={index}
+                      className={is8CC ? "text-yellow-400 font-medium" : "text-white"}
+                    >
+                      {item.productName} ({item.size}) × {item.quantity} - $
+                      {(item.price * item.quantity).toFixed(2)}
+                    </p>
+                  );
+                })}
               </div>
             </div>
 

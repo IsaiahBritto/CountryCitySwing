@@ -1,0 +1,242 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { supabaseServer } from "@/lib/supabaseServer";
+
+async function getAdminFromToken(accessToken: string) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const client = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+  const { data: { user }, error } = await client.auth.getUser(accessToken);
+  return { user, error };
+}
+
+function requireAdmin(req: NextRequest) {
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json(
+      { error: "Unauthorized: Missing or invalid authorization header" },
+      { status: 401 }
+    );
+  }
+  return authHeader.replace("Bearer ", "");
+}
+
+async function checkAdmin(accessToken: string) {
+  const { user, error } = await getAdminFromToken(accessToken);
+  if (error || !user) {
+    return NextResponse.json(
+      { error: "Unauthorized: Invalid token" },
+      { status: 401 }
+    );
+  }
+  const { data: profile, error: profileError } = await supabaseServer
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (profileError || !profile) {
+    return NextResponse.json(
+      { error: "User profile not found" },
+      { status: 403 }
+    );
+  }
+  const roleLower = (profile.role || "").toLowerCase();
+  if (roleLower !== "admin") {
+    return NextResponse.json(
+      { error: "Forbidden: Admin access required" },
+      { status: 403 }
+    );
+  }
+  return null;
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const token = requireAdmin(req);
+    if (token instanceof NextResponse) return token;
+    const authErr = await checkAdmin(token);
+    if (authErr) return authErr;
+
+    const { searchParams } = new URL(req.url);
+    const eventId = searchParams.get("event_id");
+    if (!eventId) {
+      return NextResponse.json(
+        { error: "Missing event_id parameter" },
+        { status: 400 }
+      );
+    }
+
+    const [financesRes, judgesRes] = await Promise.all([
+      supabaseServer
+        .from("comp_finances")
+        .select("*")
+        .eq("event_id", eventId)
+        .maybeSingle(),
+      supabaseServer
+        .from("comp_judge_payouts")
+        .select("id, judge_name, amount_paid")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: true }),
+    ]);
+
+    if (financesRes.error) {
+      console.error("comp-finances GET finances:", financesRes.error);
+      return NextResponse.json(
+        { error: "Failed to fetch comp finances" },
+        { status: 500 }
+      );
+    }
+    if (judgesRes.error) {
+      console.error("comp-finances GET judges:", judgesRes.error);
+      return NextResponse.json(
+        { error: "Failed to fetch judge payouts" },
+        { status: 500 }
+      );
+    }
+
+    const studio_cost = financesRes.data
+      ? Number(financesRes.data.studio_cost)
+      : 0;
+    const judges = (judgesRes.data || []).map((j) => ({
+      id: j.id,
+      judge_name: j.judge_name ?? "",
+      amount_paid: Number(j.amount_paid) || 0,
+    }));
+
+    return NextResponse.json({
+      data: { studio_cost, judges },
+    });
+  } catch (e) {
+    console.error("comp-finances GET:", e);
+    return NextResponse.json(
+      { error: (e as Error).message || "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const token = requireAdmin(req);
+    if (token instanceof NextResponse) return token;
+    const authErr = await checkAdmin(token);
+    if (authErr) return authErr;
+
+    const body = await req.json();
+    const { event_id: eventId, studio_cost: studioCost, judges: judgesInput } = body;
+
+    if (!eventId) {
+      return NextResponse.json(
+        { error: "Missing event_id" },
+        { status: 400 }
+      );
+    }
+
+    const now = new Date().toISOString();
+
+    if (typeof studioCost === "number" && studioCost >= 0) {
+      const { data: existing } = await supabaseServer
+        .from("comp_finances")
+        .select("id")
+        .eq("event_id", eventId)
+        .maybeSingle();
+
+      if (existing) {
+        const { error } = await supabaseServer
+          .from("comp_finances")
+          .update({ studio_cost: studioCost, updated_at: now })
+          .eq("event_id", eventId);
+        if (error) {
+          console.error("comp-finances PATCH update:", error);
+          return NextResponse.json(
+            { error: "Failed to update comp finances" },
+            { status: 500 }
+          );
+        }
+      } else {
+        const { error } = await supabaseServer
+          .from("comp_finances")
+          .insert({
+            event_id: eventId,
+            studio_cost: studioCost,
+            updated_at: now,
+          });
+        if (error) {
+          console.error("comp-finances PATCH insert:", error);
+          return NextResponse.json(
+            { error: "Failed to create comp finances" },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    if (Array.isArray(judgesInput)) {
+      const { error: deleteErr } = await supabaseServer
+        .from("comp_judge_payouts")
+        .delete()
+        .eq("event_id", eventId);
+      if (deleteErr) {
+        console.error("comp-finances PATCH delete judges:", deleteErr);
+        return NextResponse.json(
+          { error: "Failed to update judge payouts" },
+          { status: 500 }
+        );
+      }
+      if (judgesInput.length > 0) {
+        const rows = judgesInput.map(
+          (j: { judge_name?: string; amount_paid?: number }) => ({
+            event_id: eventId,
+            judge_name: typeof j.judge_name === "string" ? j.judge_name.trim() : "",
+            amount_paid: typeof j.amount_paid === "number" && j.amount_paid >= 0 ? j.amount_paid : 0,
+            updated_at: now,
+          })
+        );
+        const { error: insertErr } = await supabaseServer
+          .from("comp_judge_payouts")
+          .insert(rows);
+        if (insertErr) {
+          console.error("comp-finances PATCH insert judges:", insertErr);
+          return NextResponse.json(
+            { error: "Failed to save judge payouts" },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    const [financesRes, judgesRes] = await Promise.all([
+      supabaseServer
+        .from("comp_finances")
+        .select("*")
+        .eq("event_id", eventId)
+        .maybeSingle(),
+      supabaseServer
+        .from("comp_judge_payouts")
+        .select("id, judge_name, amount_paid")
+        .eq("event_id", eventId)
+        .order("created_at", { ascending: true }),
+    ]);
+
+    const studio_cost = financesRes.data
+      ? Number(financesRes.data.studio_cost)
+      : 0;
+    const judges = (judgesRes.data || []).map((j) => ({
+      id: j.id,
+      judge_name: j.judge_name ?? "",
+      amount_paid: Number(j.amount_paid) || 0,
+    }));
+
+    return NextResponse.json({
+      data: { studio_cost, judges },
+    });
+  } catch (e) {
+    console.error("comp-finances PATCH:", e);
+    return NextResponse.json(
+      { error: (e as Error).message || "Internal server error" },
+      { status: 500 }
+    );
+  }
+}

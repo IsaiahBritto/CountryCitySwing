@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
 import Link from "next/link";
@@ -37,6 +37,17 @@ interface WorkshopFinances {
   guest_instructor_amount: number | null;
   ccs_amount: number | null;
   updated_at: string;
+}
+
+interface CompJudgePayout {
+  id: string;
+  judge_name: string;
+  amount_paid: number;
+}
+
+interface CompFinances {
+  studio_cost: number;
+  judges: CompJudgePayout[];
 }
 
 type EventsView = "upcoming" | "past" | "overview";
@@ -251,6 +262,10 @@ export default function AdminFinancesPage() {
   const [loadingWorkshop, setLoadingWorkshop] = useState(false);
   const [workshopError, setWorkshopError] = useState<string | null>(null);
   const [workshopSaving, setWorkshopSaving] = useState(false);
+  const [compFinances, setCompFinances] = useState<CompFinances | null>(null);
+  const [loadingCompFinances, setLoadingCompFinances] = useState(false);
+  const [compFinancesError, setCompFinancesError] = useState<string | null>(null);
+  const [compFinancesSaving, setCompFinancesSaving] = useState(false);
 
   const filteredEvents = useMemo(() => {
     const t = dayjs().startOf("day");
@@ -591,6 +606,90 @@ export default function AdminFinancesPage() {
 
     load();
   }, [isAdmin, eventsView, selectedEvent?.id, isWorkshopEvent, isNashvilleEvent]);
+
+  useEffect(() => {
+    if (
+      !isAdmin ||
+      eventsView === "overview" ||
+      !selectedEvent ||
+      !isCompEvent
+    ) {
+      setCompFinances(null);
+      setCompFinancesError(null);
+      return;
+    }
+
+    const load = async () => {
+      setLoadingCompFinances(true);
+      setCompFinancesError(null);
+      try {
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        if (!session) {
+          setCompFinancesError("Session expired. Please sign in again.");
+          setCompFinances(null);
+          setLoadingCompFinances(false);
+          return;
+        }
+        const params = new URLSearchParams({ event_id: selectedEvent.id });
+        const res = await fetch(`/api/admin/comp-finances?${params}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setCompFinancesError(
+            (body as { error?: string })?.error || "Failed to load comp finances"
+          );
+          setCompFinances(null);
+        } else {
+          const { data } = await res.json();
+          setCompFinances(data ?? null);
+        }
+      } catch (e) {
+        setCompFinancesError(
+          e instanceof Error ? e.message : "Connection failed. Check your network and try again."
+        );
+        setCompFinances(null);
+      } finally {
+        setLoadingCompFinances(false);
+      }
+    };
+
+    load();
+  }, [isAdmin, eventsView, selectedEvent?.id, isCompEvent]);
+
+  const patchCompFinances = useCallback(
+    async (updates: { studio_cost?: number; judges?: CompJudgePayout[] }) => {
+      if (!selectedEvent || !isCompEvent) return;
+      setCompFinancesSaving(true);
+      try {
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        if (!session) return;
+        const res = await fetch("/api/admin/comp-finances", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            event_id: selectedEvent.id,
+            ...updates,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string })?.error || "Failed to save");
+        }
+        const { data } = await res.json();
+        setCompFinances(data);
+      } catch (e) {
+        console.error("Comp finances PATCH:", e);
+        setCompFinancesError(e instanceof Error ? e.message : "Failed to save");
+      } finally {
+        setCompFinancesSaving(false);
+      }
+    },
+    [selectedEvent?.id, isCompEvent]
+  );
 
   const patchWorkshop = useCallback(
     async (updates: {
@@ -1244,6 +1343,17 @@ export default function AdminFinancesPage() {
                         onPatch={patchWorkshop}
                       />
                     )}
+
+                    {isCompEvent && (
+                      <CompBreakdown
+                        computedTotalRevenue={stats.cashTotal + stats.stripeTotal + (stats.otherTotal ?? 0) + (stats.ccsTeamTotal ?? 0)}
+                        compFinances={compFinances}
+                        loading={loadingCompFinances}
+                        error={compFinancesError}
+                        saving={compFinancesSaving}
+                        onPatch={patchCompFinances}
+                      />
+                    )}
                   </>
                 )}
               </>
@@ -1455,6 +1565,254 @@ function WorkshopBreakdown({
           <div className="flex items-center justify-between text-neutral-300">
             <span>CCS</span>
             <span className="font-semibold text-primary">${ccsAmount.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CompBreakdown({
+  computedTotalRevenue,
+  compFinances,
+  loading,
+  error,
+  saving,
+  onPatch,
+}: {
+  computedTotalRevenue: number;
+  compFinances: CompFinances | null;
+  loading: boolean;
+  error: string | null;
+  saving: boolean;
+  onPatch: (u: { studio_cost?: number; judges?: CompJudgePayout[] }) => Promise<void>;
+}) {
+  const studioCost = compFinances?.studio_cost != null ? Number(compFinances.studio_cost) : 0;
+  const judges = compFinances?.judges ?? [];
+  const profit = Math.round((computedTotalRevenue - studioCost) * 100) / 100;
+  const judgesTotal = judges.reduce((sum, j) => sum + (Number(j.amount_paid) || 0), 0);
+  const profitAfterJudges = Math.round((profit - judgesTotal) * 100) / 100;
+
+  const [studioCostInput, setStudioCostInput] = useState(String(studioCost));
+  const [judgeRows, setJudgeRows] = useState<{ id: string; judge_name: string; amount_paid: number }[]>([]);
+  const prevJudgesKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setStudioCostInput(String(studioCost));
+  }, [studioCost]);
+
+  useEffect(() => {
+    const key = JSON.stringify(judges.map((j) => [j.id, j.judge_name, Number(j.amount_paid) || 0]));
+    if (prevJudgesKeyRef.current === key) return;
+    prevJudgesKeyRef.current = key;
+    setJudgeRows(
+      judges.map((j) => ({
+        id: j.id,
+        judge_name: j.judge_name ?? "",
+        amount_paid: Number(j.amount_paid) || 0,
+      }))
+    );
+  }, [judges]);
+
+  const saveStudioCost = useCallback(() => {
+    const v = parseFloat(studioCostInput);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ studio_cost: v });
+  }, [studioCostInput, onPatch]);
+
+  const saveJudges = useCallback(
+    (rows: { id: string; judge_name: string; amount_paid: number }[]) => {
+      onPatch({
+        judges: rows.map((r) => ({
+          judge_name: r.judge_name.trim(),
+          amount_paid: r.amount_paid,
+        })),
+      });
+    },
+    [onPatch]
+  );
+
+  const addJudge = useCallback(() => {
+    const newRows = [
+      ...judgeRows,
+      { id: `new-${Date.now()}`, judge_name: "", amount_paid: 0 },
+    ];
+    setJudgeRows(newRows);
+    saveJudges(newRows);
+  }, [judgeRows, saveJudges]);
+
+  const updateJudge = useCallback(
+    (index: number, updates: { judge_name?: string; amount_paid?: number }) => {
+      const next = judgeRows.map((r, i) =>
+        i === index
+          ? {
+              ...r,
+              ...(updates.judge_name !== undefined && { judge_name: updates.judge_name }),
+              ...(updates.amount_paid !== undefined && { amount_paid: updates.amount_paid }),
+            }
+          : r
+      );
+      setJudgeRows(next);
+      saveJudges(next);
+    },
+    [judgeRows, saveJudges]
+  );
+
+  const removeJudge = useCallback(
+    (index: number) => {
+      const next = judgeRows.filter((_, i) => i !== index);
+      setJudgeRows(next);
+      saveJudges(next);
+    },
+    [judgeRows, saveJudges]
+  );
+
+  if (loading) {
+    return (
+      <div className="mt-8 rounded-xl border border-neutral-700 bg-neutral-800/30 px-4 py-8 text-center text-neutral-400">
+        Loading comp breakdown…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mt-8 rounded-lg border border-primary/50 bg-primary/10 px-4 py-4 text-primary">
+        <p className="font-medium">{error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-8 rounded-xl border border-primary/40 bg-neutral-800/30 p-6 ring-1 ring-primary/20">
+      <h3 className="mb-4 text-base font-semibold text-primary">Comp breakdown</h3>
+
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-neutral-300">Studio cost</label>
+          <div className="flex items-baseline gap-1">
+            <span className="text-neutral-500">$</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={studioCostInput}
+              onChange={(e) => setStudioCostInput(e.target.value)}
+              onBlur={saveStudioCost}
+              disabled={saving}
+              className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-neutral-300">Profit</span>
+          <span className="text-lg font-bold text-white">${profit.toFixed(2)}</span>
+          <span className="text-xs text-neutral-500">(Total revenue − Studio cost)</span>
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-neutral-300">Judges</p>
+          <button
+            type="button"
+            onClick={addJudge}
+            disabled={saving}
+            className="rounded-lg border border-primary/50 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary transition hover:bg-primary/20 disabled:opacity-60"
+          >
+            Add judge
+          </button>
+        </div>
+        {judgeRows.length === 0 ? (
+          <p className="rounded-lg border border-neutral-700 bg-neutral-800/50 px-4 py-3 text-sm text-neutral-500">
+            No judges added. Click “Add judge” to record name and amount paid.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {judgeRows.map((row, index) => (
+              <div
+                key={row.id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-700 bg-neutral-800/50 p-4"
+              >
+                <input
+                  type="text"
+                  placeholder="Judge name"
+                  value={row.judge_name}
+                  onChange={(e) => setJudgeRows((prev) => prev.map((r, i) => (i === index ? { ...r, judge_name: e.target.value } : r)))}
+                  onBlur={(e) => updateJudge(index, { judge_name: e.currentTarget.value.trim() })}
+                  disabled={saving}
+                  className="min-w-[120px] flex-1 rounded border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                />
+                <div className="flex items-baseline gap-1">
+                  <span className="text-neutral-500">$</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={row.amount_paid}
+                    onChange={(e) => {
+                      const v = e.target.value === "" ? 0 : parseFloat(e.target.value);
+                      setJudgeRows((prev) => prev.map((r, i) => (i === index ? { ...r, amount_paid: Number.isNaN(v) ? 0 : v } : r)));
+                    }}
+                    onBlur={(e) => {
+                      const v = e.currentTarget.value === "" ? 0 : parseFloat(e.currentTarget.value);
+                      updateJudge(index, { amount_paid: Number.isNaN(v) ? 0 : v });
+                    }}
+                    disabled={saving}
+                    className="w-24 rounded border border-neutral-600 bg-neutral-800 px-2 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeJudge(index)}
+                  disabled={saving}
+                  className="rounded border border-neutral-600 bg-neutral-900/40 px-2 py-1 text-sm text-neutral-400 transition hover:bg-neutral-700 hover:text-white disabled:opacity-60"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {judgeRows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/30 px-4 py-3">
+            <span className="text-sm font-medium text-neutral-300">Judges total</span>
+            <span className="text-lg font-bold text-white">${judgesTotal.toFixed(2)}</span>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-4 rounded-lg border border-primary/40 bg-primary/10 px-4 py-3">
+          <span className="text-sm font-medium text-neutral-300">Profit after paying judges</span>
+          <span className="text-lg font-bold text-primary">${profitAfterJudges.toFixed(2)}</span>
+          <span className="text-xs text-neutral-500">(Profit − Judges total)</span>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-lg border border-neutral-700 bg-neutral-900/40 p-4">
+        <p className="mb-2 text-sm font-medium uppercase tracking-wider text-neutral-500">Itemized</p>
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>Total revenue</span>
+            <span className="font-semibold text-white">${computedTotalRevenue.toFixed(2)}</span>
+          </div>
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>Studio cost</span>
+            <span className="font-semibold text-white">−${studioCost.toFixed(2)}</span>
+          </div>
+          <div className="my-2 border-t border-neutral-800" />
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>Profit</span>
+            <span className="font-semibold text-white">${profit.toFixed(2)}</span>
+          </div>
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>Judges total</span>
+            <span className="font-semibold text-white">−${judgesTotal.toFixed(2)}</span>
+          </div>
+          <div className="my-2 border-t border-neutral-800" />
+          <div className="flex items-center justify-between text-neutral-300">
+            <span>Profit after paying judges</span>
+            <span className="font-semibold text-primary">${profitAfterJudges.toFixed(2)}</span>
           </div>
         </div>
       </div>

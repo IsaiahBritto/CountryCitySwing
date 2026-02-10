@@ -45,6 +45,13 @@ interface CompJudgePayout {
   amount_paid: number;
 }
 
+/** Payload for PATCH judges: id is optional (new judges have no id until saved). */
+interface CompJudgePayoutInput {
+  id?: string;
+  judge_name: string;
+  amount_paid: number;
+}
+
 interface CompFinances {
   studio_cost: number;
   judges: CompJudgePayout[];
@@ -658,7 +665,7 @@ export default function AdminFinancesPage() {
   }, [isAdmin, eventsView, selectedEvent?.id, isCompEvent]);
 
   const patchCompFinances = useCallback(
-    async (updates: { studio_cost?: number; judges?: CompJudgePayout[] }) => {
+    async (updates: { studio_cost?: number; judges?: CompJudgePayoutInput[] }) => {
       if (!selectedEvent || !isCompEvent) return;
       setCompFinancesSaving(true);
       try {
@@ -1585,7 +1592,7 @@ function CompBreakdown({
   loading: boolean;
   error: string | null;
   saving: boolean;
-  onPatch: (u: { studio_cost?: number; judges?: CompJudgePayout[] }) => Promise<void>;
+  onPatch: (u: { studio_cost?: number; judges?: CompJudgePayoutInput[] }) => Promise<void>;
 }) {
   const studioCost = compFinances?.studio_cost != null ? Number(compFinances.studio_cost) : 0;
   const judges = compFinances?.judges ?? [];

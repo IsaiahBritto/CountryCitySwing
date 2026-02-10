@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
         .maybeSingle(),
       supabaseServer
         .from("comp_judge_payouts")
-        .select("id, judge_name, amount_paid")
+        .select("id, judge_name, amount_paid, paid, paid_at")
         .eq("event_id", eventId)
         .order("created_at", { ascending: true }),
     ]);
@@ -103,6 +103,8 @@ export async function GET(req: NextRequest) {
       id: j.id,
       judge_name: j.judge_name ?? "",
       amount_paid: Number(j.amount_paid) || 0,
+      paid: !!j.paid,
+      paid_at: j.paid_at ?? null,
     }));
 
     return NextResponse.json({

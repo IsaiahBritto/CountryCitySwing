@@ -10,7 +10,7 @@ import CompSignupModal from "@/components/CompSignupModal";
 export interface CarouselEvent {
   id: number;
   title: string;
-  date: string;
+  starts_at: string;
   location: string;
   signupLink?: string;
   signup_link?: string;
@@ -19,7 +19,6 @@ export interface CarouselEvent {
   strictly_price?: number | null;
   jnj_price?: number | null;
   ccs_team_price?: number | null;
-  start_time?: string;
   type?: string;
 }
 

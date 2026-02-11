@@ -8,9 +8,8 @@ import SignupModalShell from "@/components/SignupModalShell";
 type CompEvent = {
   id: string | number;
   title: string;
-  date: string;
+  starts_at: string;
   location?: string;
-  start_time?: string;
   signupLink?: string;
   signup_link?: string;
   strictly_price?: number | null;
@@ -246,7 +245,7 @@ export default function CompSignupModal({
         event: {
           id: event!.id,
           title: event!.title,
-          date: event!.starts_at,
+          starts_at: event!.starts_at,
           location: event!.location,
           strictly_price: event!.strictly_price,
           jnj_price: event!.jnj_price,

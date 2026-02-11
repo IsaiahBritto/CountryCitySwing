@@ -26,7 +26,6 @@ const baseSchema = z.object({
     "Stripe",
     "Cash",
     "A friend paid for me",
-    "Class Voucher",
     "CCS TEAM",
   ]),
   /** When payment method is "A friend paid for me", how did they pay? */
@@ -556,7 +555,6 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                   { label: "Stripe (Credit/Debit Card)", value: "Stripe" },
                   { label: "Cash", value: "Cash" },
                   { label: "A friend paid for me", value: "A friend paid for me" },
-                  { label: "Class Voucher", value: "Class Voucher" },
                 ].map(({ label, value }) => (
                   <label key={value} className="block text-sm">
                     <input

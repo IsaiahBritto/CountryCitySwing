@@ -22,10 +22,10 @@ interface NashvilleFinances {
   bt2_payout_override: number | null;
   bt2_paid: boolean;
   bt2_paid_at: string | null;
-  malissa_name: string;
-  malissa_payout_override: number | null;
-  malissa_paid: boolean;
-  malissa_paid_at: string | null;
+  upper_level_teacher_name: string;
+  upper_level_payout_override: number | null;
+  upper_level_paid: boolean;
+  upper_level_paid_at: string | null;
   updated_at: string;
 }
 
@@ -570,7 +570,7 @@ export default function AdminFinancesPage() {
               venueCost,
               bt1Override: r.nashvilleFinances.bt1_payout_override ?? null,
               bt2Override: r.nashvilleFinances.bt2_payout_override ?? null,
-              malissaOverride: r.nashvilleFinances.malissa_payout_override ?? null,
+              malissaOverride: r.nashvilleFinances.upper_level_payout_override ?? null,
             });
             totalPaidMalissa += payouts.malissaPayout;
             totalPaidBt1 += payouts.bt1Payout;
@@ -844,13 +844,13 @@ export default function AdminFinancesPage() {
       stripe_override?: number | null;
       bt1_name?: string;
       bt2_name?: string;
-      malissa_name?: string;
+      upper_level_teacher_name?: string;
       bt1_payout_override?: number | null;
       bt2_payout_override?: number | null;
-      malissa_payout_override?: number | null;
+      upper_level_payout_override?: number | null;
       mark_bt1_paid?: boolean;
       mark_bt2_paid?: boolean;
-      mark_malissa_paid?: boolean;
+      mark_upper_level_paid?: boolean;
     }) => {
       if (!selectedEvent || !isNashvilleEvent) return;
       setNashvilleSaving(true);
@@ -1237,7 +1237,7 @@ export default function AdminFinancesPage() {
                           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                             <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
                               <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
-                                Total paid · Malissa
+                                Total paid · Upper Level Teacher
                               </p>
                               <p className="mt-1 text-xl font-bold text-primary">
                                 ${overviewFinances.totalPaidMalissa.toFixed(2)}
@@ -1326,7 +1326,7 @@ export default function AdminFinancesPage() {
                                     </span>
                                   </div>
                                   <div className="flex items-center justify-between text-neutral-300">
-                                    <span>Malissa</span>
+                                    <span>Upper Level Teacher</span>
                                     <span className="font-semibold text-white">
                                       −${overviewFinances.totalPaidMalissa.toFixed(2)}
                                     </span>
@@ -2135,13 +2135,13 @@ function NashvilleBreakdown({
     stripe_override?: number | null;
     bt1_name?: string;
     bt2_name?: string;
-    malissa_name?: string;
+    upper_level_teacher_name?: string;
     bt1_payout_override?: number | null;
     bt2_payout_override?: number | null;
-    malissa_payout_override?: number | null;
+    upper_level_payout_override?: number | null;
     mark_bt1_paid?: boolean;
     mark_bt2_paid?: boolean;
-    mark_malissa_paid?: boolean;
+    mark_upper_level_paid?: boolean;
   }) => Promise<void>;
 }) {
   const venueCost = nashville?.venue_cost ?? 0;
@@ -2164,7 +2164,7 @@ function NashvilleBreakdown({
         venueCost,
         bt1Override: nashville?.bt1_payout_override ?? null,
         bt2Override: nashville?.bt2_payout_override ?? null,
-        malissaOverride: nashville?.malissa_payout_override ?? null,
+        malissaOverride: nashville?.upper_level_payout_override ?? null,
       }),
     [
       effectiveCash,
@@ -2172,7 +2172,7 @@ function NashvilleBreakdown({
       venueCost,
       nashville?.bt1_payout_override,
       nashville?.bt2_payout_override,
-      nashville?.malissa_payout_override,
+      nashville?.upper_level_payout_override,
     ]
   );
 
@@ -2181,7 +2181,7 @@ function NashvilleBreakdown({
       { label: "Studio cost (venue)", value: venueCost },
       { label: "Beginner Teacher 1 payout", value: effectivePayouts.bt1Payout },
       { label: "Beginner Teacher 2 payout", value: effectivePayouts.bt2Payout },
-      { label: "Malissa payout", value: effectivePayouts.malissaPayout },
+      { label: "Upper Level Teacher payout", value: effectivePayouts.malissaPayout },
       { label: "Cash → Isaiah", value: effectivePayouts.isaiahPayout },
       { label: "Electronic → CCS", value: effectivePayouts.ccsElectronic },
     ],
@@ -2207,7 +2207,7 @@ function NashvilleBreakdown({
   const [venueInput, setVenueInput] = useState(String(venueCost));
   const [bt1Name, setBt1Name] = useState(nashville?.bt1_name ?? "Beginner Teacher 1");
   const [bt2Name, setBt2Name] = useState(nashville?.bt2_name ?? "Beginner Teacher 2");
-  const [malissaName, setMalissaName] = useState(nashville?.malissa_name ?? "Malissa");
+  const [malissaName, setMalissaName] = useState(nashville?.upper_level_teacher_name ?? "Malissa");
   const [bt1PayoutInput, setBt1PayoutInput] = useState("");
   const [bt2PayoutInput, setBt2PayoutInput] = useState("");
   const [malissaPayoutInput, setMalissaPayoutInput] = useState("");
@@ -2217,8 +2217,8 @@ function NashvilleBreakdown({
     setVenueInput(String(nashville?.venue_cost ?? 0));
     setBt1Name(nashville?.bt1_name ?? "Beginner Teacher 1");
     setBt2Name(nashville?.bt2_name ?? "Beginner Teacher 2");
-    setMalissaName(nashville?.malissa_name ?? "Malissa");
-  }, [nashville?.venue_cost, nashville?.bt1_name, nashville?.bt2_name, nashville?.malissa_name]);
+    setMalissaName(nashville?.upper_level_teacher_name ?? "Malissa");
+  }, [nashville?.venue_cost, nashville?.bt1_name, nashville?.bt2_name, nashville?.upper_level_teacher_name]);
 
   useEffect(() => {
     setBt1PayoutInput(String(effectivePayouts.bt1Payout));
@@ -2242,7 +2242,7 @@ function NashvilleBreakdown({
   };
   const saveMalissaName = () => {
     const s = malissaName.trim();
-    if (s && s !== (nashville?.malissa_name ?? "Malissa")) onPatch({ malissa_name: s });
+    if (s && s !== (nashville?.upper_level_teacher_name ?? "Malissa")) onPatch({ upper_level_teacher_name: s });
   };
 
   const validateTeacherOverrides = useCallback(
@@ -2252,7 +2252,7 @@ function NashvilleBreakdown({
       const effectiveBt2 =
         next.bt2 !== undefined ? next.bt2 : (nashville?.bt2_payout_override ?? null);
       const effectiveMalissa =
-        next.malissa !== undefined ? next.malissa : (nashville?.malissa_payout_override ?? null);
+        next.malissa !== undefined ? next.malissa : (nashville?.upper_level_payout_override ?? null);
 
       const bt1 = effectiveBt1 ?? autoPayouts.bt1Payout;
       const bt2 = effectiveBt2 ?? autoPayouts.bt2Payout;
@@ -2268,7 +2268,7 @@ function NashvilleBreakdown({
     [
       nashville?.bt1_payout_override,
       nashville?.bt2_payout_override,
-      nashville?.malissa_payout_override,
+      nashville?.upper_level_payout_override,
       autoPayouts.bt1Payout,
       autoPayouts.bt2Payout,
       autoPayouts.malissaPayout,
@@ -2295,7 +2295,7 @@ function NashvilleBreakdown({
     if (Number.isNaN(v) || v < 0) return;
     const msg = validateTeacherOverrides({ malissa: v });
     setPayoutOverrideError(msg);
-    if (!msg) onPatch({ malissa_payout_override: v });
+    if (!msg) onPatch({ upper_level_payout_override: v });
   };
 
   if (loading) {
@@ -2355,7 +2355,7 @@ function NashvilleBreakdown({
         )}
         {effectivePayouts.manualOverridesAdjustedToFitCash && (
           <p className="rounded border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-primary">
-            Manual teacher payouts exceeded available cash after venue cost; Malissa was reduced to fit.
+            Manual teacher payouts exceeded available cash after venue cost; Upper Level Teacher was reduced to fit.
           </p>
         )}
         {payoutOverrideError && (
@@ -2401,7 +2401,7 @@ function NashvilleBreakdown({
           saving={saving}
         />
         <TeacherRow
-          label="Malissa"
+          label="Upper Level Teacher"
           name={malissaName}
           onNameChange={setMalissaName}
           onNameBlur={saveMalissaName}
@@ -2409,12 +2409,12 @@ function NashvilleBreakdown({
           payoutInput={malissaPayoutInput}
           onPayoutChange={setMalissaPayoutInput}
           onPayoutBlur={saveMalissaOverride}
-          isPayoutOverride={(nashville?.malissa_payout_override ?? null) != null}
+          isPayoutOverride={(nashville?.upper_level_payout_override ?? null) != null}
           autoPayout={autoPayouts.malissaPayout}
-          onClearOverride={() => onPatch({ malissa_payout_override: null })}
-          paid={nashville?.malissa_paid ?? false}
-          paidAt={nashville?.malissa_paid_at ?? null}
-          onMarkPaid={() => onPatch({ mark_malissa_paid: true })}
+          onClearOverride={() => onPatch({ upper_level_payout_override: null })}
+          paid={nashville?.upper_level_paid ?? false}
+          paidAt={nashville?.upper_level_paid_at ?? null}
+          onMarkPaid={() => onPatch({ mark_upper_level_paid: true })}
           saving={saving}
         />
       </div>

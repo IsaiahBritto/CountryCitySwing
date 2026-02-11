@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe";
-import { getDiscountedSubtotalFromCoupon } from "@/lib/utils/paymentHelpers";
+import { getDiscountedAmountForPromotion } from "@/lib/stripePromo";
+import { roundCurrency } from "@/lib/utils/paymentHelpers";
 
 /**
  * POST /api/validate-promo
- * Body: { code: string }
- * Validates a promotion code with Stripe and returns the promotion code ID
- * so it can be pre-applied when creating a Checkout Session.
+ * Body: { code: string, subtotal?: number }
+ * Validates a promotion code with Stripe and returns the promotion code ID and discounted amount.
+ * subtotal = event cost (normal rate or CCS team price); discount is resolved by promotionCodeId.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -40,7 +41,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Optional: check coupon validity when expanded (e.g. not expired)
     const coupon = (promo as { coupon?: { valid?: boolean } | string }).coupon;
     if (typeof coupon === "object" && coupon?.valid === false) {
       return NextResponse.json(
@@ -49,32 +49,18 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let discountedSubtotal: number | undefined;
+    // Resolve discount by promotionCodeId and apply to event cost (normal or CCS team price)
     const subtotalNum =
       typeof subtotal === "number"
         ? subtotal
         : typeof subtotal === "string"
           ? parseFloat(subtotal)
           : NaN;
+    let discountedSubtotal: number | undefined;
     if (!Number.isNaN(subtotalNum) && subtotalNum >= 0) {
-      const promoWithCoupon = await stripe.promotionCodes.retrieve(promo.id, {
-        expand: ["coupon"],
-      });
-      let expandedCoupon: unknown = (promoWithCoupon as { coupon?: unknown }).coupon;
-      if (!expandedCoupon || typeof expandedCoupon !== "object") {
-        const id =
-          typeof expandedCoupon === "string" && expandedCoupon.startsWith("coupon_")
-            ? expandedCoupon
-            : (await stripe.promotionCodes.retrieve(promo.id) as { coupon?: string }).coupon;
-        if (typeof id === "string" && id.startsWith("coupon_")) {
-          expandedCoupon = await stripe.coupons.retrieve(id);
-        }
-      }
-      if (expandedCoupon && typeof expandedCoupon === "object") {
-        discountedSubtotal = getDiscountedSubtotalFromCoupon(
-          expandedCoupon,
-          subtotalNum
-        );
+      const discounted = await getDiscountedAmountForPromotion(promo.id, subtotalNum);
+      if (discounted !== null && Number.isFinite(discounted)) {
+        discountedSubtotal = roundCurrency(discounted);
       }
     }
 
@@ -88,11 +74,13 @@ export async function POST(req: NextRequest) {
       promotionCodeId: promo.id,
       code: promo.code,
     };
-    if (discountedSubtotal !== undefined) {
+    if (discountedSubtotal !== undefined && Number.isFinite(discountedSubtotal)) {
       payload.discountedSubtotal = discountedSubtotal;
     }
 
-    return NextResponse.json(payload);
+    const res = NextResponse.json(payload);
+    res.headers.set("Cache-Control", "no-store");
+    return res;
   } catch (err: unknown) {
     console.error("Validate promo error:", err);
     return NextResponse.json(

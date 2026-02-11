@@ -27,9 +27,10 @@ const baseSchema = z.object({
     "Cash",
     "A friend paid for me",
     "Class Voucher",
-    "Volunteer",
     "CCS TEAM",
   ]),
+  /** When payment method is "A friend paid for me", how did they pay? */
+  friendPaidHow: z.enum(["Cash", "Stripe"]).optional(),
   acceptLiability: z.literal(true, {
     errorMap: () => ({ message: "You must accept the liability release" }),
   }),
@@ -47,6 +48,13 @@ const schema = baseSchema.superRefine((data, ctx) => {
     ctx.addIssue({
       path: ["heardAboutUs"],
       message: "Please tell us how you heard about us.",
+      code: z.ZodIssueCode.custom,
+    });
+  }
+  if (data.paymentMethod === "A friend paid for me" && !data.friendPaidHow) {
+    ctx.addIssue({
+      path: ["friendPaidHow"],
+      message: "Please select how they paid.",
       code: z.ZodIssueCode.custom,
     });
   }
@@ -90,6 +98,12 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
           ? Number(event.price)
           : undefined
       : undefined;
+
+  // Price shown next to Payment Method: updates live when the code is validated (Apply), not on form submit
+  const amountDue =
+    effectivePrice != null && typeof appliedPromo?.discountedSubtotal === "number"
+      ? appliedPromo.discountedSubtotal
+      : effectivePrice;
 
   // Fetch and prefill user information when modal opens
   useEffect(() => {
@@ -158,14 +172,18 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     }
   }, [beenBefore, unregister]);
 
-  // Clear promo when switching away from Class Voucher (discount code only applies to Class Voucher)
+  // When promo brings total to $0, payment method is not required (server will set Cash)
+  const amountDueIsZero =
+    !(isInstructor && effectivePrice === 0) &&
+    appliedPromo?.discountedSubtotal != null &&
+    appliedPromo.discountedSubtotal <= 0.5;
+
+  // When promo brings total to $0, set paymentMethod to Cash so required field is filled for validation
   useEffect(() => {
-    if (paymentMethod && paymentMethod !== "Class Voucher") {
-      setAppliedPromo(null);
-      setPromoCodeInput("");
-      setPromoError("");
+    if (amountDueIsZero) {
+      setValue("paymentMethod", "Cash", { shouldValidate: false });
     }
-  }, [paymentMethod]);
+  }, [amountDueIsZero, setValue]);
 
   // Instructor: keep hidden fields filled so validation passes (beenBefore + paymentMethod when $0)
   useEffect(() => {
@@ -199,26 +217,33 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     setPromoError("");
     setPromoLoading(true);
     try {
-      const subtotal = effectivePrice !== undefined ? effectivePrice : undefined;
+      // Validate code and get discounted amount; UI price updates live when this returns (not on submit)
       const res = await fetch("/api/validate-promo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, ...(subtotal !== undefined && { subtotal }) }),
+        body:
+          effectivePrice != null && Number.isFinite(effectivePrice)
+            ? JSON.stringify({ code, subtotal: effectivePrice })
+            : JSON.stringify({ code }),
       });
       const result = await res.json();
       if (result.valid && result.promotionCodeId) {
+        const raw = result.discountedSubtotal ?? result.discounted_subtotal;
+        const discounted =
+          typeof raw === "number" && Number.isFinite(raw)
+            ? raw
+            : typeof raw === "string"
+              ? (() => {
+                  const n = parseFloat(raw);
+                  return Number.isFinite(n) ? n : undefined;
+                })()
+              : undefined;
+        // Update state immediately so Payment Method price updates live (no form submit)
         setAppliedPromo({
           promotionCodeId: result.promotionCodeId,
           code: result.code ?? code,
-          discountedSubtotal: result.discountedSubtotal,
+          discountedSubtotal: discounted,
         });
-        if (
-          result.discountedSubtotal != null &&
-          result.discountedSubtotal <= 0.5 &&
-          paymentMethod === "Stripe"
-        ) {
-          setValue("paymentMethod", "Cash");
-        }
       } else {
         setAppliedPromo(null);
         setPromoError(result.message || "Invalid promotion code.");
@@ -251,12 +276,21 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
         body.is_ccs_team = true;
         if (effectivePrice === 0) body.paymentMethod = "CCS TEAM";
       }
-      if (data.paymentMethod === "Class Voucher" && appliedPromo) {
+      // Send promo when applied (for any payment method) so server can apply discount / set paid when $0
+      if (appliedPromo) {
         body.promotionCodeId = appliedPromo.promotionCodeId;
         body.discountedSubtotal =
           appliedPromo.discountedSubtotal !== undefined && appliedPromo.discountedSubtotal !== null
             ? appliedPromo.discountedSubtotal
             : undefined;
+      }
+      // When discount brings total to $0, payment method was not required; set to Cash for server
+      const amountDue = appliedPromo?.discountedSubtotal != null ? appliedPromo.discountedSubtotal : effectivePrice;
+      if (amountDue != null && amountDue <= 0.5 && appliedPromo) {
+        body.paymentMethod = "Cash";
+      }
+      if (data.paymentMethod === "A friend paid for me" && data.friendPaidHow) {
+        body.friendPaidHow = data.friendPaidHow;
       }
       const response = await fetch("/api/event-signup", {
         method: "POST",
@@ -319,7 +353,16 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             {effectivePrice != null && (
               <>
                 <br />
-                <strong>Price:</strong> ${effectivePrice.toFixed(2)}
+                <strong>Price:</strong>{" "}
+                {amountDue != null && typeof appliedPromo?.discountedSubtotal === "number" ? (
+                  <>
+                    <span className="text-gray-400 line-through">${effectivePrice.toFixed(2)}</span>{" "}
+                    ${amountDue.toFixed(2)}
+                    <span className="text-green-400 text-sm ml-1">(after discount)</span>
+                  </>
+                ) : (
+                  <>${effectivePrice.toFixed(2)}</>
+                )}
                 {isInstructor && event?.ccs_team_price != null && (
                   <span className="text-yellow-400 text-sm ml-1">(CCS Team)</span>
                 )}
@@ -439,39 +482,8 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               </div>
             )}
 
-            {/* Payment — hidden for instructors when CCS team price is $0 (auto "CCS TEAM") */}
-            {!(isInstructor && effectivePrice === 0) && (
-              <div>
-                <p className="font-medium mb-1">
-                  Payment Method
-                  {effectivePrice != null && effectivePrice > 0
-                    ? appliedPromo?.discountedSubtotal != null
-                      ? `: $${appliedPromo.discountedSubtotal.toFixed(2)}${appliedPromo.discountedSubtotal <= 0.5 ? " (no payment required)" : " (after discount)"}`
-                      : `: $${effectivePrice.toFixed(2)}`
-                    : ""}
-                </p>
-                {[
-                  { label: "Stripe (Credit/Debit Card)", value: "Stripe" },
-                  { label: "Cash", value: "Cash" },
-                  { label: "A friend paid for me", value: "A friend paid for me" },
-                  { label: "Class Voucher", value: "Class Voucher" },
-                  ...(!isInstructor ? [{ label: "Volunteer", value: "Volunteer" as const }] : []),
-                ].map(({ label, value }) => (
-                  <label key={value} className="block text-sm">
-                    <input
-                      {...register("paymentMethod")}
-                      type="radio"
-                      value={value}
-                      className="mr-2"
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            )}
-
-            {/* Promo code - only when Class Voucher is selected */}
-            {effectivePrice != null && effectivePrice > 0 && paymentMethod === "Class Voucher" && (
+            {/* Promotion code — always above Payment Method when there is a price */}
+            {effectivePrice != null && effectivePrice > 0 && (
               <div>
                 <p className="font-medium mb-1">Promotion code</p>
                 {appliedPromo ? (
@@ -495,7 +507,7 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                     </div>
                     {appliedPromo.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5 && (
                       <p className="text-green-400 text-sm">
-                        Your total after discount is $0. No payment required — payment method set to Cash.
+                        Your total after discount is $0. No payment required.
                       </p>
                     )}
                   </div>
@@ -526,6 +538,68 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                   <p className="text-red-400 text-sm mt-1">{promoError}</p>
                 )}
               </div>
+            )}
+
+            {/* Payment Method — hidden for instructors when CCS team price is $0; hidden when promo brings total to $0 */}
+            {!(isInstructor && effectivePrice === 0) && !(appliedPromo?.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5) && (
+              <div>
+                <p className="font-medium mb-1">
+                  Payment Method
+                  {amountDue != null && effectivePrice != null && effectivePrice > 0 && (
+                    <span key={`amount-${amountDue}-${appliedPromo?.discountedSubtotal ?? "full"}`}>
+                      : ${amountDue.toFixed(2)}
+                      {typeof appliedPromo?.discountedSubtotal === "number" && " (after discount)"}
+                    </span>
+                  )}
+                </p>
+                {[
+                  { label: "Stripe (Credit/Debit Card)", value: "Stripe" },
+                  { label: "Cash", value: "Cash" },
+                  { label: "A friend paid for me", value: "A friend paid for me" },
+                  { label: "Class Voucher", value: "Class Voucher" },
+                ].map(({ label, value }) => (
+                  <label key={value} className="block text-sm">
+                    <input
+                      {...register("paymentMethod")}
+                      type="radio"
+                      value={value}
+                      className="mr-2"
+                    />
+                    {label}
+                  </label>
+                ))}
+                {paymentMethod === "A friend paid for me" && (
+                  <div className="mt-3 ml-4 border-l-2 border-yellow-400 pl-3">
+                    <p className="text-sm mb-1 font-medium text-yellow-300">
+                      How did they pay?
+                    </p>
+                    {[
+                      { label: "Cash", value: "Cash" as const },
+                      { label: "Stripe (card online)", value: "Stripe" as const },
+                    ].map(({ label, value }) => (
+                      <label key={value} className="block text-sm">
+                        <input
+                          {...register("friendPaidHow")}
+                          type="radio"
+                          value={value}
+                          className="mr-2"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                    {errors.friendPaidHow && (
+                      <p className="text-red-400 text-sm mt-1">
+                        {String(errors.friendPaidHow.message)}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* When discount brings total to $0: no payment radios shown; hidden input fills required paymentMethod with Cash */}
+            {amountDueIsZero && (
+              <input type="hidden" {...register("paymentMethod")} value="Cash" readOnly />
             )}
 
             {/* Liability release */}

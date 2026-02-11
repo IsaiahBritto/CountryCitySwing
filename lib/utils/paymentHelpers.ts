@@ -47,11 +47,21 @@ export function getDiscountedSubtotalFromCoupon(
   const amountNum =
     typeof amountOffCents === "number" && Number.isFinite(amountOffCents)
       ? amountOffCents
-      : null;
+      : typeof amountOffCents === "string"
+        ? (() => {
+            const n = parseFloat(amountOffCents);
+            return Number.isFinite(n) ? n : null;
+          })()
+        : null;
   const percentNum =
     typeof percentOff === "number" && Number.isFinite(percentOff)
       ? percentOff
-      : null;
+      : typeof percentOff === "string"
+        ? (() => {
+            const n = parseFloat(percentOff);
+            return Number.isFinite(n) ? n : null;
+          })()
+        : null;
   if (amountNum != null) {
     return Math.max(0, subtotalDollars - amountNum / 100);
   }

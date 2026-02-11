@@ -11,7 +11,11 @@ import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
 import EventFormModal from "@/components/EventFormModal";
 import EventsListSkeleton from "@/components/EventsListSkeleton";
-import { parseLocalDate } from "@/lib/utils/dateHelpers";
+import {
+  formatEventDateInChicago,
+  formatEventTimeInChicago,
+  isEventPastInChicago,
+} from "@/lib/utils/dateHelpers";
 
 export default function EventsPage() {
   const [events, setEvents] = useState<any[]>([]);
@@ -66,11 +70,8 @@ export default function EventsPage() {
     setLoading(false);
   };
 
-  // Filter upcoming events only (today and future)
-  const today = dayjs().startOf("day");
-  const upcomingEvents = events.filter((e) =>
-    dayjs(e.starts_at).isSame(today, "day") || dayjs(e.starts_at).isAfter(today, "day")
-  );
+  // Filter upcoming events only (today and future in Nashville/Chicago time)
+  const upcomingEvents = events.filter((e) => !isEventPastInChicago(e.starts_at));
 
   const handleEventSaved = () => {
     loadEvents();
@@ -174,17 +175,9 @@ export default function EventsPage() {
                 {event.title}
               </h3>
               <p className="text-gray-400 mb-1">
-                {parseLocalDate(event.starts_at).toLocaleDateString(undefined, {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                  year: "numeric",
-                })}
+                {formatEventDateInChicago(event.starts_at)}
                 {event.starts_at
-                  ? ` • ${new Date(event.starts_at).toLocaleTimeString(undefined, {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}`
+                  ? ` • ${formatEventTimeInChicago(event.starts_at)}`
                   : ""}
               </p>
               {event.location && (

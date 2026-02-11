@@ -3,7 +3,11 @@
 import { useState, useRef } from "react";
 import dayjs from "dayjs";
 import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/solid";
-import { parseLocalDate } from "@/lib/utils/dateHelpers";
+import {
+  formatEventDateInChicago,
+  formatEventTimeInChicago,
+  isEventPastInChicago,
+} from "@/lib/utils/dateHelpers";
 import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
 
@@ -39,10 +43,8 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
   const [selectedEvent, setSelectedEvent] = useState<CarouselEvent | null>(null);
   const touchStartX = useRef<number | null>(null);
 
-  // 🧠 Show only upcoming events (today and future)
-  const filteredEvents = events.filter((e) =>
-    dayjs(e.starts_at).isSame(dayjs(), "day") || dayjs(e.starts_at).isAfter(dayjs(), "day")
-  );
+  // Show only upcoming events (today and future in Nashville/Chicago time)
+  const filteredEvents = events.filter((e) => !isEventPastInChicago(e.starts_at));
 
   if (filteredEvents.length === 0) {
     return (
@@ -97,17 +99,9 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
                   </h3>
 
                   <p className="text-gray-400 mb-1">
-                    {parseLocalDate(event.starts_at).toLocaleDateString(undefined, {
-                      weekday: "long",
-                      month: "long",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
+                    {formatEventDateInChicago(event.starts_at)}
                     {event.starts_at
-                      ? ` • ${new Date(event.starts_at).toLocaleTimeString(undefined, {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}`
+                      ? ` • ${formatEventTimeInChicago(event.starts_at)}`
                       : ""}
                   </p>
 
@@ -136,7 +130,7 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
 
                   {/* --- Sign Up / Closed Button --- */}
                   <div className="flex justify-center gap-3">
-                    {dayjs(event.starts_at).isBefore(dayjs(), "day") ? (
+                    {isEventPastInChicago(event.starts_at) ? (
                       <button
                         disabled
                         className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

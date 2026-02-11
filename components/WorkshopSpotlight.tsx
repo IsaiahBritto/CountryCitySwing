@@ -3,7 +3,11 @@
 import { useState } from "react";
 import dayjs from "dayjs";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
-import { parseLocalDate } from "@/lib/utils/dateHelpers";
+import {
+  formatEventDateInChicago,
+  formatEventTimeInChicago,
+  isEventPastInChicago,
+} from "@/lib/utils/dateHelpers";
 import EventSignupModal from "@/components/EventSignupModal";
 import { CarouselEvent } from "./EventCarousel";
 
@@ -22,17 +26,12 @@ interface WorkshopSpotlightProps {
 }
 
 export default function WorkshopSpotlight({ events, isAdmin = false, isInstructor = false, onEditEvent }: WorkshopSpotlightProps) {
-  const today = dayjs().startOf("day");
   const [showSignup, setShowSignup] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CarouselEvent | null>(null);
 
-  // find the closest upcoming workshop (not in the past)
+  // Find the closest upcoming workshop (not in the past in Nashville/Chicago time)
   const upcomingWorkshop = events
-    .filter(
-      (e) =>
-        e.type === "Workshop" &&
-        dayjs(e.starts_at).isSameOrAfter(today, "day")
-    )
+    .filter((e) => e.type === "Workshop" && !isEventPastInChicago(e.starts_at))
     .sort((a, b) => dayjs(a.starts_at).diff(dayjs(b.starts_at)))[0];
 
   if (!upcomingWorkshop) return null;
@@ -54,17 +53,9 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
           {upcomingWorkshop.title}
         </h4>
         <p className="text-gray-400 mb-1">
-          {parseLocalDate(upcomingWorkshop.starts_at).toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          })}
+          {formatEventDateInChicago(upcomingWorkshop.starts_at)}
           {upcomingWorkshop.starts_at
-            ? ` • ${new Date(upcomingWorkshop.starts_at).toLocaleTimeString(undefined, {
-                hour: "numeric",
-                minute: "2-digit",
-              })}`
+            ? ` • ${formatEventTimeInChicago(upcomingWorkshop.starts_at)}`
             : ""}
         </p>
         <p className="text-gray-400 italic mb-2">
@@ -78,7 +69,7 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
         <p className="text-neutral-200 mb-5">{upcomingWorkshop.description}</p>
 
         <div className="flex justify-center gap-3">
-          {dayjs(upcomingWorkshop.starts_at).isBefore(dayjs(), "day") ? (
+          {isEventPastInChicago(upcomingWorkshop.starts_at) ? (
             <button
               disabled
               className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

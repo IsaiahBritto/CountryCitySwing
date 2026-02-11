@@ -5,7 +5,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
-import { parseLocalDate } from "@/lib/utils/dateHelpers";
+import { formatEventDateInChicago, formatEventTimeInChicago } from "@/lib/utils/dateHelpers";
 import SignupModalShell from "@/components/SignupModalShell";
 
 /* ---------- Validation Schema ---------- */
@@ -310,16 +310,9 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     <SignupModalShell title={event.title} onClose={onClose}>
       <p className="text-gray-300 text-sm">
             <strong>Date:</strong>{" "}
-            {parseLocalDate(event.starts_at.slice(0, 10)).toLocaleDateString(undefined, {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
+            {formatEventDateInChicago(event.starts_at)}
             {event.starts_at
-              ? ` • ${new Date(event.starts_at).toLocaleTimeString(undefined, {
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}`
+              ? ` • ${formatEventTimeInChicago(event.starts_at)}`
               : ""}{" "}
             <br />
             <strong>Location:</strong> {event.location}

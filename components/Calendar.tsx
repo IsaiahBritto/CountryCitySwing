@@ -8,6 +8,12 @@ import advancedFormat from "dayjs/plugin/advancedFormat";
 import { StarIcon, XMarkIcon } from "@heroicons/react/24/solid";
 import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
+import {
+  getEventDateStringInChicago,
+  formatEventDateInChicago,
+  formatEventTimeInChicago,
+  isEventPastInChicago,
+} from "@/lib/utils/dateHelpers";
 
 dayjs.extend(weekday);
 dayjs.extend(isoWeek);
@@ -73,7 +79,9 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
 
   const getEventsForDay = (day: number): CalendarEvent[] => {
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
-    return events.filter((e) => dayjs(e.starts_at).format("YYYY-MM-DD") === dateStr);
+    return events.filter(
+      (e) => getEventDateStringInChicago(e.starts_at) === dateStr
+    );
   };
 
   const handleDayClick = (day: number) => {
@@ -253,10 +261,7 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                         <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
                           {event.starts_at && (
                             <span className="flex items-center gap-1">
-                              🕐 {new Date(event.starts_at).toLocaleTimeString(undefined, {
-                                hour: "numeric",
-                                minute: "2-digit",
-                              })}
+                              🕐 {formatEventTimeInChicago(event.starts_at)}
                             </span>
                           )}
                           <span className="flex items-center gap-1">
@@ -329,12 +334,9 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
               {selectedEvent.title}
             </h3>
             <p className="text-gray-400 mb-2">
-              {dayjs(selectedEvent.starts_at).format("dddd, MMMM D, YYYY")}
+              {formatEventDateInChicago(selectedEvent.starts_at)}
               {selectedEvent.starts_at
-                ? ` • ${new Date(selectedEvent.starts_at).toLocaleTimeString(undefined, {
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}`
+                ? ` • ${formatEventTimeInChicago(selectedEvent.starts_at)}`
                 : ""}
             </p>
             <p className="text-gray-300 mb-2 italic">
@@ -363,7 +365,7 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
 
             {/* Sign Up button (same for Comp and non-Comp); past events: Closed */}
             <div className="flex justify-center gap-3 mt-4">
-              {dayjs(selectedEvent.starts_at).isBefore(dayjs(), "day") ? (
+              {isEventPastInChicago(selectedEvent.starts_at) ? (
                 <button
                   disabled
                   className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

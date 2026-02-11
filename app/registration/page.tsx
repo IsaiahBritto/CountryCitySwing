@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 interface Event {
   id: string; // UUID, not number
   title: string;
-  date: string;
+  starts_at: string;
   location: string;
   type?: string;
 }

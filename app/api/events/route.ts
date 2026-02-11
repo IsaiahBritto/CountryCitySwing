@@ -7,7 +7,7 @@ export async function GET() {
     const { data, error } = await supabaseServer
       .from("events")
       .select("*")
-      .order("date", { ascending: true });
+      .order("starts_at", { ascending: true });
 
     if (error) {
       console.error("Error fetching events:", error);
@@ -33,9 +33,9 @@ export async function POST(req: NextRequest) {
     const eventData = await req.json();
 
     // Validate required fields
-    if (!eventData.title || !eventData.date || !eventData.location) {
+    if (!eventData.title || !eventData.starts_at || !eventData.location) {
       return NextResponse.json(
-        { error: "Missing required fields: title, date, location" },
+        { error: "Missing required fields: title, starts_at, location" },
         { status: 400 }
       );
     }
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     // Build insert object - only include fields that exist in the table
     const insertData: any = {
       title: eventData.title,
-      date: eventData.date,
+      starts_at: eventData.starts_at,
       location: eventData.location,
     };
 
@@ -54,8 +54,6 @@ export async function POST(req: NextRequest) {
     if (eventData.strictly_price !== undefined) insertData.strictly_price = eventData.strictly_price ?? null;
     if (eventData.jnj_price !== undefined) insertData.jnj_price = eventData.jnj_price ?? null;
     if (eventData.ccs_team_price !== undefined) insertData.ccs_team_price = eventData.ccs_team_price ?? null;
-    if (eventData.ccs_team_price !== undefined) insertData.ccs_team_price = eventData.ccs_team_price ?? null;
-    if (eventData.start_time !== undefined) insertData.start_time = eventData.start_time || null;
     if (eventData.type !== undefined) insertData.type = eventData.type || null;
 
     const { data, error } = await supabaseServer

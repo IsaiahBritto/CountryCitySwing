@@ -6,7 +6,7 @@ import { XMarkIcon } from "@heroicons/react/24/outline";
 interface Event {
   id?: number;
   title: string;
-  date: string;
+  starts_at: string;
   location: string;
   description?: string;
   signupLink?: string;
@@ -15,7 +15,6 @@ interface Event {
   strictly_price?: number | null;
   jnj_price?: number | null;
   ccs_team_price?: number | null;
-  start_time?: string;
   type?: string;
 }
 
@@ -34,7 +33,7 @@ export default function EventFormModal({
 }: EventFormModalProps) {
   const [formData, setFormData] = useState<Event>({
     title: "",
-    date: "",
+    starts_at: "",
     location: "",
     description: "",
     signupLink: "",
@@ -42,7 +41,6 @@ export default function EventFormModal({
     strictly_price: undefined,
     jnj_price: undefined,
     ccs_team_price: undefined,
-    start_time: "",
     type: "",
   });
   const [loading, setLoading] = useState(false);
@@ -53,16 +51,14 @@ export default function EventFormModal({
   useEffect(() => {
     if (open) {
       if (event) {
-        // Format date for input (YYYY-MM-DD)
-        const dateStr = event.date ? event.date.split("T")[0] : "";
-        // Format start_time for input if it exists
-        const timeStr = event.start_time
-          ? new Date(event.start_time).toISOString().slice(0, 16)
+        // Format starts_at for datetime-local input (YYYY-MM-DDTHH:mm)
+        const startsAtStr = event.starts_at
+          ? new Date(event.starts_at).toISOString().slice(0, 16)
           : "";
 
         setFormData({
           title: event.title || "",
-          date: dateStr,
+          starts_at: startsAtStr,
           location: event.location || "",
           description: event.description || "",
           signupLink: event.signupLink || event.signup_link || "",
@@ -70,14 +66,13 @@ export default function EventFormModal({
           strictly_price: event.strictly_price ?? undefined,
           jnj_price: event.jnj_price ?? undefined,
           ccs_team_price: event.ccs_team_price ?? undefined,
-          start_time: timeStr,
           type: event.type || "",
         });
       } else {
         // Reset form for new event
         setFormData({
           title: "",
-          date: "",
+          starts_at: "",
           location: "",
           description: "",
           signupLink: "",
@@ -85,7 +80,6 @@ export default function EventFormModal({
           strictly_price: undefined,
           jnj_price: undefined,
           ccs_team_price: undefined,
-          start_time: "",
           type: "",
         });
       }
@@ -107,7 +101,7 @@ export default function EventFormModal({
       // Prepare data
       const submitData: any = {
         title: formData.title,
-        date: formData.date,
+        starts_at: formData.starts_at ? new Date(formData.starts_at).toISOString() : "",
         location: formData.location,
       };
 
@@ -117,10 +111,6 @@ export default function EventFormModal({
       if (formData.strictly_price !== undefined) submitData.strictly_price = formData.strictly_price != null ? Number(formData.strictly_price) : null;
       if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null ? Number(formData.jnj_price) : null;
       if (formData.ccs_team_price !== undefined) submitData.ccs_team_price = formData.ccs_team_price != null ? Number(formData.ccs_team_price) : null;
-      if (formData.start_time) {
-        // Convert datetime-local to ISO string
-        submitData.start_time = new Date(formData.start_time).toISOString();
-      }
       if (formData.type !== undefined) submitData.type = formData.type || "";
 
       const response = await fetch(url, {
@@ -183,14 +173,14 @@ export default function EventFormModal({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Date *
+                Date & time *
               </label>
               <input
-                type="date"
+                type="datetime-local"
                 required
-                value={formData.date}
+                value={formData.starts_at}
                 onChange={(e) =>
-                  setFormData({ ...formData, date: e.target.value })
+                  setFormData({ ...formData, starts_at: e.target.value })
                 }
                 className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
               />
@@ -235,20 +225,6 @@ export default function EventFormModal({
               value={formData.type}
               onChange={(e) =>
                 setFormData({ ...formData, type: e.target.value })
-              }
-              className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Start Time (Date & Time)
-            </label>
-            <input
-              type="datetime-local"
-              value={formData.start_time}
-              onChange={(e) =>
-                setFormData({ ...formData, start_time: e.target.value })
               }
               className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
             />

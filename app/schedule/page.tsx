@@ -234,8 +234,8 @@ export default function SchedulePage() {
                   <option value="">Select an event</option>
                   {events.map((ev) => (
                     <option key={ev.id} value={ev.id}>
-                      {ev.title} – {new Date(ev.date).toLocaleDateString()}
-                      {ev.start_time ? ` ${new Date(ev.start_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""}
+                      {ev.title} – {new Date(ev.starts_at).toLocaleDateString()}
+                      {ev.starts_at ? ` ${new Date(ev.starts_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""}
                     </option>
                   ))}
                 </select>

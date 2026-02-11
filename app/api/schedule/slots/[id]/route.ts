@@ -57,7 +57,7 @@ export async function GET(
     }
 
     const [eventRes, assigneeRes] = await Promise.all([
-      supabaseServer.from("events").select("id, title, date, start_time, location").eq("id", slot.event_id).single(),
+      supabaseServer.from("events").select("id, title, starts_at, location").eq("id", slot.event_id).single(),
       slot.assignee_id
         ? supabaseServer.from("profiles").select("id, first_name, last_name, email").eq("id", slot.assignee_id).single()
         : { data: null },

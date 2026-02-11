@@ -21,13 +21,15 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const today = dayjs().format("YYYY-MM-DD");
+    const todayStart = dayjs().startOf("day").toISOString();
+    const todayEnd = dayjs().endOf("day").toISOString();
 
     const { data: events } = await supabaseServer
       .from("events")
-      .select("id, title, date, start_time, location")
-      .eq("date", today)
-      .order("start_time", { ascending: true });
+      .select("id, title, starts_at, location")
+      .gte("starts_at", todayStart)
+      .lte("starts_at", todayEnd)
+      .order("starts_at", { ascending: true });
 
     if (!events?.length) {
       return NextResponse.json({ sent: 0, message: "No events today" });
@@ -36,13 +38,7 @@ export async function GET(req: NextRequest) {
     let sent = 0;
 
     for (const event of events) {
-      const eventDate = dayjs(event.date);
-      const eventTime = event.start_time ? dayjs(event.start_time) : eventDate.startOf("day");
-      const eventStart = eventDate
-        .hour(eventTime.hour())
-        .minute(eventTime.minute())
-        .second(0)
-        .millisecond(0);
+      const eventStart = dayjs(event.starts_at);
 
       const { data: slots } = await supabaseServer
         .from("team_slots")
@@ -59,9 +55,7 @@ export async function GET(req: NextRequest) {
         .in("id", assigneeIds);
 
       const eventDateStr = eventStart.format("dddd, MMMM D, YYYY");
-      const eventTimeStr = event.start_time
-        ? eventStart.format("h:mm A")
-        : "";
+      const eventTimeStr = eventStart.format("h:mm A");
 
       const html = `
         <div style="font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto">

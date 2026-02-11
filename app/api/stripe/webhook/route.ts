@@ -348,12 +348,12 @@ export async function POST(request: NextRequest) {
             try {
               const { data: eventData } = await supabaseServer
                 .from("events")
-                .select("date, location, price")
+                .select("starts_at, location, price")
                 .eq("id", signup.event_id)
                 .single();
               
               if (eventData) {
-                eventDate = eventData.date ? new Date(eventData.date).toLocaleDateString(undefined, {
+                eventDate = eventData.starts_at ? new Date(eventData.starts_at).toLocaleDateString(undefined, {
                   weekday: "long",
                   month: "long",
                   day: "numeric",
@@ -505,12 +505,12 @@ export async function POST(request: NextRequest) {
           try {
             const { data: eventData } = await supabaseServer
               .from("events")
-              .select("date, location, price")
+              .select("starts_at, location, price")
               .eq("id", signup.event_id)
               .single();
             
             if (eventData) {
-              eventDate = eventData.date ? new Date(eventData.date).toLocaleDateString(undefined, {
+              eventDate = eventData.starts_at ? new Date(eventData.starts_at).toLocaleDateString(undefined, {
                 weekday: "long",
                 month: "long",
                 day: "numeric",
@@ -694,12 +694,12 @@ export async function POST(request: NextRequest) {
           try {
             const { data: eventData } = await supabaseServer
               .from("events")
-              .select("date, location, price")
+              .select("starts_at, location, price")
               .eq("id", signup.event_id)
               .single();
             
             if (eventData) {
-              eventDate = eventData.date ? new Date(eventData.date).toLocaleDateString(undefined, {
+              eventDate = eventData.starts_at ? new Date(eventData.starts_at).toLocaleDateString(undefined, {
                 weekday: "long",
                 month: "long",
                 day: "numeric",
@@ -887,6 +887,8 @@ export async function POST(request: NextRequest) {
           paid: true,
           payment_method: "stripe", // Update payment method to stripe
           stripe_session_id: session.id,
+          stripe_tax_amount: taxAmount,
+          stripe_processing_fee: processingFee,
           updated_at: new Date().toISOString(),
         })
         .eq("id", orderId);
@@ -1085,6 +1087,8 @@ export async function POST(request: NextRequest) {
             paid: true,
             payment_method: "stripe",
             stripe_session_id: session.id,
+            stripe_tax_amount: taxAmount,
+            stripe_processing_fee: processingFee,
             updated_at: new Date().toISOString(),
           })
           .eq("id", existingOrder.id)
@@ -1122,6 +1126,8 @@ export async function POST(request: NextRequest) {
               paid: true, // Stripe payment completed
               payment_method: "stripe",
               stripe_session_id: session.id,
+              stripe_tax_amount: taxAmount,
+              stripe_processing_fee: processingFee,
             },
           ])
           .select()

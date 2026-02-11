@@ -87,8 +87,8 @@ export async function POST(req: NextRequest) {
     const duplicateStrictly = strictlyEmailsThisRequest.some((e) => existingStrictlyEmails.has(e));
     const duplicateJnJ = jnjEmailsThisRequest.some((e) => existingJnJEmails.has(e));
     if (duplicateStrictly || duplicateJnJ) {
-      const eventDate = event.date
-        ? new Date(event.date).toLocaleDateString(undefined, {
+      const eventDate = event.starts_at
+        ? new Date(event.starts_at).toLocaleDateString(undefined, {
             weekday: "long",
             month: "long",
             day: "numeric",

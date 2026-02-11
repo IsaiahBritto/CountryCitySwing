@@ -31,9 +31,9 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
     .filter(
       (e) =>
         e.type === "Workshop" &&
-        dayjs(e.date).isSameOrAfter(today, "day")
+        dayjs(e.starts_at).isSameOrAfter(today, "day")
     )
-    .sort((a, b) => dayjs(a.date).diff(dayjs(b.date)))[0];
+    .sort((a, b) => dayjs(a.starts_at).diff(dayjs(b.starts_at)))[0];
 
   if (!upcomingWorkshop) return null;
 
@@ -54,14 +54,14 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
           {upcomingWorkshop.title}
         </h4>
         <p className="text-gray-400 mb-1">
-          {parseLocalDate(upcomingWorkshop.date).toLocaleDateString(undefined, {
+          {parseLocalDate(upcomingWorkshop.starts_at).toLocaleDateString(undefined, {
             weekday: "long",
             month: "long",
             day: "numeric",
             year: "numeric",
           })}
-          {upcomingWorkshop.start_time
-            ? ` • ${new Date(upcomingWorkshop.start_time).toLocaleTimeString(undefined, {
+          {upcomingWorkshop.starts_at
+            ? ` • ${new Date(upcomingWorkshop.starts_at).toLocaleTimeString(undefined, {
                 hour: "numeric",
                 minute: "2-digit",
               })}`
@@ -78,7 +78,7 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
         <p className="text-neutral-200 mb-5">{upcomingWorkshop.description}</p>
 
         <div className="flex justify-center gap-3">
-          {dayjs(upcomingWorkshop.date).isBefore(dayjs(), "day") ? (
+          {dayjs(upcomingWorkshop.starts_at).isBefore(dayjs(), "day") ? (
             <button
               disabled
               className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

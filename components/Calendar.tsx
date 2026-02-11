@@ -16,7 +16,7 @@ dayjs.extend(advancedFormat);
 interface CalendarEvent {
   id: number;
   title: string;
-  date: string;
+  starts_at: string;
   location: string;
   signupLink?: string;
   signup_link?: string;
@@ -25,7 +25,6 @@ interface CalendarEvent {
   strictly_price?: number | null;
   jnj_price?: number | null;
   ccs_team_price?: number | null;
-  start_time?: string;
   type?: string;
 }
 
@@ -74,7 +73,7 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
 
   const getEventsForDay = (day: number): CalendarEvent[] => {
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
-    return events.filter((e) => e.date === dateStr);
+    return events.filter((e) => dayjs(e.starts_at).format("YYYY-MM-DD") === dateStr);
   };
 
   const handleDayClick = (day: number) => {
@@ -252,9 +251,9 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                           {event.title}
                         </h4>
                         <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
-                          {event.start_time && (
+                          {event.starts_at && (
                             <span className="flex items-center gap-1">
-                              🕐 {new Date(event.start_time).toLocaleTimeString(undefined, {
+                              🕐 {new Date(event.starts_at).toLocaleTimeString(undefined, {
                                 hour: "numeric",
                                 minute: "2-digit",
                               })}
@@ -330,9 +329,9 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
               {selectedEvent.title}
             </h3>
             <p className="text-gray-400 mb-2">
-              {dayjs(selectedEvent.date).format("dddd, MMMM D, YYYY")}
-              {selectedEvent.start_time
-                ? ` • ${new Date(selectedEvent.start_time).toLocaleTimeString(undefined, {
+              {dayjs(selectedEvent.starts_at).format("dddd, MMMM D, YYYY")}
+              {selectedEvent.starts_at
+                ? ` • ${new Date(selectedEvent.starts_at).toLocaleTimeString(undefined, {
                     hour: "numeric",
                     minute: "2-digit",
                   })}`
@@ -364,7 +363,7 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
 
             {/* Sign Up button (same for Comp and non-Comp); past events: Closed */}
             <div className="flex justify-center gap-3 mt-4">
-              {dayjs(selectedEvent.date).isBefore(dayjs(), "day") ? (
+              {dayjs(selectedEvent.starts_at).isBefore(dayjs(), "day") ? (
                 <button
                   disabled
                   className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

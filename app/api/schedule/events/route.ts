@@ -42,13 +42,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const today = dayjs().startOf("day").format("YYYY-MM-DD");
+    const today = dayjs().startOf("day").toISOString();
     const { data: events, error } = await supabaseServer
       .from("events")
-      .select("id, title, date, start_time, location")
-      .gte("date", today)
-      .order("date", { ascending: true })
-      .order("start_time", { ascending: true, nullsFirst: false });
+      .select("id, title, starts_at, location")
+      .gte("starts_at", today)
+      .order("starts_at", { ascending: true });
 
     if (error) {
       console.error("Error fetching events:", error);

@@ -139,11 +139,11 @@ export async function POST(req: NextRequest) {
         if (signup.event_id) {
           const { data: ev } = await supabaseServer
             .from("events")
-            .select("date, location")
+            .select("starts_at, location")
             .eq("id", signup.event_id)
             .single();
-          if (ev?.date) {
-            eventDate = new Date(ev.date).toLocaleDateString(undefined, {
+          if (ev?.starts_at) {
+            eventDate = new Date(ev.starts_at).toLocaleDateString(undefined, {
               weekday: "long",
               month: "long",
               day: "numeric",

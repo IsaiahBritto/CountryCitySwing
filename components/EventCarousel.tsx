@@ -42,7 +42,7 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
 
   // 🧠 Show only upcoming events (today and future)
   const filteredEvents = events.filter((e) =>
-    dayjs(e.date).isSame(dayjs(), "day") || dayjs(e.date).isAfter(dayjs(), "day")
+    dayjs(e.starts_at).isSame(dayjs(), "day") || dayjs(e.starts_at).isAfter(dayjs(), "day")
   );
 
   if (filteredEvents.length === 0) {
@@ -98,14 +98,14 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
                   </h3>
 
                   <p className="text-gray-400 mb-1">
-                    {parseLocalDate(event.date).toLocaleDateString(undefined, {
+                    {parseLocalDate(event.starts_at).toLocaleDateString(undefined, {
                       weekday: "long",
                       month: "long",
                       day: "numeric",
                       year: "numeric",
                     })}
-                    {event.start_time
-                      ? ` • ${new Date(event.start_time).toLocaleTimeString(undefined, {
+                    {event.starts_at
+                      ? ` • ${new Date(event.starts_at).toLocaleTimeString(undefined, {
                           hour: "numeric",
                           minute: "2-digit",
                         })}`
@@ -137,7 +137,7 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
 
                   {/* --- Sign Up / Closed Button --- */}
                   <div className="flex justify-center gap-3">
-                    {dayjs(event.date).isBefore(dayjs(), "day") ? (
+                    {dayjs(event.starts_at).isBefore(dayjs(), "day") ? (
                       <button
                         disabled
                         className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

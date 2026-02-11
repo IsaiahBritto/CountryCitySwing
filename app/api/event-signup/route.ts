@@ -147,8 +147,8 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (existing) {
       const eventTitle = event.title ?? "This event";
-      const eventDate = event.date
-        ? new Date(event.date).toLocaleDateString(undefined, {
+      const eventDate = event.starts_at
+        ? new Date(event.starts_at).toLocaleDateString(undefined, {
             weekday: "long",
             month: "long",
             day: "numeric",
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
               currency: "usd",
               product_data: {
                 name: event.title,
-                description: `Event on ${new Date(event.date).toLocaleDateString()} at ${event.location}`,
+                description: `Event on ${new Date(event.starts_at).toLocaleDateString()} at ${event.location}`,
                 tax_code: getEventTaxCode(),
               },
               unit_amount: Math.round(eventPrice * 100),
@@ -441,7 +441,7 @@ export async function POST(req: NextRequest) {
               </div>
               <div class="detail-row">
                 <div class="detail-label">Date</div>
-                <div class="detail-value">${new Date(event.date).toLocaleDateString(undefined, {
+                <div class="detail-value">${new Date(event.starts_at).toLocaleDateString(undefined, {
                   weekday: "long",
                   month: "long",
                   day: "numeric",

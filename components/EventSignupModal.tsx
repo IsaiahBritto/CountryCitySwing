@@ -310,13 +310,13 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     <SignupModalShell title={event.title} onClose={onClose}>
       <p className="text-gray-300 text-sm">
             <strong>Date:</strong>{" "}
-            {parseLocalDate(event.date.slice(0, 10)).toLocaleDateString(undefined, {
+            {parseLocalDate(event.starts_at.slice(0, 10)).toLocaleDateString(undefined, {
               weekday: "long",
               month: "long",
               day: "numeric",
             })}
-            {event.start_time
-              ? ` • ${new Date(event.start_time).toLocaleTimeString(undefined, {
+            {event.starts_at
+              ? ` • ${new Date(event.starts_at).toLocaleTimeString(undefined, {
                   hour: "numeric",
                   minute: "2-digit",
                 })}`

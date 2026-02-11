@@ -49,7 +49,7 @@ export default function EventsPage() {
     const { data, error } = await supabase
       .from("events")
       .select("*")
-      .order("date", { ascending: true });
+      .order("starts_at", { ascending: true });
 
     if (error) {
       console.error("Supabase error:", error);
@@ -69,7 +69,7 @@ export default function EventsPage() {
   // Filter upcoming events only (today and future)
   const today = dayjs().startOf("day");
   const upcomingEvents = events.filter((e) =>
-    dayjs(e.date).isSame(today, "day") || dayjs(e.date).isAfter(today, "day")
+    dayjs(e.starts_at).isSame(today, "day") || dayjs(e.starts_at).isAfter(today, "day")
   );
 
   const handleEventSaved = () => {
@@ -174,14 +174,14 @@ export default function EventsPage() {
                 {event.title}
               </h3>
               <p className="text-gray-400 mb-1">
-                {parseLocalDate(event.date).toLocaleDateString(undefined, {
+                {parseLocalDate(event.starts_at).toLocaleDateString(undefined, {
                   weekday: "long",
                   month: "long",
                   day: "numeric",
                   year: "numeric",
                 })}
-                {event.start_time
-                  ? ` • ${new Date(event.start_time).toLocaleTimeString(undefined, {
+                {event.starts_at
+                  ? ` • ${new Date(event.starts_at).toLocaleTimeString(undefined, {
                       hour: "numeric",
                       minute: "2-digit",
                     })}`

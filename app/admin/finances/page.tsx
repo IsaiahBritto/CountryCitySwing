@@ -64,7 +64,7 @@ type EventsView = "upcoming" | "past" | "overview";
 interface Event {
   id: string;
   title: string;
-  date: string;
+  starts_at: string;
   location: string;
   price: number | null;
   ccs_team_price?: number | null;
@@ -265,6 +265,7 @@ export default function AdminFinancesPage() {
     totalPaidBt2: number;
     totalPaidJudges: number;
     workshopCcsIncome: number;
+    totalStripeTaxesFeesFromMerch: number;
   } | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -288,19 +289,19 @@ export default function AdminFinancesPage() {
     const t = dayjs().startOf("day");
     if (eventsView === "upcoming") {
       return events
-        .filter((e) => dayjs(e.date).isSame(t, "day") || dayjs(e.date).isAfter(t, "day"))
+        .filter((e) => dayjs(e.starts_at).isSame(t, "day") || dayjs(e.starts_at).isAfter(t, "day"))
         .sort((a, b) => {
-          const da = dayjs(a.date);
-          const db = dayjs(b.date);
+          const da = dayjs(a.starts_at);
+          const db = dayjs(b.starts_at);
           return da.isBefore(db) ? -1 : da.isAfter(db) ? 1 : 0;
         });
     }
     if (eventsView === "past") {
       return events
-        .filter((e) => dayjs(e.date).isBefore(t, "day"))
+        .filter((e) => dayjs(e.starts_at).isBefore(t, "day"))
         .sort((a, b) => {
-          const da = dayjs(a.date);
-          const db = dayjs(b.date);
+          const da = dayjs(a.starts_at);
+          const db = dayjs(b.starts_at);
           return da.isAfter(db) ? -1 : da.isBefore(db) ? 1 : 0;
         });
     }
@@ -310,7 +311,7 @@ export default function AdminFinancesPage() {
   const years = useMemo(() => {
     const set = new Set<number>();
     for (const e of events) {
-      set.add(dayjs(e.date).year());
+      set.add(dayjs(e.starts_at).year());
     }
     return Array.from(set).sort((a, b) => b - a);
   }, [events]);
@@ -318,7 +319,7 @@ export default function AdminFinancesPage() {
   const eventCountByYear = useMemo(() => {
     const map = new Map<number, number>();
     for (const e of events) {
-      const y = dayjs(e.date).year();
+      const y = dayjs(e.starts_at).year();
       map.set(y, (map.get(y) ?? 0) + 1);
     }
     return map;
@@ -327,10 +328,10 @@ export default function AdminFinancesPage() {
   const eventsInSelectedYear = useMemo(() => {
     if (selectedYear == null) return [];
     return events
-      .filter((e) => dayjs(e.date).year() === selectedYear)
-      .sort((a, b) => {
-        const da = dayjs(a.date);
-        const db = dayjs(b.date);
+      .filter((e) => dayjs(e.starts_at).year() === selectedYear)
+        .sort((a, b) => {
+          const da = dayjs(a.starts_at);
+          const db = dayjs(b.starts_at);
         return da.isBefore(db) ? -1 : da.isAfter(db) ? 1 : 0;
       });
   }, [events, selectedYear]);
@@ -363,8 +364,8 @@ export default function AdminFinancesPage() {
       setError(null);
       const { data, error: e } = await supabaseBrowser
         .from("events")
-        .select("id, title, date, location, price, ccs_team_price, type")
-        .order("date", { ascending: false });
+        .select("id, title, starts_at, location, price, ccs_team_price, type")
+        .order("starts_at", { ascending: false });
 
       if (e) {
         setError("Failed to load events.");
@@ -588,6 +589,29 @@ export default function AdminFinancesPage() {
           }
         }
 
+        // Stripe taxes/fees from merch orders (paid via Stripe) in this year
+        let totalStripeTaxesFeesFromMerch = 0;
+        try {
+          const yearStart = `${selectedYear}-01-01T00:00:00.000Z`;
+          const yearEnd = `${selectedYear}-12-31T23:59:59.999Z`;
+          const { data: merchOrders } = await supabaseBrowser
+            .from("merch_orders")
+            .select("stripe_tax_amount, stripe_processing_fee")
+            .eq("paid", true)
+            .eq("payment_method", "stripe")
+            .gte("created_at", yearStart)
+            .lte("created_at", yearEnd);
+          if (merchOrders?.length) {
+            totalStripeTaxesFeesFromMerch = merchOrders.reduce(
+              (sum, o) => sum + (Number(o.stripe_tax_amount) || 0) + (Number(o.stripe_processing_fee) || 0),
+              0
+            );
+          }
+          totalStripeTaxesFeesFromMerch = Math.round(totalStripeTaxesFeesFromMerch * 100) / 100;
+        } catch {
+          // Columns may not exist yet or RLS may block; use 0
+        }
+
         setOverviewFinances({
           totalStudioRentals: Math.round(totalStudioRentals * 100) / 100,
           totalPaidMalissa: Math.round(totalPaidMalissa * 100) / 100,
@@ -595,6 +619,7 @@ export default function AdminFinancesPage() {
           totalPaidBt2: Math.round(totalPaidBt2 * 100) / 100,
           totalPaidJudges: Math.round(totalPaidJudges * 100) / 100,
           workshopCcsIncome: Math.round(workshopCcsIncome * 100) / 100,
+          totalStripeTaxesFeesFromMerch,
         });
       } catch (e) {
         setOverviewError(
@@ -1071,7 +1096,7 @@ export default function AdminFinancesPage() {
                   >
                     <div className="font-medium truncate">{ev.title}</div>
                     <div className="mt-0.5 text-xs text-neutral-500">
-                      {dayjs(ev.date).format("MMM D, YYYY")}
+                      {dayjs(ev.starts_at).format("MMM D, YYYY")}
                       {ev.location ? ` · ${ev.location}` : ""}
                     </div>
                   </button>
@@ -1217,17 +1242,40 @@ export default function AdminFinancesPage() {
                               <span className="text-xs text-neutral-500">
                                 Cash and Stripe totals above add up to this gross event revenue.
                               </span>
-                              {overviewStats.stripeTaxesFees > 0 && (
-                                <span className="text-xs text-neutral-400">
-                                  Taxes/Fees collected via Stripe:{" "}
-                                  <span className="font-semibold text-accent">
-                                    ${overviewStats.stripeTaxesFees.toFixed(2)}{" "}
-                                  </span>
-                                  (to remain in bank)
-                                </span>
-                              )}
                             </div>
                       </div>
+
+                      {/* Total Stripe taxes & fees (events, workshops, comps + merch) */}
+                      {(overviewStats.stripeTaxesFees > 0 || (overviewFinances?.totalStripeTaxesFeesFromMerch ?? 0) > 0) && (
+                        <div className="mt-6 rounded-lg border border-accent/30 bg-neutral-800/40 px-4 py-4">
+                          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-accent">
+                            Total Stripe taxes &amp; fees ({selectedYear})
+                          </h3>
+                          <p className="mb-3 text-xs text-neutral-500">
+                            Taxes and processing fees collected via Stripe (to remain in bank).
+                          </p>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center justify-between text-neutral-300">
+                              <span>Events, workshops &amp; comps</span>
+                              <span className="font-semibold text-white">
+                                ${overviewStats.stripeTaxesFees.toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-neutral-300">
+                              <span>Merch sales</span>
+                              <span className="font-semibold text-white">
+                                ${(overviewFinances?.totalStripeTaxesFeesFromMerch ?? 0).toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="mt-2 border-t border-neutral-600 pt-2 flex items-center justify-between font-medium text-accent">
+                              <span>Total</span>
+                              <span>
+                                ${(overviewStats.stripeTaxesFees + (overviewFinances?.totalStripeTaxesFeesFromMerch ?? 0)).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {overviewFinances && (
                         <>
@@ -1390,7 +1438,7 @@ export default function AdminFinancesPage() {
                     {selectedEvent.title}
                   </h2>
                   <p className="text-sm text-neutral-500">
-                    {dayjs(selectedEvent.date).format("dddd, MMMM D, YYYY")}
+                    {dayjs(selectedEvent.starts_at).format("dddd, MMMM D, YYYY")}
                     {selectedEvent.location
                       ? ` · ${selectedEvent.location}`
                       : ""}

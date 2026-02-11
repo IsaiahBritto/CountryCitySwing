@@ -387,7 +387,7 @@ export default function RegistrationPage() {
   };
 
   const isSignedUpOnEventDay = (createdAt: string) =>
-    !!selectedEvent && dayjs(createdAt).isSame(dayjs(selectedEvent.date), "day");
+    !!selectedEvent && dayjs(createdAt).isSame(dayjs(selectedEvent.starts_at), "day");
 
   if (loading) {
     return (
@@ -503,7 +503,7 @@ export default function RegistrationPage() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-sm md:text-base">{event.title}</h3>
                     <p className="text-xs md:text-sm text-gray-400 mt-1">
-                      {dayjs(event.date).format("MMMM D, YYYY")}
+                      {dayjs(event.starts_at).format("MMMM D, YYYY")}
                     </p>
                     <p className="text-xs md:text-sm text-gray-400">
                       {event.location}

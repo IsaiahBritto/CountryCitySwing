@@ -13,9 +13,9 @@ export async function PUT(
     console.log("Updating event:", { eventId, eventData });
 
     // Validate required fields
-    if (!eventData.title || !eventData.date || !eventData.location) {
+    if (!eventData.title || !eventData.starts_at || !eventData.location) {
       return NextResponse.json(
-        { error: "Missing required fields: title, date, location" },
+        { error: "Missing required fields: title, starts_at, location" },
         { status: 400 }
       );
     }
@@ -26,7 +26,7 @@ export async function PUT(
     // Build update object - only include fields that exist in the table
     const updateData: any = {
       title: eventData.title,
-      date: eventData.date,
+      starts_at: eventData.starts_at,
       location: eventData.location,
     };
 
@@ -37,7 +37,6 @@ export async function PUT(
     if (eventData.strictly_price !== undefined) updateData.strictly_price = eventData.strictly_price ?? null;
     if (eventData.jnj_price !== undefined) updateData.jnj_price = eventData.jnj_price ?? null;
     if (eventData.ccs_team_price !== undefined) updateData.ccs_team_price = eventData.ccs_team_price ?? null;
-    if (eventData.start_time !== undefined) updateData.start_time = eventData.start_time || null;
     if (eventData.type !== undefined) updateData.type = eventData.type || null;
 
     const { data, error } = await supabaseServer

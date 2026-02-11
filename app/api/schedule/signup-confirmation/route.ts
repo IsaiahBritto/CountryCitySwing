@@ -27,20 +27,20 @@ export async function POST(req: NextRequest) {
 
     const { data: event } = await supabaseServer
       .from("events")
-      .select("id, title, date, start_time, location")
+      .select("id, title, starts_at, location")
       .eq("id", eventId)
       .single();
 
-    const eventDate = event?.date
-      ? new Date(event.date).toLocaleDateString(undefined, {
+    const eventDate = event?.starts_at
+      ? new Date(event.starts_at).toLocaleDateString(undefined, {
           weekday: "long",
           month: "long",
           day: "numeric",
           year: "numeric",
         })
       : "—";
-    const eventTime = event?.start_time
-      ? new Date(event.start_time).toLocaleTimeString(undefined, {
+    const eventTime = event?.starts_at
+      ? new Date(event.starts_at).toLocaleTimeString(undefined, {
           hour: "numeric",
           minute: "2-digit",
         })

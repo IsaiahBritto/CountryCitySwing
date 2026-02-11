@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
     const assigneeIds = [...new Set(slotList.map((s: any) => s.assignee_id).filter(Boolean))];
 
     const [eventsRes, profilesRes] = await Promise.all([
-      eventIds.length ? supabaseServer.from("events").select("id, title, date, start_time, location").in("id", eventIds) : { data: [] },
+      eventIds.length ? supabaseServer.from("events").select("id, title, starts_at, location").in("id", eventIds) : { data: [] },
       assigneeIds.length ? supabaseServer.from("profiles").select("id, first_name, last_name").in("id", assigneeIds) : { data: [] },
     ]);
 
@@ -94,8 +94,9 @@ export async function GET(req: NextRequest) {
 
     if (fromDate || toDate) {
       result = result.filter((s: any) => {
-        const d = s.event?.date;
-        if (!d) return false;
+        const startsAt = s.event?.starts_at;
+        if (!startsAt) return false;
+        const d = startsAt.slice(0, 10);
         if (fromDate && d < fromDate) return false;
         if (toDate && d > toDate) return false;
         return true;

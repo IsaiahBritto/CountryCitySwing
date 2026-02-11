@@ -20,8 +20,7 @@ export interface ScheduleSlot {
   event: {
     id: string;
     title: string;
-    date: string;
-    start_time?: string;
+    starts_at: string;
     location?: string;
   } | null;
   assignee: {
@@ -97,7 +96,7 @@ export default function ScheduleCalendar({
 
   const getSlotsForDay = (day: number): ScheduleSlot[] => {
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
-    return slots.filter((s) => s.event?.date === dateStr);
+    return slots.filter((s) => s.event?.starts_at && dayjs(s.event.starts_at).format("YYYY-MM-DD") === dateStr);
   };
 
   /** Number of slots on this day that have no assignee (available to pick up). */
@@ -242,7 +241,7 @@ export default function ScheduleCalendar({
   // Use current slots for the selected date so modal updates after signup/cancel/delete
   const modalDaySlots =
     selectedDate != null
-      ? slots.filter((s) => s.event?.date === selectedDate)
+      ? slots.filter((s) => s.event?.starts_at && dayjs(s.event.starts_at).format("YYYY-MM-DD") === selectedDate)
       : [];
 
   const slotsByEvent = modalDaySlots.reduce<Record<string, ScheduleSlot[]>>((acc, s) => {
@@ -348,9 +347,9 @@ export default function ScheduleCalendar({
                       <h4 className="text-lg font-semibold text-primary mb-2">
                         {ev?.title ?? "Event"}
                       </h4>
-                      {ev?.start_time && (
+                      {ev?.starts_at && (
                         <p className="text-sm text-gray-400 mb-3">
-                          {new Date(ev.start_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                          {new Date(ev.starts_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                           {ev?.location ? ` \u00b7  ${ev.location}` : ""}
                         </p>
                       )}

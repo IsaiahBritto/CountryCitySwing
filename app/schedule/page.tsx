@@ -20,8 +20,7 @@ const POSITIONS = [
 interface EventOption {
   id: string;
   title: string;
-  date: string;
-  start_time?: string;
+  starts_at: string;
   location?: string;
 }
 

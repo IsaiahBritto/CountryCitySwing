@@ -517,8 +517,8 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
                   }
                 }}
               >
-                <div className="flex justify-between items-start">
-                  <div className="flex items-start gap-3 flex-1">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="flex items-start gap-2 sm:gap-3 flex-1 min-w-0">
                     <input
                       type="checkbox"
                       checked={order.paid}
@@ -527,21 +527,21 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
                         togglePaidStatus(order.id, e.target.checked);
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      className="mt-1 w-5 h-5 text-primary bg-neutral-600 border-neutral-500 rounded focus:ring-primary focus:ring-2"
+                      className="mt-1 w-5 h-5 shrink-0 text-primary bg-neutral-600 border-neutral-500 rounded focus:ring-primary focus:ring-2"
                     />
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="font-semibold text-white">
                         Order #{order.id.slice(0, 8)}
                       </p>
                       <p className="text-gray-300">
                         {order.first_name} {order.last_name}
                       </p>
-                      <p className="text-sm text-gray-400">{order.email}</p>
+                      <p className="text-sm text-gray-400 break-all">{order.email}</p>
                       <p className="text-sm text-gray-400 mt-1">
                         {new Date(order.created_at).toLocaleDateString()}
                       </p>
                       {order.items?.length > 0 && (
-                        <p className="text-sm text-gray-300 mt-2">
+                        <p className="text-sm text-gray-300 mt-2 break-words">
                           {order.items.map((item: any, i: number) => {
                             const is8CC =
                               item.productName === CCS_8CC_SHIRT ||
@@ -564,14 +564,15 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
                     </div>
                     {order.delivery_method === "ship" && (
                       <span
-                        className="shrink-0 p-1.5 rounded bg-amber-500/20 text-amber-400"
+                        className="shrink-0 p-1 rounded sm:p-1.5 bg-amber-500/20 text-amber-400"
                         title="Shipping required"
+                        aria-hidden
                       >
-                        <TruckIcon className="w-5 h-5" />
+                        <TruckIcon className="w-4 h-4 sm:w-5 sm:h-5" />
                       </span>
                     )}
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     <p className="font-semibold text-primary">
                       ${order.total.toFixed(2)}
                     </p>

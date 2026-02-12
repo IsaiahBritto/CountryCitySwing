@@ -129,6 +129,47 @@ export async function PUT(
       console.error("Class description sync after assign:", syncErr);
     }
 
+    // When admin assigns a user to the slot, send confirmation email to assignee and admins
+    if (slot.assignee_id) {
+      const { data: assigneeProfile } = await supabaseServer
+        .from("profiles")
+        .select("first_name, last_name, email")
+        .eq("id", slot.assignee_id)
+        .maybeSingle();
+
+      let assigneeEmail: string | undefined;
+      if (assigneeProfile && typeof (assigneeProfile as { email?: string }).email === "string") {
+        assigneeEmail = (assigneeProfile as { email: string }).email;
+      }
+      if (!assigneeEmail) {
+        const { data: authUser } = await supabaseServer.auth.admin.getUserById(slot.assignee_id);
+        assigneeEmail = authUser?.user?.email ?? undefined;
+      }
+
+      const assigneeName = assigneeProfile
+        ? [assigneeProfile.first_name, assigneeProfile.last_name].filter(Boolean).join(" ") || "Instructor"
+        : "Instructor";
+
+      if (assigneeEmail) {
+        try {
+          await fetch(`${req.nextUrl.origin}/api/schedule/signup-confirmation`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              slotId: slot.id,
+              assigneeId: slot.assignee_id,
+              assigneeEmail,
+              assigneeName,
+              position: slot.position,
+              eventId: slot.event_id,
+            }),
+          });
+        } catch (emailErr) {
+          console.error("Admin assign confirmation email error:", emailErr);
+        }
+      }
+    }
+
     return NextResponse.json({ success: true, slot });
   } catch (e: any) {
     console.error("Schedule slot PUT:", e);

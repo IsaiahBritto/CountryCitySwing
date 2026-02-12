@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { updateClassEventDescriptionFromSchedule } from "@/lib/classDescriptionSync";
 
 async function getAuthUser(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -109,6 +110,12 @@ export async function POST(
     if (updateError) {
       console.error("Error signing up for slot:", updateError);
       return NextResponse.json({ error: "Failed to sign up" }, { status: 500 });
+    }
+
+    try {
+      await updateClassEventDescriptionFromSchedule(String(updated.event_id));
+    } catch (syncErr) {
+      console.error("Class description sync after signup:", syncErr);
     }
 
     // Send confirmation email (assignee + admins)

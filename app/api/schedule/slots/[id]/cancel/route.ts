@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { updateClassEventDescriptionFromSchedule } from "@/lib/classDescriptionSync";
 
 async function getAuthUser(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -110,6 +111,12 @@ export async function POST(
     if (updateError) {
       console.error("Error cancelling slot:", updateError);
       return NextResponse.json({ error: "Failed to cancel" }, { status: 500 });
+    }
+
+    try {
+      await updateClassEventDescriptionFromSchedule(String(slot.event_id));
+    } catch (syncErr) {
+      console.error("Class description sync after cancel:", syncErr);
     }
 
     // Fetch assignee name (and email if column exists) for confirmation email

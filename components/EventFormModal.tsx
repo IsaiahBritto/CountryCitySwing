@@ -1,7 +1,39 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { XMarkIcon } from "@heroicons/react/24/outline";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
+
+const CLASS_INTRO = "This is your one stop shop for weekly country swing fun! ";
+const DEFAULT_UPPER_LEVEL_NAMES = "Malissa and Isaiah";
+const DEFAULT_BEGINNER_SENTENCE = "our team of amazing beginner instructors lead the beginner class scheduled weeks";
+
+/** Extract "A", "B", or "C" from slot position e.g. "Beginner Lead Teacher Week A". */
+function getWeekLetterFromPosition(position: string): string | null {
+  const m = position.match(/Week ([ABC])/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
+function buildClassDescription(upperNames: string, beginnerPart: string): string {
+  return (
+    CLASS_INTRO +
+    upperNames +
+    " will be instructing the upper level class while " +
+    beginnerPart
+  );
+}
+
+/** Parse existing Class description into upper-level names and beginner part. */
+function parseClassDescription(description: string): { upperNames: string; beginnerPart: string } {
+  const sep = " will be instructing the upper level class while ";
+  const idx = description.indexOf(sep);
+  if (idx === -1) {
+    return { upperNames: DEFAULT_UPPER_LEVEL_NAMES, beginnerPart: DEFAULT_BEGINNER_SENTENCE };
+  }
+  const upperNames = description.slice(0, idx).replace(CLASS_INTRO, "").trim() || DEFAULT_UPPER_LEVEL_NAMES;
+  const beginnerPart = description.slice(idx + sep.length).trim() || DEFAULT_BEGINNER_SENTENCE;
+  return { upperNames, beginnerPart };
+}
 
 interface Event {
   id?: number;
@@ -45,8 +77,14 @@ export default function EventFormModal({
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [classUpperLevelNames, setClassUpperLevelNames] = useState(DEFAULT_UPPER_LEVEL_NAMES);
+  const [classBeginnerPart, setClassBeginnerPart] = useState(DEFAULT_BEGINNER_SENTENCE);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const upperNamesRef = useRef(classUpperLevelNames);
+  upperNamesRef.current = classUpperLevelNames;
 
   const isEditMode = !!event;
+  const isClassType = (formData.type || "").trim().toLowerCase() === "class";
 
   useEffect(() => {
     if (open) {
@@ -56,11 +94,29 @@ export default function EventFormModal({
           ? new Date(event.starts_at).toISOString().slice(0, 16)
           : "";
 
+        const isClass = (event.type || "").trim().toLowerCase() === "class";
+        let description = event.description || "";
+        let upperNames = DEFAULT_UPPER_LEVEL_NAMES;
+        let beginnerPart = DEFAULT_BEGINNER_SENTENCE;
+
+        if (isClass && description) {
+          const parsed = parseClassDescription(description);
+          upperNames = parsed.upperNames;
+          beginnerPart = parsed.beginnerPart;
+        }
+
+        setClassUpperLevelNames(upperNames);
+        setClassBeginnerPart(beginnerPart);
+
+        if (isClass && !description) {
+          description = buildClassDescription(upperNames, beginnerPart);
+        }
+
         setFormData({
           title: event.title || "",
           starts_at: startsAtStr,
           location: event.location || "",
-          description: event.description || "",
+          description,
           signupLink: event.signupLink || event.signup_link || "",
           price: event.price ?? undefined,
           strictly_price: event.strictly_price ?? undefined,
@@ -69,7 +125,8 @@ export default function EventFormModal({
           type: event.type || "",
         });
       } else {
-        // Reset form for new event
+        setClassUpperLevelNames(DEFAULT_UPPER_LEVEL_NAMES);
+        setClassBeginnerPart(DEFAULT_BEGINNER_SENTENCE);
         setFormData({
           title: "",
           starts_at: "",
@@ -86,6 +143,68 @@ export default function EventFormModal({
       setError("");
     }
   }, [open, event]);
+
+  // Keep modal description in sync when Class parts change (e.g. after schedule fetch updates classBeginnerPart).
+  useEffect(() => {
+    if (!open || !isClassType) return;
+    const built = buildClassDescription(classUpperLevelNames, classBeginnerPart);
+    setFormData((prev) => (prev.description === built ? prev : { ...prev, description: built }));
+  }, [open, isClassType, classUpperLevelNames, classBeginnerPart]);
+
+  // When modal is open and event is Class with an id, fetch schedule slots and update beginner part.
+  // Use event?.type (not formData.type) so we run as soon as the modal opens with a Class event,
+  // before form state has been updated.
+  useEffect(() => {
+    const isEventClass = (event?.type || "").trim().toLowerCase() === "class";
+    if (!open || !event?.id || !isEventClass) return;
+
+    let cancelled = false;
+    setScheduleLoading(true);
+
+    const eventId = event.id;
+
+    (async () => {
+      try {
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        if (!session?.access_token || cancelled) return;
+
+        const res = await fetch(`/api/schedule/slots?event_id=${encodeURIComponent(eventId)}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok || cancelled) return;
+
+        const data = await res.json();
+        const slots: Array<{ position: string; assignee?: { first_name?: string; last_name?: string } | null }> = data.slots || [];
+
+        const beginnerSlots = slots.filter(
+          (s) => s.position && s.position.toLowerCase().includes("beginner") && s.assignee
+        );
+        const weekLetter = beginnerSlots.length > 0 ? getWeekLetterFromPosition(beginnerSlots[0].position) : null;
+        // Use first name only for beginner instructors
+        const firstNames = [...new Set(beginnerSlots.map((s) => (s.assignee!.first_name || "").trim()).filter(Boolean))];
+
+        if (cancelled) return;
+
+        if (firstNames.length > 0 && weekLetter) {
+          const beginnerSentence =
+            firstNames.length === 1
+              ? `${firstNames[0]} will be teaching Beginner Week ${weekLetter}!`
+              : firstNames.length === 2
+                ? `${firstNames[0]} and ${firstNames[1]} will be teaching Beginner Week ${weekLetter}!`
+                : `${firstNames.slice(0, -1).join(", ")} and ${firstNames[firstNames.length - 1]} will be teaching Beginner Week ${weekLetter}!`;
+          setClassBeginnerPart(beginnerSentence);
+        }
+      } catch (_) {
+        if (!cancelled) setScheduleLoading(false);
+      } finally {
+        if (!cancelled) setScheduleLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, event?.id, event?.type]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,7 +224,11 @@ export default function EventFormModal({
         location: formData.location,
       };
 
-      if (formData.description !== undefined) submitData.description = formData.description || "";
+      if (formData.description !== undefined) {
+        submitData.description = isClassType
+          ? buildClassDescription(classUpperLevelNames, classBeginnerPart)
+          : (formData.description || "");
+      }
       if (formData.signupLink !== undefined) submitData.signupLink = formData.signupLink || "";
       if (formData.price !== undefined) submitData.price = formData.price != null ? Number(formData.price) : null;
       if (formData.strictly_price !== undefined) submitData.strictly_price = formData.strictly_price != null ? Number(formData.strictly_price) : null;
@@ -218,17 +341,52 @@ export default function EventFormModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Type (e.g., "Class", "Workshop")
+              Type (e.g., "Class", "Workshop", "Comp")
             </label>
             <input
               type="text"
+              placeholder="Class, Workshop, Comp..."
               value={formData.type}
-              onChange={(e) =>
-                setFormData({ ...formData, type: e.target.value })
-              }
+              onChange={(e) => {
+                const newType = e.target.value;
+                const wasClass = (formData.type || "").trim().toLowerCase() === "class";
+                const isNowClass = (newType || "").trim().toLowerCase() === "class";
+                setFormData((prev) => {
+                  const next = { ...prev, type: newType };
+                  if (!wasClass && isNowClass) {
+                    next.description = buildClassDescription(classUpperLevelNames, classBeginnerPart);
+                  }
+                  return next;
+                });
+              }}
               className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
+
+          {isClassType && (
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Upper level instructors (for Class description)
+              </label>
+              <input
+                type="text"
+                value={classUpperLevelNames}
+                onChange={(e) => {
+                  const names = e.target.value;
+                  setClassUpperLevelNames(names);
+                  setFormData((prev) => ({
+                    ...prev,
+                    description: buildClassDescription(names, classBeginnerPart),
+                  }));
+                }}
+                placeholder={DEFAULT_UPPER_LEVEL_NAMES}
+                className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              {scheduleLoading && (
+                <p className="text-xs text-gray-400 mt-1">Checking staff schedule…</p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {formData.type === "Comp" ? (

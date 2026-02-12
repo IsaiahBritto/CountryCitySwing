@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { updateClassEventDescriptionFromSchedule } from "@/lib/classDescriptionSync";
 
 async function getAuthUser(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -122,6 +123,12 @@ export async function PUT(
       return NextResponse.json({ error: "Failed to update slot" }, { status: 500 });
     }
 
+    try {
+      await updateClassEventDescriptionFromSchedule(String(slot.event_id));
+    } catch (syncErr) {
+      console.error("Class description sync after assign:", syncErr);
+    }
+
     return NextResponse.json({ success: true, slot });
   } catch (e: any) {
     console.error("Schedule slot PUT:", e);
@@ -154,11 +161,25 @@ export async function DELETE(
 
     const { id } = await params;
 
+    const { data: slotBeforeDelete } = await supabaseServer
+      .from("team_slots")
+      .select("event_id, assignee_id")
+      .eq("id", id)
+      .maybeSingle();
+
     const { error } = await supabaseServer.from("team_slots").delete().eq("id", id);
 
     if (error) {
       console.error("Error deleting slot:", error);
       return NextResponse.json({ error: "Failed to delete slot" }, { status: 500 });
+    }
+
+    if (slotBeforeDelete?.event_id && slotBeforeDelete?.assignee_id) {
+      try {
+        await updateClassEventDescriptionFromSchedule(String(slotBeforeDelete.event_id));
+      } catch (syncErr) {
+        console.error("Class description sync after slot delete:", syncErr);
+      }
     }
 
     return NextResponse.json({ success: true });

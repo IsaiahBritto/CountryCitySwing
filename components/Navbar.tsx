@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
-import dayjs from "dayjs";
+import { getEventDateStringInChicago, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
 
 interface UserMeta {
   id?: string;
@@ -61,15 +61,16 @@ export default function Navbar() {
           // Admins: Registration always visible
           setShowRegistration(true);
         } else if (isInstructor) {
-          // Instructors: Only show Registration when there's an event today
-          // Use same date format as registration page for consistency
-          const todayStr = dayjs().startOf("day").format("YYYY-MM-DD");
+          // Instructors: Only show Registration when there's an event today (America/Chicago)
+          const todayChicago = getTodayStringInChicago();
           const { data: events } = await supabaseBrowser
             .from("events")
-            .select("id")
-            .eq("date", todayStr)
-            .limit(1);
-          setShowRegistration(!!(events && events.length > 0));
+            .select("id, starts_at")
+            .order("starts_at", { ascending: true })
+            .limit(100);
+          const hasEventToday =
+            (events || []).some((e) => getEventDateStringInChicago(e.starts_at) === todayChicago);
+          setShowRegistration(!!hasEventToday);
         } else {
           setShowRegistration(false);
         }

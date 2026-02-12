@@ -3,6 +3,13 @@
 import { useState, useEffect } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
+import {
+  getEventDateStringInChicago,
+  getTodayStringInChicago,
+  isEventPastInChicago,
+  formatEventDateInChicago,
+  formatEventTimeInChicago,
+} from "@/lib/utils/dateHelpers";
 
 interface Event {
   id: string; // UUID, not number
@@ -105,33 +112,34 @@ export default function RegistrationPage() {
   const loadEvents = async () => {
     setLoading(true);
     try {
-      const today = dayjs().startOf("day");
-
-      let query = supabaseBrowser
+      const { data, error } = await supabaseBrowser
         .from("events")
         .select("*")
-        .order("date", { ascending: true });
-
-      if (isAdmin && eventsView === "past") {
-        const monthStart = dayjs(pastEventsMonth + "-01").startOf("day");
-        const monthEnd = monthStart.add(1, "month").format("YYYY-MM-DD");
-        const monthStartStr = monthStart.format("YYYY-MM-DD");
-        query = query
-          .gte("date", monthStartStr)
-          .lt("date", monthEnd);
-      } else if (isInstructor && !isAdmin) {
-        const todayStr = today.format("YYYY-MM-DD");
-        query = query.eq("date", todayStr);
-      } else {
-        query = query.gte("date", today.format("YYYY-MM-DD"));
-      }
-
-      const { data, error } = await query;
+        .order("starts_at", { ascending: true });
 
       if (error) {
         console.error("Error loading events:", error);
+        setEvents([]);
       } else {
-        const list = (data || []) as Event[];
+        const allEvents = (data || []) as Event[];
+        let list: Event[];
+
+        if (isAdmin && eventsView === "past") {
+          const monthStartStr = pastEventsMonth + "-01";
+          const monthEndStr = dayjs(pastEventsMonth + "-01").add(1, "month").format("YYYY-MM-DD");
+          list = allEvents.filter(
+            (e) => {
+              const eventDate = getEventDateStringInChicago(e.starts_at);
+              return eventDate >= monthStartStr && eventDate < monthEndStr;
+            }
+          );
+        } else if (isInstructor && !isAdmin) {
+          const todayChicago = getTodayStringInChicago();
+          list = allEvents.filter((e) => getEventDateStringInChicago(e.starts_at) === todayChicago);
+        } else {
+          list = allEvents.filter((e) => !isEventPastInChicago(e.starts_at));
+        }
+
         setEvents(list);
         const ids = new Set(list.map((e) => e.id));
         if (!selectedEvent || !ids.has(selectedEvent.id)) {
@@ -140,6 +148,7 @@ export default function RegistrationPage() {
       }
     } catch (err) {
       console.error("Error:", err);
+      setEvents([]);
     } finally {
       setLoading(false);
     }
@@ -387,7 +396,8 @@ export default function RegistrationPage() {
   };
 
   const isSignedUpOnEventDay = (createdAt: string) =>
-    !!selectedEvent && dayjs(createdAt).isSame(dayjs(selectedEvent.starts_at), "day");
+    !!selectedEvent &&
+    getEventDateStringInChicago(selectedEvent.starts_at) === getEventDateStringInChicago(createdAt);
 
   if (loading) {
     return (
@@ -503,7 +513,8 @@ export default function RegistrationPage() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-sm md:text-base">{event.title}</h3>
                     <p className="text-xs md:text-sm text-gray-400 mt-1">
-                      {dayjs(event.starts_at).format("MMMM D, YYYY")}
+                      {formatEventDateInChicago(event.starts_at)}
+                      {event.starts_at ? ` · ${formatEventTimeInChicago(event.starts_at)}` : ""}
                     </p>
                     <p className="text-xs md:text-sm text-gray-400">
                       {event.location}

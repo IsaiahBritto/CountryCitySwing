@@ -81,6 +81,7 @@ interface Signup {
   amount_owed?: number | null;
   stripe_tax_amount?: number | null;
   stripe_processing_fee?: number | null;
+  free_via_promotion_code?: boolean;
 }
 
 interface CompSignup {
@@ -109,6 +110,7 @@ function computeStats(
   ccsTeamStripeTotal: number;
   ccsTeamTotal: number;
   stripeTaxesFees: number;
+  freeViaPromoCount: number;
 } {
   const price = eventPrice ?? 0;
   const ccsTeamPrice = eventCcsTeamPrice != null ? Number(eventCcsTeamPrice) : 0;
@@ -118,10 +120,14 @@ function computeStats(
   let ccsTeamCashTotal = 0;
   let ccsTeamStripeTotal = 0;
   let stripeTaxesFees = 0;
+  let freeViaPromoCount = 0;
 
   for (const s of signups) {
     const pm = (s.payment_method || "").toLowerCase().trim();
     const isCcsTeam = s.is_ccs_team === true || pm === "ccs team";
+    const freeViaPromo = s.free_via_promotion_code === true;
+
+    if (freeViaPromo) freeViaPromoCount += 1;
 
     if (isCcsTeam) {
       // CCS TEAM: always use event ccs_team_price; split by payment method (Cash vs Stripe)
@@ -130,6 +136,8 @@ function computeStats(
       else if (pm === "stripe" && s.paid) ccsTeamStripeTotal += amount;
       else if (pm === "ccs team" && s.checked_in) ccsTeamCashTotal += amount; // legacy or $0: no channel stored, count as Cash
     } else {
+      // Free-via-promo: attendance only, no revenue
+      if (freeViaPromo) continue;
       // Per-signup amount (e.g. discount); fallback to event price
       const amount = s.amount_owed != null ? Number(s.amount_owed) : price;
       if (pm === "cash" && s.checked_in) {
@@ -154,6 +162,7 @@ function computeStats(
     ccsTeamStripeTotal,
     ccsTeamTotal: ccsTeamCashTotal + ccsTeamStripeTotal,
     stripeTaxesFees,
+    freeViaPromoCount,
   };
 }
 
@@ -169,6 +178,7 @@ function computeStatsComp(
   ccsTeamStripeTotal: number;
   ccsTeamTotal: number;
   stripeTaxesFees: number;
+  freeViaPromoCount: number;
 } {
   let cashTotal = 0;
   let stripeTotal = 0;
@@ -203,11 +213,12 @@ function computeStatsComp(
     ccsTeamStripeTotal,
     ccsTeamTotal: ccsTeamCashTotal + ccsTeamStripeTotal,
     stripeTaxesFees,
+    freeViaPromoCount: 0,
   };
 }
 
 function aggregateStats(
-  eventStats: { totalSignups: number; checkedIn: number; cashTotal: number; stripeTotal: number; otherTotal: number; ccsTeamCashTotal: number; ccsTeamStripeTotal: number; ccsTeamTotal: number; stripeTaxesFees: number }[]
+  eventStats: { totalSignups: number; checkedIn: number; cashTotal: number; stripeTotal: number; otherTotal: number; ccsTeamCashTotal: number; ccsTeamStripeTotal: number; ccsTeamTotal: number; stripeTaxesFees: number; freeViaPromoCount: number }[]
 ): {
   totalSignups: number;
   checkedIn: number;
@@ -218,6 +229,7 @@ function aggregateStats(
   ccsTeamStripeTotal: number;
   ccsTeamTotal: number;
   stripeTaxesFees: number;
+  freeViaPromoCount: number;
 } {
   return eventStats.reduce(
     (acc, s) => ({
@@ -230,8 +242,9 @@ function aggregateStats(
       ccsTeamStripeTotal: acc.ccsTeamStripeTotal + (s.ccsTeamStripeTotal ?? 0),
       ccsTeamTotal: acc.ccsTeamTotal + (s.ccsTeamTotal ?? 0),
       stripeTaxesFees: acc.stripeTaxesFees + s.stripeTaxesFees,
+      freeViaPromoCount: acc.freeViaPromoCount + (s.freeViaPromoCount ?? 0),
     }),
-    { totalSignups: 0, checkedIn: 0, cashTotal: 0, stripeTotal: 0, otherTotal: 0, ccsTeamCashTotal: 0, ccsTeamStripeTotal: 0, ccsTeamTotal: 0, stripeTaxesFees: 0 }
+    { totalSignups: 0, checkedIn: 0, cashTotal: 0, stripeTotal: 0, otherTotal: 0, ccsTeamCashTotal: 0, ccsTeamStripeTotal: 0, ccsTeamTotal: 0, stripeTaxesFees: 0, freeViaPromoCount: 0 }
   );
 }
 
@@ -255,6 +268,7 @@ export default function AdminFinancesPage() {
     ccsTeamStripeTotal: number;
     ccsTeamTotal: number;
     stripeTaxesFees: number;
+    freeViaPromoCount: number;
   } | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
@@ -1164,6 +1178,17 @@ export default function AdminFinancesPage() {
                         </div>
                         <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
                           <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Free (discount code)
+                          </p>
+                          <p className="mt-1 text-2xl font-bold text-white">
+                            {(overviewStats.freeViaPromoCount ?? 0)}
+                          </p>
+                          <p className="mt-0.5 text-sm text-neutral-400">
+                            registered with a promo that made the class free
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
                             Cash
                           </p>
                           <p className="mt-1 text-2xl font-bold text-primary">
@@ -1216,6 +1241,19 @@ export default function AdminFinancesPage() {
                             </p>
                             <p className="mt-0.5 text-sm text-neutral-400">
                               other payment, checked in
+                            </p>
+                          </div>
+                        )}
+                        {(overviewStats.freeViaPromoCount ?? 0) > 0 && (
+                          <div className="rounded-lg border border-green-800/50 bg-green-900/20 p-4">
+                            <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                              Free (discount code)
+                            </p>
+                            <p className="mt-1 text-2xl font-bold text-green-400">
+                              {(overviewStats.freeViaPromoCount ?? 0)}
+                            </p>
+                            <p className="mt-0.5 text-sm text-neutral-400">
+                              registered with a discount code that made the class free; attendance only, not revenue
                             </p>
                           </div>
                         )}
@@ -1491,6 +1529,19 @@ export default function AdminFinancesPage() {
                           attended
                         </p>
                       </div>
+                      {(stats.freeViaPromoCount ?? 0) > 0 && (
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Free (discount code)
+                          </p>
+                          <p className="mt-1 text-2xl font-bold text-white">
+                            {stats.freeViaPromoCount}
+                          </p>
+                          <p className="mt-0.5 text-sm text-neutral-400">
+                            registered with a promo that made the class free
+                          </p>
+                        </div>
+                      )}
                       {isNashvilleEvent ? (
                         <>
                           <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">

@@ -114,13 +114,14 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Promo brings total to zero: mark paid and send confirmation email
+      // Promo brings total to zero: mark paid and send confirmation email; record free-via-promo for finances
       if (amountDue <= 0.5) {
         const { error: updateError } = await supabaseServer
           .from("signups")
           .update({
             paid: true,
             amount_owed: 0,
+            free_via_promotion_code: true,
             updated_at: new Date().toISOString(),
           })
           .eq("id", signupId);

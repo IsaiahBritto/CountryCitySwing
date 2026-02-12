@@ -252,6 +252,8 @@ export async function POST(req: NextRequest) {
     amountOwed = 0;
   }
 
+  const freeViaPromo = !!(promotionCodeId && amountOwed <= 0);
+
   const { data: insertedSignup, error: insertError } = await supabaseServer
     .from("signups")
     .insert([
@@ -269,6 +271,7 @@ export async function POST(req: NextRequest) {
         paid,
         amount_owed: roundCurrency(amountOwed),
         is_ccs_team: isCcsTeam,
+        ...(freeViaPromo ? { free_via_promotion_code: true } : {}),
       },
     ])
     .select()

@@ -82,6 +82,7 @@ interface Signup {
   stripe_tax_amount?: number | null;
   stripe_processing_fee?: number | null;
   free_via_promotion_code?: boolean;
+  used_promotion_code?: boolean;
 }
 
 interface CompSignup {
@@ -111,6 +112,7 @@ function computeStats(
   ccsTeamTotal: number;
   stripeTaxesFees: number;
   freeViaPromoCount: number;
+  revenueFromCoupons: number;
 } {
   const price = eventPrice ?? 0;
   const ccsTeamPrice = eventCcsTeamPrice != null ? Number(eventCcsTeamPrice) : 0;
@@ -121,20 +123,29 @@ function computeStats(
   let ccsTeamStripeTotal = 0;
   let stripeTaxesFees = 0;
   let freeViaPromoCount = 0;
+  let revenueFromCoupons = 0;
 
   for (const s of signups) {
     const pm = (s.payment_method || "").toLowerCase().trim();
     const isCcsTeam = s.is_ccs_team === true || pm === "ccs team";
     const freeViaPromo = s.free_via_promotion_code === true;
+    const usedPromo = s.used_promotion_code === true;
 
     if (freeViaPromo) freeViaPromoCount += 1;
 
     if (isCcsTeam) {
       // CCS TEAM: always use event ccs_team_price; split by payment method (Cash vs Stripe)
       const amount = ccsTeamPrice;
-      if (pm === "cash" && s.checked_in) ccsTeamCashTotal += amount;
-      else if (pm === "stripe" && s.paid) ccsTeamStripeTotal += amount;
-      else if (pm === "ccs team" && s.checked_in) ccsTeamCashTotal += amount; // legacy or $0: no channel stored, count as Cash
+      if (pm === "cash" && s.checked_in) {
+        ccsTeamCashTotal += amount;
+        if (usedPromo) revenueFromCoupons += amount;
+      } else if (pm === "stripe" && s.paid) {
+        ccsTeamStripeTotal += amount;
+        if (usedPromo) revenueFromCoupons += amount;
+      } else if (pm === "ccs team" && s.checked_in) {
+        ccsTeamCashTotal += amount;
+        if (usedPromo) revenueFromCoupons += amount;
+      }
     } else {
       // Free-via-promo: attendance only, no revenue
       if (freeViaPromo) continue;
@@ -142,12 +153,14 @@ function computeStats(
       const amount = s.amount_owed != null ? Number(s.amount_owed) : price;
       if (pm === "cash" && s.checked_in) {
         cashTotal += amount;
+        if (usedPromo) revenueFromCoupons += amount;
       } else if (pm === "stripe" && s.paid) {
         stripeTotal += amount;
         stripeTaxesFees += (s.stripe_tax_amount ?? 0) + (s.stripe_processing_fee ?? 0);
+        if (usedPromo) revenueFromCoupons += amount;
       } else if (s.checked_in) {
-        // Other payment method (Venmo, check, etc.) but checked in → count as revenue
         otherTotal += amount;
+        if (usedPromo) revenueFromCoupons += amount;
       }
     }
   }
@@ -163,6 +176,7 @@ function computeStats(
     ccsTeamTotal: ccsTeamCashTotal + ccsTeamStripeTotal,
     stripeTaxesFees,
     freeViaPromoCount,
+    revenueFromCoupons,
   };
 }
 
@@ -179,6 +193,7 @@ function computeStatsComp(
   ccsTeamTotal: number;
   stripeTaxesFees: number;
   freeViaPromoCount: number;
+  revenueFromCoupons: number;
 } {
   let cashTotal = 0;
   let stripeTotal = 0;
@@ -214,11 +229,12 @@ function computeStatsComp(
     ccsTeamTotal: ccsTeamCashTotal + ccsTeamStripeTotal,
     stripeTaxesFees,
     freeViaPromoCount: 0,
+    revenueFromCoupons: 0,
   };
 }
 
 function aggregateStats(
-  eventStats: { totalSignups: number; checkedIn: number; cashTotal: number; stripeTotal: number; otherTotal: number; ccsTeamCashTotal: number; ccsTeamStripeTotal: number; ccsTeamTotal: number; stripeTaxesFees: number; freeViaPromoCount: number }[]
+  eventStats: { totalSignups: number; checkedIn: number; cashTotal: number; stripeTotal: number; otherTotal: number; ccsTeamCashTotal: number; ccsTeamStripeTotal: number; ccsTeamTotal: number; stripeTaxesFees: number; freeViaPromoCount: number; revenueFromCoupons: number }[]
 ): {
   totalSignups: number;
   checkedIn: number;
@@ -230,6 +246,7 @@ function aggregateStats(
   ccsTeamTotal: number;
   stripeTaxesFees: number;
   freeViaPromoCount: number;
+  revenueFromCoupons: number;
 } {
   return eventStats.reduce(
     (acc, s) => ({
@@ -243,8 +260,9 @@ function aggregateStats(
       ccsTeamTotal: acc.ccsTeamTotal + (s.ccsTeamTotal ?? 0),
       stripeTaxesFees: acc.stripeTaxesFees + s.stripeTaxesFees,
       freeViaPromoCount: acc.freeViaPromoCount + (s.freeViaPromoCount ?? 0),
+      revenueFromCoupons: acc.revenueFromCoupons + (s.revenueFromCoupons ?? 0),
     }),
-    { totalSignups: 0, checkedIn: 0, cashTotal: 0, stripeTotal: 0, otherTotal: 0, ccsTeamCashTotal: 0, ccsTeamStripeTotal: 0, ccsTeamTotal: 0, stripeTaxesFees: 0, freeViaPromoCount: 0 }
+    { totalSignups: 0, checkedIn: 0, cashTotal: 0, stripeTotal: 0, otherTotal: 0, ccsTeamCashTotal: 0, ccsTeamStripeTotal: 0, ccsTeamTotal: 0, stripeTaxesFees: 0, freeViaPromoCount: 0, revenueFromCoupons: 0 }
   );
 }
 
@@ -269,6 +287,7 @@ export default function AdminFinancesPage() {
     ccsTeamTotal: number;
     stripeTaxesFees: number;
     freeViaPromoCount: number;
+    revenueFromCoupons: number;
   } | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
@@ -1280,6 +1299,12 @@ export default function AdminFinancesPage() {
                               <span className="text-xs text-neutral-500">
                                 Cash and Stripe totals above add up to this gross event revenue.
                               </span>
+                              {(overviewStats.revenueFromCoupons ?? 0) > 0 && (
+                                <div className="mt-2 pt-2 border-t border-neutral-600 flex items-center justify-between text-sm">
+                                  <span className="text-neutral-400">Revenue from Coupons (included in total)</span>
+                                  <span className="font-medium text-white">${(overviewStats.revenueFromCoupons ?? 0).toFixed(2)}</span>
+                                </div>
+                              )}
                             </div>
                       </div>
 
@@ -1382,6 +1407,14 @@ export default function AdminFinancesPage() {
                                       ${(overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0)).toFixed(2)}
                                     </span>
                                   </div>
+                                  {(overviewStats.revenueFromCoupons ?? 0) > 0 && (
+                                    <div className="flex items-center justify-between text-neutral-300">
+                                      <span>Revenue from Coupons (included above)</span>
+                                      <span className="font-semibold text-white">
+                                        ${(overviewStats.revenueFromCoupons ?? 0).toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
                                   <div className="flex items-center justify-between text-neutral-300">
                                     <span>Of which CCS from workshops (10%)</span>
                                     <span className="font-semibold text-primary">
@@ -1674,6 +1707,12 @@ export default function AdminFinancesPage() {
                             </span>
                             (to remain in bank)
                           </span>
+                        )}
+                        {!isNashvilleEvent && (stats.revenueFromCoupons ?? 0) > 0 && (
+                          <div className="mt-2 pt-2 border-t border-neutral-600 flex items-center justify-between text-sm">
+                            <span className="text-neutral-400">Revenue from Coupons (included in total)</span>
+                            <span className="font-medium text-white">${(stats.revenueFromCoupons ?? 0).toFixed(2)}</span>
+                          </div>
                         )}
                       </div>
                     </div>

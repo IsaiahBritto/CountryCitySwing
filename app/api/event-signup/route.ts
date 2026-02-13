@@ -189,6 +189,7 @@ export async function POST(req: NextRequest) {
             payment_type: "stripe_checkout",
             subtotal: String(eventPrice),
             processing_fee: String(processingFee),
+            used_promotion_code: promotionCodeId ? "true" : "false",
           },
           success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${base}/events?payment=cancelled`,
@@ -253,6 +254,7 @@ export async function POST(req: NextRequest) {
   }
 
   const freeViaPromo = !!(promotionCodeId && amountOwed <= 0);
+  const usedPromo = !!promotionCodeId;
 
   const { data: insertedSignup, error: insertError } = await supabaseServer
     .from("signups")
@@ -272,6 +274,7 @@ export async function POST(req: NextRequest) {
         amount_owed: roundCurrency(amountOwed),
         is_ccs_team: isCcsTeam,
         ...(freeViaPromo ? { free_via_promotion_code: true } : {}),
+        ...(usedPromo ? { used_promotion_code: true } : {}),
       },
     ])
     .select()

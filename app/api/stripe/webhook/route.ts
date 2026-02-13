@@ -271,6 +271,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ received: true }); // idempotent
           }
           
+          const usedPromo = metadata.used_promotion_code === "true";
           const { error: updateError } = await supabaseServer
             .from("signups")
             .update({
@@ -279,6 +280,7 @@ export async function POST(request: NextRequest) {
               stripe_tax_amount: taxAmount,
               stripe_processing_fee: processingFee,
               stripe_total_paid: actualTotal,
+              ...(usedPromo ? { used_promotion_code: true } : {}),
               updated_at: new Date().toISOString(),
             })
             .eq("id", signupId);
@@ -296,6 +298,7 @@ export async function POST(request: NextRequest) {
           // Create new signup record with paid: true
           // Note: Don't specify 'id' - let database auto-generate it (it's a bigint, not UUID)
           // We'll use client_reference_id to look it up later if needed
+          const usedPromoInsert = metadata.used_promotion_code === "true";
           const { data: newSignup, error: insertError } = await supabaseServer
             .from("signups")
             .insert([
@@ -314,6 +317,7 @@ export async function POST(request: NextRequest) {
                 stripe_tax_amount: taxAmount,
                 stripe_processing_fee: processingFee,
                 stripe_total_paid: actualTotal,
+                ...(usedPromoInsert ? { used_promotion_code: true } : {}),
               },
             ])
             .select()
@@ -665,6 +669,7 @@ export async function POST(request: NextRequest) {
         const subtotal = Number(metadata.subtotal || 0);
         const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
 
+        const usedPromoCashToStripe = metadata.used_promotion_code === "true";
         const { error: updateError } = await supabaseServer
           .from("signups")
           .update({
@@ -673,6 +678,7 @@ export async function POST(request: NextRequest) {
             stripe_tax_amount: taxAmount,
             stripe_processing_fee: processingFee,
             stripe_total_paid: actualTotal,
+            ...(usedPromoCashToStripe ? { used_promotion_code: true } : {}),
             updated_at: new Date().toISOString(),
           })
           .eq("id", signupId);

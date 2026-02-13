@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Promo brings total to zero: mark paid and send confirmation email; record free-via-promo for finances
+      // Promo brings total to zero: mark paid and send confirmation email; record free-via-promo and used_promotion_code for finances
       if (amountDue <= 0.5) {
         const { error: updateError } = await supabaseServer
           .from("signups")
@@ -122,6 +122,7 @@ export async function POST(req: NextRequest) {
             paid: true,
             amount_owed: 0,
             free_via_promotion_code: true,
+            used_promotion_code: true,
             updated_at: new Date().toISOString(),
           })
           .eq("id", signupId);
@@ -307,6 +308,7 @@ export async function POST(req: NextRequest) {
         payment_type: "cash_to_stripe",
         subtotal: String(eventPrice),
         processing_fee: String(processingFee),
+        used_promotion_code: promotionCodeId ? "true" : "false",
       },
       success_url: `${base}/events/confirmation/${signupId}`,
       cancel_url: `${base}/events/pay/${signupId}`,

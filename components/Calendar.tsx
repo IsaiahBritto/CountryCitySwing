@@ -12,6 +12,8 @@ import {
   getEventDateStringInChicago,
   formatEventDateInChicago,
   formatEventTimeInChicago,
+  formatEventDateRangeInChicago,
+  eventSpansDateInChicago,
   isEventPastInChicago,
 } from "@/lib/utils/dateHelpers";
 
@@ -23,6 +25,7 @@ interface CalendarEvent {
   id: number;
   title: string;
   starts_at: string;
+  ends_at?: string | null;
   location: string;
   signupLink?: string;
   signup_link?: string;
@@ -79,9 +82,13 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
 
   const getEventsForDay = (day: number): CalendarEvent[] => {
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
-    return events.filter(
-      (e) => getEventDateStringInChicago(e.starts_at) === dateStr
-    );
+    return events.filter((e) => {
+      const isConventionWithEnd = (e.type || "").trim().toLowerCase() === "convention" && e.ends_at;
+      if (isConventionWithEnd) {
+        return eventSpansDateInChicago(e.starts_at, e.ends_at ?? null, dateStr);
+      }
+      return getEventDateStringInChicago(e.starts_at) === dateStr;
+    });
   };
 
   const handleDayClick = (day: number) => {
@@ -184,7 +191,9 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                   className={`group h-16 flex flex-col justify-center items-center rounded-md transition cursor-pointer overflow-hidden
                     ${
                       hasEvents
-                        ? eventType === "Workshop"
+                        ? eventType === "Convention"
+                          ? "bg-emerald-500/50 text-white hover:bg-emerald-500"
+                          : eventType === "Workshop"
                           ? "bg-yellow-400/50 text-black hover:bg-yellow-400"
                           : eventType === "Comp"
                           ? "bg-blue-500/50 text-white hover:bg-blue-500"
@@ -259,17 +268,23 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                           {event.title}
                         </h4>
                         <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
-                          {event.starts_at && (
+                          {event.type === "Convention" && event.ends_at ? (
+                            <span className="flex items-center gap-1">
+                              🕐 {formatEventDateRangeInChicago(event.starts_at, event.ends_at)}
+                            </span>
+                          ) : event.starts_at ? (
                             <span className="flex items-center gap-1">
                               🕐 {formatEventTimeInChicago(event.starts_at)}
                             </span>
-                          )}
+                          ) : null}
                           <span className="flex items-center gap-1">
                             📍 {event.location}
                           </span>
                           {event.type && (
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                              event.type === "Workshop"
+                              event.type === "Convention"
+                                ? "bg-emerald-500/20 text-emerald-400"
+                                : event.type === "Workshop"
                                 ? "bg-yellow-400/20 text-yellow-400"
                                 : event.type === "Comp"
                                 ? "bg-blue-500/20 text-blue-400"
@@ -334,8 +349,10 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
               {selectedEvent.title}
             </h3>
             <p className="text-gray-400 mb-2">
-              {formatEventDateInChicago(selectedEvent.starts_at)}
-              {selectedEvent.starts_at
+              {selectedEvent.type === "Convention" && selectedEvent.ends_at
+                ? formatEventDateRangeInChicago(selectedEvent.starts_at, selectedEvent.ends_at)
+                : formatEventDateInChicago(selectedEvent.starts_at)}
+              {selectedEvent.starts_at && !(selectedEvent.type === "Convention" && selectedEvent.ends_at)
                 ? ` • ${formatEventTimeInChicago(selectedEvent.starts_at)}`
                 : ""}
             </p>
@@ -363,15 +380,28 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
               {selectedEvent.description}
             </p>
 
-            {/* Sign Up button (same for Comp and non-Comp); past events: Closed */}
+            {/* Sign Up button (same for Comp and non-Comp); past events: Closed; Convention with link → open link */}
             <div className="flex justify-center gap-3 mt-4">
-              {isEventPastInChicago(selectedEvent.starts_at) ? (
+              {isEventPastInChicago(
+                selectedEvent.starts_at,
+                selectedEvent.type === "Convention" && selectedEvent.ends_at ? selectedEvent.ends_at : undefined
+              ) ? (
                 <button
                   disabled
                   className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"
                 >
                   Closed
                 </button>
+              ) : selectedEvent.type === "Convention" && (selectedEvent.signupLink || selectedEvent.signup_link) ? (
+                <a
+                  href={selectedEvent.signupLink || selectedEvent.signup_link || "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setIsVisible(false)}
+                  className="btn-signup inline-block"
+                >
+                  Sign Up
+                </a>
               ) : (
                 <button
                   onClick={() => {
@@ -399,8 +429,8 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
         </div>
       )}
 
-      {/* --- Event Signup Modal (non-Comp) --- */}
-      {selectedEvent && selectedEvent.type !== "Comp" && (
+      {/* --- Event Signup Modal (non-Comp, and Convention only when no signup link) --- */}
+      {selectedEvent && selectedEvent.type !== "Comp" && !(selectedEvent.type === "Convention" && (selectedEvent.signupLink || selectedEvent.signup_link)) && (
         <EventSignupModal
           event={selectedEvent}
           open={showSignup}

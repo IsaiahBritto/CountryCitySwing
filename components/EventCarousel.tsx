@@ -6,6 +6,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/solid";
 import {
   formatEventDateInChicago,
   formatEventTimeInChicago,
+  formatEventDateRangeInChicago,
   isEventPastInChicago,
 } from "@/lib/utils/dateHelpers";
 import EventSignupModal from "@/components/EventSignupModal";
@@ -15,6 +16,7 @@ export interface CarouselEvent {
   id: number;
   title: string;
   starts_at: string;
+  ends_at?: string | null;
   location: string;
   signupLink?: string;
   signup_link?: string;
@@ -44,7 +46,9 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
   const touchStartX = useRef<number | null>(null);
 
   // Show only upcoming events (today and future in Nashville/Chicago time)
-  const filteredEvents = events.filter((e) => !isEventPastInChicago(e.starts_at));
+  const filteredEvents = events.filter((e) =>
+    !isEventPastInChicago(e.starts_at, e.type === "Convention" && e.ends_at ? e.ends_at : undefined)
+  );
 
   if (filteredEvents.length === 0) {
     return (
@@ -97,10 +101,16 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
                   <h3 className="text-2xl font-bold text-primary mb-2">
                     {event.title}
                   </h3>
-
+                  {event.type === "Convention" && (
+                    <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/20 text-emerald-400 mb-2">
+                      Convention
+                    </span>
+                  )}
                   <p className="text-gray-400 mb-1">
-                    {formatEventDateInChicago(event.starts_at)}
-                    {event.starts_at
+                    {event.type === "Convention" && event.ends_at
+                      ? formatEventDateRangeInChicago(event.starts_at, event.ends_at)
+                      : formatEventDateInChicago(event.starts_at)}
+                    {event.starts_at && !(event.type === "Convention" && event.ends_at)
                       ? ` • ${formatEventTimeInChicago(event.starts_at)}`
                       : ""}
                   </p>
@@ -130,13 +140,22 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
 
                   {/* --- Sign Up / Closed Button --- */}
                   <div className="flex justify-center gap-3">
-                    {isEventPastInChicago(event.starts_at) ? (
+                    {isEventPastInChicago(event.starts_at, event.type === "Convention" && event.ends_at ? event.ends_at : undefined) ? (
                       <button
                         disabled
                         className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"
                       >
                         Closed
                       </button>
+                    ) : event.type === "Convention" && (event.signupLink || event.signup_link) ? (
+                      <a
+                        href={event.signupLink || event.signup_link || "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-signup inline-block"
+                      >
+                        Sign Up
+                      </a>
                     ) : event.type === "Comp" ? (
                       <button
                         onClick={() => setSelectedEvent(event)}
@@ -197,8 +216,8 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
         </div>
       </div>
 
-      {/* --- Modals --- */}
-      {selectedEvent && selectedEvent.type !== "Comp" && (
+      {/* --- Modals (Convention with signup link opens link, no modal) --- */}
+      {selectedEvent && selectedEvent.type !== "Comp" && !(selectedEvent.type === "Convention" && (selectedEvent.signupLink || selectedEvent.signup_link)) && (
         <EventSignupModal
           event={selectedEvent}
           open={!!selectedEvent}

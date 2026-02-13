@@ -131,7 +131,7 @@ export async function PUT(
 
     // When admin assigns a user to the slot, send confirmation email to assignee and admins
     if (slot.assignee_id) {
-      const { data: assigneeProfile } = await supabaseServer
+      const { data: assigneeProfile } = await supabaseServer 
         .from("profiles")
         .select("first_name, last_name, email")
         .eq("id", slot.assignee_id)

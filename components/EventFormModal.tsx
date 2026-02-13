@@ -39,6 +39,7 @@ interface Event {
   id?: number;
   title: string;
   starts_at: string;
+  ends_at?: string | null;
   location: string;
   description?: string;
   signupLink?: string;
@@ -66,6 +67,7 @@ export default function EventFormModal({
   const [formData, setFormData] = useState<Event>({
     title: "",
     starts_at: "",
+    ends_at: undefined,
     location: "",
     description: "",
     signupLink: "",
@@ -93,6 +95,10 @@ export default function EventFormModal({
         const startsAtStr = event.starts_at
           ? new Date(event.starts_at).toISOString().slice(0, 16)
           : "";
+        const isConvention = (event.type || "").trim().toLowerCase() === "convention";
+        const endsAtStr = isConvention && event.ends_at
+          ? new Date(event.ends_at).toISOString().slice(0, 16)
+          : "";
 
         const isClass = (event.type || "").trim().toLowerCase() === "class";
         let description = event.description || "";
@@ -115,6 +121,7 @@ export default function EventFormModal({
         setFormData({
           title: event.title || "",
           starts_at: startsAtStr,
+          ends_at: isConvention ? (endsAtStr || undefined) : undefined,
           location: event.location || "",
           description,
           signupLink: event.signupLink || event.signup_link || "",
@@ -130,6 +137,7 @@ export default function EventFormModal({
         setFormData({
           title: "",
           starts_at: "",
+          ends_at: undefined,
           location: "",
           description: "",
           signupLink: "",
@@ -209,6 +217,10 @@ export default function EventFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (formData.ends_at && formData.starts_at && new Date(formData.ends_at) < new Date(formData.starts_at)) {
+      setError("End date & time must be on or after start date & time.");
+      return;
+    }
     setLoading(true);
 
     try {
@@ -235,6 +247,8 @@ export default function EventFormModal({
       if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null ? Number(formData.jnj_price) : null;
       if (formData.ccs_team_price !== undefined) submitData.ccs_team_price = formData.ccs_team_price != null ? Number(formData.ccs_team_price) : null;
       if (formData.type !== undefined) submitData.type = formData.type || "";
+      const isConvention = (formData.type || "").trim().toLowerCase() === "convention";
+      submitData.ends_at = isConvention && formData.ends_at ? new Date(formData.ends_at).toISOString() : null;
 
       const response = await fetch(url, {
         method,
@@ -325,6 +339,22 @@ export default function EventFormModal({
             </div>
           </div>
 
+          {(formData.type || "").trim().toLowerCase() === "convention" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                End date &amp; time (optional, for multi-day)
+              </label>
+              <input
+                type="datetime-local"
+                value={formData.ends_at ?? ""}
+                onChange={(e) =>
+                  setFormData({ ...formData, ends_at: e.target.value || undefined })
+                }
+                className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
               Description
@@ -339,22 +369,27 @@ export default function EventFormModal({
             />
           </div>
 
-          <div>
+            <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Type (e.g., "Class", "Workshop", "Comp")
+              Type (e.g., "Class", "Workshop", "Comp", "Convention")
             </label>
             <input
               type="text"
-              placeholder="Class, Workshop, Comp..."
+              placeholder="Class, Workshop, Comp, Convention..."
               value={formData.type}
               onChange={(e) => {
                 const newType = e.target.value;
                 const wasClass = (formData.type || "").trim().toLowerCase() === "class";
                 const isNowClass = (newType || "").trim().toLowerCase() === "class";
+                const wasConvention = (formData.type || "").trim().toLowerCase() === "convention";
+                const isNowConvention = (newType || "").trim().toLowerCase() === "convention";
                 setFormData((prev) => {
                   const next = { ...prev, type: newType };
                   if (!wasClass && isNowClass) {
                     next.description = buildClassDescription(classUpperLevelNames, classBeginnerPart);
+                  }
+                  if (wasConvention && !isNowConvention) {
+                    next.ends_at = undefined;
                   }
                   return next;
                 });

@@ -30,6 +30,7 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
   const [selectedEvent, setSelectedEvent] = useState<CarouselEvent | null>(null);
 
   // Find the closest upcoming workshop (not in the past in Nashville/Chicago time)
+  // Only Convention type uses ends_at; Workshops are single-day
   const upcomingWorkshop = events
     .filter((e) => e.type === "Workshop" && !isEventPastInChicago(e.starts_at))
     .sort((a, b) => dayjs(a.starts_at).diff(dayjs(b.starts_at)))[0];
@@ -54,9 +55,7 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
         </h4>
         <p className="text-gray-400 mb-1">
           {formatEventDateInChicago(upcomingWorkshop.starts_at)}
-          {upcomingWorkshop.starts_at
-            ? ` • ${formatEventTimeInChicago(upcomingWorkshop.starts_at)}`
-            : ""}
+          {upcomingWorkshop.starts_at ? ` • ${formatEventTimeInChicago(upcomingWorkshop.starts_at)}` : ""}
         </p>
         <p className="text-gray-400 italic mb-2">
           📍 {upcomingWorkshop.location}

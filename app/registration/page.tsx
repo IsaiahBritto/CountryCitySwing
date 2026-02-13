@@ -9,12 +9,14 @@ import {
   isEventPastInChicago,
   formatEventDateInChicago,
   formatEventTimeInChicago,
+  formatEventDateRangeInChicago,
 } from "@/lib/utils/dateHelpers";
 
 interface Event {
   id: string; // UUID, not number
   title: string;
   starts_at: string;
+  ends_at?: string | null;
   location: string;
   type?: string;
 }
@@ -137,7 +139,9 @@ export default function RegistrationPage() {
           const todayChicago = getTodayStringInChicago();
           list = allEvents.filter((e) => getEventDateStringInChicago(e.starts_at) === todayChicago);
         } else {
-          list = allEvents.filter((e) => !isEventPastInChicago(e.starts_at));
+          list = allEvents.filter((e) =>
+            !isEventPastInChicago(e.starts_at, e.type === "Convention" && e.ends_at ? e.ends_at : undefined)
+          );
         }
 
         setEvents(list);
@@ -513,8 +517,12 @@ export default function RegistrationPage() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-sm md:text-base">{event.title}</h3>
                     <p className="text-xs md:text-sm text-gray-400 mt-1">
-                      {formatEventDateInChicago(event.starts_at)}
-                      {event.starts_at ? ` · ${formatEventTimeInChicago(event.starts_at)}` : ""}
+                      {event.type === "Convention" && event.ends_at
+                        ? formatEventDateRangeInChicago(event.starts_at, event.ends_at)
+                        : formatEventDateInChicago(event.starts_at)}
+                      {event.starts_at && !(event.type === "Convention" && event.ends_at)
+                        ? ` · ${formatEventTimeInChicago(event.starts_at)}`
+                        : ""}
                     </p>
                     <p className="text-xs md:text-sm text-gray-400">
                       {event.location}

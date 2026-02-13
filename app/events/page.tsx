@@ -14,6 +14,7 @@ import EventsListSkeleton from "@/components/EventsListSkeleton";
 import {
   formatEventDateInChicago,
   formatEventTimeInChicago,
+  formatEventDateRangeInChicago,
   isEventPastInChicago,
 } from "@/lib/utils/dateHelpers";
 
@@ -71,7 +72,9 @@ export default function EventsPage() {
   };
 
   // Filter upcoming events only (today and future in Nashville/Chicago time)
-  const upcomingEvents = events.filter((e) => !isEventPastInChicago(e.starts_at));
+  const upcomingEvents = events.filter((e) =>
+    !isEventPastInChicago(e.starts_at, e.type === "Convention" && e.ends_at ? e.ends_at : undefined)
+  );
 
   const handleEventSaved = () => {
     loadEvents();
@@ -175,8 +178,10 @@ export default function EventsPage() {
                 {event.title}
               </h3>
               <p className="text-gray-400 mb-1">
-                {formatEventDateInChicago(event.starts_at)}
-                {event.starts_at
+                {event.type === "Convention" && event.ends_at
+                  ? formatEventDateRangeInChicago(event.starts_at, event.ends_at)
+                  : formatEventDateInChicago(event.starts_at)}
+                {event.starts_at && !(event.type === "Convention" && event.ends_at)
                   ? ` • ${formatEventTimeInChicago(event.starts_at)}`
                   : ""}
               </p>
@@ -197,6 +202,15 @@ export default function EventsPage() {
                   >
                     Sign Up
                   </button>
+                ) : event.type === "Convention" && (event.signupLink || event.signup_link) ? (
+                  <a
+                    href={event.signupLink || event.signup_link || "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-signup"
+                  >
+                    Sign Up
+                  </a>
                 ) : (
                   <button
                     onClick={() => {
@@ -222,8 +236,8 @@ export default function EventsPage() {
         </div>
       )}
 
-      {/* --- Event Signup Modal (non-Comp events) --- */}
-      {selectedEvent && selectedEvent.type !== "Comp" && (
+      {/* --- Event Signup Modal (non-Comp; Convention with signup link opens link, no modal) --- */}
+      {selectedEvent && selectedEvent.type !== "Comp" && !(selectedEvent.type === "Convention" && (selectedEvent.signupLink || selectedEvent.signup_link)) && (
         <EventSignupModal
           event={selectedEvent}
           open={showSignup}

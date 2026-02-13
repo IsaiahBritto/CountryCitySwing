@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
     if (eventData.jnj_price !== undefined) insertData.jnj_price = eventData.jnj_price ?? null;
     if (eventData.ccs_team_price !== undefined) insertData.ccs_team_price = eventData.ccs_team_price ?? null;
     if (eventData.type !== undefined) insertData.type = eventData.type || null;
+    if (eventData.ends_at !== undefined) insertData.ends_at = eventData.ends_at ?? null;
 
     const { data, error } = await supabaseServer
       .from("events")

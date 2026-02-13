@@ -68,9 +68,66 @@ export function getTodayStringInChicago(): string {
   }).format(new Date());
 }
 
-/** True if the event's Chicago date is before today (Chicago). */
-export function isEventPastInChicago(startsAt: string): boolean {
+/** True if the given Chicago date (YYYY-MM-DD) falls within the event range. */
+export function eventSpansDateInChicago(
+  startsAt: string,
+  endsAt: string | null | undefined,
+  dateStr: string
+): boolean {
+  const startDate = getEventDateStringInChicago(startsAt);
+  if (!startDate) return false;
+  if (!endsAt) return startDate === dateStr;
+  const endDate = getEventDateStringInChicago(endsAt);
+  if (!endDate) return startDate === dateStr;
+  return dateStr >= startDate && dateStr <= endDate;
+}
+
+/** True if the event is past: for multi-day, use ends_at when present. */
+export function isEventPastInChicago(
+  startsAt: string,
+  endsAt?: string | null
+): boolean {
+  const today = getTodayStringInChicago();
+  if (endsAt) {
+    const eventEndDate = getEventDateStringInChicago(endsAt);
+    if (!eventEndDate) return false;
+    return today > eventEndDate;
+  }
   const eventDate = getEventDateStringInChicago(startsAt);
   if (!eventDate) return false;
-  return eventDate < getTodayStringInChicago();
+  return eventDate < today;
+}
+
+/** Formatted date range in Chicago (e.g. "May 8 – 10, 2026") or single date if no endsAt or same day. */
+export function formatEventDateRangeInChicago(
+  startsAt: string,
+  endsAt?: string | null
+): string {
+  if (!startsAt) return "";
+  if (!endsAt) return formatEventDateInChicago(startsAt);
+  const startDateStr = getEventDateStringInChicago(startsAt);
+  const endDateStr = getEventDateStringInChicago(endsAt);
+  if (!startDateStr || !endDateStr || startDateStr === endDateStr) {
+    return formatEventDateInChicago(startsAt);
+  }
+  const startMonth = formatEventDateInChicago(startsAt, { month: "long" });
+  const endMonth = formatEventDateInChicago(endsAt, { month: "long" });
+  const year = formatEventDateInChicago(endsAt, { year: "numeric" });
+  const sameMonth = startMonth === endMonth;
+  if (sameMonth) {
+    const startDay = formatEventDateInChicago(startsAt, { day: "numeric" });
+    const endDay = formatEventDateInChicago(endsAt, { day: "numeric" });
+    return `${startMonth} ${startDay} – ${endDay}, ${year}`;
+  }
+  const startFormatted = formatEventDateInChicago(startsAt, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  const endFormatted = formatEventDateInChicago(endsAt, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `${startFormatted} – ${endFormatted}`;
 }

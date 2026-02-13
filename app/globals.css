@@ -199,6 +199,47 @@ img {
   @apply bg-yellow-400/25 text-yellow-400 shadow-[0_0_20px_rgba(242,201,76,0.8)];
 }
 
+/* DNA page Navbar: all links and buttons green (overrides global yellow) */
+.nav-dna a {
+  color: #2BC929 !important;
+}
+.nav-dna a:hover {
+  color: #32e032 !important;
+}
+.nav-dna button {
+  color: #2BC929 !important;
+}
+.nav-dna button:hover {
+  color: #32e032 !important;
+}
+
+/* DNA page Navbar: green pulse animation (Sign In button) */
+@keyframes greenPulse {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(43, 201, 41, 0.4),
+                0 0 20px rgba(43, 201, 41, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(43, 201, 41, 0.7),
+                0 0 15px rgba(43, 201, 41, 0.5);
+  }
+}
+
+.nav-dna .nav-dna-signup,
+.nav-dna-signup {
+  color: #2BC929 !important;
+  animation: greenPulse 4s ease-in-out infinite;
+}
+
+.nav-dna .nav-dna-signup:hover,
+.nav-dna .nav-dna-signup:focus,
+.nav-dna-signup:hover,
+.nav-dna-signup:focus {
+  background-color: rgba(43, 201, 41, 0.25) !important;
+  color: #32e032 !important;
+  box-shadow: 0 0 20px rgba(43, 201, 41, 0.8);
+}
+
 /* Minimalistic scrollbar for modals */
 .scrollbar-minimal::-webkit-scrollbar {
   width: 8px;

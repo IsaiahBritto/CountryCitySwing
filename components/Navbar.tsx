@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
@@ -14,7 +15,11 @@ interface UserMeta {
   user_metadata?: { first_name?: string };
 }
 
+const DNA_GREEN = "#2BC929";
+
 export default function Navbar() {
+  const pathname = usePathname();
+  const isDnaPage = pathname === "/dna";
   const [user, setUser] = useState<UserMeta | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<any>(null);
@@ -100,25 +105,40 @@ export default function Navbar() {
     { name: "About", href: "/about" },
   ];
 
+  const navClassName = isDnaPage
+    ? "nav-dna w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md"
+    : "w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md";
+
+  const linkClass = isDnaPage
+    ? "text-[#2BC929] hover:text-[#32e032] transition-colors"
+    : "text-gray-300 hover:text-primary transition-colors";
+  const logoClass = isDnaPage
+    ? "text-2xl font-bold whitespace-nowrap transition-colors"
+    : "text-2xl font-bold text-primary whitespace-nowrap";
+  const signInClass = isDnaPage
+    ? "btn-signup nav-dna-signup text-sm px-4 py-2 rounded-md"
+    : "btn-signup text-sm px-4 py-2 rounded-md";
+
   return (
-    <nav className="w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md">
+    <nav className={navClassName} style={isDnaPage ? { boxShadow: "0 2px 8px rgba(43, 201, 41, 0.35)", borderBottomColor: "rgba(43, 201, 41, 0.3)" } : undefined}>
       <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
         {/* Logo */}
         <Link
           href="/"
-          className="text-2xl font-bold text-primary whitespace-nowrap"
+          className={logoClass}
+          style={isDnaPage ? { color: DNA_GREEN } : undefined}
         >
           Country City Swing
         </Link>
 
         {/* Hamburger (mobile) */}
         <button
-          className="md:hidden text-gray-300 hover:text-primary transition-colors"
+          className={isDnaPage ? "md:hidden text-gray-300 hover:text-[#2BC929] transition-colors" : "md:hidden text-gray-300 hover:text-primary transition-colors"}
           onClick={() => setMenuOpen(!menuOpen)}
           aria-label="Toggle menu"
         >
           {menuOpen ? (
-            <XMarkIcon className="w-7 h-7 text-primary" />
+            <XMarkIcon className="w-7 h-7" style={isDnaPage ? { color: DNA_GREEN } : undefined} />
           ) : (
             <Bars3Icon className="w-7 h-7" />
           )}
@@ -130,48 +150,33 @@ export default function Navbar() {
             <Link
               key={link.name}
               href={link.href}
-              className="text-gray-300 hover:text-primary transition-colors"
+              className={linkClass}
             >
               {link.name}
             </Link>
           ))}
           {showRegistration && (
-            <Link
-              href="/registration"
-              className="text-gray-300 hover:text-primary transition-colors"
-            >
+            <Link href="/registration" className={linkClass}>
               Registration
             </Link>
           )}
           {showSchedule && (
-            <Link
-              href="/schedule"
-              className="text-gray-300 hover:text-primary transition-colors"
-            >
+            <Link href="/schedule" className={linkClass}>
               Schedule
             </Link>
           )}
           {isAdmin && (
-            <Link
-              href="/admin/finances"
-              className="text-gray-300 hover:text-primary transition-colors"
-            >
+            <Link href="/admin/finances" className={linkClass}>
               Finances
             </Link>
           )}
 
           {user ? (
-            <Link
-              href="/profile"
-              className="text-gray-300 hover:text-primary transition-colors"
-            >
+            <Link href="/profile" className={linkClass}>
               Hello {displayName}!
             </Link>
           ) : (
-            <Link
-              href="/auth"
-              className="btn-signup text-sm px-4 py-2 rounded-md"
-            >
+            <Link href="/auth" className={signInClass} style={isDnaPage ? { color: DNA_GREEN } : undefined}>
               Sign In
             </Link>
           )}
@@ -186,53 +191,33 @@ export default function Navbar() {
               key={link.name}
               href={link.href}
               onClick={() => setMenuOpen(false)}
-              className="block text-gray-300 hover:text-primary transition-colors"
+              className={"block " + linkClass}
             >
               {link.name}
             </Link>
           ))}
           {showRegistration && (
-            <Link
-              href="/registration"
-              onClick={() => setMenuOpen(false)}
-              className="block text-gray-300 hover:text-primary transition-colors"
-            >
+            <Link href="/registration" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
               Registration
             </Link>
           )}
           {showSchedule && (
-            <Link
-              href="/schedule"
-              onClick={() => setMenuOpen(false)}
-              className="block text-gray-300 hover:text-primary transition-colors"
-            >
+            <Link href="/schedule" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
               Schedule
             </Link>
           )}
           {isAdmin && (
-            <Link
-              href="/admin/finances"
-              onClick={() => setMenuOpen(false)}
-              className="block text-gray-300 hover:text-primary transition-colors"
-            >
+            <Link href="/admin/finances" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
               Finances
             </Link>
           )}
 
           {user ? (
-            <Link
-              href="/profile"
-              onClick={() => setMenuOpen(false)}
-              className="block text-gray-300 hover:text-primary transition-colors"
-            >
+            <Link href="/profile" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
               Hello {displayName}!
             </Link>
           ) : (
-            <Link
-              href="/auth"
-              onClick={() => setMenuOpen(false)}
-              className="btn-signup block text-center text-sm px-4 py-2 rounded-md"
-            >
+            <Link href="/auth" onClick={() => setMenuOpen(false)} className={signInClass + " block text-center"} style={isDnaPage ? { color: DNA_GREEN } : undefined}>
               Sign In
             </Link>
           )}

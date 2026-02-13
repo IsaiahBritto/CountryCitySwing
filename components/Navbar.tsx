@@ -91,6 +91,7 @@ export default function Navbar() {
     (user?.email ? user.email.split("@")[0] : "");
 
   const navLinks = [
+    { name: "DNA", href: "/dna" },
     { name: "Events", href: "/events" },
     { name: "Team", href: "/team" },
     { name: "Prayer", href: "/prayer" },

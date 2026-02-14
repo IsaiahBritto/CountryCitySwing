@@ -5,7 +5,14 @@ import { sendHtmlEmail } from "@/lib/mailer";
 export async function POST(request: NextRequest) {
   try {
     const updateData = await request.json();
-    const { orderId, status, trackingNumber, notes } = updateData;
+    const {
+      orderId,
+      status,
+      trackingNumber: trackingNumberCamel,
+      tracking_number: trackingNumberSnake,
+      notes,
+    } = updateData;
+    const trackingNumber = trackingNumberCamel ?? trackingNumberSnake;
 
     if (!orderId || !status) {
       return NextResponse.json(

@@ -240,6 +240,14 @@ img {
   box-shadow: 0 0 20px rgba(43, 201, 41, 0.8);
 }
 
+/* DNA page: force all nav links and buttons to green (overrides global a color) */
+.nav-dna a {
+  color: #2BC929 !important;
+}
+.nav-dna a:hover {
+  color: #32e032 !important;
+}
+
 /* Minimalistic scrollbar for modals */
 .scrollbar-minimal::-webkit-scrollbar {
   width: 8px;

@@ -345,6 +345,60 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
     allOrders.some(isCCS8CCOrder) &&
     (Object.keys(shirtBySize).length > 0 || Object.keys(cropBySize).length > 0);
 
+  // DNA merch: any order item whose productName contains "DNA" (case-insensitive)
+  const isDNAOrder = (order: Order) =>
+    order.items?.some(
+      (item: any) =>
+        item.productName && String(item.productName).toLowerCase().includes("dna")
+    );
+
+  const dnaProductNames = (() => {
+    const names = new Set<string>();
+    allOrders.forEach((order) => {
+      order.items?.forEach((item: any) => {
+        if (item.productName && String(item.productName).toLowerCase().includes("dna")) {
+          names.add(item.productName);
+        }
+      });
+    });
+    return Array.from(names).sort();
+  })();
+
+  const incomeDNAByMethod = () => {
+    let cash = 0;
+    let stripe = 0;
+    allOrders.forEach((order) => {
+      if (!order.paid || !order.items?.length) return;
+      let orderMerchTotal = 0;
+      order.items.forEach((item: any) => {
+        if (item.productName && String(item.productName).toLowerCase().includes("dna")) {
+          orderMerchTotal += (item.price ?? 0) * (item.quantity ?? 0);
+        }
+      });
+      if (orderMerchTotal === 0) return;
+      const method = (order.payment_method || "").toLowerCase();
+      if (method === "cash") {
+        cash += orderMerchTotal;
+      } else if (method === "stripe") {
+        stripe += orderMerchTotal;
+      }
+    });
+    return { cash, stripe, total: cash + stripe };
+  };
+
+  const dnaIncome = incomeDNAByMethod();
+  const dnaByProduct = dnaProductNames.map((name) => ({
+    name,
+    bySize: countBySize(name),
+    totalQty: 0,
+  }));
+  dnaByProduct.forEach((p) => {
+    p.totalQty = Object.values(p.bySize).reduce((a, b) => a + b, 0);
+  });
+  const totalDNAQty = dnaByProduct.reduce((sum, p) => sum + p.totalQty, 0);
+  const hasDNAOrders =
+    allOrders.some(isDNAOrder) && dnaProductNames.length > 0;
+
   if (loading) {
     return (
       <div className="text-center py-12">
@@ -499,6 +553,62 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
           </div>
         )}
 
+        {/* DNA Merch Orders summary */}
+        {hasDNAOrders && (
+          <div className="mb-6 p-4 bg-neutral-700/80 rounded-lg border border-neutral-600">
+            <h4 className="text-lg font-semibold text-primary mb-3">
+              DNA Merch Orders
+            </h4>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {dnaByProduct.map((product) => (
+                <div key={product.name}>
+                  <p className="text-sm font-medium text-gray-300 mb-1">
+                    {product.name}
+                  </p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-white">
+                    {Object.entries(product.bySize)
+                      .sort(([a], [b]) => String(a).localeCompare(String(b)))
+                      .map(([size, qty]) => (
+                        <span key={size}>
+                          {size}: <strong>{qty}</strong>
+                        </span>
+                      ))}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Total: <strong>{product.totalQty}</strong>
+                  </p>
+                </div>
+              ))}
+              <div className="sm:col-span-2 lg:col-span-1 flex flex-col justify-end gap-2">
+                <p className="text-sm font-medium text-gray-300">
+                  Total quantity ordered:{" "}
+                  <span className="text-white font-bold">{totalDNAQty}</span>
+                </p>
+                <p className="text-sm font-medium text-gray-300">
+                  Total Income from DNA Merch:{" "}
+                  <span className="text-primary font-bold">
+                    ${dnaIncome.total.toFixed(2)}
+                  </span>
+                </p>
+                <p className="text-xs text-gray-400">
+                  Cash:{" "}
+                  <span className="text-white font-semibold">
+                    ${dnaIncome.cash.toFixed(2)}
+                  </span>
+                  {" · "}
+                  Stripe:{" "}
+                  <span className="text-white font-semibold">
+                    ${dnaIncome.stripe.toFixed(2)}
+                  </span>
+                </p>
+                <span className="text-xs text-gray-500">
+                  Merch only (no shipping, no Stripe fees), paid orders
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {orders.length === 0 ? (
           <p className="text-gray-400 text-center py-8">
             No {showCompleted ? "completed" : "pending"} orders.
@@ -546,12 +656,19 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
                             const is8CC =
                               item.productName === CCS_8CC_SHIRT ||
                               item.productName === CCS_8CC_CROP;
+                            const isDNA =
+                              item.productName &&
+                              String(item.productName).toLowerCase().includes("dna");
                             return (
                               <span key={i}>
                                 {i > 0 && ", "}
                                 <span
                                   className={
-                                    is8CC ? "text-yellow-400 font-medium" : ""
+                                    is8CC
+                                      ? "text-yellow-400 font-medium"
+                                      : isDNA
+                                        ? "text-emerald-400 font-medium"
+                                        : ""
                                   }
                                 >
                                   {item.productName} ({item.size}) × {item.quantity}
@@ -715,10 +832,19 @@ function OrderDetailModal({
                   const is8CC =
                     item.productName === "Black CCS x 8CC Shirt (Preorder)" ||
                     item.productName === "Black CCS x 8CC Crop (Preorder)";
+                  const isDNA =
+                    item.productName &&
+                    String(item.productName).toLowerCase().includes("dna");
                   return (
                     <p
                       key={index}
-                      className={is8CC ? "text-yellow-400 font-medium" : "text-white"}
+                      className={
+                        is8CC
+                          ? "text-yellow-400 font-medium"
+                          : isDNA
+                            ? "text-emerald-400 font-medium"
+                            : "text-white"
+                      }
                     >
                       {item.productName} ({item.size}) × {item.quantity} - $
                       {(item.price * item.quantity).toFixed(2)}

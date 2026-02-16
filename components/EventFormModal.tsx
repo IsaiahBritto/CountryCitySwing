@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { toDateTimeLocalChicago, fromDateTimeLocalChicago } from "@/lib/utils/dateHelpers";
 
 const CLASS_INTRO = "This is your one stop shop for weekly country swing fun! ";
 const DEFAULT_UPPER_LEVEL_NAMES = "Malissa and Isaiah";
@@ -91,13 +92,13 @@ export default function EventFormModal({
   useEffect(() => {
     if (open) {
       if (event) {
-        // Format starts_at for datetime-local input (YYYY-MM-DDTHH:mm)
+        // Format starts_at/ends_at in America/Chicago for datetime-local (avoids timezone shift on save)
         const startsAtStr = event.starts_at
-          ? new Date(event.starts_at).toISOString().slice(0, 16)
+          ? toDateTimeLocalChicago(event.starts_at)
           : "";
         const isConvention = (event.type || "").trim().toLowerCase() === "convention";
         const endsAtStr = isConvention && event.ends_at
-          ? new Date(event.ends_at).toISOString().slice(0, 16)
+          ? toDateTimeLocalChicago(event.ends_at)
           : "";
 
         const isClass = (event.type || "").trim().toLowerCase() === "class";
@@ -217,9 +218,13 @@ export default function EventFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (formData.ends_at && formData.starts_at && new Date(formData.ends_at) < new Date(formData.starts_at)) {
-      setError("End date & time must be on or after start date & time.");
-      return;
+    if (formData.ends_at && formData.starts_at) {
+      const startISO = fromDateTimeLocalChicago(formData.starts_at);
+      const endISO = fromDateTimeLocalChicago(formData.ends_at);
+      if (startISO && endISO && endISO < startISO) {
+        setError("End date & time must be on or after start date & time.");
+        return;
+      }
     }
     setLoading(true);
 
@@ -229,10 +234,10 @@ export default function EventFormModal({
         : "/api/events";
       const method = isEditMode ? "PUT" : "POST";
 
-      // Prepare data
+      // Prepare data (interpret form datetime as America/Chicago so time doesn't shift)
       const submitData: any = {
         title: formData.title,
-        starts_at: formData.starts_at ? new Date(formData.starts_at).toISOString() : "",
+        starts_at: formData.starts_at ? fromDateTimeLocalChicago(formData.starts_at) : "",
         location: formData.location,
       };
 
@@ -248,7 +253,7 @@ export default function EventFormModal({
       if (formData.ccs_team_price !== undefined) submitData.ccs_team_price = formData.ccs_team_price != null ? Number(formData.ccs_team_price) : null;
       if (formData.type !== undefined) submitData.type = formData.type || "";
       const isConvention = (formData.type || "").trim().toLowerCase() === "convention";
-      submitData.ends_at = isConvention && formData.ends_at ? new Date(formData.ends_at).toISOString() : null;
+      submitData.ends_at = isConvention && formData.ends_at ? fromDateTimeLocalChicago(formData.ends_at) : null;
 
       const response = await fetch(url, {
         method,

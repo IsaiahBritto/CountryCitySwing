@@ -1,7 +1,34 @@
 // lib/utils/dateHelpers.ts
 
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
 /** Events are in America/Chicago (Nashville). Use this for consistent date display. */
 const EVENT_TIMEZONE = "America/Chicago";
+
+/**
+ * Format an ISO timestamp (UTC) as "YYYY-MM-DDTHH:mm" in America/Chicago
+ * for use in datetime-local inputs. Prevents time shifting when editing events.
+ */
+export function toDateTimeLocalChicago(isoString: string): string {
+  if (!isoString) return "";
+  const d = dayjs.utc(isoString).tz(EVENT_TIMEZONE);
+  return d.isValid() ? d.format("YYYY-MM-DDTHH:mm") : "";
+}
+
+/**
+ * Parse "YYYY-MM-DDTHH:mm" as America/Chicago and return ISO string (UTC)
+ * for saving to the API. Ensures the form time is stored correctly regardless of admin timezone.
+ */
+export function fromDateTimeLocalChicago(dateTimeLocal: string): string {
+  if (!dateTimeLocal || !dateTimeLocal.includes("T")) return "";
+  const d = dayjs.tz(dateTimeLocal.replace("T", " "), EVENT_TIMEZONE);
+  return d.isValid() ? d.toISOString() : "";
+}
 
 export function parseLocalDate(dateStr: string) {
   if (!dateStr) return new Date(NaN);

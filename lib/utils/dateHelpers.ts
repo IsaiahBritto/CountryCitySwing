@@ -11,12 +11,28 @@ dayjs.extend(timezone);
 const EVENT_TIMEZONE = "America/Chicago";
 
 /**
+ * Ensure an ISO string is parsed as UTC (Supabase/Postgres may return without "Z").
+ * dayjs.utc(str) parses strings without "Z" as local time, so we normalize first.
+ */
+function normalizeToUtcString(isoString: string): string {
+  if (!isoString || typeof isoString !== "string") return "";
+  const s = isoString.trim();
+  // Already has timezone: Z or +00:00 or -05:00 etc.
+  if (/[Z+-]\d{2}:?\d{2}$/.test(s) || s.endsWith("Z")) return s;
+  // Looks like "YYYY-MM-DDTHH:mm:ss" or "YYYY-MM-DDTHH:mm" — treat as UTC
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s.replace(/T(\d{2}:\d{2}(?::\d{2}(?:\.\d{3})?)?)/, "T$1Z");
+  return s;
+}
+
+/**
  * Format an ISO timestamp (UTC) as "YYYY-MM-DDTHH:mm" in America/Chicago
  * for use in datetime-local inputs. Prevents time shifting when editing events.
  */
 export function toDateTimeLocalChicago(isoString: string): string {
   if (!isoString) return "";
-  const d = dayjs.utc(isoString).tz(EVENT_TIMEZONE);
+  const utcStr = normalizeToUtcString(isoString);
+  if (!utcStr) return "";
+  const d = dayjs.utc(utcStr).tz(EVENT_TIMEZONE);
   return d.isValid() ? d.format("YYYY-MM-DDTHH:mm") : "";
 }
 

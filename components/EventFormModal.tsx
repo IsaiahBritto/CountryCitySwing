@@ -234,10 +234,23 @@ export default function EventFormModal({
         : "/api/events";
       const method = isEditMode ? "PUT" : "POST";
 
-      // Prepare data (interpret form datetime as America/Chicago so time doesn't shift)
+      // In edit mode, if user didn't change start/end time, send original values so time never shifts
+      const startUnchanged =
+        isEditMode &&
+        event?.starts_at &&
+        formData.starts_at === toDateTimeLocalChicago(event.starts_at);
+      const endUnchanged =
+        isEditMode &&
+        event?.ends_at != null &&
+        formData.ends_at === toDateTimeLocalChicago(event.ends_at);
+
       const submitData: any = {
         title: formData.title,
-        starts_at: formData.starts_at ? fromDateTimeLocalChicago(formData.starts_at) : "",
+        starts_at: startUnchanged
+          ? event!.starts_at
+          : formData.starts_at
+            ? fromDateTimeLocalChicago(formData.starts_at)
+            : "",
         location: formData.location,
       };
 
@@ -253,7 +266,12 @@ export default function EventFormModal({
       if (formData.ccs_team_price !== undefined) submitData.ccs_team_price = formData.ccs_team_price != null ? Number(formData.ccs_team_price) : null;
       if (formData.type !== undefined) submitData.type = formData.type || "";
       const isConvention = (formData.type || "").trim().toLowerCase() === "convention";
-      submitData.ends_at = isConvention && formData.ends_at ? fromDateTimeLocalChicago(formData.ends_at) : null;
+      submitData.ends_at =
+        isConvention && formData.ends_at
+          ? endUnchanged
+            ? event!.ends_at!
+            : fromDateTimeLocalChicago(formData.ends_at)
+          : null;
 
       const response = await fetch(url, {
         method,

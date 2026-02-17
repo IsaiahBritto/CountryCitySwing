@@ -81,10 +81,13 @@ export default function RegistrationPage() {
   const [pastEventsMonth, setPastEventsMonth] = useState(() =>
     dayjs().format("YYYY-MM")
   );
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
   useEffect(() => {
     const loadUser = async () => {
-      const { data: { user } } = await supabaseBrowser.auth.getUser();
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+      setSessionToken(session?.access_token ?? null);
+      const user = session?.user;
       if (user) {
         setUserEmail(user.email || "");
         const { data: profile } = await supabaseBrowser
@@ -94,10 +97,8 @@ export default function RegistrationPage() {
           .single();
         if (profile) {
           setUserRole(profile.role || "");
-          // Use case-insensitive role check to handle variations
           const roleLower = (profile.role || "").toLowerCase();
           const isAdminRole = roleLower === "admin";
-          // Only check for instructor if NOT an admin (admins get special treatment)
           const isInstructorRole = !isAdminRole && (roleLower === "instructor" || roleLower.includes("instructor"));
           setIsInstructor(isInstructorRole);
           setIsAdmin(isAdminRole);
@@ -206,41 +207,37 @@ export default function RegistrationPage() {
       console.log("Cleaning up realtime subscription for signups", channelName);
       supabaseBrowser.removeChannel(channel);
     };
-  }, [selectedEvent, filter]);
+  }, [selectedEvent, filter, sessionToken]);
 
-  // Polling fallback: refresh signups every 20 seconds as backup
+  // Polling fallback: refresh signups every 60 seconds as backup
   useEffect(() => {
     if (!selectedEvent) return;
 
     const intervalId = setInterval(() => {
-      console.log("Polling: Refreshing signups...");
       loadSignups(selectedEvent.id);
-    }, 20000); // Poll every 20 seconds
+    }, 60000);
 
     return () => clearInterval(intervalId);
-  }, [selectedEvent, filter]);
+  }, [selectedEvent, filter, sessionToken]);
 
   const loadSignups = async (eventId: string) => {
     try {
-      // Get the current session to send access token
-      const { data: { session } } = await supabaseBrowser.auth.getSession();
-      if (!session) {
+      if (!sessionToken) {
         console.error("No session found");
         setSignups([]);
+        setCompSignups([]);
         setTotalCount(0);
         setCheckedInCount(0);
         return;
       }
 
-      // Use API route which handles authentication and RLS bypass for instructors/admins
       const params = new URLSearchParams({
         event_id: eventId.toString(),
         filter: filter,
       });
-      
       const response = await fetch(`/api/signups?${params.toString()}`, {
         headers: {
-          "Authorization": `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${sessionToken}`,
         },
       });
       
@@ -303,20 +300,17 @@ export default function RegistrationPage() {
   ) => {
     setUpdating(signupId);
     try {
-      // Get the current session to send access token
-      const { data: { session } } = await supabaseBrowser.auth.getSession();
-      if (!session) {
+      if (!sessionToken) {
         alert("Not authenticated");
         setUpdating(null);
         return;
       }
 
-      // Use API route which handles authentication and RLS bypass for instructors/admins
       const response = await fetch("/api/signups", {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${sessionToken}`,
         },
         body: JSON.stringify({
           signupId,

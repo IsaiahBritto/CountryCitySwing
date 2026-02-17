@@ -84,7 +84,8 @@ async function runBackfill(req: NextRequest) {
   }
 
   const stripe = getStripe();
-  let updated = 0;
+  const BATCH_SIZE = 50;
+  const updates: { id: string; stripe_tax_amount: number; stripe_processing_fee: number }[] = [];
   const errors: { orderId: string; error: string }[] = [];
 
   for (const order of orders) {
@@ -99,24 +100,39 @@ async function runBackfill(req: NextRequest) {
           ? session.total_details.amount_tax / 100
           : 0;
       const processingFee = Number((session.metadata?.processing_fee as string) || 0);
-
-      const { error: updateError } = await supabaseServer
-        .from("merch_orders")
-        .update({
-          stripe_tax_amount: taxAmount,
-          stripe_processing_fee: processingFee,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", order.id);
-
-      if (updateError) {
-        errors.push({ orderId: order.id, error: updateError.message });
-      } else {
-        updated += 1;
-      }
+      updates.push({
+        id: order.id,
+        stripe_tax_amount: taxAmount,
+        stripe_processing_fee: processingFee,
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       errors.push({ orderId: order.id, error: msg });
+    }
+  }
+  let updated = 0;
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < updates.length; i += BATCH_SIZE) {
+    const batch = updates.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(
+      batch.map((u) =>
+        supabaseServer
+          .from("merch_orders")
+          .update({
+            stripe_tax_amount: u.stripe_tax_amount,
+            stripe_processing_fee: u.stripe_processing_fee,
+            updated_at: now,
+          })
+          .eq("id", u.id)
+      )
+    );
+    for (let idx = 0; idx < results.length; idx++) {
+      if (results[idx].error) {
+        errors.push({ orderId: batch[idx].id, error: results[idx].error!.message });
+      } else {
+        updated += 1;
+      }
     }
   }
 

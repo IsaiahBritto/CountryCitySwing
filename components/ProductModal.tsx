@@ -29,12 +29,15 @@ interface ProductModalProps {
   product: Product;
   isOpen: boolean;
   onClose: () => void;
+  /** When provided, used instead of fetching inventory (avoids per-modal query). */
+  inventoryByProduct?: InventoryItem[];
 }
 
 export default function ProductModal({
   product,
   isOpen,
   onClose,
+  inventoryByProduct,
 }: ProductModalProps) {
   const [selectedSize, setSelectedSize] = useState<string>("");
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -43,9 +46,13 @@ export default function ProductModal({
 
   useEffect(() => {
     if (isOpen && product.id) {
-      loadInventory();
+      if (inventoryByProduct !== undefined) {
+        setInventory(inventoryByProduct);
+      } else {
+        loadInventory();
+      }
     }
-  }, [isOpen, product.id]);
+  }, [isOpen, product.id, inventoryByProduct]);
 
   async function loadInventory() {
     try {

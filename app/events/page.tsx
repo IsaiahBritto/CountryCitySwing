@@ -31,16 +31,19 @@ export default function EventsPage() {
 
   useEffect(() => {
     const checkRole = async () => {
-      const { data: { user } } = await supabaseBrowser.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabaseBrowser
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single();
-        const roleLower = (profile?.role ?? "").toLowerCase();
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+      if (!session?.access_token) return;
+      try {
+        const res = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const roleLower = (data.profile?.role ?? "").toLowerCase();
         setIsAdmin(roleLower === "admin");
         setIsInstructor(roleLower === "instructor");
+      } catch {
+        // ignore
       }
     };
     checkRole();

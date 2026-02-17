@@ -62,23 +62,27 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
   async function loadData() {
     setLoading(true);
     try {
-      // Load inventory
-      const { data: invData, error: invError } = await supabaseBrowser
-        .from("merch_inventory")
-        .select("*")
-        .order("product_id")
-        .order("size");
+      // First wave: inventory + auth in parallel
+      const [invResult, authResult] = await Promise.all([
+        supabaseBrowser
+          .from("merch_inventory")
+          .select("*")
+          .order("product_id")
+          .order("size"),
+        supabaseBrowser.auth.getUser(),
+      ]);
+
+      const { data: invData, error: invError } = invResult;
+      const { data: { user } } = authResult;
 
       if (invError) {
         console.error("Error loading inventory:", invError);
       } else if (invData) {
         setInventory(invData);
-        // Initialize editing state
         const editState: { [key: string]: number } = {};
         invData.forEach((item) => {
           editState[`${item.product_id}-${item.size}`] = item.quantity;
         });
-        // Also initialize for sizes that don't have inventory records yet
         products.forEach((product) => {
           product.availableSizes.forEach((size) => {
             const key = `${product.id}-${size}`;
@@ -90,57 +94,48 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
         setEditingInventory(editState);
       }
 
-      // Load orders
-      // First check if user is authenticated
-      const { data: { user } } = await supabaseBrowser.auth.getUser();
       if (!user) {
         console.error("User not authenticated");
         setOrders([]);
+        setAllOrders([]);
       } else {
-        // Check if user is admin
-        const { data: profile } = await supabaseBrowser
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single();
-        
+        // Second wave: profile + orders in parallel
+        const [profileResult, ordersResult] = await Promise.all([
+          supabaseBrowser
+            .from("profiles")
+            .select("role")
+            .eq("id", user.id)
+            .single(),
+          supabaseBrowser
+            .from("merch_orders")
+            .select("*")
+            .order("created_at", { ascending: false }),
+        ]);
+
+        const { data: profile } = profileResult;
+        const { data: ordersData, error: ordersError } = ordersResult;
+
         console.log("Current user:", user.id, "Role:", profile?.role);
-        
+
         if (profile?.role !== "admin") {
           console.warn("User is not an admin. Cannot view all orders.");
           setOrders([]);
           setAllOrders([]);
-        } else {
-          const { data: ordersData, error: ordersError } = await supabaseBrowser
-            .from("merch_orders")
-            .select("*")
-            .order("created_at", { ascending: false });
-
-          if (ordersError) {
-            console.error("Error loading orders:", ordersError);
-            console.error("Error code:", ordersError.code);
-            console.error("Error message:", ordersError.message);
-            console.error("Error details:", ordersError.details);
-            console.error("Error hint:", ordersError.hint);
-            // If it's a permissions error, try to provide helpful info
-            if (ordersError.code === "PGRST301" || ordersError.message?.includes("permission") || ordersError.message?.includes("policy")) {
-              console.error("RLS Policy Error: User may not have permission to view orders. Check if role='admin' in profiles table.");
-            }
-            setOrders([]);
-          } else if (ordersData !== null && ordersData !== undefined) {
-            console.log("Loaded orders:", ordersData.length, ordersData);
-            setAllOrders(ordersData);
-            // Filter based on showCompleted
-            const filtered = showCompleted
-              ? ordersData.filter((o) => o.status === "completed")
-              : ordersData.filter((o) => o.status !== "completed");
-            console.log("Filtered orders:", filtered.length, filtered);
-            setOrders(filtered);
-          } else {
-            console.log("No orders data returned (null/undefined)");
-            setOrders([]);
-            setAllOrders([]);
+        } else if (ordersError) {
+          console.error("Error loading orders:", ordersError);
+          if (ordersError.code === "PGRST301" || ordersError.message?.includes("permission") || ordersError.message?.includes("policy")) {
+            console.error("RLS Policy Error: User may not have permission to view orders. Check if role='admin' in profiles table.");
           }
+          setOrders([]);
+        } else if (ordersData != null) {
+          setAllOrders(ordersData);
+          const filtered = showCompleted
+            ? ordersData.filter((o) => o.status === "completed")
+            : ordersData.filter((o) => o.status !== "completed");
+          setOrders(filtered);
+        } else {
+          setOrders([]);
+          setAllOrders([]);
         }
       }
     } catch (err) {

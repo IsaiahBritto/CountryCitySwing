@@ -47,28 +47,34 @@ export async function GET(
 
     const { id } = await params;
 
-    const { data: slot, error } = await supabaseServer
+    const { data: slotRow, error } = await supabaseServer
       .from("team_slots")
-      .select("id, position, event_id, assignee_id, assigned_at, created_at, updated_at")
+      .select(
+        "id, position, event_id, assignee_id, assigned_at, created_at, updated_at, event:events(id, title, starts_at, location)"
+      )
       .eq("id", id)
       .single();
 
-    if (error || !slot) {
+    if (error || !slotRow) {
       return NextResponse.json({ error: "Slot not found" }, { status: 404 });
     }
 
-    const [eventRes, assigneeRes] = await Promise.all([
-      supabaseServer.from("events").select("id, title, starts_at, location").eq("id", slot.event_id).single(),
-      slot.assignee_id
-        ? supabaseServer.from("profiles").select("id, first_name, last_name, email").eq("id", slot.assignee_id).single()
-        : { data: null },
-    ]);
+    const { event, ...slot } = slotRow;
+    let assignee = null;
+    if (slot.assignee_id) {
+      const { data: assigneeData } = await supabaseServer
+        .from("profiles")
+        .select("id, first_name, last_name, email")
+        .eq("id", slot.assignee_id)
+        .single();
+      assignee = assigneeData ?? null;
+    }
 
     return NextResponse.json({
       slot: {
         ...slot,
-        event: eventRes.data || null,
-        assignee: assigneeRes.data || null,
+        event: event ?? null,
+        assignee,
       },
     });
   } catch (e: any) {

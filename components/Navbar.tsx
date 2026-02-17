@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
-import dayjs from "dayjs";
 import { getEventDateStringInChicago, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
 
 interface UserMeta {
@@ -21,74 +20,84 @@ export default function Navbar() {
   const pathname = usePathname();
   const isDnaPage = pathname === "/dna";
   const [user, setUser] = useState<UserMeta | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<{ first_name?: string; last_name?: string; role?: string } | null>(null);
   const [showRegistration, setShowRegistration] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
 
   // Load and listen for auth changes
   useEffect(() => {
-    supabaseBrowser.auth.getUser().then(({ data }) => setUser(data.user));
+    supabaseBrowser.auth.getSession().then(({ data: { session: s } }) => {
+      setSession(s);
+      setUser(s?.user ?? null);
+    });
     const { data: listener } = supabaseBrowser.auth.onAuthStateChange(
-      (_: AuthChangeEvent, session: Session | null) =>
-        setUser(session?.user ?? null)
+      (_: AuthChangeEvent, s: Session | null) => {
+        setSession(s);
+        setUser(s?.user ?? null);
+      }
     );
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  // Fetch profile when user changes
+  // Single /api/me call for profile + optional events_near_today (replaces client profiles + events queries)
   useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user?.id) {
+    const fetchMe = async () => {
+      if (!session?.access_token) {
         setProfile(null);
         setShowRegistration(false);
         setShowSchedule(false);
         setIsAdmin(false);
         return;
       }
-      const { data } = await supabaseBrowser
-        .from("profiles")
-        .select("first_name, last_name, role")
-        .eq("id", user.id)
-        .single();
-      if (data) {
-        setProfile(data);
-        
-        // Use case-insensitive role check to handle variations
-        const roleLower = (data.role || "").toLowerCase();
+      try {
+        const res = await fetch("/api/me?events_near_today=1", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) {
+          setProfile(null);
+          setShowRegistration(false);
+          setShowSchedule(false);
+          setIsAdmin(false);
+          return;
+        }
+        const data = await res.json();
+        const p = data.profile ?? null;
+        setProfile(p);
+        if (!p) {
+          setShowRegistration(false);
+          setShowSchedule(false);
+          setIsAdmin(false);
+          return;
+        }
+        const roleLower = (p.role || "").toLowerCase();
         const isAdminRole = roleLower === "admin";
-        // Only check for instructor if NOT an admin (admins get special treatment)
-        const isInstructor = !isAdminRole && (roleLower === "instructor" || roleLower.includes("instructor"));
+        const isInstructor =
+          !isAdminRole && (roleLower === "instructor" || roleLower.includes("instructor"));
         setIsAdmin(isAdminRole);
         setShowSchedule(isAdminRole || isInstructor);
-        
         if (isAdminRole) {
-          // Admins: Registration always visible
           setShowRegistration(true);
-        } else if (isInstructor) {
-          // Instructors: Only show Registration when there's an event today (America/Chicago).
-          // Fetch a window that includes today (e.g. 7 days ago → 7 days ahead) so we don't
-          // miss today's events when using Chicago date.
+        } else if (isInstructor && Array.isArray(data.events_near_today)) {
           const todayChicago = getTodayStringInChicago();
-          const from = dayjs().subtract(7, "day").toISOString();
-          const to = dayjs().add(7, "day").toISOString();
-          const { data: events } = await supabaseBrowser
-            .from("events")
-            .select("id, starts_at")
-            .gte("starts_at", from)
-            .lte("starts_at", to)
-            .order("starts_at", { ascending: true });
-          const hasEventToday =
-            (events || []).some((e) => getEventDateStringInChicago(e.starts_at) === todayChicago);
+          const hasEventToday = data.events_near_today.some(
+            (e: { starts_at: string }) => getEventDateStringInChicago(e.starts_at) === todayChicago
+          );
           setShowRegistration(!!hasEventToday);
         } else {
           setShowRegistration(false);
         }
+      } catch {
+        setProfile(null);
+        setShowRegistration(false);
+        setShowSchedule(false);
+        setIsAdmin(false);
       }
     };
-    fetchProfile();
-  }, [user]);
+    fetchMe();
+  }, [session?.access_token]);
 
   const displayName =
     profile?.first_name ||

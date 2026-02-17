@@ -93,30 +93,37 @@ export default function SchedulePage() {
     let cancelled = false;
 
     async function init() {
-      const { data: { user } } = await supabaseBrowser.auth.getUser();
-      if (!user) {
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+      if (!session?.user) {
         router.replace("/auth");
         return;
       }
-      setUserId(user.id);
+      setUserId(session.user.id);
 
-      const { data: profile } = await supabaseBrowser
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-
-      const roleLower = (profile?.role || "").toLowerCase();
-      const isAdmin = roleLower === "admin";
-      const isInstructor = roleLower === "instructor" || roleLower.includes("instructor");
-      if (!isAdmin && !isInstructor) {
+      try {
+        const res = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok || cancelled) {
+          setRole(null);
+          setLoading(false);
+          return;
+        }
+        const data = await res.json();
+        const roleLower = (data.profile?.role || "").toLowerCase();
+        const isAdmin = roleLower === "admin";
+        const isInstructor = roleLower === "instructor" || roleLower.includes("instructor");
+        if (!isAdmin && !isInstructor) {
+          setRole(null);
+          setLoading(false);
+          return;
+        }
+        setRole(isAdmin ? "admin" : "instructor");
+        if (!cancelled) await loadData();
+      } catch {
         setRole(null);
         setLoading(false);
-        return;
       }
-      setRole(isAdmin ? "admin" : "instructor");
-
-      if (!cancelled) await loadData();
     }
 
     init();

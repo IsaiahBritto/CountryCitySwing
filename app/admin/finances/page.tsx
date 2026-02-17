@@ -317,6 +317,7 @@ export default function AdminFinancesPage() {
   const [loadingCompFinances, setLoadingCompFinances] = useState(false);
   const [compFinancesError, setCompFinancesError] = useState<string | null>(null);
   const [compFinancesSaving, setCompFinancesSaving] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(null);
 
   const filteredEvents = useMemo(() => {
     const t = dayjs().startOf("day");
@@ -371,20 +372,30 @@ export default function AdminFinancesPage() {
 
   useEffect(() => {
     const checkAdmin = async () => {
-      const {
-        data: { user },
-      } = await supabaseBrowser.auth.getUser();
-      if (!user) {
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+      if (!session?.access_token) {
         setIsAdmin(false);
+        setAuthToken(null);
         return;
       }
-      const { data: profile } = await supabaseBrowser
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
-      const roleLower = (profile?.role || "").toLowerCase();
-      setIsAdmin(roleLower === "admin");
+      try {
+        const res = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) {
+          setIsAdmin(false);
+          setAuthToken(null);
+          return;
+        }
+        const data = await res.json();
+        const roleLower = (data.profile?.role || "").toLowerCase();
+        const admin = roleLower === "admin";
+        setIsAdmin(admin);
+        setAuthToken(admin ? session.access_token : null);
+      } catch {
+        setIsAdmin(false);
+        setAuthToken(null);
+      }
     };
     checkAdmin();
   }, []);
@@ -443,10 +454,7 @@ export default function AdminFinancesPage() {
       setLoadingSignups(true);
       setSignupsError(null);
       try {
-        const {
-          data: { session },
-        } = await supabaseBrowser.auth.getSession();
-        if (!session) {
+        if (!authToken) {
           setSignups([]);
           setCompSignups([]);
           setIsCompEvent(false);
@@ -460,7 +468,7 @@ export default function AdminFinancesPage() {
           filter: "all",
         });
         const res = await fetch(`/api/signups?${params}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         });
 
         if (!res.ok) {
@@ -501,7 +509,7 @@ export default function AdminFinancesPage() {
     };
 
     loadSignups();
-  }, [isAdmin, eventsView, selectedEvent]);
+  }, [isAdmin, eventsView, selectedEvent, authToken]);
 
   useEffect(() => {
     if (!isAdmin || eventsView !== "overview" || selectedYear == null || !eventsInSelectedYear.length) {
@@ -515,8 +523,7 @@ export default function AdminFinancesPage() {
       setLoadingOverview(true);
       setOverviewError(null);
       try {
-        const { data: { session } } = await supabaseBrowser.auth.getSession();
-        if (!session) {
+        if (!authToken) {
           setOverviewError("Session expired. Please sign in again.");
           setOverviewStats(null);
           setOverviewFinances(null);
@@ -530,7 +537,7 @@ export default function AdminFinancesPage() {
           eventsInSelectedYear.map(async (ev) => {
             const params = new URLSearchParams({ event_id: ev.id, filter: "all" });
             const res = await fetch(`/api/signups?${params}`, {
-              headers: { Authorization: `Bearer ${session.access_token}` },
+              headers: { Authorization: `Bearer ${authToken}` },
             });
             if (!res.ok) {
               const body = await res.json().catch(() => ({}));
@@ -548,7 +555,7 @@ export default function AdminFinancesPage() {
 
             if (isNashville(ev)) {
               const nr = await fetch(`/api/admin/nashville-night-finances?event_id=${ev.id}`, {
-                headers: { Authorization: `Bearer ${session.access_token}` },
+                headers: { Authorization: `Bearer ${authToken}` },
               });
               if (nr.ok) {
                 const { data } = await nr.json();
@@ -560,7 +567,7 @@ export default function AdminFinancesPage() {
             // event.type is not set to "workshop".
             if (!isNashville(ev)) {
               const wr = await fetch(`/api/admin/workshop-finances?event_id=${ev.id}`, {
-                headers: { Authorization: `Bearer ${session.access_token}` },
+                headers: { Authorization: `Bearer ${authToken}` },
               });
               if (wr.ok) {
                 const { data } = await wr.json();
@@ -569,7 +576,7 @@ export default function AdminFinancesPage() {
             }
             if (isComp) {
               const cr = await fetch(`/api/admin/comp-finances?event_id=${ev.id}`, {
-                headers: { Authorization: `Bearer ${session.access_token}` },
+                headers: { Authorization: `Bearer ${authToken}` },
               });
               if (cr.ok) {
                 const { data } = await cr.json();
@@ -687,8 +694,7 @@ export default function AdminFinancesPage() {
       setLoadingNashville(true);
       setNashvilleError(null);
       try {
-        const { data: { session } } = await supabaseBrowser.auth.getSession();
-        if (!session) {
+        if (!authToken) {
           setNashvilleError("Session expired. Please sign in again.");
           setNashvilleFinances(null);
           setLoadingNashville(false);
@@ -696,7 +702,7 @@ export default function AdminFinancesPage() {
         }
         const params = new URLSearchParams({ event_id: selectedEvent.id });
         const res = await fetch(`/api/admin/nashville-night-finances?${params}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -719,7 +725,7 @@ export default function AdminFinancesPage() {
     };
 
     load();
-  }, [isAdmin, eventsView, selectedEvent?.id, isNashvilleEvent]);
+  }, [isAdmin, eventsView, selectedEvent?.id, isNashvilleEvent, authToken]);
 
   useEffect(() => {
     if (
@@ -738,8 +744,7 @@ export default function AdminFinancesPage() {
       setLoadingWorkshop(true);
       setWorkshopError(null);
       try {
-        const { data: { session } } = await supabaseBrowser.auth.getSession();
-        if (!session) {
+        if (!authToken) {
           setWorkshopError("Session expired. Please sign in again.");
           setWorkshopFinances(null);
           setLoadingWorkshop(false);
@@ -747,7 +752,7 @@ export default function AdminFinancesPage() {
         }
         const params = new URLSearchParams({ event_id: selectedEvent.id });
         const res = await fetch(`/api/admin/workshop-finances?${params}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -788,8 +793,7 @@ export default function AdminFinancesPage() {
       setLoadingCompFinances(true);
       setCompFinancesError(null);
       try {
-        const { data: { session } } = await supabaseBrowser.auth.getSession();
-        if (!session) {
+        if (!authToken) {
           setCompFinancesError("Session expired. Please sign in again.");
           setCompFinances(null);
           setLoadingCompFinances(false);
@@ -797,7 +801,7 @@ export default function AdminFinancesPage() {
         }
         const params = new URLSearchParams({ event_id: selectedEvent.id });
         const res = await fetch(`/api/admin/comp-finances?${params}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+          headers: { Authorization: `Bearer ${authToken}` },
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -824,16 +828,14 @@ export default function AdminFinancesPage() {
 
   const patchCompFinances = useCallback(
     async (updates: { studio_cost?: number; judges?: CompJudgePayoutInput[]; mark_judge_paid?: string }) => {
-      if (!selectedEvent || !isCompEvent) return;
+      if (!selectedEvent || !isCompEvent || !authToken) return;
       setCompFinancesSaving(true);
       try {
-        const { data: { session } } = await supabaseBrowser.auth.getSession();
-        if (!session) return;
         const res = await fetch("/api/admin/comp-finances", {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${authToken}`,
           },
           body: JSON.stringify({
             event_id: selectedEvent.id,
@@ -853,7 +855,7 @@ export default function AdminFinancesPage() {
         setCompFinancesSaving(false);
       }
     },
-    [selectedEvent?.id, isCompEvent]
+    [selectedEvent?.id, isCompEvent, authToken]
   );
 
   const patchWorkshop = useCallback(
@@ -863,16 +865,14 @@ export default function AdminFinancesPage() {
       guest_instructor_amount?: number | null;
       ccs_amount?: number | null;
     }) => {
-      if (!selectedEvent || !isWorkshopEvent) return;
+      if (!selectedEvent || !isWorkshopEvent || !authToken) return;
       setWorkshopSaving(true);
       try {
-        const { data: { session } } = await supabaseBrowser.auth.getSession();
-        if (!session) return;
         const res = await fetch("/api/admin/workshop-finances", {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${authToken}`,
           },
           body: JSON.stringify({
             event_id: selectedEvent.id,
@@ -892,7 +892,7 @@ export default function AdminFinancesPage() {
         setWorkshopSaving(false);
       }
     },
-    [selectedEvent?.id, isWorkshopEvent]
+    [selectedEvent?.id, isWorkshopEvent, authToken]
   );
 
   const patchNashville = useCallback(
@@ -910,16 +910,14 @@ export default function AdminFinancesPage() {
       mark_bt2_paid?: boolean;
       mark_upper_level_paid?: boolean;
     }) => {
-      if (!selectedEvent || !isNashvilleEvent) return;
+      if (!selectedEvent || !isNashvilleEvent || !authToken) return;
       setNashvilleSaving(true);
       try {
-        const { data: { session } } = await supabaseBrowser.auth.getSession();
-        if (!session) return;
         const res = await fetch("/api/admin/nashville-night-finances", {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${authToken}`,
           },
           body: JSON.stringify({
             event_id: selectedEvent.id,
@@ -939,7 +937,7 @@ export default function AdminFinancesPage() {
         setNashvilleSaving(false);
       }
     },
-    [selectedEvent?.id, isNashvilleEvent]
+    [selectedEvent?.id, isNashvilleEvent, authToken]
   );
 
   const stats = eventsView === "overview" && overviewStats

@@ -26,8 +26,11 @@ interface Product {
   mainImageUrl: string;
 }
 
+export type InventoryByProduct = Record<string, { size: string; quantity: number }[]>;
+
 export default function MerchPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [inventoryByProductId, setInventoryByProductId] = useState<InventoryByProduct>({});
   const [loading, setLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -35,21 +38,19 @@ export default function MerchPage() {
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
 
-  // Check if user is signed in and admin
+  // Check if user is signed in and admin (single /api/me call)
   useEffect(() => {
     async function checkUser() {
       try {
-        const {
-          data: { user },
-        } = await supabaseBrowser.auth.getUser();
-        setIsSignedIn(!!user);
-        if (user) {
-          const { data: profile } = await supabaseBrowser
-            .from("profiles")
-            .select("role")
-            .eq("id", user.id)
-            .single();
-          setIsAdmin(profile?.role === "admin");
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        setIsSignedIn(!!session?.user);
+        if (!session?.access_token) return;
+        const res = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setIsAdmin(data.profile?.role === "admin");
         }
       } catch (err) {
         console.error("Error checking user status:", err);
@@ -70,48 +71,64 @@ export default function MerchPage() {
 
         if (error) {
           console.error("Error loading products:", error);
-          // Fallback to default products if table doesn't exist yet
           setProducts(getDefaultProducts());
         } else if (data && data.length > 0) {
-          // Transform Supabase data to Product format
-          const transformedProducts = await Promise.all(
-            data.map(async (product: any) => {
-              // Fetch images for this product
-              const { data: images } = await supabase
-                .from("merch_product_images")
-                .select("*")
-                .eq("product_id", product.id)
-                .order("display_order");
+          const productIds = data.map((p: any) => p.id);
+          // Single query for all images (avoids N+1)
+          const { data: allImages } = await supabase
+            .from("merch_product_images")
+            .select("*")
+            .in("product_id", productIds)
+            .order("display_order");
 
-              const productImages: ProductImage[] =
-                images?.map((img: any) => ({
-                  id: img.id,
-                  url: img.image_url,
-                  alt: img.alt_text || product.name,
-                })) || [];
+          const imagesByProductId: Record<string, ProductImage[]> = {};
+          (allImages || []).forEach((img: any) => {
+            const list = imagesByProductId[img.product_id] ?? [];
+            list.push({
+              id: img.id,
+              url: img.image_url,
+              alt: img.alt_text ?? undefined,
+            });
+            imagesByProductId[img.product_id] = list;
+          });
 
-              // Get main image URL (first image or placeholder)
-              const mainImageUrl =
-                productImages[0]?.url ||
-                product.main_image_url ||
-                "/placeholder-product.jpg";
-
-              return {
-                id: product.id,
-                name: product.name,
-                type: product.type,
-                price: product.price,
-                images: productImages.length > 0 ? productImages : [
-                  { id: "main", url: mainImageUrl, alt: product.name },
-                ],
-                availableSizes: product.available_sizes || [],
-                mainImageUrl,
-              };
-            })
-          );
+          const transformedProducts = data.map((product: any) => {
+            const productImages =
+              imagesByProductId[product.id]?.map((img) => ({
+                ...img,
+                alt: img.alt || product.name,
+              })) ?? [];
+            const mainImageUrl =
+              productImages[0]?.url ||
+              product.main_image_url ||
+              "/placeholder-product.jpg";
+            return {
+              id: product.id,
+              name: product.name,
+              type: product.type,
+              price: product.price,
+              images:
+                productImages.length > 0
+                  ? productImages
+                  : [{ id: "main", url: mainImageUrl, alt: product.name }],
+              availableSizes: product.available_sizes || [],
+              mainImageUrl,
+            };
+          });
           setProducts(transformedProducts);
+
+          const { data: invData } = await supabase
+            .from("merch_inventory")
+            .select("product_id, size, quantity")
+            .in("product_id", productIds);
+          const byProduct: InventoryByProduct = {};
+          (invData || []).forEach((row: any) => {
+            const list = byProduct[row.product_id] ?? [];
+            list.push({ size: row.size, quantity: row.quantity });
+            byProduct[row.product_id] = list;
+          });
+          setInventoryByProductId(byProduct);
         } else {
-          // No products in database, use defaults
           setProducts(getDefaultProducts());
         }
       } catch (err) {
@@ -216,6 +233,7 @@ export default function MerchPage() {
             setIsModalOpen(false);
             setSelectedProduct(null);
           }}
+          inventoryByProduct={inventoryByProductId[selectedProduct.id]}
         />
       )}
     </section>

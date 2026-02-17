@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
+const EVENT_TYPE_CACHE_TTL_MS = 60_000; // 60 seconds
+const eventTypeCache = new Map<string, { type: string; ts: number }>();
+
+function getCachedEventType(eventId: string): string | null {
+  const entry = eventTypeCache.get(eventId);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > EVENT_TYPE_CACHE_TTL_MS) {
+    eventTypeCache.delete(eventId);
+    return null;
+  }
+  return entry.type;
+}
+
+function setCachedEventType(eventId: string, type: string) {
+  eventTypeCache.set(eventId, { type, ts: Date.now() });
+}
+
 // Helper to get user from access token (catches network/timeout so we don't throw)
 async function getUserFromToken(accessToken: string) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -96,21 +113,26 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Resolve event type to decide signups vs comp_signups
-    const { data: eventRow, error: eventError } = await supabaseServer
-      .from("events")
-      .select("type")
-      .eq("id", eventId)
-      .single();
+    let eventType: string | null = getCachedEventType(eventId);
+    if (eventType === null) {
+      const { data: eventRow, error: eventError } = await supabaseServer
+        .from("events")
+        .select("type")
+        .eq("id", eventId)
+        .single();
 
-    if (eventError || !eventRow) {
-      return NextResponse.json(
-        { error: "Event not found" },
-        { status: 404 }
-      );
+      if (eventError || !eventRow) {
+        return NextResponse.json(
+          { error: "Event not found" },
+          { status: 404 }
+        );
+      }
+      const typeStr = (eventRow.type || "").toString();
+      eventType = typeStr;
+      setCachedEventType(eventId, typeStr);
     }
 
-    const isComp = (eventRow.type || "").toString().toLowerCase() === "comp";
+    const isComp = (eventType ?? "").toLowerCase() === "comp";
 
     if (isComp) {
       const { data: compList, error: compError } = await supabaseServer

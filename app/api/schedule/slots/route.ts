@@ -61,34 +61,30 @@ export async function GET(req: NextRequest) {
     const fromDate = searchParams.get("from");
     const toDate = searchParams.get("to");
 
+    // Embed events in one query (team_slots.event_id -> events.id). Assignees still fetched separately (assignee_id -> auth.users, not profiles).
     let query = supabaseServer
       .from("team_slots")
-      .select("id, position, event_id, assignee_id, assigned_at, created_at, updated_at");
+      .select("id, position, event_id, assignee_id, assigned_at, created_at, updated_at, event:events(id, title, starts_at, location)");
 
     if (eventId) query = query.eq("event_id", eventId);
 
-    const { data: slots, error } = await query.order("created_at", { ascending: true });
+    const { data: slotList, error } = await query.order("created_at", { ascending: true });
 
     if (error) {
       console.error("Error fetching slots:", error);
       return NextResponse.json({ error: "Failed to fetch slots" }, { status: 500 });
     }
 
-    const slotList = slots || [];
-    const eventIds = [...new Set(slotList.map((s: any) => s.event_id))];
-    const assigneeIds = [...new Set(slotList.map((s: any) => s.assignee_id).filter(Boolean))];
+    const slots = slotList || [];
+    const assigneeIds = [...new Set(slots.map((s: any) => s.assignee_id).filter(Boolean))];
+    const { data: profilesData } = assigneeIds.length
+      ? await supabaseServer.from("profiles").select("id, first_name, last_name").in("id", assigneeIds)
+      : { data: [] };
+    const profilesMap = new Map((profilesData || []).map((p: any) => [p.id, p]));
 
-    const [eventsRes, profilesRes] = await Promise.all([
-      eventIds.length ? supabaseServer.from("events").select("id, title, starts_at, location").in("id", eventIds) : { data: [] },
-      assigneeIds.length ? supabaseServer.from("profiles").select("id, first_name, last_name").in("id", assigneeIds) : { data: [] },
-    ]);
-
-    const eventsMap = new Map((eventsRes.data || []).map((e: any) => [e.id, e]));
-    const profilesMap = new Map((profilesRes.data || []).map((p: any) => [p.id, p]));
-
-    let result = slotList.map((s: any) => ({
+    let result = slots.map((s: any) => ({
       ...s,
-      event: eventsMap.get(s.event_id) || null,
+      event: s.event ?? null,
       assignee: s.assignee_id ? profilesMap.get(s.assignee_id) || null : null,
     }));
 

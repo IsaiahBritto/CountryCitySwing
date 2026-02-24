@@ -111,6 +111,14 @@ export function getTodayStringInChicago(): string {
   }).format(new Date());
 }
 
+/** Start and end of today in America/Chicago as UTC ISO strings (for DB queries). */
+export function getTodayChicagoUtcRange(): { start: string; end: string } {
+  const today = getTodayStringInChicago();
+  const start = dayjs.tz(`${today} 00:00:00`, EVENT_TIMEZONE).utc().toISOString();
+  const end = dayjs.tz(`${today} 23:59:59.999`, EVENT_TIMEZONE).utc().toISOString();
+  return { start, end };
+}
+
 /** True if the given Chicago date (YYYY-MM-DD) falls within the event range. */
 export function eventSpansDateInChicago(
   startsAt: string,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { formatEventDateInChicago, formatEventTimeInChicago } from "@/lib/utils/dateHelpers";
 
 /**
  * POST - Send confirmation email to assignee and all admins when someone signs up for a schedule slot.
@@ -31,20 +32,8 @@ export async function POST(req: NextRequest) {
       .eq("id", eventId)
       .single();
 
-    const eventDate = event?.starts_at
-      ? new Date(event.starts_at).toLocaleDateString(undefined, {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-        })
-      : "—";
-    const eventTime = event?.starts_at
-      ? new Date(event.starts_at).toLocaleTimeString(undefined, {
-          hour: "numeric",
-          minute: "2-digit",
-        })
-      : "";
+    const eventDate = event?.starts_at ? formatEventDateInChicago(event.starts_at) : "—";
+    const eventTime = event?.starts_at ? formatEventTimeInChicago(event.starts_at) : "";
     const eventTitle = event?.title || "Event";
     const eventLocation = event?.location || "";
 

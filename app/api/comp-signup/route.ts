@@ -5,6 +5,7 @@ import { getStripe } from "@/lib/stripe";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
+import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -87,13 +88,7 @@ export async function POST(req: NextRequest) {
     const duplicateStrictly = strictlyEmailsThisRequest.some((e) => existingStrictlyEmails.has(e));
     const duplicateJnJ = jnjEmailsThisRequest.some((e) => existingJnJEmails.has(e));
     if (duplicateStrictly || duplicateJnJ) {
-      const eventDate = event.starts_at
-        ? new Date(event.starts_at).toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-          })
-        : "";
+      const eventDate = event.starts_at ? formatEventDateInChicago(event.starts_at) : "";
       return NextResponse.json(
         {
           error: "Already registered",

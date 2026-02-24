@@ -6,6 +6,7 @@ import { getDiscountedAmountForPromotion } from "@/lib/stripePromo";
 import { randomUUID } from "crypto";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
+import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -52,13 +53,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (existing) {
       const eventTitle = event.title ?? "This event";
-      const eventDate = event.starts_at
-        ? new Date(event.starts_at).toLocaleDateString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-          })
-        : "";
+      const eventDate = event.starts_at ? formatEventDateInChicago(event.starts_at) : "";
       return NextResponse.json(
         {
           error: "Already registered",
@@ -141,7 +136,7 @@ export async function POST(req: NextRequest) {
               currency: "usd",
               product_data: {
                 name: event.title,
-                description: `Event on ${new Date(event.starts_at).toLocaleDateString()} at ${event.location}`,
+                description: `Event on ${formatEventDateInChicago(event.starts_at)} at ${event.location}`,
                 tax_code: getEventTaxCode(),
               },
               unit_amount: Math.round(eventPrice * 100),
@@ -361,11 +356,7 @@ export async function POST(req: NextRequest) {
               </div>
               <div class="detail-row">
                 <div class="detail-label">Date</div>
-                <div class="detail-value">${new Date(event.starts_at).toLocaleDateString(undefined, {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                })}</div>
+                <div class="detail-value">${formatEventDateInChicago(event.starts_at)}</div>
               </div>
               ${event.location ? `
               <div class="detail-row">

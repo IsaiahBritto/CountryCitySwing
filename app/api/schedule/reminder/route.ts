@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { supabaseServer } from "@/lib/supabaseServer";
-import dayjs from "dayjs";
+import {
+  getTodayChicagoUtcRange,
+  formatEventDateInChicago,
+  formatEventTimeInChicago,
+} from "@/lib/utils/dateHelpers";
 
 /**
  * GET - Cron: at 10am, send reminder emails to everyone signed up for an event that day (any time).
- * Call from Vercel Cron once daily (e.g. 0 10 * * * for 10am).
+ * "Today" is in America/Chicago (Nashville). Call from Vercel Cron once daily (e.g. 0 10 * * * for 10am).
  * Auth: set CRON_SECRET and pass via ?secret=CRON_SECRET or Authorization: Bearer CRON_SECRET.
  */
 export async function GET(req: NextRequest) {
@@ -21,8 +25,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const todayStart = dayjs().startOf("day").toISOString();
-    const todayEnd = dayjs().endOf("day").toISOString();
+    const { start: todayStart, end: todayEnd } = getTodayChicagoUtcRange();
 
     const { data: events } = await supabaseServer
       .from("events")
@@ -38,8 +41,6 @@ export async function GET(req: NextRequest) {
     let sent = 0;
 
     for (const event of events) {
-      const eventStart = dayjs(event.starts_at);
-
       const { data: slots } = await supabaseServer
         .from("team_slots")
         .select("assignee_id")
@@ -54,8 +55,8 @@ export async function GET(req: NextRequest) {
         .select("id, email, first_name, last_name")
         .in("id", assigneeIds);
 
-      const eventDateStr = eventStart.format("dddd, MMMM D, YYYY");
-      const eventTimeStr = eventStart.format("h:mm A");
+      const eventDateStr = formatEventDateInChicago(event.starts_at);
+      const eventTimeStr = formatEventTimeInChicago(event.starts_at);
 
       const html = `
         <div style="font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto">

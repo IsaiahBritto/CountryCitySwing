@@ -5,6 +5,7 @@ import { sendHtmlEmail } from "@/lib/mailer";
 import eventsData from "@/lib/events.json";
 import { calculateProcessingFee, getDiscountedSubtotalFromCoupon, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
+import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -145,11 +146,7 @@ export async function POST(req: NextRequest) {
             .eq("id", signup.event_id)
             .single();
           if (ev?.starts_at) {
-            eventDate = new Date(ev.starts_at).toLocaleDateString(undefined, {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            });
+            eventDate = formatEventDateInChicago(ev.starts_at);
           }
           if (ev?.location) eventLocation = ev.location;
         }

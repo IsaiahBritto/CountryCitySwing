@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
+import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 
 // Disable body parsing for webhook to get raw body
 export const runtime = "nodejs";
@@ -357,11 +358,7 @@ export async function POST(request: NextRequest) {
                 .single();
               
               if (eventData) {
-                eventDate = eventData.starts_at ? new Date(eventData.starts_at).toLocaleDateString(undefined, {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                }) : "";
+                eventDate = eventData.starts_at ? formatEventDateInChicago(eventData.starts_at) : "";
                 eventLocation = eventData.location || "";
                 eventPrice = eventData.price;
               }
@@ -514,11 +511,7 @@ export async function POST(request: NextRequest) {
               .single();
             
             if (eventData) {
-              eventDate = eventData.starts_at ? new Date(eventData.starts_at).toLocaleDateString(undefined, {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-              }) : "";
+              eventDate = eventData.starts_at ? formatEventDateInChicago(eventData.starts_at) : "";
               eventLocation = eventData.location || "";
               eventPrice = eventData.price;
             }
@@ -705,11 +698,7 @@ export async function POST(request: NextRequest) {
               .single();
             
             if (eventData) {
-              eventDate = eventData.starts_at ? new Date(eventData.starts_at).toLocaleDateString(undefined, {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-              }) : "";
+              eventDate = eventData.starts_at ? formatEventDateInChicago(eventData.starts_at) : "";
               eventLocation = eventData.location || "";
               eventPrice = eventData.price;
             }

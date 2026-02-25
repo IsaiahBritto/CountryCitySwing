@@ -86,6 +86,7 @@ export default function RegistrationPage() {
   const [scanQROpen, setScanQROpen] = useState(false);
   const [scannedResult, setScannedResult] = useState<{ signup: Signup | CompSignup; isComp: boolean } | null>(null);
   const [scannedCheckInFading, setScannedCheckInFading] = useState(false);
+  const [wrongEventMessage, setWrongEventMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -856,11 +857,40 @@ export default function RegistrationPage() {
           </div>
         </div>
       )}
+      {/* Wrong event message (scanned registration not for current event) */}
+      {wrongEventMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-md rounded-xl border border-neutral-600 bg-neutral-800 p-5 text-center">
+            <p className="text-white mb-4">{wrongEventMessage}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setWrongEventMessage(null);
+                setScanQROpen(true);
+              }}
+              className="px-4 py-2 rounded-md text-sm font-medium bg-primary text-black hover:bg-primary/90"
+            >
+              Back to scanning
+            </button>
+          </div>
+        </div>
+      )}
       <QRCheckInScanner
         open={scanQROpen}
         onClose={() => setScanQROpen(false)}
         sessionToken={sessionToken}
-        onLookup={(result) => setScannedResult({ signup: result.signup as unknown as Signup | CompSignup, isComp: result.isComp })}
+        onLookup={(result) => {
+          if (!selectedEvent) {
+            setWrongEventMessage("Please select an event to check in for.");
+            return;
+          }
+          const signup = result.signup as unknown as Signup | CompSignup;
+          if (signup.event_id !== selectedEvent.id) {
+            setWrongEventMessage("Registration found but does not belong to the current event.");
+            return;
+          }
+          setScannedResult({ signup, isComp: result.isComp });
+        }}
       />
     </div>
   );

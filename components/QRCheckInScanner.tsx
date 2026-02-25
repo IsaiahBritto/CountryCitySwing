@@ -2,7 +2,6 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import { XMarkIcon } from "@heroicons/react/24/solid";
-// @ts-expect-error jsqr has no types
 import jsQR from "jsqr";
 
 interface QRCheckInScannerProps {

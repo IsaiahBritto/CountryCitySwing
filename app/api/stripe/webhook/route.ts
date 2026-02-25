@@ -4,6 +4,8 @@ import { getStripe } from "@/lib/stripe";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
+import { eventSignupToken } from "@/lib/utils/qrCheckIn";
+import { qrCodeDataUrl } from "@/lib/qrCodeImage";
 
 // Disable body parsing for webhook to get raw body
 export const runtime = "nodejs";
@@ -520,6 +522,13 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        let webhookQr2 = "";
+        try {
+          webhookQr2 = await qrCodeDataUrl(eventSignupToken(signup.id));
+        } catch (e) {
+          console.warn("Webhook: QR generation failed", e);
+        }
+
         // Send confirmation email for paid event signup
         const html = `
           <!DOCTYPE html>
@@ -607,7 +616,13 @@ export async function POST(request: NextRequest) {
                     <p style="margin: 0; font-size: 1.1em;"><strong>Payment Confirmed</strong></p>
                     <p style="margin: 5px 0 0 0;">Your registration is complete and your spot is secured!</p>
                   </div>
-                  
+                  ${webhookQr2 ? `
+                  <div style="text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c;">
+                    <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
+                    <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
+                    <img src="${webhookQr2}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+                  </div>
+                  ` : ""}
                   <p>Thank you for your payment. We're excited to see you at the event!</p>
                   <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
                 </div>
@@ -707,6 +722,13 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        let webhookQr3 = "";
+        try {
+          webhookQr3 = await qrCodeDataUrl(eventSignupToken(signup.id));
+        } catch (e) {
+          console.warn("Webhook: QR generation failed", e);
+        }
+
         // Send confirmation email for paid event signup
         const html = `
           <!DOCTYPE html>
@@ -794,7 +816,13 @@ export async function POST(request: NextRequest) {
                     <p style="margin: 0; font-size: 1.1em;"><strong>Payment Confirmed</strong></p>
                     <p style="margin: 5px 0 0 0;">Your registration is complete and your spot is secured!</p>
                   </div>
-                  
+                  ${webhookQr3 ? `
+                  <div style="text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c;">
+                    <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
+                    <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
+                    <img src="${webhookQr3}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+                  </div>
+                  ` : ""}
                   <p>Thank you for your payment. We're excited to see you at the event!</p>
                   <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
                 </div>

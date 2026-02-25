@@ -11,6 +11,7 @@ import {
   formatEventTimeInChicago,
   formatEventDateRangeInChicago,
 } from "@/lib/utils/dateHelpers";
+import QRCheckInScanner from "@/components/QRCheckInScanner";
 
 interface Event {
   id: string; // UUID, not number
@@ -82,6 +83,8 @@ export default function RegistrationPage() {
     dayjs().format("YYYY-MM")
   );
   const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [scanQROpen, setScanQROpen] = useState(false);
+  const [scannedResult, setScannedResult] = useState<{ signup: Signup | CompSignup; isComp: boolean } | null>(null);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -568,8 +571,115 @@ export default function RegistrationPage() {
               >
                 Checked In
               </button>
+              <button
+                type="button"
+                onClick={() => setScanQROpen(true)}
+                className="px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium bg-primary text-black hover:bg-primary/90"
+              >
+                Scan QR
+              </button>
             </div>
           </div>
+          {scannedResult && (
+            <div className="mb-4 p-4 rounded-lg border-2 border-primary bg-neutral-800/80">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <span className="text-sm font-medium text-primary">Scanned registration</span>
+                <button
+                  type="button"
+                  onClick={() => setScannedResult(null)}
+                  className="text-xs text-gray-400 hover:text-white"
+                >
+                  Dismiss
+                </button>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 text-sm">
+                <div className="flex-1 min-w-0">
+                  {scannedResult.isComp ? (
+                    <>
+                      {(scannedResult.signup as CompSignup).strictly_selected && (
+                        <p className="text-white">
+                          <span className="text-primary font-medium">Strictly:</span>{" "}
+                          {[
+                            (scannedResult.signup as CompSignup).strictly_lead_first_name,
+                            (scannedResult.signup as CompSignup).strictly_lead_last_name,
+                          ].filter(Boolean).join(" ")}
+                          {[(scannedResult.signup as CompSignup).strictly_follow_first_name, (scannedResult.signup as CompSignup).strictly_follow_last_name].some(Boolean) ? " / " : ""}
+                          {[
+                            (scannedResult.signup as CompSignup).strictly_follow_first_name,
+                            (scannedResult.signup as CompSignup).strictly_follow_last_name,
+                          ].filter(Boolean).join(" ")}
+                        </p>
+                      )}
+                      {(scannedResult.signup as CompSignup).jnj_selected && (
+                        <p className="text-white">
+                          <span className="text-primary font-medium">JnJ:</span>{" "}
+                          {[(scannedResult.signup as CompSignup).jnj_lead_first_name, (scannedResult.signup as CompSignup).jnj_lead_last_name].filter(Boolean).join(" ")}
+                        </p>
+                      )}
+                      <p className="text-gray-400">
+                        {(scannedResult.signup as CompSignup).event_title} · Payment: {(scannedResult.signup as CompSignup).payment_method} · ${Number((scannedResult.signup as CompSignup).amount_owed ?? 0).toFixed(2)} · {(scannedResult.signup as CompSignup).paid ? "Paid" : "Unpaid"}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="font-semibold text-white">
+                        {(scannedResult.signup as Signup).first_name} {(scannedResult.signup as Signup).last_name}
+                      </h3>
+                      <p className="text-gray-400 truncate">{(scannedResult.signup as Signup).email}</p>
+                      <p className="text-gray-400">
+                        {(scannedResult.signup as Signup).event_title} · {(scannedResult.signup as Signup).payment_method} · {(scannedResult.signup as Signup).paid ? "Paid" : "Unpaid"}
+                      </p>
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {scannedResult.isComp ? (
+                    <>
+                      <button
+                        onClick={() => updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as CompSignup).paid, true)}
+                        disabled={updating === scannedResult.signup.id || !!(scannedResult.signup as CompSignup).checked_in}
+                        className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 disabled:opacity-50"
+                      >
+                        {(scannedResult.signup as CompSignup).paid ? "✓ Paid" : "Paid"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          updateSignupStatus(scannedResult.signup.id, "checked_in", !(scannedResult.signup as CompSignup).checked_in, true);
+                          setScannedResult(null);
+                          if (selectedEvent) loadSignups(selectedEvent.id);
+                        }}
+                        disabled={updating === scannedResult.signup.id}
+                        className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-500"
+                      >
+                        {(scannedResult.signup as CompSignup).checked_in ? "✓ Checked In" : "Check In"}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as Signup).paid)}
+                        disabled={updating === scannedResult.signup.id || (scannedResult.signup as Signup).checked_in}
+                        className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 disabled:opacity-50"
+                      >
+                        {(scannedResult.signup as Signup).paid ? "✓ Paid" : "Paid"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          updateSignupStatus(scannedResult.signup.id, "checked_in", !(scannedResult.signup as Signup).checked_in);
+                          setScannedResult(null);
+                          if (selectedEvent) loadSignups(selectedEvent.id);
+                        }}
+                        disabled={updating === scannedResult.signup.id}
+                        className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-500"
+                      >
+                        {(scannedResult.signup as Signup).checked_in ? "✓ Checked In" : "Check In"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           <p className="text-gray-400 text-sm mt-1 mb-2">
             {isCompEvent ? `${totalCount} comp registration(s) · ${checkedInCount} checked in` : `${totalCount} signed up · ${checkedInCount} checked in`}
           </p>
@@ -705,6 +815,12 @@ export default function RegistrationPage() {
           )}
         </div>
       )}
+      <QRCheckInScanner
+        open={scanQROpen}
+        onClose={() => setScanQROpen(false)}
+        sessionToken={sessionToken}
+        onLookup={(result) => setScannedResult({ signup: result.signup as unknown as Signup | CompSignup, isComp: result.isComp })}
+      />
     </div>
   );
 }

@@ -85,13 +85,7 @@ export default function RegistrationPage() {
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [scanQROpen, setScanQROpen] = useState(false);
   const [scannedResult, setScannedResult] = useState<{ signup: Signup | CompSignup; isComp: boolean } | null>(null);
-  const scannedResultRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scannedResult) {
-      scannedResultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [scannedResult]);
+  const [scannedCheckInFading, setScannedCheckInFading] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -307,13 +301,13 @@ export default function RegistrationPage() {
     field: "paid" | "checked_in",
     value: boolean,
     isCompSignup = false
-  ) => {
+  ): Promise<boolean> => {
     setUpdating(signupId);
     try {
       if (!sessionToken) {
         alert("Not authenticated");
         setUpdating(null);
-        return;
+        return false;
       }
 
       const response = await fetch("/api/signups", {
@@ -338,6 +332,8 @@ export default function RegistrationPage() {
           error: errorData.error,
         });
         alert("Failed to update signup status");
+        setUpdating(null);
+        return false;
       } else {
         // If checking in while viewing "not_checked_in" filter, trigger fade-out
         if (field === "checked_in" && value === true && filter === "not_checked_in") {
@@ -376,9 +372,11 @@ export default function RegistrationPage() {
           if (selectedEvent) loadSignups(selectedEvent.id);
         }
       }
+      return true;
     } catch (err) {
       console.error("Error:", err);
       alert("Failed to update signup status");
+      return false;
     } finally {
       setUpdating(null);
     }
@@ -587,109 +585,6 @@ export default function RegistrationPage() {
               </button>
             </div>
           </div>
-          {scannedResult && (
-            <div
-              ref={scannedResultRef}
-              className="mb-4 p-4 rounded-lg border-2 border-red-500 bg-neutral-800/80"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <span className="text-sm font-medium text-primary">Scanned registration</span>
-                <button
-                  type="button"
-                  onClick={() => setScannedResult(null)}
-                  className="text-xs text-gray-400 hover:text-white"
-                >
-                  Dismiss
-                </button>
-              </div>
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 text-sm">
-                <div className="flex-1 min-w-0">
-                  {scannedResult.isComp ? (
-                    <>
-                      {(scannedResult.signup as CompSignup).strictly_selected && (
-                        <p className="text-white">
-                          <span className="text-primary font-medium">Strictly:</span>{" "}
-                          {[
-                            (scannedResult.signup as CompSignup).strictly_lead_first_name,
-                            (scannedResult.signup as CompSignup).strictly_lead_last_name,
-                          ].filter(Boolean).join(" ")}
-                          {[(scannedResult.signup as CompSignup).strictly_follow_first_name, (scannedResult.signup as CompSignup).strictly_follow_last_name].some(Boolean) ? " / " : ""}
-                          {[
-                            (scannedResult.signup as CompSignup).strictly_follow_first_name,
-                            (scannedResult.signup as CompSignup).strictly_follow_last_name,
-                          ].filter(Boolean).join(" ")}
-                        </p>
-                      )}
-                      {(scannedResult.signup as CompSignup).jnj_selected && (
-                        <p className="text-white">
-                          <span className="text-primary font-medium">JnJ:</span>{" "}
-                          {[(scannedResult.signup as CompSignup).jnj_lead_first_name, (scannedResult.signup as CompSignup).jnj_lead_last_name].filter(Boolean).join(" ")}
-                        </p>
-                      )}
-                      <p className="text-gray-400">
-                        {(scannedResult.signup as CompSignup).event_title} · Payment: {(scannedResult.signup as CompSignup).payment_method} · ${Number((scannedResult.signup as CompSignup).amount_owed ?? 0).toFixed(2)} · {(scannedResult.signup as CompSignup).paid ? "Paid" : "Unpaid"}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <h3 className="font-semibold text-white">
-                        {(scannedResult.signup as Signup).first_name} {(scannedResult.signup as Signup).last_name}
-                      </h3>
-                      <p className="text-gray-400 truncate">{(scannedResult.signup as Signup).email}</p>
-                      <p className="text-gray-400">
-                        {(scannedResult.signup as Signup).event_title} · {(scannedResult.signup as Signup).payment_method} · {(scannedResult.signup as Signup).paid ? "Paid" : "Unpaid"}
-                      </p>
-                    </>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {scannedResult.isComp ? (
-                    <>
-                      <button
-                        onClick={() => updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as CompSignup).paid, true)}
-                        disabled={updating === scannedResult.signup.id || !!(scannedResult.signup as CompSignup).checked_in}
-                        className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 disabled:opacity-50"
-                      >
-                        {(scannedResult.signup as CompSignup).paid ? "✓ Paid" : "Paid"}
-                      </button>
-                      <button
-                        onClick={() => {
-                          updateSignupStatus(scannedResult.signup.id, "checked_in", !(scannedResult.signup as CompSignup).checked_in, true);
-                          setScannedResult(null);
-                          if (selectedEvent) loadSignups(selectedEvent.id);
-                        }}
-                        disabled={updating === scannedResult.signup.id}
-                        className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-500"
-                      >
-                        {(scannedResult.signup as CompSignup).checked_in ? "✓ Checked In" : "Check In"}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as Signup).paid)}
-                        disabled={updating === scannedResult.signup.id || (scannedResult.signup as Signup).checked_in}
-                        className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 disabled:opacity-50"
-                      >
-                        {(scannedResult.signup as Signup).paid ? "✓ Paid" : "Paid"}
-                      </button>
-                      <button
-                        onClick={() => {
-                          updateSignupStatus(scannedResult.signup.id, "checked_in", !(scannedResult.signup as Signup).checked_in);
-                          setScannedResult(null);
-                          if (selectedEvent) loadSignups(selectedEvent.id);
-                        }}
-                        disabled={updating === scannedResult.signup.id}
-                        className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-500"
-                      >
-                        {(scannedResult.signup as Signup).checked_in ? "✓ Checked In" : "Check In"}
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
           <p className="text-gray-400 text-sm mt-1 mb-2">
             {isCompEvent ? `${totalCount} comp registration(s) · ${checkedInCount} checked in` : `${totalCount} signed up · ${checkedInCount} checked in`}
           </p>
@@ -823,6 +718,142 @@ export default function RegistrationPage() {
               ))}
             </div>
           )}
+        </div>
+      )}
+      {/* Scanned registration popup */}
+      {scannedResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div
+            className={`w-full max-w-md rounded-xl border-2 p-4 transition-all duration-1000 ease-out ${
+              scannedCheckInFading
+                ? "bg-green-900/50 border-green-500"
+                : "bg-neutral-800 border-red-500"
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <span className="text-sm font-medium text-primary">Scanned registration</span>
+              {!scannedCheckInFading && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScannedResult(null);
+                    setScanQROpen(true);
+                  }}
+                  className="text-xs text-gray-400 hover:text-white"
+                >
+                  Close
+                </button>
+              )}
+            </div>
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 text-sm">
+              <div className="flex-1 min-w-0">
+                {scannedResult.isComp ? (
+                  <>
+                    {(scannedResult.signup as CompSignup).strictly_selected && (
+                      <p className="text-white">
+                        <span className="text-primary font-medium">Strictly:</span>{" "}
+                        {[
+                          (scannedResult.signup as CompSignup).strictly_lead_first_name,
+                          (scannedResult.signup as CompSignup).strictly_lead_last_name,
+                        ].filter(Boolean).join(" ")}
+                        {[(scannedResult.signup as CompSignup).strictly_follow_first_name, (scannedResult.signup as CompSignup).strictly_follow_last_name].some(Boolean) ? " / " : ""}
+                        {[
+                          (scannedResult.signup as CompSignup).strictly_follow_first_name,
+                          (scannedResult.signup as CompSignup).strictly_follow_last_name,
+                        ].filter(Boolean).join(" ")}
+                      </p>
+                    )}
+                    {(scannedResult.signup as CompSignup).jnj_selected && (
+                      <p className="text-white">
+                        <span className="text-primary font-medium">JnJ:</span>{" "}
+                        {[(scannedResult.signup as CompSignup).jnj_lead_first_name, (scannedResult.signup as CompSignup).jnj_lead_last_name].filter(Boolean).join(" ")}
+                      </p>
+                    )}
+                    <p className="text-gray-400">
+                      {(scannedResult.signup as CompSignup).event_title} · Payment: {(scannedResult.signup as CompSignup).payment_method} · ${Number((scannedResult.signup as CompSignup).amount_owed ?? 0).toFixed(2)} · {(scannedResult.signup as CompSignup).paid ? "Paid" : "Unpaid"}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="font-semibold text-white">
+                      {(scannedResult.signup as Signup).first_name} {(scannedResult.signup as Signup).last_name}
+                    </h3>
+                    <p className="text-gray-400 truncate">{(scannedResult.signup as Signup).email}</p>
+                    <p className="text-gray-400">
+                      {(scannedResult.signup as Signup).event_title} · {(scannedResult.signup as Signup).payment_method} · {(scannedResult.signup as Signup).paid ? "Paid" : "Unpaid"}
+                    </p>
+                  </>
+                )}
+              </div>
+              {!scannedCheckInFading && (
+                <div className="flex items-center gap-2 shrink-0">
+                  {scannedResult.isComp ? (
+                    <>
+                      <button
+                        onClick={async () => {
+                          const ok = await updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as CompSignup).paid, true);
+                          if (ok) setScannedResult((prev) => prev ? { ...prev, signup: { ...prev.signup, paid: true } } : null);
+                        }}
+                        disabled={updating === scannedResult.signup.id || !!(scannedResult.signup as CompSignup).checked_in}
+                        className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 disabled:opacity-50"
+                      >
+                        {(scannedResult.signup as CompSignup).paid ? "✓ Paid" : "Paid"}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const ok = await updateSignupStatus(scannedResult.signup.id, "checked_in", !(scannedResult.signup as CompSignup).checked_in, true);
+                          if (ok) {
+                            setScannedCheckInFading(true);
+                            if (selectedEvent) loadSignups(selectedEvent.id);
+                            setTimeout(() => {
+                              setScannedResult(null);
+                              setScannedCheckInFading(false);
+                              setScanQROpen(true);
+                            }, 1000);
+                          }
+                        }}
+                        disabled={updating === scannedResult.signup.id}
+                        className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-500"
+                      >
+                        {(scannedResult.signup as CompSignup).checked_in ? "✓ Checked In" : "Check In"}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={async () => {
+                          const ok = await updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as Signup).paid);
+                          if (ok) setScannedResult((prev) => prev ? { ...prev, signup: { ...prev.signup, paid: true } } : null);
+                        }}
+                        disabled={updating === scannedResult.signup.id || (scannedResult.signup as Signup).checked_in}
+                        className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 disabled:opacity-50"
+                      >
+                        {(scannedResult.signup as Signup).paid ? "✓ Paid" : "Paid"}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const ok = await updateSignupStatus(scannedResult.signup.id, "checked_in", !(scannedResult.signup as Signup).checked_in);
+                          if (ok) {
+                            setScannedCheckInFading(true);
+                            if (selectedEvent) loadSignups(selectedEvent.id);
+                            setTimeout(() => {
+                              setScannedResult(null);
+                              setScannedCheckInFading(false);
+                              setScanQROpen(true);
+                            }, 1000);
+                          }
+                        }}
+                        disabled={updating === scannedResult.signup.id}
+                        className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-500"
+                      >
+                        {(scannedResult.signup as Signup).checked_in ? "✓ Checked In" : "Check In"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
       <QRCheckInScanner

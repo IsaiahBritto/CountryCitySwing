@@ -433,10 +433,10 @@ export default function RegistrationPage() {
               <button
                 type="button"
                 onClick={() => setEventsView("current")}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium ${
                   eventsView === "current"
-                    ? "bg-primary text-black"
-                    : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                    ? "bg-primary/20 border-primary text-primary"
+                    : "bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50"
                 }`}
               >
                 Current Events
@@ -444,10 +444,10 @@ export default function RegistrationPage() {
               <button
                 type="button"
                 onClick={() => setEventsView("past")}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium ${
                   eventsView === "past"
-                    ? "bg-primary text-black"
-                    : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                    ? "bg-primary/20 border-primary text-primary"
+                    : "bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50"
                 }`}
               >
                 Past Events
@@ -462,7 +462,7 @@ export default function RegistrationPage() {
                       pastMonthStart.subtract(1, "month").format("YYYY-MM")
                     )
                   }
-                  className="px-3 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors"
+                  className="p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50"
                 >
                   ← Previous month
                 </button>
@@ -477,7 +477,7 @@ export default function RegistrationPage() {
                     )
                   }
                   disabled={!canGoForward}
-                  className="px-3 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-neutral-700"
+                  className="p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-neutral-700 disabled:hover:border-neutral-600"
                 >
                   Next month →
                 </button>
@@ -549,30 +549,30 @@ export default function RegistrationPage() {
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setFilter("all")}
-                className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors ${
+                className={`p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium ${
                   filter === "all"
-                    ? "bg-primary text-black"
-                    : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                    ? "bg-primary/20 border-primary text-primary"
+                    : "bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50"
                 }`}
               >
                 All
               </button>
               <button
                 onClick={() => setFilter("not_checked_in")}
-                className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors ${
+                className={`p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium ${
                   filter === "not_checked_in"
-                    ? "bg-primary text-black"
-                    : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                    ? "bg-primary/20 border-primary text-primary"
+                    : "bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50"
                 }`}
               >
                 Not Checked In
               </button>
               <button
                 onClick={() => setFilter("checked_in")}
-                className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors ${
+                className={`p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium ${
                   filter === "checked_in"
-                    ? "bg-primary text-black"
-                    : "bg-neutral-700 text-gray-300 hover:bg-neutral-600"
+                    ? "bg-primary/20 border-primary text-primary"
+                    : "bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50"
                 }`}
               >
                 Checked In
@@ -580,7 +580,7 @@ export default function RegistrationPage() {
               <button
                 type="button"
                 onClick={() => setScanQROpen(true)}
-                className="px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium bg-primary text-black hover:bg-primary/90"
+                className="p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50"
               >
                 Scan QR
               </button>

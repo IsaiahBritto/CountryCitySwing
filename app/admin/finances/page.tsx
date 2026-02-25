@@ -22,6 +22,14 @@ interface NashvilleFinances {
   bt2_payout_override: number | null;
   bt2_paid: boolean;
   bt2_paid_at: string | null;
+  bt3_name?: string | null;
+  bt3_payout_override?: number | null;
+  bt3_paid?: boolean;
+  bt3_paid_at?: string | null;
+  bt4_name?: string | null;
+  bt4_payout_override?: number | null;
+  bt4_paid?: boolean;
+  bt4_paid_at?: string | null;
   upper_level_teacher_name: string;
   upper_level_payout_override: number | null;
   upper_level_paid: boolean;
@@ -296,6 +304,8 @@ export default function AdminFinancesPage() {
     totalPaidMalissa: number;
     totalPaidBt1: number;
     totalPaidBt2: number;
+    totalPaidBt3: number;
+    totalPaidBt4: number;
     totalPaidJudges: number;
     workshopCcsIncome: number;
     totalStripeTaxesFeesFromMerch: number;
@@ -594,6 +604,8 @@ export default function AdminFinancesPage() {
         let totalPaidMalissa = 0;
         let totalPaidBt1 = 0;
         let totalPaidBt2 = 0;
+        let totalPaidBt3 = 0;
+        let totalPaidBt4 = 0;
         let totalPaidJudges = 0;
         let workshopCcsIncome = 0;
 
@@ -601,21 +613,33 @@ export default function AdminFinancesPage() {
           const r = results[i];
           const ev = eventsInSelectedYear[i];
           if (r.nashvilleFinances) {
-            const venueCost = Number(r.nashvilleFinances.venue_cost) || 0;
+            const nf = r.nashvilleFinances;
+            const venueCost = Number(nf.venue_cost) || 0;
             totalStudioRentals += venueCost;
             const cash = r.stats.cashTotal;
             const stripe = r.stats.stripeTotal;
+            const activeBtCount =
+              nf.bt4_name != null && nf.bt4_name.trim() !== ""
+                ? 4
+                : nf.bt3_name != null && nf.bt3_name.trim() !== ""
+                  ? 3
+                  : 2;
             const payouts = computeNashvillePayouts({
               cashTotal: cash,
               stripeTotal: stripe,
               venueCost,
-              bt1Override: r.nashvilleFinances.bt1_payout_override ?? null,
-              bt2Override: r.nashvilleFinances.bt2_payout_override ?? null,
-              malissaOverride: r.nashvilleFinances.upper_level_payout_override ?? null,
+              activeBtCount,
+              bt1Override: nf.bt1_payout_override ?? null,
+              bt2Override: nf.bt2_payout_override ?? null,
+              bt3Override: nf.bt3_payout_override ?? null,
+              bt4Override: nf.bt4_payout_override ?? null,
+              malissaOverride: nf.upper_level_payout_override ?? null,
             });
             totalPaidMalissa += payouts.malissaPayout;
             totalPaidBt1 += payouts.bt1Payout;
             totalPaidBt2 += payouts.bt2Payout;
+            totalPaidBt3 += payouts.bt3Payout;
+            totalPaidBt4 += payouts.bt4Payout;
           }
           if (r.workshopFinances) {
             totalStudioRentals += Number(r.workshopFinances.studio_cost) || 0;
@@ -657,6 +681,8 @@ export default function AdminFinancesPage() {
           totalPaidMalissa: Math.round(totalPaidMalissa * 100) / 100,
           totalPaidBt1: Math.round(totalPaidBt1 * 100) / 100,
           totalPaidBt2: Math.round(totalPaidBt2 * 100) / 100,
+          totalPaidBt3: Math.round(totalPaidBt3 * 100) / 100,
+          totalPaidBt4: Math.round(totalPaidBt4 * 100) / 100,
           totalPaidJudges: Math.round(totalPaidJudges * 100) / 100,
           workshopCcsIncome: Math.round(workshopCcsIncome * 100) / 100,
           totalStripeTaxesFeesFromMerch,
@@ -902,12 +928,18 @@ export default function AdminFinancesPage() {
       stripe_override?: number | null;
       bt1_name?: string;
       bt2_name?: string;
+      bt3_name?: string | null;
+      bt4_name?: string | null;
       upper_level_teacher_name?: string;
       bt1_payout_override?: number | null;
       bt2_payout_override?: number | null;
+      bt3_payout_override?: number | null;
+      bt4_payout_override?: number | null;
       upper_level_payout_override?: number | null;
       mark_bt1_paid?: boolean;
       mark_bt2_paid?: boolean;
+      mark_bt3_paid?: boolean;
+      mark_bt4_paid?: boolean;
       mark_upper_level_paid?: boolean;
     }) => {
       if (!selectedEvent || !isNashvilleEvent || !authToken) return;
@@ -1368,6 +1400,30 @@ export default function AdminFinancesPage() {
                                 ${overviewFinances.totalPaidBt2.toFixed(2)}
                               </p>
                             </div>
+                            {(overviewFinances.totalPaidBt3 > 0 || overviewFinances.totalPaidBt4 > 0) && (
+                              <>
+                                {overviewFinances.totalPaidBt3 > 0 && (
+                                  <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                                    <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                      Total paid · Beginner Teacher 3
+                                    </p>
+                                    <p className="mt-1 text-xl font-bold text-primary">
+                                      ${overviewFinances.totalPaidBt3.toFixed(2)}
+                                    </p>
+                                  </div>
+                                )}
+                                {overviewFinances.totalPaidBt4 > 0 && (
+                                  <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                                    <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                      Total paid · Beginner Teacher 4
+                                    </p>
+                                    <p className="mt-1 text-xl font-bold text-primary">
+                                      ${overviewFinances.totalPaidBt4.toFixed(2)}
+                                    </p>
+                                  </div>
+                                )}
+                              </>
+                            )}
                             <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
                               <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
                                 Total paid · Judges
@@ -1460,6 +1516,22 @@ export default function AdminFinancesPage() {
                                       −${overviewFinances.totalPaidBt2.toFixed(2)}
                                     </span>
                                   </div>
+                                  {overviewFinances.totalPaidBt3 > 0 && (
+                                    <div className="flex items-center justify-between text-neutral-300">
+                                      <span>Beginner Teacher 3</span>
+                                      <span className="font-semibold text-white">
+                                        −${overviewFinances.totalPaidBt3.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {overviewFinances.totalPaidBt4 > 0 && (
+                                    <div className="flex items-center justify-between text-neutral-300">
+                                      <span>Beginner Teacher 4</span>
+                                      <span className="font-semibold text-white">
+                                        −${overviewFinances.totalPaidBt4.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
                                   <div className="flex items-center justify-between text-neutral-300">
                                     <span>Judges</span>
                                     <span className="font-semibold text-white">
@@ -1470,7 +1542,7 @@ export default function AdminFinancesPage() {
                                   <div className="flex items-center justify-between font-medium text-white">
                                     <span>Total money out</span>
                                     <span>
-                                      −${(overviewFinances.totalStudioRentals + overviewFinances.totalPaidMalissa + overviewFinances.totalPaidBt1 + overviewFinances.totalPaidBt2 + overviewFinances.totalPaidJudges).toFixed(2)}
+                                      −${(overviewFinances.totalStudioRentals + overviewFinances.totalPaidMalissa + overviewFinances.totalPaidBt1 + overviewFinances.totalPaidBt2 + overviewFinances.totalPaidBt3 + overviewFinances.totalPaidBt4 + overviewFinances.totalPaidJudges).toFixed(2)}
                                     </span>
                                   </div>
                                 </div>
@@ -1482,7 +1554,7 @@ export default function AdminFinancesPage() {
                                     $
                                     {(
                                       (overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0))
-                                      - (overviewFinances.totalStudioRentals + overviewFinances.totalPaidMalissa + overviewFinances.totalPaidBt1 + overviewFinances.totalPaidBt2 + overviewFinances.totalPaidJudges)
+                                      - (overviewFinances.totalStudioRentals + overviewFinances.totalPaidMalissa + overviewFinances.totalPaidBt1 + overviewFinances.totalPaidBt2 + overviewFinances.totalPaidBt3 + overviewFinances.totalPaidBt4 + overviewFinances.totalPaidJudges)
                                     ).toFixed(2)}
                                   </span>
                                 </div>
@@ -2271,25 +2343,39 @@ function NashvilleBreakdown({
     stripe_override?: number | null;
     bt1_name?: string;
     bt2_name?: string;
+    bt3_name?: string | null;
+    bt4_name?: string | null;
     upper_level_teacher_name?: string;
     bt1_payout_override?: number | null;
     bt2_payout_override?: number | null;
+    bt3_payout_override?: number | null;
+    bt4_payout_override?: number | null;
     upper_level_payout_override?: number | null;
     mark_bt1_paid?: boolean;
     mark_bt2_paid?: boolean;
+    mark_bt3_paid?: boolean;
+    mark_bt4_paid?: boolean;
     mark_upper_level_paid?: boolean;
   }) => Promise<void>;
 }) {
   const venueCost = nashville?.venue_cost ?? 0;
   const totalRevenue = effectiveCash + effectiveStripe;
+  const activeBtCount =
+    nashville?.bt4_name != null && nashville.bt4_name.trim() !== ""
+      ? 4
+      : nashville?.bt3_name != null && nashville.bt3_name.trim() !== ""
+        ? 3
+        : 2;
+
   const autoPayouts = useMemo(
     () =>
       computeNashvillePayouts({
         cashTotal: effectiveCash,
         stripeTotal: effectiveStripe,
         venueCost,
+        activeBtCount,
       }),
-    [effectiveCash, effectiveStripe, venueCost]
+    [effectiveCash, effectiveStripe, venueCost, activeBtCount]
   );
 
   const effectivePayouts = useMemo(
@@ -2298,38 +2384,55 @@ function NashvilleBreakdown({
         cashTotal: effectiveCash,
         stripeTotal: effectiveStripe,
         venueCost,
+        activeBtCount,
         bt1Override: nashville?.bt1_payout_override ?? null,
         bt2Override: nashville?.bt2_payout_override ?? null,
+        bt3Override: nashville?.bt3_payout_override ?? null,
+        bt4Override: nashville?.bt4_payout_override ?? null,
         malissaOverride: nashville?.upper_level_payout_override ?? null,
       }),
     [
       effectiveCash,
       effectiveStripe,
       venueCost,
+      activeBtCount,
       nashville?.bt1_payout_override,
       nashville?.bt2_payout_override,
+      nashville?.bt3_payout_override,
+      nashville?.bt4_payout_override,
       nashville?.upper_level_payout_override,
     ]
   );
 
-  const allocations = useMemo(
-    () => [
+  const allocations = useMemo(() => {
+    const items = [
       { label: "Studio cost (venue)", value: venueCost },
       { label: "Beginner Teacher 1 payout", value: effectivePayouts.bt1Payout },
       { label: "Beginner Teacher 2 payout", value: effectivePayouts.bt2Payout },
+    ];
+    if (activeBtCount >= 3) {
+      items.push({ label: "Beginner Teacher 3 payout", value: effectivePayouts.bt3Payout });
+    }
+    if (activeBtCount >= 4) {
+      items.push({ label: "Beginner Teacher 4 payout", value: effectivePayouts.bt4Payout });
+    }
+    items.push(
       { label: "Upper Level Teacher payout", value: effectivePayouts.malissaPayout },
       { label: "Cash → Isaiah", value: effectivePayouts.isaiahPayout },
-      { label: "Electronic → CCS", value: effectivePayouts.ccsElectronic },
-    ],
-    [
-      venueCost,
-      effectivePayouts.bt1Payout,
-      effectivePayouts.bt2Payout,
-      effectivePayouts.malissaPayout,
-      effectivePayouts.isaiahPayout,
-      effectivePayouts.ccsElectronic,
-    ]
-  );
+      { label: "Electronic → CCS", value: effectivePayouts.ccsElectronic }
+    );
+    return items;
+  }, [
+    venueCost,
+    activeBtCount,
+    effectivePayouts.bt1Payout,
+    effectivePayouts.bt2Payout,
+    effectivePayouts.bt3Payout,
+    effectivePayouts.bt4Payout,
+    effectivePayouts.malissaPayout,
+    effectivePayouts.isaiahPayout,
+    effectivePayouts.ccsElectronic,
+  ]);
 
   const allocationsTotal = useMemo(
     () => allocations.reduce((sum, x) => sum + x.value, 0),
@@ -2343,9 +2446,13 @@ function NashvilleBreakdown({
   const [venueInput, setVenueInput] = useState(String(venueCost));
   const [bt1Name, setBt1Name] = useState(nashville?.bt1_name ?? "Beginner Teacher 1");
   const [bt2Name, setBt2Name] = useState(nashville?.bt2_name ?? "Beginner Teacher 2");
+  const [bt3Name, setBt3Name] = useState(nashville?.bt3_name ?? "Beginner Teacher 3");
+  const [bt4Name, setBt4Name] = useState(nashville?.bt4_name ?? "Beginner Teacher 4");
   const [malissaName, setMalissaName] = useState(nashville?.upper_level_teacher_name ?? "Malissa");
   const [bt1PayoutInput, setBt1PayoutInput] = useState("");
   const [bt2PayoutInput, setBt2PayoutInput] = useState("");
+  const [bt3PayoutInput, setBt3PayoutInput] = useState("");
+  const [bt4PayoutInput, setBt4PayoutInput] = useState("");
   const [malissaPayoutInput, setMalissaPayoutInput] = useState("");
   const [payoutOverrideError, setPayoutOverrideError] = useState<string | null>(null);
 
@@ -2353,15 +2460,32 @@ function NashvilleBreakdown({
     setVenueInput(String(nashville?.venue_cost ?? 0));
     setBt1Name(nashville?.bt1_name ?? "Beginner Teacher 1");
     setBt2Name(nashville?.bt2_name ?? "Beginner Teacher 2");
+    setBt3Name(nashville?.bt3_name ?? "Beginner Teacher 3");
+    setBt4Name(nashville?.bt4_name ?? "Beginner Teacher 4");
     setMalissaName(nashville?.upper_level_teacher_name ?? "Malissa");
-  }, [nashville?.venue_cost, nashville?.bt1_name, nashville?.bt2_name, nashville?.upper_level_teacher_name]);
+  }, [
+    nashville?.venue_cost,
+    nashville?.bt1_name,
+    nashville?.bt2_name,
+    nashville?.bt3_name,
+    nashville?.bt4_name,
+    nashville?.upper_level_teacher_name,
+  ]);
 
   useEffect(() => {
     setBt1PayoutInput(String(effectivePayouts.bt1Payout));
     setBt2PayoutInput(String(effectivePayouts.bt2Payout));
+    setBt3PayoutInput(String(effectivePayouts.bt3Payout));
+    setBt4PayoutInput(String(effectivePayouts.bt4Payout));
     setMalissaPayoutInput(String(effectivePayouts.malissaPayout));
     setPayoutOverrideError(null);
-  }, [effectivePayouts.bt1Payout, effectivePayouts.bt2Payout, effectivePayouts.malissaPayout]);
+  }, [
+    effectivePayouts.bt1Payout,
+    effectivePayouts.bt2Payout,
+    effectivePayouts.bt3Payout,
+    effectivePayouts.bt4Payout,
+    effectivePayouts.malissaPayout,
+  ]);
 
   const saveVenueCost = () => {
     const v = parseFloat(venueInput);
@@ -2376,25 +2500,45 @@ function NashvilleBreakdown({
     const s = bt2Name.trim();
     if (s && s !== (nashville?.bt2_name ?? "Beginner Teacher 2")) onPatch({ bt2_name: s });
   };
+  const saveBt3Name = () => {
+    const s = bt3Name.trim();
+    if (s !== (nashville?.bt3_name ?? "")) onPatch({ bt3_name: s || null });
+  };
+  const saveBt4Name = () => {
+    const s = bt4Name.trim();
+    if (s !== (nashville?.bt4_name ?? "")) onPatch({ bt4_name: s || null });
+  };
   const saveMalissaName = () => {
     const s = malissaName.trim();
     if (s && s !== (nashville?.upper_level_teacher_name ?? "Malissa")) onPatch({ upper_level_teacher_name: s });
   };
 
   const validateTeacherOverrides = useCallback(
-    (next: { bt1?: number | null; bt2?: number | null; malissa?: number | null }) => {
+    (next: {
+      bt1?: number | null;
+      bt2?: number | null;
+      bt3?: number | null;
+      bt4?: number | null;
+      malissa?: number | null;
+    }) => {
       const effectiveBt1 =
         next.bt1 !== undefined ? next.bt1 : (nashville?.bt1_payout_override ?? null);
       const effectiveBt2 =
         next.bt2 !== undefined ? next.bt2 : (nashville?.bt2_payout_override ?? null);
+      const effectiveBt3 =
+        next.bt3 !== undefined ? next.bt3 : (nashville?.bt3_payout_override ?? null);
+      const effectiveBt4 =
+        next.bt4 !== undefined ? next.bt4 : (nashville?.bt4_payout_override ?? null);
       const effectiveMalissa =
         next.malissa !== undefined ? next.malissa : (nashville?.upper_level_payout_override ?? null);
 
       const bt1 = effectiveBt1 ?? autoPayouts.bt1Payout;
       const bt2 = effectiveBt2 ?? autoPayouts.bt2Payout;
+      const bt3 = effectiveBt3 ?? autoPayouts.bt3Payout;
+      const bt4 = effectiveBt4 ?? autoPayouts.bt4Payout;
       const malissa = effectiveMalissa ?? autoPayouts.malissaPayout;
 
-      const total = Math.round((bt1 + bt2 + malissa) * 100) / 100;
+      const total = Math.round((bt1 + bt2 + bt3 + bt4 + malissa) * 100) / 100;
       const cap = effectivePayouts.cashAvailableForTeachers;
       if (total > cap + 0.0001) {
         return `Teacher payouts ($${total.toFixed(2)}) exceed available cash after venue cost ($${cap.toFixed(2)}).`;
@@ -2404,9 +2548,13 @@ function NashvilleBreakdown({
     [
       nashville?.bt1_payout_override,
       nashville?.bt2_payout_override,
+      nashville?.bt3_payout_override,
+      nashville?.bt4_payout_override,
       nashville?.upper_level_payout_override,
       autoPayouts.bt1Payout,
       autoPayouts.bt2Payout,
+      autoPayouts.bt3Payout,
+      autoPayouts.bt4Payout,
       autoPayouts.malissaPayout,
       effectivePayouts.cashAvailableForTeachers,
     ]
@@ -2425,6 +2573,20 @@ function NashvilleBreakdown({
     const msg = validateTeacherOverrides({ bt2: v });
     setPayoutOverrideError(msg);
     if (!msg) onPatch({ bt2_payout_override: v });
+  };
+  const saveBt3Override = () => {
+    const v = parseFloat(bt3PayoutInput);
+    if (Number.isNaN(v) || v < 0) return;
+    const msg = validateTeacherOverrides({ bt3: v });
+    setPayoutOverrideError(msg);
+    if (!msg) onPatch({ bt3_payout_override: v });
+  };
+  const saveBt4Override = () => {
+    const v = parseFloat(bt4PayoutInput);
+    if (Number.isNaN(v) || v < 0) return;
+    const msg = validateTeacherOverrides({ bt4: v });
+    setPayoutOverrideError(msg);
+    if (!msg) onPatch({ bt4_payout_override: v });
   };
   const saveMalissaOverride = () => {
     const v = parseFloat(malissaPayoutInput);
@@ -2536,6 +2698,62 @@ function NashvilleBreakdown({
           onMarkPaid={() => onPatch({ mark_bt2_paid: true })}
           saving={saving}
         />
+        {activeBtCount >= 3 && (
+          <TeacherRow
+            label="Beginner Teacher 3"
+            name={bt3Name}
+            onNameChange={setBt3Name}
+            onNameBlur={saveBt3Name}
+            payout={effectivePayouts.bt3Payout}
+            payoutInput={bt3PayoutInput}
+            onPayoutChange={setBt3PayoutInput}
+            onPayoutBlur={saveBt3Override}
+            isPayoutOverride={(nashville?.bt3_payout_override ?? null) != null}
+            autoPayout={autoPayouts.bt3Payout}
+            onClearOverride={() => onPatch({ bt3_payout_override: null })}
+            paid={nashville?.bt3_paid ?? false}
+            paidAt={nashville?.bt3_paid_at ?? null}
+            onMarkPaid={() => onPatch({ mark_bt3_paid: true })}
+            saving={saving}
+          />
+        )}
+        {activeBtCount >= 4 && (
+          <TeacherRow
+            label="Beginner Teacher 4"
+            name={bt4Name}
+            onNameChange={setBt4Name}
+            onNameBlur={saveBt4Name}
+            payout={effectivePayouts.bt4Payout}
+            payoutInput={bt4PayoutInput}
+            onPayoutChange={setBt4PayoutInput}
+            onPayoutBlur={saveBt4Override}
+            isPayoutOverride={(nashville?.bt4_payout_override ?? null) != null}
+            autoPayout={autoPayouts.bt4Payout}
+            onClearOverride={() => onPatch({ bt4_payout_override: null })}
+            paid={nashville?.bt4_paid ?? false}
+            paidAt={nashville?.bt4_paid_at ?? null}
+            onMarkPaid={() => onPatch({ mark_bt4_paid: true })}
+            saving={saving}
+          />
+        )}
+        {activeBtCount < 4 && (
+          <div className="flex justify-start">
+            <button
+              type="button"
+              onClick={() =>
+                onPatch(
+                  activeBtCount === 2
+                    ? { bt3_name: "Beginner Teacher 3" }
+                    : { bt4_name: "Beginner Teacher 4" }
+                )
+              }
+              disabled={saving}
+              className="rounded-lg border border-dashed border-neutral-500 bg-neutral-800/30 px-4 py-2 text-sm font-medium text-neutral-400 hover:border-primary/50 hover:bg-neutral-800/50 hover:text-primary disabled:opacity-60"
+            >
+              + Add beginner teacher
+            </button>
+          </div>
+        )}
         <TeacherRow
           label="Upper Level Teacher"
           name={malissaName}

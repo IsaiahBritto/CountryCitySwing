@@ -819,7 +819,7 @@ export default function RegistrationPage() {
         open={scanQROpen}
         onClose={() => setScanQROpen(false)}
         sessionToken={sessionToken}
-        onLookup={setScannedResult}
+        onLookup={(result) => setScannedResult({ signup: result.signup as Signup | CompSignup, isComp: result.isComp })}
       />
     </div>
   );

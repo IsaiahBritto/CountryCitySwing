@@ -590,7 +590,7 @@ export default function RegistrationPage() {
           {scannedResult && (
             <div
               ref={scannedResultRef}
-              className="mb-4 p-4 rounded-lg border-2 border-primary bg-neutral-800/80"
+              className="mb-4 p-4 rounded-lg border-2 border-red-500 bg-neutral-800/80"
             >
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <span className="text-sm font-medium text-primary">Scanned registration</span>

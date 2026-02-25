@@ -7,6 +7,8 @@ import { randomUUID } from "crypto";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
+import { eventSignupToken } from "@/lib/utils/qrCheckIn";
+import { qrCodeDataUrl } from "@/lib/qrCodeImage";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -315,7 +317,13 @@ export async function POST(req: NextRequest) {
     `
       : "";
 
-  // 4️⃣ Send confirmation email for non-Stripe payments
+  // 4️⃣ Send confirmation email for non-Stripe payments (with QR for check-in)
+  let qrDataUrl = "";
+  try {
+    qrDataUrl = await qrCodeDataUrl(eventSignupToken(signupId));
+  } catch (e) {
+    console.warn("QR generation failed for signup email:", e);
+  }
   const html = `
     <!DOCTYPE html>
     <html>
@@ -331,6 +339,7 @@ export async function POST(req: NextRequest) {
           .detail-label { font-weight: bold; color: #666; font-size: 0.9em; margin-bottom: 5px; }
           .detail-value { font-size: 1.1em; color: #333; }
           .payment-box { background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0; }
+          .qr-box { text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c; }
           .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
         </style>
       </head>
@@ -383,7 +392,13 @@ export async function POST(req: NextRequest) {
             </div>
             
             ${paymentSection}
-            
+            ${qrDataUrl ? `
+            <div class="qr-box">
+              <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
+              <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
+              <img src="${qrDataUrl}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+            </div>
+            ` : ""}
             <p>Thank you for joining us — we can't wait to see you on the dance floor!</p>
             <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
           </div>

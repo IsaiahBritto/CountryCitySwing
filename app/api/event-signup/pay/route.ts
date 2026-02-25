@@ -6,6 +6,8 @@ import eventsData from "@/lib/events.json";
 import { calculateProcessingFee, getDiscountedSubtotalFromCoupon, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
+import { eventSignupToken } from "@/lib/utils/qrCheckIn";
+import { qrCodeDataUrl } from "@/lib/qrCodeImage";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -151,6 +153,13 @@ export async function POST(req: NextRequest) {
           if (ev?.location) eventLocation = ev.location;
         }
 
+        let payQrDataUrl = "";
+        try {
+          payQrDataUrl = await qrCodeDataUrl(eventSignupToken(signupId));
+        } catch (e) {
+          console.warn("Event signup pay: QR generation failed", e);
+        }
+
         const emailHtml = `
           <!DOCTYPE html>
           <html>
@@ -195,6 +204,13 @@ export async function POST(req: NextRequest) {
                       <div class="detail-value" style="color: #28a745; font-weight: bold;">✓ Paid</div>
                     </div>
                   </div>
+                  ${payQrDataUrl ? `
+                  <div style="text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c;">
+                    <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
+                    <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
+                    <img src="${payQrDataUrl}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+                  </div>
+                  ` : ""}
                   <p>We can't wait to see you on the dance floor!</p>
                   <p style="margin-top: 20px; font-size: 0.9em; color: #666;">Questions? Contact us at contact.us@countrycityswing.dance</p>
                 </div>

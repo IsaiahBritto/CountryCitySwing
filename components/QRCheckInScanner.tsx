@@ -91,6 +91,7 @@ export default function QRCheckInScanner({ open, onClose, sessionToken, onLookup
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    const context: CanvasRenderingContext2D = ctx;
 
     let rafId: number;
     function tick() {
@@ -100,8 +101,8 @@ export default function QRCheckInScanner({ open, onClose, sessionToken, onLookup
       }
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      context.drawImage(video, 0, 0);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
       const code = jsQR(imageData.data, imageData.width, imageData.height);
       if (code?.data) {
         const token = code.data.trim();

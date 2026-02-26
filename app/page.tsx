@@ -13,6 +13,17 @@ interface WeeklyPhoto {
 
 export default function Home() {
   const [weeklyPhoto, setWeeklyPhoto] = useState<WeeklyPhoto | null>(null);
+  const [emailChangeMessage, setEmailChangeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    const params = hash ? new URLSearchParams(hash.replace(/^#/, "")) : null;
+    const message = params?.get("message");
+    if (message && message.includes("Confirmation link accepted") && message.includes("other email")) {
+      setEmailChangeMessage(message.replace(/\+/g, " "));
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   useEffect(() => {
     async function loadPhoto() {
@@ -31,6 +42,21 @@ export default function Home() {
 
   return (
     <section className="text-center">
+      {emailChangeMessage && (
+        <div className="max-w-2xl mx-auto mb-6 p-4 rounded-lg bg-primary/20 border border-primary text-left flex items-start gap-3">
+          <p className="text-gray-200 text-sm flex-1">
+            <strong className="text-primary">Email change (step 1 of 2):</strong> This link is confirmed. To finish changing your email, check the inbox of your <strong>previous email address</strong> and click the link in that message.
+          </p>
+          <button
+            type="button"
+            onClick={() => setEmailChangeMessage(null)}
+            className="text-gray-400 hover:text-white shrink-0"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
       <Image
         src="/media/logo-dark.png"   // 👈 Always dark logo
         alt="Country City Swing Logo"

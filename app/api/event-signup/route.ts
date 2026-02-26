@@ -30,7 +30,6 @@ export async function POST(req: NextRequest) {
     beenBefore,
     heardAboutUs,
     paymentMethod,
-    friendPaidHow,
     acceptLiability,
     acceptPayment,
     is_ccs_team: isCcsTeamFromBody,
@@ -240,15 +239,6 @@ export async function POST(req: NextRequest) {
   }
 
   if (amountOwed <= 0) paid = true;
-
-  // "A friend paid for me" + Stripe → mark as paid
-  if (
-    effectivePaymentMethod === "A friend paid for me" &&
-    (friendPaidHow === "Stripe" || data.friend_paid_via_stripe === true)
-  ) {
-    paid = true;
-    amountOwed = 0;
-  }
 
   const freeViaPromo = !!(promotionCodeId && amountOwed <= 0);
   const usedPromo = !!promotionCodeId;

@@ -25,11 +25,8 @@ const baseSchema = z.object({
   paymentMethod: z.enum([
     "Stripe",
     "Cash",
-    "A friend paid for me",
     "CCS TEAM",
   ]),
-  /** When payment method is "A friend paid for me", how did they pay? */
-  friendPaidHow: z.enum(["Cash", "Stripe"]).optional(),
   acceptLiability: z.literal(true, {
     errorMap: () => ({ message: "You must accept the liability release" }),
   }),
@@ -47,13 +44,6 @@ const schema = baseSchema.superRefine((data, ctx) => {
     ctx.addIssue({
       path: ["heardAboutUs"],
       message: "Please tell us how you heard about us.",
-      code: z.ZodIssueCode.custom,
-    });
-  }
-  if (data.paymentMethod === "A friend paid for me" && !data.friendPaidHow) {
-    ctx.addIssue({
-      path: ["friendPaidHow"],
-      message: "Please select how they paid.",
       code: z.ZodIssueCode.custom,
     });
   }
@@ -287,9 +277,6 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
       const amountDue = appliedPromo?.discountedSubtotal != null ? appliedPromo.discountedSubtotal : effectivePrice;
       if (amountDue != null && amountDue <= 0.5 && appliedPromo) {
         body.paymentMethod = "Cash";
-      }
-      if (data.paymentMethod === "A friend paid for me" && data.friendPaidHow) {
-        body.friendPaidHow = data.friendPaidHow;
       }
       const response = await fetch("/api/event-signup", {
         method: "POST",
@@ -554,7 +541,6 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                 {[
                   { label: "Stripe (Credit/Debit Card)", value: "Stripe" },
                   { label: "Cash", value: "Cash" },
-                  { label: "A friend paid for me", value: "A friend paid for me" },
                 ].map(({ label, value }) => (
                   <label key={value} className="block text-sm">
                     <input
@@ -566,32 +552,6 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                     {label}
                   </label>
                 ))}
-                {paymentMethod === "A friend paid for me" && (
-                  <div className="mt-3 ml-4 border-l-2 border-yellow-400 pl-3">
-                    <p className="text-sm mb-1 font-medium text-yellow-300">
-                      How did they pay?
-                    </p>
-                    {[
-                      { label: "Cash", value: "Cash" as const },
-                      { label: "Stripe (card online)", value: "Stripe" as const },
-                    ].map(({ label, value }) => (
-                      <label key={value} className="block text-sm">
-                        <input
-                          {...register("friendPaidHow")}
-                          type="radio"
-                          value={value}
-                          className="mr-2"
-                        />
-                        {label}
-                      </label>
-                    ))}
-                    {errors.friendPaidHow && (
-                      <p className="text-red-400 text-sm mt-1">
-                        {String(errors.friendPaidHow.message)}
-                      </p>
-                    )}
-                  </div>
-                )}
               </div>
             )}
 

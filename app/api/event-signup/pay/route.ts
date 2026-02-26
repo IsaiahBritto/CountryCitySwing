@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
                     ${eventDate ? `<div class="detail-row"><div class="detail-label">Date</div><div class="detail-value">${eventDate}</div></div>` : ""}
                     ${eventLocation ? `<div class="detail-row"><div class="detail-label">Location</div><div class="detail-value">${eventLocation}</div></div>` : ""}
                     <div class="detail-row">
-                      <div class="detail-label">Amount due (after discount)</div>
+                      <div class="detail-label">Amount Due (After Discount)</div>
                       <div class="detail-value">$0.00 — Paid in full by promotion code</div>
                     </div>
                     <div class="detail-row">

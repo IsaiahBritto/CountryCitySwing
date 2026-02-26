@@ -306,7 +306,7 @@ export async function POST(req: NextRequest) {
         : `
       <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
         <p style="margin: 0;"><strong>Payment:</strong> Cash payment selected.</p>
-        <p style="margin: 10px 0 0 0;"><strong>Amount due:</strong> $${amountOwed.toFixed(2)}</p>
+        <p style="margin: 10px 0 0 0;"><strong>${usedPromo ? "Amount Due (After Discount):" : "Amount Due:"}</strong> $${amountOwed.toFixed(2)}</p>
         <p style="margin: 10px 0 0 0;">You can pay with cash at the door, or click the link below to pay online via Stripe:</p>
         <p style="margin: 10px 0 0 0;">
           <a href="${paymentLink}" style="display: inline-block; background-color: #F2C94C; color: #000; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">
@@ -375,7 +375,7 @@ export async function POST(req: NextRequest) {
               ` : ""}
               ${eventPrice > 0 ? `
               <div class="detail-row">
-                <div class="detail-label">Amount due (after discount)</div>
+                <div class="detail-label">${usedPromo ? "Amount Due (After Discount)" : "Amount Due"}</div>
                 <div class="detail-value">$${amountOwed.toFixed(2)}${paid ? ' — Paid in full by promotion code' : ''}</div>
               </div>
               ` : ""}

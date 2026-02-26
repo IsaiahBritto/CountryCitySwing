@@ -235,6 +235,17 @@ export async function POST(request: NextRequest) {
       const processingFee = Number(metadata.processing_fee || 0);
       const subtotal = Number(metadata.subtotal || 0);
       const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+      // When a coupon was used, amount_subtotal is pre-discount; total_details.amount_discount is the discount in cents
+      const amountDiscount = (session.total_details?.amount_discount ?? 0) / 100;
+      const subtotalAfterDiscount =
+        session.amount_subtotal != null
+          ? Math.max(0, session.amount_subtotal / 100 - amountDiscount)
+          : subtotal + processingFee;
+      const totalPreDiscount = subtotal + processingFee;
+      const eventAmountAfterDiscount =
+        totalPreDiscount > 0
+          ? Math.round((subtotalAfterDiscount * (subtotal / totalPreDiscount)) * 100) / 100
+          : subtotal;
       
       // If this is a new Stripe checkout (not cash-to-stripe), create the signup record
       if (isStripeCheckout) {
@@ -280,6 +291,7 @@ export async function POST(request: NextRequest) {
             .update({
               paid: true,
               payment_method: "Stripe",
+              amount_owed: eventAmountAfterDiscount,
               stripe_tax_amount: taxAmount,
               stripe_processing_fee: processingFee,
               stripe_total_paid: actualTotal,
@@ -317,6 +329,7 @@ export async function POST(request: NextRequest) {
                 accept_liability: metadata.accept_liability === "true",
                 accept_payment: metadata.accept_payment === "true",
                 paid: true,
+                amount_owed: eventAmountAfterDiscount,
                 stripe_tax_amount: taxAmount,
                 stripe_processing_fee: processingFee,
                 stripe_total_paid: actualTotal,
@@ -369,7 +382,9 @@ export async function POST(request: NextRequest) {
             }
           }
           
-          // Send confirmation email for paid event signup
+          // Send confirmation email for paid event signup (event amount = discounted when coupon used)
+          const eventAmountDisplay = usedPromoInsert ? eventAmountAfterDiscount : subtotal;
+          const eventAmountLabel = usedPromoInsert ? "Event Amount (After Discount)" : "Event Price";
           const html = `
             <!DOCTYPE html>
             <html>
@@ -420,10 +435,10 @@ export async function POST(request: NextRequest) {
                         <div class="detail-value">${eventLocation}</div>
                       </div>
                       ` : ""}
-                      ${eventPrice ? `
+                      ${eventPrice != null ? `
                       <div class="detail-row">
-                        <div class="detail-label">Event Price</div>
-                        <div class="detail-value">$${subtotal.toFixed(2)}</div>
+                        <div class="detail-label">${eventAmountLabel}</div>
+                        <div class="detail-value">$${eventAmountDisplay.toFixed(2)}</div>
                       </div>
                       ` : ""}
                       ${processingFee > 0 ? `
@@ -529,6 +544,9 @@ export async function POST(request: NextRequest) {
           console.warn("Webhook: QR generation failed", e);
         }
 
+        const usedPromoExisting = metadata.used_promotion_code === "true";
+        const eventAmountDisplay2 = usedPromoExisting ? eventAmountAfterDiscount : subtotal;
+        const eventAmountLabel2 = usedPromoExisting ? "Event Amount (After Discount)" : "Event Price";
         // Send confirmation email for paid event signup
         const html = `
           <!DOCTYPE html>
@@ -580,10 +598,10 @@ export async function POST(request: NextRequest) {
                       <div class="detail-value">${eventLocation}</div>
                     </div>
                     ` : ""}
-                    ${eventPrice ? `
+                    ${eventPrice != null ? `
                     <div class="detail-row">
-                      <div class="detail-label">Event Price</div>
-                      <div class="detail-value">$${subtotal.toFixed(2)}</div>
+                      <div class="detail-label">${eventAmountLabel2}</div>
+                      <div class="detail-value">$${eventAmountDisplay2.toFixed(2)}</div>
                     </div>
                     ` : ""}
                     ${processingFee > 0 ? `
@@ -676,6 +694,16 @@ export async function POST(request: NextRequest) {
         const processingFee = Number(metadata.processing_fee || 0);
         const subtotal = Number(metadata.subtotal || 0);
         const actualTotal = session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+        const amountDiscountCtS = (session.total_details?.amount_discount ?? 0) / 100;
+        const subtotalAfterDiscountCtS =
+          session.amount_subtotal != null
+            ? Math.max(0, session.amount_subtotal / 100 - amountDiscountCtS)
+            : subtotal + processingFee;
+        const totalPreDiscountCtS = subtotal + processingFee;
+        const eventAmountAfterDiscountCtS =
+          totalPreDiscountCtS > 0
+            ? Math.round((subtotalAfterDiscountCtS * (subtotal / totalPreDiscountCtS)) * 100) / 100
+            : subtotal;
 
         const usedPromoCashToStripe = metadata.used_promotion_code === "true";
         const { error: updateError } = await supabaseServer
@@ -683,6 +711,7 @@ export async function POST(request: NextRequest) {
           .update({
             paid: true,
             payment_method: "Stripe", // Update payment method to Stripe
+            amount_owed: eventAmountAfterDiscountCtS,
             stripe_tax_amount: taxAmount,
             stripe_processing_fee: processingFee,
             stripe_total_paid: actualTotal,
@@ -729,6 +758,8 @@ export async function POST(request: NextRequest) {
           console.warn("Webhook: QR generation failed", e);
         }
 
+        const eventAmountDisplayCtS = usedPromoCashToStripe ? eventAmountAfterDiscountCtS : subtotal;
+        const eventAmountLabelCtS = usedPromoCashToStripe ? "Event Amount (After Discount)" : "Event Price";
         // Send confirmation email for paid event signup
         const html = `
           <!DOCTYPE html>
@@ -780,10 +811,10 @@ export async function POST(request: NextRequest) {
                       <div class="detail-value">${eventLocation}</div>
                     </div>
                     ` : ""}
-                    ${eventPrice ? `
+                    ${eventPrice != null ? `
                     <div class="detail-row">
-                      <div class="detail-label">Event Price</div>
-                      <div class="detail-value">$${subtotal.toFixed(2)}</div>
+                      <div class="detail-label">${eventAmountLabelCtS}</div>
+                      <div class="detail-value">$${eventAmountDisplayCtS.toFixed(2)}</div>
                     </div>
                     ` : ""}
                     ${processingFee > 0 ? `

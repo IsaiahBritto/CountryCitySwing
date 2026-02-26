@@ -19,12 +19,23 @@ export default function AuthCallback() {
 
     const handleAuthCallback = async () => {
       try {
-        // Email change confirmation: token_hash and type=email_change in query params (PKCE-style redirect)
+        // Get hash for parsing (email-change or magic-link tokens may be in hash)
+        let hash = window.location.hash;
+        if (!hash && window.location.href.includes("%23")) {
+          hash = decodeURIComponent(window.location.href.split("%23")[1] || "");
+          if (hash && !hash.startsWith("#")) hash = "#" + hash;
+        }
+        const hashParams = hash && hash.length > 1 ? new URLSearchParams(hash.substring(1)) : null;
+
+        // Email change: token_hash and type=email_change can be in query OR in hash (depending on Supabase redirect)
         const searchParams = new URLSearchParams(window.location.search);
-        const emailChangeTokenHash = searchParams.get("token_hash");
-        const emailChangeType = searchParams.get("type");
+        const emailChangeTokenHash =
+          searchParams.get("token_hash") ?? hashParams?.get("token_hash");
+        const emailChangeType =
+          searchParams.get("type") ?? hashParams?.get("type");
+
         if (emailChangeTokenHash && emailChangeType === "email_change") {
-          const { error: verifyError } = await supabaseBrowser.auth.verifyOtp({
+          const { data, error: verifyError } = await supabaseBrowser.auth.verifyOtp({
             token_hash: emailChangeTokenHash,
             type: "email_change",
           });
@@ -33,21 +44,20 @@ export default function AuthCallback() {
             setMessage(verifyError.message || "Email change link invalid or expired.");
             return;
           }
+          // Ensure client has the latest session (new email) before user navigates to profile
+          if (data?.session) {
+            await supabaseBrowser.auth.setSession({
+              access_token: data.session.access_token,
+              refresh_token: data.session.refresh_token,
+            });
+          } else {
+            await supabaseBrowser.auth.refreshSession();
+          }
           window.history.replaceState(null, "", window.location.pathname);
           setIsEmailChangeSuccess(true);
           setStatus("success");
           setMessage("Your email address has been updated successfully.");
           return;
-        }
-
-        // Get the hash from the URL (handles both # and %23 encoded)
-        let hash = window.location.hash;
-        if (!hash && window.location.href.includes("%23")) {
-          // If hash is URL-encoded, decode it
-          hash = decodeURIComponent(window.location.href.split("%23")[1] || "");
-          if (hash && !hash.startsWith("#")) {
-            hash = "#" + hash;
-          }
         }
 
         if (!hash || hash.length < 2) {
@@ -64,11 +74,10 @@ export default function AuthCallback() {
           return;
         }
 
-        const hashParams = new URLSearchParams(hash.substring(1));
-        const accessToken = hashParams.get("access_token");
-        const refreshToken = hashParams.get("refresh_token");
-        const error = hashParams.get("error");
-        const errorDescription = hashParams.get("error_description");
+        const accessToken = hashParams?.get("access_token");
+        const refreshToken = hashParams?.get("refresh_token");
+        const error = hashParams?.get("error");
+        const errorDescription = hashParams?.get("error_description");
 
         if (error) {
           setStatus("error");

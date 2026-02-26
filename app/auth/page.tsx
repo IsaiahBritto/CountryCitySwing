@@ -11,8 +11,9 @@ export default function AuthPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [showForgotConfirmation, setShowForgotConfirmation] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const router = useRouter();
 
@@ -20,6 +21,21 @@ export default function AuthPage() {
     e.preventDefault();
     setLoading(true);
     setPasswordError("");
+
+    if (mode === "forgot") {
+      const redirectTo = `${typeof window !== "undefined" ? window.location.origin : ""}/auth/reset-password`;
+      const { error } = await supabaseBrowser.auth.resetPasswordForEmail(email, {
+        redirectTo,
+      });
+      if (error) {
+        alert(error.message);
+        setLoading(false);
+        return;
+      }
+      setShowForgotConfirmation(true);
+      setLoading(false);
+      return;
+    }
 
     if (mode === "signup") {
       // Validate password confirmation
@@ -125,6 +141,41 @@ export default function AuthPage() {
     setLoading(false);
   };
 
+  // Show confirmation message after successful forgot-password request
+  if (showForgotConfirmation) {
+    return (
+      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+        <div className="mb-4">
+          <svg
+            className="mx-auto h-16 w-16 text-primary"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+            />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold mb-4 text-primary">
+          Check Your Email
+        </h2>
+        <p className="text-gray-300 mb-4">
+          We've sent a password reset link to <strong>{email}</strong>
+        </p>
+        <p className="text-sm text-gray-400 mb-6">
+          Click the link in the email to set a new password.
+        </p>
+        <Link href="/auth" className="block mt-4 text-accent hover:text-[#CF9FFF]">
+          ← Back to sign in
+        </Link>
+      </div>
+    );
+  }
+
   // Show confirmation message after successful signup
   if (showConfirmation) {
     return (
@@ -140,7 +191,7 @@ export default function AuthPage() {
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={2}
-              d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+              d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002 2z"
             />
           </svg>
         </div>
@@ -166,7 +217,7 @@ export default function AuthPage() {
   return (
     <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg">
       <h2 className="text-2xl font-bold mb-4 text-primary">
-        {mode === "signin" ? "Sign In" : "Create Account"}
+        {mode === "signin" ? "Sign In" : mode === "forgot" ? "Reset password" : "Create Account"}
       </h2>
       <form onSubmit={handleAuth} className="space-y-3">
         {mode === "signup" && (
@@ -201,61 +252,103 @@ export default function AuthPage() {
           required
         />
 
-        <input
-          className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => {
-            setPassword(e.target.value);
-            setPasswordError("");
-          }}
-          required
-        />
-
-        {mode === "signup" && (
-          <div>
+        {mode !== "forgot" && (
+          <>
             <input
-              className={`w-full px-3 py-2 rounded bg-neutral-900 border ${
-                passwordError ? "border-red-500" : "border-neutral-700"
-              }`}
+              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
               type="password"
-              placeholder="Confirm Password"
-              value={confirmPassword}
+              placeholder="Password"
+              value={password}
               onChange={(e) => {
-                setConfirmPassword(e.target.value);
+                setPassword(e.target.value);
                 setPasswordError("");
               }}
               required
             />
-            {passwordError && (
-              <p className="text-red-500 text-sm mt-1">{passwordError}</p>
+
+            {mode === "signup" && (
+              <div>
+                <input
+                  className={`w-full px-3 py-2 rounded bg-neutral-900 border ${
+                    passwordError ? "border-red-500" : "border-neutral-700"
+                  }`}
+                  type="password"
+                  placeholder="Confirm Password"
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    setPasswordError("");
+                  }}
+                  required
+                />
+                {passwordError && (
+                  <p className="text-red-500 text-sm mt-1">{passwordError}</p>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
 
         <button disabled={loading} type="submit" className="btn-signup w-full">
           {loading
             ? "Processing..."
+            : mode === "forgot"
+            ? "Send reset link"
             : mode === "signin"
             ? "Sign In"
             : "Sign Up"}
         </button>
       </form>
 
-      <p className="text-sm mt-3 text-gray-400">
-        {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
-        <button
-          onClick={() => {
-            setMode(mode === "signin" ? "signup" : "signin");
-            setPasswordError("");
-            setConfirmPassword("");
-          }}
-          className="text-primary hover:underline"
-        >
-          {mode === "signin" ? "Create one" : "Sign in"}
-        </button>
-      </p>
+      {mode === "forgot" ? (
+        <p className="text-sm mt-3 text-gray-400">
+          <button
+            onClick={() => setMode("signin")}
+            className="text-primary hover:underline"
+          >
+            ← Back to sign in
+          </button>
+        </p>
+      ) : (
+        <p className="text-sm mt-3 text-gray-400">
+          {mode === "signin" ? (
+            <>
+              New here?{" "}
+              <button
+                onClick={() => {
+                  setMode("signup");
+                  setPasswordError("");
+                  setConfirmPassword("");
+                }}
+                className="text-primary hover:underline"
+              >
+                Create one
+              </button>
+              {" · "}
+              <button
+                onClick={() => setMode("forgot")}
+                className="text-primary hover:underline"
+              >
+                Forgot password?
+              </button>
+            </>
+          ) : (
+            <>
+              Already have an account?{" "}
+              <button
+                onClick={() => {
+                  setMode("signin");
+                  setPasswordError("");
+                  setConfirmPassword("");
+                }}
+                className="text-primary hover:underline"
+              >
+                Sign in
+              </button>
+            </>
+          )}
+        </p>
+      )}
 
       <Link href="/" className="block mt-4 text-accent hover:text-[#CF9FFF]">
         ← Back to home

@@ -10,6 +10,7 @@ export default function AuthCallback() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [message, setMessage] = useState("Processing confirmation...");
   const [isLocalhost, setIsLocalhost] = useState(false);
+  const [isEmailChangeSuccess, setIsEmailChangeSuccess] = useState(false);
 
   useEffect(() => {
     // Check if we're on localhost
@@ -18,6 +19,27 @@ export default function AuthCallback() {
 
     const handleAuthCallback = async () => {
       try {
+        // Email change confirmation: token_hash and type=email_change in query params (PKCE-style redirect)
+        const searchParams = new URLSearchParams(window.location.search);
+        const emailChangeTokenHash = searchParams.get("token_hash");
+        const emailChangeType = searchParams.get("type");
+        if (emailChangeTokenHash && emailChangeType === "email_change") {
+          const { error: verifyError } = await supabaseBrowser.auth.verifyOtp({
+            token_hash: emailChangeTokenHash,
+            type: "email_change",
+          });
+          if (verifyError) {
+            setStatus("error");
+            setMessage(verifyError.message || "Email change link invalid or expired.");
+            return;
+          }
+          window.history.replaceState(null, "", window.location.pathname);
+          setIsEmailChangeSuccess(true);
+          setStatus("success");
+          setMessage("Your email address has been updated successfully.");
+          return;
+        }
+
         // Get the hash from the URL (handles both # and %23 encoded)
         let hash = window.location.hash;
         if (!hash && window.location.href.includes("%23")) {
@@ -36,7 +58,7 @@ export default function AuthCallback() {
             setMessage("Your account is already confirmed and you're signed in!");
             return;
           }
-          
+
           setStatus("error");
           setMessage("No confirmation tokens found in the link.");
           return;
@@ -116,12 +138,25 @@ export default function AuthCallback() {
                 />
               </svg>
             </div>
-            <h2 className="text-3xl font-bold mb-4 text-primary">Email Confirmed!</h2>
+            <h2 className="text-3xl font-bold mb-4 text-primary">
+              {isEmailChangeSuccess ? "Email updated" : "Email Confirmed!"}
+            </h2>
             <p className="text-gray-300 mb-2 text-lg">{message}</p>
             <p className="text-gray-400 mb-6 text-sm">
-              Your account is now active. You can sign in to Country City Swing.
+              {isEmailChangeSuccess
+                ? "Your account email is updated. You can continue to your profile."
+                : "Your account is now active. You can sign in to Country City Swing."}
             </p>
-            
+
+            {isEmailChangeSuccess && (
+              <a
+                href={typeof window !== "undefined" ? `${window.location.origin}/profile` : `${PRODUCTION_URL}/profile`}
+                className="block w-full btn-signup py-3 text-center font-semibold mb-3"
+              >
+                Go to profile
+              </a>
+            )}
+
             {isLocalhost && (
               <div className="mb-6 p-4 bg-yellow-900/30 border border-yellow-700 rounded-lg">
                 <p className="text-yellow-300 text-sm mb-2">

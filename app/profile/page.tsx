@@ -40,6 +40,10 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordUpdating, setPasswordUpdating] = useState(false);
   const [passwordMessage, setPasswordMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [newEmail, setNewEmail] = useState("");
+  const [confirmNewEmail, setConfirmNewEmail] = useState("");
+  const [emailUpdating, setEmailUpdating] = useState(false);
+  const [emailMessage, setEmailMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     async function loadProfile() {
@@ -164,6 +168,42 @@ export default function ProfilePage() {
     setPasswordMessage({ type: "success", text: "Password updated successfully." });
     setNewPassword("");
     setConfirmPassword("");
+  };
+
+  const handleEmailChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailMessage(null);
+    const trimmed = newEmail.trim();
+    const confirmTrimmed = confirmNewEmail.trim();
+    if (!trimmed) {
+      setEmailMessage({ type: "error", text: "Please enter a new email address." });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setEmailMessage({ type: "error", text: "Please enter a valid email address." });
+      return;
+    }
+    if (trimmed !== confirmTrimmed) {
+      setEmailMessage({ type: "error", text: "New email and confirmation do not match." });
+      return;
+    }
+    if (trimmed === profile?.email) {
+      setEmailMessage({ type: "error", text: "New email is the same as your current email." });
+      return;
+    }
+    setEmailUpdating(true);
+    const { error } = await supabaseBrowser.auth.updateUser({ email: trimmed });
+    setEmailUpdating(false);
+    if (error) {
+      setEmailMessage({ type: "error", text: error.message });
+      return;
+    }
+    setEmailMessage({
+      type: "success",
+      text: "Check your new email and click the link to confirm the change.",
+    });
+    setNewEmail("");
+    setConfirmNewEmail("");
   };
 
   const handleSignOut = async () => {
@@ -391,6 +431,53 @@ export default function ProfilePage() {
             className="btn-signup py-2 px-4 rounded-md"
           >
             {passwordUpdating ? "Updating..." : "Update password"}
+          </button>
+        </form>
+      </div>
+
+      {/* Change email */}
+      <div className="border-t border-neutral-700 pt-6 mt-6">
+        <h3 className="text-lg font-semibold text-primary mb-3">Change email</h3>
+        <form onSubmit={handleEmailChange} className="space-y-4 max-w-md">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Current email</label>
+            <input
+              type="email"
+              value={profile?.email ?? ""}
+              readOnly
+              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-gray-400 cursor-not-allowed"
+              aria-readonly
+            />
+          </div>
+          <input
+            type="email"
+            value={newEmail}
+            onChange={(e) => { setNewEmail(e.target.value); setEmailMessage(null); }}
+            placeholder="New email address"
+            className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+            autoComplete="email"
+          />
+          <input
+            type="email"
+            value={confirmNewEmail}
+            onChange={(e) => { setConfirmNewEmail(e.target.value); setEmailMessage(null); }}
+            placeholder="Confirm new email address"
+            className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+            autoComplete="email"
+          />
+          {emailMessage && (
+            <p
+              className={`text-sm ${emailMessage.type === "success" ? "text-green-400" : "text-red-400"}`}
+            >
+              {emailMessage.text}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={emailUpdating}
+            className="btn-signup py-2 px-4 rounded-md"
+          >
+            {emailUpdating ? "Sending..." : "Send confirmation email"}
           </button>
         </form>
       </div>

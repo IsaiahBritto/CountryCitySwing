@@ -12,8 +12,10 @@ export default function AuthPage() {
   const [lastName, setLastName] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
+  const [signInMethod, setSignInMethod] = useState<"password" | "magiclink">("password");
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [showForgotConfirmation, setShowForgotConfirmation] = useState(false);
+  const [showMagicLinkConfirmation, setShowMagicLinkConfirmation] = useState(false);
   const [passwordError, setPasswordError] = useState("");
   const router = useRouter();
 
@@ -129,6 +131,20 @@ export default function AuthPage() {
       setTimeout(() => {
         router.push("/");
       }, 10000);
+    } else if (mode === "signin" && signInMethod === "magiclink") {
+      const redirectTo = `${typeof window !== "undefined" ? window.location.origin : ""}/auth/callback`;
+      const { error } = await supabaseBrowser.auth.signInWithOtp({
+        email: email.trim(),
+        options: { emailRedirectTo: redirectTo },
+      });
+      if (error) {
+        alert(error.message);
+        setLoading(false);
+        return;
+      }
+      setShowMagicLinkConfirmation(true);
+      setLoading(false);
+      return;
     } else {
       const { error } = await supabaseBrowser.auth.signInWithPassword({
         email,
@@ -168,6 +184,41 @@ export default function AuthPage() {
         </p>
         <p className="text-sm text-gray-400 mb-6">
           Click the link in the email to set a new password.
+        </p>
+        <Link href="/auth" className="block mt-4 text-accent hover:text-[#CF9FFF]">
+          ← Back to sign in
+        </Link>
+      </div>
+    );
+  }
+
+  // Show confirmation after sending magic link
+  if (showMagicLinkConfirmation) {
+    return (
+      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+        <div className="mb-4">
+          <svg
+            className="mx-auto h-16 w-16 text-primary"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+            />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold mb-4 text-primary">
+          Check Your Email
+        </h2>
+        <p className="text-gray-300 mb-4">
+          We've sent a sign-in link to <strong>{email}</strong>
+        </p>
+        <p className="text-sm text-gray-400 mb-6">
+          Click the link in the email to sign in. The link expires in 1 hour.
         </p>
         <Link href="/auth" className="block mt-4 text-accent hover:text-[#CF9FFF]">
           ← Back to sign in
@@ -252,7 +303,7 @@ export default function AuthPage() {
           required
         />
 
-        {mode !== "forgot" && (
+        {mode !== "forgot" && !(mode === "signin" && signInMethod === "magiclink") && (
           <>
             <input
               className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
@@ -263,7 +314,7 @@ export default function AuthPage() {
                 setPassword(e.target.value);
                 setPasswordError("");
               }}
-              required
+              required={mode === "signin"}
             />
 
             {mode === "signup" && (
@@ -294,20 +345,48 @@ export default function AuthPage() {
             ? "Processing..."
             : mode === "forgot"
             ? "Send reset link"
+            : mode === "signin" && signInMethod === "magiclink"
+            ? "Send sign-in link"
             : mode === "signin"
             ? "Sign In"
             : "Sign Up"}
         </button>
       </form>
 
+      {mode === "signin" && (
+        <p className="text-sm mt-3 text-gray-400">
+          {signInMethod === "password" ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setSignInMethod("magiclink")}
+                className="text-primary hover:underline"
+              >
+                Send me a sign-in link instead
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setSignInMethod("password")}
+                className="text-primary hover:underline"
+              >
+                Use password instead
+              </button>
+            </>
+          )}
+        </p>
+      )}
+
       {mode === "forgot" ? (
         <p className="text-sm mt-3 text-gray-400">
-          <button
-            onClick={() => setMode("signin")}
-            className="text-primary hover:underline"
-          >
-            ← Back to sign in
-          </button>
+            <button
+              onClick={() => { setMode("signin"); setSignInMethod("password"); }}
+              className="text-primary hover:underline"
+            >
+              ← Back to sign in
+            </button>
         </p>
       ) : (
         <p className="text-sm mt-3 text-gray-400">
@@ -317,6 +396,7 @@ export default function AuthPage() {
               <button
                 onClick={() => {
                   setMode("signup");
+                  setSignInMethod("password");
                   setPasswordError("");
                   setConfirmPassword("");
                 }}
@@ -326,7 +406,7 @@ export default function AuthPage() {
               </button>
               {" · "}
               <button
-                onClick={() => setMode("forgot")}
+                onClick={() => { setMode("forgot"); setSignInMethod("password"); }}
                 className="text-primary hover:underline"
               >
                 Forgot password?
@@ -338,6 +418,7 @@ export default function AuthPage() {
               <button
                 onClick={() => {
                   setMode("signin");
+                  setSignInMethod("password");
                   setPasswordError("");
                   setConfirmPassword("");
                 }}

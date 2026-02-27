@@ -66,15 +66,32 @@ export async function POST(request: NextRequest) {
 
     const orderTotalForDiscount = orderData.subtotal + (orderData.shipping || 0);
     const promotionCodeId = orderData.promotionCodeId;
+    const clientDiscountedSubtotal =
+      typeof orderData.discountedSubtotal === "number"
+        ? orderData.discountedSubtotal
+        : typeof orderData.discounted_subtotal === "number"
+          ? orderData.discounted_subtotal
+          : undefined;
     let paid = false;
     let amountOwed = orderTotalForDiscount;
     let effectivePaymentMethod = paymentMethod;
 
-    // 1️⃣ Stripe path: if promo brings total to ≤$0.50, treat as Cash with no payment
-    if (paymentMethod === "stripe") {
-      const processingFee = roundCurrency(calculateProcessingFee(orderTotalForDiscount));
-      let discountedTotal = orderTotalForDiscount + processingFee;
-      if (promotionCodeId && orderTotalForDiscount > 0) {
+    if (clientDiscountedSubtotal != null && Number.isFinite(clientDiscountedSubtotal)) {
+      amountOwed = roundCurrency(Math.max(0, clientDiscountedSubtotal));
+      paid = amountOwed <= 0;
+    }
+
+    // Stripe not allowed when amount due is under $1
+    if (paymentMethod === "stripe" && amountOwed < 1) {
+      effectivePaymentMethod = "cash";
+    }
+
+    // 1️⃣ Stripe path: if promo brings total to ≤$0.50, treat as Cash with no payment; or if already resolved from client discount
+    if (effectivePaymentMethod === "stripe") {
+      let discountedTotal = amountOwed;
+      if (clientDiscountedSubtotal == null && promotionCodeId && orderTotalForDiscount > 0) {
+        const processingFee = roundCurrency(calculateProcessingFee(orderTotalForDiscount));
+        discountedTotal = orderTotalForDiscount + processingFee;
         try {
           const stripe = getStripe();
           const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
@@ -180,8 +197,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2️⃣ Cash path: create order; if promo brings cost to $0, mark as paid and set amountOwed
-    if (effectivePaymentMethod === "cash" && promotionCodeId && orderTotalForDiscount > 0) {
+    // 2️⃣ Cash path: if promo applied and we didn't get discount from client, resolve from Stripe
+    if (
+      effectivePaymentMethod === "cash" &&
+      promotionCodeId &&
+      orderTotalForDiscount > 0 &&
+      clientDiscountedSubtotal == null
+    ) {
       try {
         const stripe = getStripe();
         const promo = await stripe.promotionCodes.retrieve(promotionCodeId, {
@@ -196,7 +218,7 @@ export async function POST(request: NextRequest) {
             discounted = Math.max(0, orderTotalForDiscount * (1 - coupon.percent_off / 100));
           }
           paid = discounted <= 0;
-          amountOwed = discounted;
+          amountOwed = roundCurrency(discounted);
         }
       } catch (e) {
         console.error("Merch order: could not resolve promo for paid check", e);
@@ -322,7 +344,8 @@ export async function POST(request: NextRequest) {
                 <div class="total">
                   <p><strong>Subtotal:</strong> $${orderData.subtotal.toFixed(2)}</p>
                   <p><strong>Shipping:</strong> $${orderData.shipping.toFixed(2)}</p>
-                  <p style="font-size: 1.3em; margin-top: 10px;"><strong>Total:</strong> $${orderData.total.toFixed(2)}</p>
+                  ${promotionCodeId ? `<p><strong>Amount due (after discount):</strong> $${amountOwed.toFixed(2)}</p>` : ""}
+                  <p style="font-size: 1.3em; margin-top: 10px;"><strong>Total:</strong> $${Number(orderData.total).toFixed(2)}${promotionCodeId ? " (after discount)" : ""}</p>
                 </div>
                 <h4 style="margin-top: 20px; margin-bottom: 10px;">Delivery Information:</h4>
                 ${shippingInfo}

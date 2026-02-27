@@ -28,7 +28,7 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
   const [preorderAcknowledged, setPreorderAcknowledged] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "stripe">("cash");
   const [promoCodeInput, setPromoCodeInput] = useState("");
-  const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string } | null>(null);
+  const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string; discountedSubtotal?: number } | null>(null);
   const [promoError, setPromoError] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
 
@@ -68,6 +68,11 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
     }
   }, [deliveryMethod]);
 
+  // Clear promo when delivery method changes (shipping changes) so discount stays correct
+  useEffect(() => {
+    if (appliedPromo) setAppliedPromo(null);
+  }, [deliveryMethod]);
+
   const calculateShipping = () => {
     if (deliveryMethod === "pickup") return 0;
     
@@ -89,6 +94,17 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
 
   const shippingCost = calculateShipping();
   const totalPrice = getTotalPrice() + shippingCost;
+  const amountDue =
+    appliedPromo?.discountedSubtotal != null && Number.isFinite(appliedPromo.discountedSubtotal)
+      ? Math.max(0, appliedPromo.discountedSubtotal)
+      : totalPrice;
+  const amountDueIsZero = amountDue <= 0.5;
+  const stripeDisabled = amountDue < 1;
+
+  // When Stripe is disabled (amount < $1), switch to cash if they had Stripe selected
+  useEffect(() => {
+    if (stripeDisabled && paymentMethod === "stripe") setPaymentMethod("cash");
+  }, [stripeDisabled, paymentMethod]);
 
   // Check if cart contains preorder items
   const hasPreorderItems = items.some(
@@ -105,15 +121,20 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
     }
     setPromoError("");
     setPromoLoading(true);
+    const orderSubtotal = getTotalPrice() + shippingCost;
     try {
       const res = await fetch("/api/validate-promo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, subtotal: orderSubtotal }),
       });
       const result = await res.json();
       if (result.valid && result.promotionCodeId) {
-        setAppliedPromo({ promotionCodeId: result.promotionCodeId, code: result.code ?? code });
+        setAppliedPromo({
+          promotionCodeId: result.promotionCodeId,
+          code: result.code ?? code,
+          discountedSubtotal: result.discountedSubtotal,
+        });
       } else {
         setAppliedPromo(null);
         setPromoError(result.message || "Invalid promotion code.");
@@ -190,10 +211,14 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
         })),
         subtotal: getTotalPrice(),
         shipping: shippingCost,
-        total: totalPrice,
+        total: amountDue,
       };
       if (appliedPromo) {
         orderData.promotionCodeId = appliedPromo.promotionCodeId;
+        orderData.discountedSubtotal = amountDue;
+      }
+      if (stripeDisabled && paymentMethod === "stripe") {
+        orderData.paymentMethod = "cash";
       }
 
       const response = await fetch("/api/merch-order", {
@@ -338,9 +363,15 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
             <span>Shipping:</span>
             <span>${shippingCost.toFixed(2)}</span>
           </div>
+          {appliedPromo && (
+            <div className="flex justify-between text-green-400 text-sm">
+              <span>Discount ({appliedPromo.code}):</span>
+              <span>-${(totalPrice - amountDue).toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-xl font-bold text-primary">
-            <span>Total:</span>
-            <span>${totalPrice.toFixed(2)}</span>
+            <span>{appliedPromo ? "Amount due:" : "Total:"}</span>
+            <span>${amountDue.toFixed(2)}{appliedPromo ? " (after discount)" : ""}</span>
           </div>
           {deliveryMethod === "ship" && (
             <p className="text-xs text-gray-400 mt-2">
@@ -520,13 +551,19 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
         {/* Payment Method */}
         <div className="bg-neutral-800 rounded-lg p-6">
           <h3 className="text-xl font-semibold text-white mb-4">Payment</h3>
+          {amountDueIsZero && (
+            <p className="text-green-400 text-sm mb-4">No payment required — your promotion code covers the full cost.</p>
+          )}
+          {stripeDisabled && !amountDueIsZero && (
+            <p className="text-yellow-400 text-sm mb-4">Pay with card is not available for orders under $1. Please pay with cash.</p>
+          )}
           <div className="space-y-3 mb-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="radio"
                 name="payment"
                 value="cash"
-                checked={paymentMethod === "cash"}
+                checked={paymentMethod === "cash" || stripeDisabled}
                 onChange={() => setPaymentMethod("cash")}
                 className="w-4 h-4 text-primary focus:ring-primary"
               />
@@ -535,13 +572,14 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
             <p className="text-sm text-gray-400 ml-7">
               Pay cash in person. Please show your confirmation email at check-in.
             </p>
-            <label className="flex items-center gap-3 cursor-pointer">
+            <label className={`flex items-center gap-3 ${stripeDisabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
               <input
                 type="radio"
                 name="payment"
                 value="stripe"
-                checked={paymentMethod === "stripe"}
-                onChange={() => setPaymentMethod("stripe")}
+                checked={paymentMethod === "stripe" && !stripeDisabled}
+                onChange={() => !stripeDisabled && setPaymentMethod("stripe")}
+                disabled={stripeDisabled}
                 className="w-4 h-4 text-primary focus:ring-primary"
               />
               <span className="text-gray-300">Pay with card</span>

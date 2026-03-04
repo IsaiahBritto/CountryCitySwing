@@ -120,7 +120,7 @@ function InstructorListItem({ member }: { member: InstructorRow }) {
   return (
     <Link
       href={`/instructors/${encodeURIComponent(slug)}`}
-      className="flex items-center gap-4 px-5 py-4 hover:bg-neutral-700/30 transition-colors group"
+      className={`flex items-center gap-4 px-5 py-4 transition-colors group ${isCore ? "bg-yellow-500/15 hover:bg-yellow-500/25" : "hover:bg-neutral-700/30"}`}
     >
       <div className="flex-shrink-0 w-12 h-12 rounded-full overflow-hidden border-2 border-primary/50 bg-neutral-700">
         {member.photo_url ? (

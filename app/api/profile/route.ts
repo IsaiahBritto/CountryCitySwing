@@ -164,18 +164,24 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    // Role: self can only set attendee | non-ccs-instructor; admin can set/remove non-ccs-instructor for any
+    // Role: self can only set attendee | non-ccs-instructor; admin can set/remove non-ccs-instructor for any.
+    // If client sends current role unchanged (e.g. instructor updating zip), allow it without changing role.
     if (body.role !== undefined) {
       const newRole =
         typeof body.role === "string" ? body.role.trim().toLowerCase() : "";
+      const currentRole = (targetProfile?.role ?? "").trim().toLowerCase();
+      const isRoleChange = newRole !== currentRole;
+
       if (targetId === user.id && !isAdmin) {
-        if (!ALLOWED_SELF_ROLES.includes(newRole)) {
+        if (isRoleChange && !ALLOWED_SELF_ROLES.includes(newRole)) {
           return NextResponse.json(
             { error: "Forbidden: You can only set your role to Attendee or Non-CCS Instructor" },
             { status: 403 }
           );
         }
-        updateData.role = newRole || null;
+        if (isRoleChange) {
+          updateData.role = newRole || null;
+        }
       } else if (isAdmin) {
         updateData.role = newRole || null;
       }

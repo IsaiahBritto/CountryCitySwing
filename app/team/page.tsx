@@ -30,33 +30,36 @@ export default async function TeamPage() {
     );
   }
 
+  // CCS Team only: exclude non-CCS directory instructors (they appear on /instructors)
+  const ccsProfiles = profiles.filter(
+    (p) => (p.role ?? "").toLowerCase() !== "non-ccs-instructor"
+  );
+
   const normalize = (s: string) => s.trim().toLowerCase();
 
   // Find Isaiah & Malissa
-  const isaiah = profiles.find(
+  const isaiah = ccsProfiles.find(
     (p) =>
       normalize(p.first_name) === "isaiah" &&
       normalize(p.last_name) === "britto"
   );
-  const malissa = profiles.find(
+  const malissa = ccsProfiles.find(
     (p) =>
       normalize(p.first_name) === "malissa" &&
       normalize(p.last_name) === "petersen"
   );
 
-  // Helper function to check if a role indicates an instructor
-  // Admins are also instructors, so include them
+  // Helper function to check if a role indicates a CCS instructor (admin or instructor, not non-ccs-instructor)
   const isInstructorRole = (role: string | null | undefined): boolean => {
     if (!role) return false;
     const roleLower = role.toLowerCase();
-    // Admins are also instructors, so include them
+    if (roleLower === "non-ccs-instructor") return false;
     if (roleLower === "admin") return true;
-    // Check for instructor-related roles
     return roleLower === "instructor" || roleLower.includes("instructor");
   };
 
-  // Everyone else = assistant instructors
-  const assistants = profiles.filter(
+  // Everyone else = assistant instructors (CCS only)
+  const assistants = ccsProfiles.filter(
     (p) =>
       !(
         normalize(p.first_name) === "isaiah" &&
@@ -97,6 +100,12 @@ export default async function TeamPage() {
           ))}
         </div>
       )}
+
+      <p className="mt-14 text-center text-neutral-400">
+        <Link href="/instructors" className="text-primary hover:text-yellow-400 underline">
+          Find more instructors by state →
+        </Link>
+      </p>
     </section>
   );
 }

@@ -57,8 +57,10 @@ export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
     const includeEventsNearToday = searchParams.get("events_near_today") === "1";
     const roleLower = (profile.role || "").toLowerCase();
+    // Non-CCS-Instructor does not get events_near_today / Schedule (profile-only role)
     const isInstructor =
       roleLower !== "admin" &&
+      roleLower !== "non-ccs-instructor" &&
       (roleLower === "instructor" || roleLower.includes("instructor"));
 
     let events_near_today: { id: string; starts_at: string }[] | undefined;

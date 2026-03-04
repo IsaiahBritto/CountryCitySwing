@@ -1046,12 +1046,20 @@ export default function AdminFinancesPage() {
             Admin-only • High-level signup and revenue by event
           </p>
         </div>
-        <Link
-          href="/"
-          className="text-sm text-neutral-400 transition hover:text-primary"
-        >
-          ← Back to site
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/admin/users"
+            className="text-sm text-neutral-400 transition hover:text-primary"
+          >
+            User roles
+          </Link>
+          <Link
+            href="/"
+            className="text-sm text-neutral-400 transition hover:text-primary"
+          >
+            ← Back to site
+          </Link>
+        </div>
       </div>
 
       {error && (

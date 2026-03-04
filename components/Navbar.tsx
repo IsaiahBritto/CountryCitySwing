@@ -74,8 +74,11 @@ export default function Navbar() {
         }
         const roleLower = (p.role || "").toLowerCase();
         const isAdminRole = roleLower === "admin";
+        // Non-CCS-Instructor does not get Schedule tab (profile-only role)
         const isInstructor =
-          !isAdminRole && (roleLower === "instructor" || roleLower.includes("instructor"));
+          !isAdminRole &&
+          roleLower !== "non-ccs-instructor" &&
+          (roleLower === "instructor" || roleLower.includes("instructor"));
         setIsAdmin(isAdminRole);
         setShowSchedule(isAdminRole || isInstructor);
         if (isAdminRole) {
@@ -107,10 +110,11 @@ export default function Navbar() {
   const navLinks = [
     { name: "DNA", href: "/dna" },
     { name: "Events", href: "/events" },
-    { name: "Team", href: "/team" },
+    { name: "CCS Team", href: "/team" },
     { name: "Prayer", href: "/prayer" },
     { name: "Media", href: "/media" },
     { name: "Merch", href: "/merch" },
+    { name: "Instructors", href: "/instructors" },
     { name: "About", href: "/about" },
   ];
 

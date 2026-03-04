@@ -31,8 +31,11 @@ export interface InstructorProfile {
 
 export default function InstructorProfileClient({
   profile,
+  fromDirectory,
 }: {
   profile: InstructorProfile;
+  /** When true, profile was opened from Find Instructors; show "Instructor" for non-CCS. */
+  fromDirectory?: boolean;
 }) {
   const router = useRouter();
 
@@ -41,7 +44,9 @@ export default function InstructorProfileClient({
   };
 
   const normalize = (s: string) => s.trim().toLowerCase();
+  const isNonCCS = (profile.role ?? "").toLowerCase() === "non-ccs-instructor";
   const getInstructorTitle = (first: string, last: string) => {
+    if (fromDirectory && isNonCCS) return "Instructor";
     const f = normalize(first);
     const l = normalize(last);
     if (f === "isaiah" && l === "britto") return "Owner & Head Instructor";

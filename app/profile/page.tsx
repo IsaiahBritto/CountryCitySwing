@@ -4,12 +4,18 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import InstructorSlotManager from "@/components/InstructorSlotManager";
+import { US_STATES_FULL_NAMES } from "@/lib/utils/usStates";
 
 // Dynamically load client-side only
 const InstructorLessonCalendar = dynamic(
   () => import("@/components/InstructorLessonCalendar"),
   { ssr: false }
 );
+
+function isInstructorLikeRole(role: string | null | undefined): boolean {
+  const r = (role ?? "").toLowerCase();
+  return r === "admin" || r === "instructor" || r === "non-ccs-instructor" || r.includes("instructor");
+}
 
 interface Profile {
   id: string;
@@ -29,6 +35,8 @@ interface Profile {
   private_lessons_link: string | null;
   scheduling_enabled: boolean | null;
   prayer: string | null;
+  state: string | null;
+  zip_code: string | null;
 }
 
 export default function ProfilePage() {
@@ -44,6 +52,8 @@ export default function ProfilePage() {
   const [confirmNewEmail, setConfirmNewEmail] = useState("");
   const [emailUpdating, setEmailUpdating] = useState(false);
   const [emailMessage, setEmailMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [activatingInstructor, setActivatingInstructor] = useState(false);
+  const [demotingToAttendee, setDemotingToAttendee] = useState(false);
 
   useEffect(() => {
     async function loadProfile() {
@@ -103,7 +113,7 @@ export default function ProfilePage() {
       updateData.photo_url = photo_url ?? null;
     }
 
-    if (profile.role === "instructor" || profile.role === "admin") {
+    if (isInstructorLikeRole(profile.role)) {
       updateData.instagram_url = profile.instagram_url ?? null;
       updateData.teaching_since = profile.teaching_since ?? null;
       updateData.favorite_song = profile.favorite_song ?? null;
@@ -113,8 +123,12 @@ export default function ProfilePage() {
       updateData.phone_number = profile.phone_number ?? null;
       updateData.private_lessons = profile.private_lessons ?? null;
       updateData.private_lessons_link = profile.private_lessons_link ?? null;
-      updateData.scheduling_enabled = profile.scheduling_enabled ?? false;
+      updateData.state = profile.state ?? null;
+      updateData.zip_code = profile.zip_code ?? null;
       updateData.prayer = profile.prayer ?? null;
+      if (profile.role === "instructor" || profile.role === "admin") {
+        updateData.scheduling_enabled = profile.scheduling_enabled ?? false;
+      }
     }
 
     const {
@@ -211,6 +225,58 @@ export default function ProfilePage() {
     window.location.href = "/";
   };
 
+  const handleCreateInstructorProfile = async () => {
+    const { data: { session } } = await supabaseBrowser.auth.getSession();
+    const token = session?.access_token;
+    if (!token) return;
+    setActivatingInstructor(true);
+    const res = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ role: "non-ccs-instructor" }),
+    });
+    setActivatingInstructor(false);
+    if (res.ok && profile) {
+      setProfile({ ...profile, role: "non-ccs-instructor" });
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert("Error: " + (err.error ?? res.statusText));
+    }
+  };
+
+  const handleRemoveFromInstructorDirectory = async () => {
+    if (!profile || (profile.role ?? "").toLowerCase() !== "non-ccs-instructor") return;
+    if (!confirm("Remove your listing from the instructor directory? Your profile info will be kept but you will no longer appear on the Find Instructors page. You can add yourself back anytime.")) return;
+    const { data: { session } } = await supabaseBrowser.auth.getSession();
+    const token = session?.access_token;
+    if (!token) return;
+    setDemotingToAttendee(true);
+    const res = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ role: "attendee" }),
+    });
+    setDemotingToAttendee(false);
+    if (res.ok && profile) {
+      setProfile({ ...profile, role: "attendee" });
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert("Error: " + (err.error ?? res.statusText));
+    }
+  };
+
+  const isAttendee =
+    profile &&
+    (!profile.role ||
+      profile.role.trim() === "" ||
+      profile.role.toLowerCase() === "attendee");
+
   if (loading)
     return <p className="text-gray-400 text-center mt-10">Loading...</p>;
   if (!profile)
@@ -234,7 +300,7 @@ export default function ProfilePage() {
           className="w-28 h-28 rounded-full mx-auto border border-yellow-400 object-cover"
         />
       )}
-      {/* Only allow photo upload for non-attendee users */}
+      {/* Only allow photo upload for non-attendee users (includes non-ccs-instructor) */}
       {profile.role !== "attendee" && (
         <input
           type="file"
@@ -242,6 +308,40 @@ export default function ProfilePage() {
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           className="block mx-auto text-sm text-gray-300 mt-2"
         />
+      )}
+
+      {/* Create instructor profile CTA for attendees */}
+      {isAttendee && (
+        <div className="rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-4 text-center">
+          <p className="text-gray-300 mb-3">
+            List yourself as an instructor in the CCS directory and create a public profile.
+          </p>
+          <button
+            type="button"
+            onClick={handleCreateInstructorProfile}
+            disabled={activatingInstructor}
+            className="btn-signup px-6 py-2 rounded-md"
+          >
+            {activatingInstructor ? "Activating..." : "Create instructor profile"}
+          </button>
+        </div>
+      )}
+
+      {/* Remove from instructor directory (non-CCS only) */}
+      {(profile.role ?? "").toLowerCase() === "non-ccs-instructor" && (
+        <div className="rounded-lg border border-neutral-600 bg-neutral-700/30 p-4 text-center">
+          <p className="text-gray-300 mb-3">
+            Remove your listing from the Find Instructors page and make your profile a regular account. Your current info will be kept, but you will no longer appear in the instructor directory. You can add yourself back anytime.
+          </p>
+          <button
+            type="button"
+            onClick={handleRemoveFromInstructorDirectory}
+            disabled={demotingToAttendee}
+            className="px-6 py-2 rounded-md bg-neutral-600 hover:bg-neutral-500 text-white disabled:opacity-50"
+          >
+            {demotingToAttendee ? "Updating..." : "Remove from instructor directory"}
+          </button>
+        </div>
       )}
 
       {/* Editable Form */}
@@ -267,8 +367,8 @@ export default function ProfilePage() {
           />
         </div>
 
-        {/* Instructor-only fields */}
-        {(profile.role === "instructor" || profile.role === "admin") && (
+        {/* Instructor and Non-CCS-Instructor profile fields */}
+        {isInstructorLikeRole(profile.role) && (
           <>
             <input
               type="text"
@@ -297,6 +397,35 @@ export default function ProfilePage() {
               placeholder="Specialty (e.g., Country Swing)"
               className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
             />
+
+            {/* Location for directory and map */}
+            <div className="flex gap-2 flex-wrap">
+              <select
+                value={profile.state || ""}
+                onChange={(e) =>
+                  setProfile({ ...profile, state: e.target.value || null })
+                }
+                className="flex-1 min-w-[140px] px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+                aria-label="State"
+              >
+                <option value="">State (optional)</option>
+                {US_STATES_FULL_NAMES.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={profile.zip_code || ""}
+                onChange={(e) =>
+                  setProfile({ ...profile, zip_code: e.target.value.trim() || null })
+                }
+                placeholder="ZIP code (optional)"
+                className="w-32 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+                maxLength={10}
+              />
+            </div>
 
             <input
               type="text"
@@ -366,23 +495,25 @@ export default function ProfilePage() {
               className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
             />
 
-            {/* Scheduling Toggle */}
-            <div className="flex items-center justify-between mt-6">
-              <label className="text-gray-300 font-medium">
-                Enable scheduling through CCS website
-              </label>
-              <input
-                type="checkbox"
-                checked={!!profile.scheduling_enabled}
-                onChange={(e) =>
-                  setProfile({
-                    ...profile,
-                    scheduling_enabled: e.target.checked,
-                  })
-                }
-                className="w-5 h-5 accent-yellow-400"
-              />
-            </div>
+            {/* Scheduling Toggle: only for core CCS instructors, not Non-CCS-Instructor */}
+            {(profile.role === "instructor" || profile.role === "admin") && (
+              <div className="flex items-center justify-between mt-6">
+                <label className="text-gray-300 font-medium">
+                  Enable scheduling through CCS website
+                </label>
+                <input
+                  type="checkbox"
+                  checked={!!profile.scheduling_enabled}
+                  onChange={(e) =>
+                    setProfile({
+                      ...profile,
+                      scheduling_enabled: e.target.checked,
+                    })
+                  }
+                  className="w-5 h-5 accent-yellow-400"
+                />
+              </div>
+            )}
 
           </>
         )}

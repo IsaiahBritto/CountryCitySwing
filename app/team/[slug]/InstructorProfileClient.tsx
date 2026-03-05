@@ -58,6 +58,22 @@ export default function InstructorProfileClient({
   const show = (val?: string | null) =>
     val !== null && val !== undefined && val.trim() !== "";
 
+  /** Ensure external URLs have a protocol so they open in a new tab instead of as relative paths. */
+  const externalHref = (
+    url: string | null | undefined,
+    options?: { instagram?: boolean }
+  ): string => {
+    const s = (url ?? "").trim();
+    if (!s) return "#";
+    if (/^https?:\/\//i.test(s)) return s;
+    // Instagram handle only (e.g. @username) -> full profile URL
+    if (options?.instagram && /^@?[\w.]+$/.test(s)) {
+      const handle = s.replace(/^@/, "");
+      return `https://instagram.com/${handle}`;
+    }
+    return "https://" + s.replace(/^\/+/, "");
+  };
+
   return (
     <div
       className="fixed inset-0 flex items-center justify-center z-50 bg-black/60 backdrop-blur-sm"
@@ -157,7 +173,7 @@ export default function InstructorProfileClient({
             {/* Link */}
             {show(profile.private_lessons_link) && (
               <a
-                href={profile.private_lessons_link ?? "#"}
+                href={externalHref(profile.private_lessons_link)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white underline decoration-1 underline-offset-2 hover:shadow-[0_0_8px_rgba(242,201,76,0.8)] transition-all duration-300 break-all"
@@ -184,7 +200,7 @@ export default function InstructorProfileClient({
             {show(profile.instagram_url) && (
               <p>
                 <a
-                  href={profile.instagram_url ?? "#"}
+                  href={externalHref(profile.instagram_url, { instagram: true })}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-white underline decoration-1 underline-offset-2 hover:shadow-[0_0_8px_rgba(242,201,76,0.8)] transition-all duration-300 break-all"

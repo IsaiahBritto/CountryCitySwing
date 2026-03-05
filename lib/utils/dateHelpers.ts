@@ -119,6 +119,13 @@ export function getTodayChicagoUtcRange(): { start: string; end: string } {
   return { start, end };
 }
 
+/** Next 7 days from now as UTC ISO range (for newsletter "this week" events). */
+export function getNextSevenDaysUtcRange(): { start: string; end: string } {
+  const start = dayjs().utc().toISOString();
+  const end = dayjs().utc().add(7, "day").toISOString();
+  return { start, end };
+}
+
 /** True if the given Chicago date (YYYY-MM-DD) falls within the event range. */
 export function eventSpansDateInChicago(
   startsAt: string,

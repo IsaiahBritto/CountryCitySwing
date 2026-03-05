@@ -149,7 +149,7 @@ export async function PATCH(req: NextRequest) {
 
     const updateData: Record<string, unknown> = {};
 
-    // Name and photo: allow for self; allow for admin updating any
+    // Name, photo, newsletter: allow for self; allow for admin updating any
     if (targetId === user.id || isAdmin) {
       if (body.first_name !== undefined) {
         updateData.first_name =
@@ -161,6 +161,9 @@ export async function PATCH(req: NextRequest) {
       }
       if (body.photo_url !== undefined) {
         updateData.photo_url = emptyToNull(body.photo_url);
+      }
+      if (body.newsletter_opt_in !== undefined) {
+        updateData.newsletter_opt_in = body.newsletter_opt_in === true;
       }
     }
 

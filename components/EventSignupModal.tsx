@@ -69,6 +69,9 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
 
   const [loadingUser, setLoadingUser] = useState(false);
   const [userRole, setUserRole] = useState<string>("");
+  const [hasLoggedInUser, setHasLoggedInUser] = useState(false);
+  const [alreadySubscribedToNewsletter, setAlreadySubscribedToNewsletter] = useState(false);
+  const [newsletterOptIn, setNewsletterOptIn] = useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string; discountedSubtotal?: number } | null>(null);
   const [promoError, setPromoError] = useState("");
@@ -103,14 +106,16 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
           const { data: { user } } = await supabaseBrowser.auth.getUser();
           
           if (user) {
+            setHasLoggedInUser(true);
             // Fetch user profile (include role for instructor pricing)
             const { data: profile } = await supabaseBrowser
               .from("profiles")
-              .select("first_name, last_name, email, role")
+              .select("first_name, last_name, email, role, newsletter_opt_in")
               .eq("id", user.id)
               .single();
 
             setUserRole(profile?.role ?? "");
+            setAlreadySubscribedToNewsletter(profile?.newsletter_opt_in === true);
 
             // Build default values object
             const defaultValues: any = {};
@@ -144,6 +149,9 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
       return () => clearTimeout(timer);
     } else {
       setUserRole("");
+      setHasLoggedInUser(false);
+      setAlreadySubscribedToNewsletter(false);
+      setNewsletterOptIn(false);
       // Reset form and promo state when modal closes
       reset();
       setPromoCodeInput("");
@@ -300,6 +308,23 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
         throw new Error(errorMsg);
       }
 
+      // If user opted into newsletter, update profile (fire-and-forget)
+      if (newsletterOptIn && hasLoggedInUser) {
+        supabaseBrowser.auth.getSession().then(({ data }) => {
+          const token = data.session?.access_token;
+          if (token) {
+            fetch("/api/profile", {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ newsletter_opt_in: true }),
+            }).catch(() => {});
+          }
+        });
+      }
+
       if (result.noRedirect) {
         setSubmitError("");
         setSubmitSuccessMessage(result.message || "Your signup has been submitted!");
@@ -418,6 +443,18 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               placeholder="Email"
               className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
             />
+
+            {hasLoggedInUser && !alreadySubscribedToNewsletter && (
+              <label className="flex items-center gap-2 text-sm text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={newsletterOptIn}
+                  onChange={(e) => setNewsletterOptIn(e.target.checked)}
+                  className="w-4 h-4 accent-yellow-400"
+                />
+                Add me to the weekly newsletter (schedule + workshop highlights, Sundays)
+              </label>
+            )}
 
             {/* Been before — hidden for instructors (auto "I've been before!") */}
             {!isInstructor && (

@@ -55,13 +55,14 @@ export const sendMail = async (
 };
 
 /**
- * Send an HTML email
+ * Send an HTML email (optional plain text for multipart; improves compatibility).
  */
 export const sendHtmlEmail = async (
   to: string,
   subject: string,
   html: string,
-  from?: string
+  from?: string,
+  text?: string
 ) => {
   try {
     // Validate Resend API key
@@ -76,12 +77,15 @@ export const sendHtmlEmail = async (
 
     console.log(`Attempting to send email to: ${to}, from: ${fromEmail}, subject: ${subject}`);
 
-    const { data, error } = await resend.emails.send({
+    const payload: { from: string; to: string; subject: string; html: string; text?: string } = {
       from: fromEmail,
       to,
       subject,
       html,
-    });
+    };
+    if (text != null && text !== "") payload.text = text;
+
+    const { data, error } = await resend.emails.send(payload);
 
     if (error) {
       console.error("Resend API error:", {
@@ -96,12 +100,14 @@ export const sendHtmlEmail = async (
       // If domain not verified, try with fallback
       if (error.statusCode === 403 && error.message?.includes("not verified")) {
         console.warn(`Domain not verified for ${fromEmail}, using fallback: ${FROM_EMAIL}`);
-        const fallbackResult = await resend.emails.send({
+        const fallbackPayload: { from: string; to: string; subject: string; html: string; text?: string } = {
           from: FROM_EMAIL,
           to,
           subject,
           html,
-        });
+        };
+        if (text != null && text !== "") fallbackPayload.text = text;
+        const fallbackResult = await resend.emails.send(fallbackPayload);
         if (fallbackResult.error) {
           console.error("Resend fallback error:", {
             statusCode: fallbackResult.error.statusCode,

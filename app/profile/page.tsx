@@ -37,6 +37,7 @@ interface Profile {
   prayer: string | null;
   state: string | null;
   zip_code: string | null;
+  newsletter_opt_in?: boolean;
 }
 
 export default function ProfilePage() {
@@ -54,6 +55,8 @@ export default function ProfilePage() {
   const [emailMessage, setEmailMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [activatingInstructor, setActivatingInstructor] = useState(false);
   const [demotingToAttendee, setDemotingToAttendee] = useState(false);
+  const [testNewsletterSending, setTestNewsletterSending] = useState(false);
+  const [testNewsletterMessage, setTestNewsletterMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     async function loadProfile() {
@@ -112,6 +115,8 @@ export default function ProfilePage() {
     if (profile.role !== "attendee") {
       updateData.photo_url = photo_url ?? null;
     }
+
+    updateData.newsletter_opt_in = profile.newsletter_opt_in ?? false;
 
     if (isInstructorLikeRole(profile.role)) {
       updateData.instagram_url = profile.instagram_url ?? null;
@@ -517,6 +522,71 @@ export default function ProfilePage() {
 
           </>
         )}
+
+        {/* Weekly newsletter (all users) */}
+        <div className="border-t border-neutral-700 pt-6 mt-6">
+          <div className="flex items-center justify-between max-w-md">
+            <label className="text-gray-300 font-medium">
+              Send me the weekly schedule and workshop highlights (Sundays)
+            </label>
+            <input
+              type="checkbox"
+              checked={!!profile.newsletter_opt_in}
+              onChange={(e) => {
+                setProfile({ ...profile, newsletter_opt_in: e.target.checked });
+              }}
+              className="w-5 h-5 accent-yellow-400"
+            />
+          </div>
+          <p className="text-gray-500 text-sm mt-1">
+            You can turn this off anytime here or via the link in each email.
+          </p>
+
+          {/* Admin: send test newsletter to self */}
+          {(profile.role ?? "").toLowerCase() === "admin" && (
+            <div className="mt-4 pt-4 border-t border-neutral-600">
+              <p className="text-gray-400 text-sm mb-2">
+                Send a copy of the weekly newsletter to your email to preview how it looks.
+              </p>
+              <button
+                type="button"
+                disabled={testNewsletterSending}
+                onClick={async () => {
+                  setTestNewsletterMessage(null);
+                  setTestNewsletterSending(true);
+                  const { data: { session } } = await supabaseBrowser.auth.getSession();
+                  const token = session?.access_token;
+                  if (!token) {
+                    setTestNewsletterMessage({ type: "error", text: "Not signed in." });
+                    setTestNewsletterSending(false);
+                    return;
+                  }
+                  const res = await fetch("/api/newsletter/send-test", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  setTestNewsletterSending(false);
+                  if (res.ok) {
+                    setTestNewsletterMessage({ type: "success", text: `Test email sent to ${data.sentTo ?? "your email"}.` });
+                  } else {
+                    setTestNewsletterMessage({ type: "error", text: data.error ?? "Failed to send test." });
+                  }
+                }}
+                className="px-4 py-2 rounded-md bg-neutral-600 hover:bg-neutral-500 text-white text-sm disabled:opacity-50"
+              >
+                {testNewsletterSending ? "Sending…" : "Send test newsletter to my email"}
+              </button>
+              {testNewsletterMessage && (
+                <p
+                  className={`text-sm mt-2 ${testNewsletterMessage.type === "success" ? "text-green-400" : "text-red-400"}`}
+                >
+                  {testNewsletterMessage.text}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
 
         <button
           type="submit"

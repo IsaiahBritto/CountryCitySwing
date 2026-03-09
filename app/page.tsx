@@ -200,14 +200,6 @@ export default function Home() {
 
 
         <div className="flex justify-center flex-wrap gap-4">
-          <button 
-            onClick={() => {
-              document.getElementById('events')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }}
-            className="btn btn-primary home-events-btn"
-          >
-            See Upcoming Events
-          </button>
           <Link href="/prayer">
             <button className="btn btn-accent">Prayer Request🙏</button>
           </Link>

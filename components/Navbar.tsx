@@ -109,7 +109,7 @@ export default function Navbar() {
 
   const navLinks = [
     { name: "DNA", href: "/dna" },
-    { name: "Events", href: "/events" },
+    { name: "Events", href: "/#events" },
     { name: "CCS Team", href: "/team" },
     { name: "Prayer", href: "/prayer" },
     { name: "Media", href: "/media" },

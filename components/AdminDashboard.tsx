@@ -726,6 +726,11 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
           onClose={() => setSelectedOrder(null)}
           onUpdate={updateOrderStatus}
           onTogglePaid={togglePaidStatus}
+          onOrderUpdated={(updated) => {
+            setSelectedOrder(updated);
+            setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+            setAllOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+          }}
         />
       )}
     </div>
@@ -742,21 +747,58 @@ interface OrderDetailModalProps {
     notes?: string
   ) => void;
   onTogglePaid: (orderId: string, paid: boolean) => void;
+  onOrderUpdated?: (order: Order) => void;
 }
 
 function OrderDetailModal({
-  order,
+  order: initialOrder,
   onClose,
   onUpdate,
   onTogglePaid,
+  onOrderUpdated,
 }: OrderDetailModalProps) {
-  const [status, setStatus] = useState(order.status);
+  const [order, setOrder] = useState(initialOrder);
+  const [status, setStatus] = useState(initialOrder.status);
   const [trackingNumber, setTrackingNumber] = useState(
-    order.tracking_number || ""
+    initialOrder.tracking_number || ""
   );
-  const [notes, setNotes] = useState(order.notes || "");
-  const [paid, setPaid] = useState(order.paid);
+  const [notes, setNotes] = useState(initialOrder.notes || "");
+  const [paid, setPaid] = useState(initialOrder.paid);
   const [saving, setSaving] = useState(false);
+  const [togglingItem, setTogglingItem] = useState<number | null>(null);
+
+  const allItemsComplete =
+    order.items?.length > 0 &&
+    order.items.every((item: any) => item.complete === true);
+
+  const toggleItemComplete = async (itemIndex: number, complete: boolean) => {
+    setTogglingItem(itemIndex);
+    try {
+      const res = await fetch("/api/merch-order/update-item-complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderId: order.id,
+          itemIndex,
+          complete,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to update item");
+      }
+      const data = await res.json();
+      if (data.order) {
+        setOrder(data.order);
+        onOrderUpdated?.(data.order);
+      }
+    } catch (err) {
+      console.error("Error toggling item complete:", err);
+      alert((err as Error).message || "Failed to update item");
+    } finally {
+      setTogglingItem(null);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -822,7 +864,7 @@ function OrderDetailModal({
 
             <div>
               <p className="text-sm text-gray-400">Items</p>
-              <div className="mt-2 space-y-1">
+              <div className="mt-2 space-y-2">
                 {order.items.map((item: any, index: number) => {
                   const is8CC =
                     item.productName === "Black CCS x 8CC Shirt (Preorder)" ||
@@ -830,20 +872,38 @@ function OrderDetailModal({
                   const isDNA =
                     item.productName &&
                     String(item.productName).toLowerCase().includes("dna");
+                  const isComplete = item.complete === true;
+                  const itemBusy = togglingItem === index;
                   return (
-                    <p
+                    <div
                       key={index}
-                      className={
+                      className={`flex items-center gap-3 flex-wrap ${
                         is8CC
                           ? "text-yellow-400 font-medium"
                           : isDNA
                             ? "text-emerald-400 font-medium"
                             : "text-white"
-                      }
+                      }`}
                     >
-                      {item.productName} ({item.size}) × {item.quantity} - $
-                      {(item.price * item.quantity).toFixed(2)}
-                    </p>
+                      <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={isComplete}
+                          disabled={itemBusy}
+                          onChange={(e) =>
+                            toggleItemComplete(index, e.target.checked)
+                          }
+                          className="w-5 h-5 text-primary bg-neutral-700 border-neutral-600 rounded focus:ring-primary focus:ring-2"
+                        />
+                        <span className="text-sm text-gray-400">
+                          {itemBusy ? "Updating…" : isComplete ? "Complete" : "Mark complete"}
+                        </span>
+                      </label>
+                      <span className="flex-1 min-w-0">
+                        {item.productName} ({item.size}) × {item.quantity} - $
+                        {((item.price ?? 0) * (item.quantity ?? 1)).toFixed(2)}
+                      </span>
+                    </div>
                   );
                 })}
               </div>
@@ -885,14 +945,30 @@ function OrderDetailModal({
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
-                className="w-full px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-not-allowed"
+                title={
+                  !allItemsComplete
+                    ? "Mark all items complete first to mark order as completed"
+                    : undefined
+                }
               >
                 <option value="pending">Pending</option>
                 <option value="processing">Processing</option>
                 <option value="shipped">Shipped</option>
-                <option value="completed">Completed</option>
+                <option
+                  value="completed"
+                  disabled={!allItemsComplete}
+                >
+                  Completed
+                  {!allItemsComplete ? " (mark all items complete first)" : ""}
+                </option>
                 <option value="cancelled">Cancelled</option>
               </select>
+              {!allItemsComplete && order.items?.length > 0 && (
+                <p className="text-xs text-amber-400/90 mt-1">
+                  Mark all items complete above to mark the whole order as completed.
+                </p>
+              )}
             </div>
 
             {order.delivery_method === "ship" && (

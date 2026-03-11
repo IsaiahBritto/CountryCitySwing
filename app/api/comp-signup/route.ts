@@ -6,7 +6,6 @@ import { sendHtmlEmail } from "@/lib/mailer";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 import { compSignupToken } from "@/lib/utils/qrCheckIn";
-import { qrCodeDataUrl } from "@/lib/qrCodeImage";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 
 function getBaseUrl(request: NextRequest): string {
@@ -278,12 +277,8 @@ export async function POST(req: NextRequest) {
     `
         : "";
 
-  let compQrDataUrl = "";
-  try {
-    compQrDataUrl = await qrCodeDataUrl(compSignupToken(inserted.id));
-  } catch (e) {
-    console.warn("Comp signup: QR generation failed", e);
-  }
+  const compQrPayload = compSignupToken(inserted.id);
+  const compQrImageUrl = `${base}/api/qr-image?t=${encodeURIComponent(compQrPayload)}`;
 
   const html = `
     <!DOCTYPE html>
@@ -314,13 +309,11 @@ export async function POST(req: NextRequest) {
               <div class="detail-row"><strong>Payment method:</strong> ${effectivePayment}</div>
             </div>
             ${paymentSection}
-            ${compQrDataUrl ? `
             <div style="text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c;">
               <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
               <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
-              <img src="${compQrDataUrl}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+              <img src="${compQrImageUrl}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
             </div>
-            ` : ""}
             <p>Questions? Contact us at contact.us@countrycityswing.dance</p>
           </div>
           <div class="footer">Country City Swing — Nashville, TN</div>

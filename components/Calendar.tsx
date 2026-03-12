@@ -10,6 +10,7 @@ import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
 import {
   getEventDateStringInChicago,
+  getTodayStringInChicago,
   formatEventDateInChicago,
   formatEventTimeInChicago,
   formatEventDateRangeInChicago,
@@ -31,6 +32,8 @@ interface CalendarEvent {
   signup_link?: string;
   description: string;
   price?: number | null;
+  day_of_price?: number | null;
+  team_day_of_price?: number | null;
   strictly_price?: number | null;
   jnj_price?: number | null;
   ccs_team_price?: number | null;
@@ -47,7 +50,15 @@ interface CalendarProps {
 const today = dayjs().format("YYYY-MM-DD");
 
 function eventDisplayPrice(event: CalendarEvent, isInstructor: boolean): number | null | undefined {
-  if (isInstructor && event.ccs_team_price != null) return event.ccs_team_price;
+  const isEventToday =
+    event.starts_at && getEventDateStringInChicago(event.starts_at) === getTodayStringInChicago();
+  if (isInstructor) {
+    if (isEventToday && event.team_day_of_price != null && Number.isFinite(Number(event.team_day_of_price)))
+      return Number(event.team_day_of_price);
+    return event.ccs_team_price != null ? event.ccs_team_price : event.price;
+  }
+  if (isEventToday && event.day_of_price != null && Number.isFinite(Number(event.day_of_price)))
+    return Number(event.day_of_price);
   return event.price;
 }
 

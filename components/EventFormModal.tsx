@@ -46,6 +46,8 @@ interface Event {
   signupLink?: string;
   signup_link?: string; // Database column name
   price?: number | null;
+  day_of_price?: number | null;
+  team_day_of_price?: number | null;
   strictly_price?: number | null;
   jnj_price?: number | null;
   ccs_team_price?: number | null;
@@ -73,6 +75,8 @@ export default function EventFormModal({
     description: "",
     signupLink: "",
     price: undefined,
+    day_of_price: undefined,
+    team_day_of_price: undefined,
     strictly_price: undefined,
     jnj_price: undefined,
     ccs_team_price: undefined,
@@ -127,6 +131,8 @@ export default function EventFormModal({
           description,
           signupLink: event.signupLink || event.signup_link || "",
           price: event.price ?? undefined,
+          day_of_price: event.day_of_price ?? undefined,
+          team_day_of_price: event.team_day_of_price ?? undefined,
           strictly_price: event.strictly_price ?? undefined,
           jnj_price: event.jnj_price ?? undefined,
           ccs_team_price: event.ccs_team_price ?? undefined,
@@ -143,6 +149,8 @@ export default function EventFormModal({
           description: "",
           signupLink: "",
           price: undefined,
+          day_of_price: undefined,
+          team_day_of_price: undefined,
           strictly_price: undefined,
           jnj_price: undefined,
           ccs_team_price: undefined,
@@ -261,6 +269,8 @@ export default function EventFormModal({
       }
       if (formData.signupLink !== undefined) submitData.signupLink = formData.signupLink || "";
       if (formData.price !== undefined) submitData.price = formData.price != null ? Number(formData.price) : null;
+      if (formData.day_of_price !== undefined) submitData.day_of_price = formData.day_of_price != null ? Number(formData.day_of_price) : null;
+      if (formData.team_day_of_price !== undefined) submitData.team_day_of_price = formData.team_day_of_price != null ? Number(formData.team_day_of_price) : null;
       if (formData.strictly_price !== undefined) submitData.strictly_price = formData.strictly_price != null ? Number(formData.strictly_price) : null;
       if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null ? Number(formData.jnj_price) : null;
       if (formData.ccs_team_price !== undefined) submitData.ccs_team_price = formData.ccs_team_price != null ? Number(formData.ccs_team_price) : null;
@@ -546,6 +556,48 @@ export default function EventFormModal({
                     className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
+                {(formData.type || "").trim().toLowerCase() === "workshop" && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Day Of Price ($) — optional, used for signups on the event date (not for instructors)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.day_of_price ?? ""}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            day_of_price: e.target.value ? parseFloat(e.target.value) : undefined,
+                          })
+                        }
+                        placeholder="Leave blank to use regular price"
+                        className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Team Day Of Price ($) — optional, for instructors on the event date
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.team_day_of_price ?? ""}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            team_day_of_price: e.target.value ? parseFloat(e.target.value) : undefined,
+                          })
+                        }
+                        placeholder="Leave blank to use CCS Team Price"
+                        className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">
                     CCS Team Price ($) — optional, shown to instructors

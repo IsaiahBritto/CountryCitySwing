@@ -5,7 +5,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
-import { formatEventDateInChicago, formatEventTimeInChicago } from "@/lib/utils/dateHelpers";
+import { formatEventDateInChicago, formatEventTimeInChicago, getEventDateStringInChicago, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
 import SignupModalShell from "@/components/SignupModalShell";
 
 /* ---------- Validation Schema ---------- */
@@ -82,13 +82,24 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   // Use isInstructor from parent when provided (reliable); otherwise from profile fetch in modal
   const isInstructorFromRole = (userRole ?? "").toLowerCase().trim() === "instructor";
   const isInstructor = isInstructorProp ?? isInstructorFromRole;
+  // Workshop day-of price: instructors use team_day_of_price on event day (never day_of_price)
+  const isWorkshop = (event?.type ?? "").trim().toLowerCase() === "workshop";
+  const eventDateStr = event?.starts_at ? getEventDateStringInChicago(event.starts_at) : "";
+  const isEventToday = isWorkshop && eventDateStr === getTodayStringInChicago();
+  const dayOfPrice = event?.day_of_price != null ? Number(event.day_of_price) : undefined;
+  const teamDayOfPrice = event?.team_day_of_price != null ? Number(event.team_day_of_price) : undefined;
+  const basePrice = event?.price != null ? Number(event.price) : undefined;
   const effectivePrice =
     event != null
-      ? isInstructor && event.ccs_team_price != null
-        ? Number(event.ccs_team_price)
-        : event.price != null
-          ? Number(event.price)
-          : undefined
+      ? isInstructor
+        ? (isEventToday && teamDayOfPrice != null && Number.isFinite(teamDayOfPrice)
+            ? teamDayOfPrice
+            : event.ccs_team_price != null
+              ? Number(event.ccs_team_price)
+              : basePrice)
+      : (isEventToday && dayOfPrice != null && Number.isFinite(dayOfPrice)
+          ? dayOfPrice
+          : basePrice)
       : undefined;
 
   // Price shown next to Payment Method: updates live when the code is validated (Apply), not on form submit

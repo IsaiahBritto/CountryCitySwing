@@ -6,7 +6,7 @@ import { getDiscountedAmountForPromotion } from "@/lib/stripePromo";
 import { randomUUID } from "crypto";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
-import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
+import { formatEventDateInChicago, getEventDateStringInChicago, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
 import { eventSignupToken } from "@/lib/utils/qrCheckIn";
 
 function getBaseUrl(request: NextRequest): string {
@@ -88,6 +88,72 @@ export async function POST(req: NextRequest) {
       }
     } catch (_) {
       // ignore
+    }
+  }
+
+  // Workshop day-of price (never used for instructors; instructors use team_day_of_price)
+  const eventType = (event?.type ?? (event as Record<string, unknown>)?.type as string)?.trim().toLowerCase();
+  const isWorkshop = eventType === "workshop";
+  const eventStartsAt = event?.starts_at ?? (event as Record<string, unknown>)?.starts_at;
+  const isEventToday =
+    isWorkshop &&
+    typeof eventStartsAt === "string" &&
+    getEventDateStringInChicago(eventStartsAt) === getTodayStringInChicago();
+
+  if (isCcsTeam) {
+    // Instructor/team: use team_day_of_price on event day, else ccs_team_price (never day_of_price)
+    if (event?.id) {
+      try {
+        const { data: ev } = await supabaseServer
+          .from("events")
+          .select("ccs_team_price, team_day_of_price")
+          .eq("id", event.id)
+          .single();
+        if (ev) {
+          const teamPrice = ev.ccs_team_price != null ? Number(ev.ccs_team_price) : null;
+          const teamDayPrice = ev.team_day_of_price != null ? Number(ev.team_day_of_price) : null;
+          if (isEventToday && teamDayPrice != null && Number.isFinite(teamDayPrice) && teamDayPrice >= 0) {
+            eventPrice = teamDayPrice;
+          } else if (teamPrice != null && Number.isFinite(teamPrice) && teamPrice >= 0) {
+            eventPrice = teamPrice;
+          }
+        }
+      } catch (_) {
+        // ignore
+      }
+    } else {
+      const teamPriceRaw = event?.ccs_team_price ?? (event as Record<string, unknown>)?.ccs_team_price;
+      const teamDayPriceRaw = event?.team_day_of_price ?? (event as Record<string, unknown>)?.team_day_of_price;
+      const teamPrice = teamPriceRaw != null ? Number(teamPriceRaw) : null;
+      const teamDayPrice = teamDayPriceRaw != null ? Number(teamDayPriceRaw) : null;
+      if (isEventToday && teamDayPrice != null && Number.isFinite(teamDayPrice) && teamDayPrice >= 0) {
+        eventPrice = teamDayPrice;
+      } else if (teamPrice != null && Number.isFinite(teamPrice) && teamPrice >= 0) {
+        eventPrice = teamPrice;
+      }
+    }
+  } else if (isEventToday) {
+    // Non-instructor: use day_of_price on event day when set
+    if (event?.id) {
+      try {
+        const { data: ev } = await supabaseServer
+          .from("events")
+          .select("day_of_price")
+          .eq("id", event.id)
+          .single();
+        if (ev?.day_of_price != null) {
+          const dayPrice = Number(ev.day_of_price);
+          if (Number.isFinite(dayPrice) && dayPrice >= 0) eventPrice = dayPrice;
+        }
+      } catch (_) {
+        // ignore
+      }
+    } else {
+      const dayOfPriceRaw = event?.day_of_price ?? (event as Record<string, unknown>)?.day_of_price;
+      if (dayOfPriceRaw != null) {
+        const dayPrice = typeof dayOfPriceRaw === "number" ? dayOfPriceRaw : parseFloat(String(dayOfPriceRaw));
+        if (Number.isFinite(dayPrice) && dayPrice >= 0) eventPrice = dayPrice;
+      }
     }
   }
 

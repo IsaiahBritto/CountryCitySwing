@@ -6,6 +6,8 @@ import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
 import {
   formatEventDateInChicago,
   formatEventTimeInChicago,
+  getEventDateStringInChicago,
+  getTodayStringInChicago,
   isEventPastInChicago,
 } from "@/lib/utils/dateHelpers";
 import EventSignupModal from "@/components/EventSignupModal";
@@ -14,7 +16,15 @@ import { CarouselEvent } from "./EventCarousel";
 dayjs.extend(isSameOrAfter);
 
 function eventDisplayPrice(event: CarouselEvent, isInstructor: boolean): number | null | undefined {
-  if (isInstructor && event.ccs_team_price != null) return event.ccs_team_price;
+  const isEventToday =
+    event.starts_at && getEventDateStringInChicago(event.starts_at) === getTodayStringInChicago();
+  if (isInstructor) {
+    if (isEventToday && event.team_day_of_price != null && Number.isFinite(Number(event.team_day_of_price)))
+      return Number(event.team_day_of_price);
+    return event.ccs_team_price != null ? event.ccs_team_price : event.price;
+  }
+  if (isEventToday && event.day_of_price != null && Number.isFinite(Number(event.day_of_price)))
+    return Number(event.day_of_price);
   return event.price;
 }
 

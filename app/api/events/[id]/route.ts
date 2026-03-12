@@ -34,6 +34,8 @@ export async function PUT(
     if (eventData.description !== undefined) updateData.description = eventData.description || null;
     if (eventData.signupLink !== undefined) updateData.signup_link = eventData.signupLink || null;
     if (eventData.price !== undefined) updateData.price = eventData.price ?? null;
+    if (eventData.day_of_price !== undefined) updateData.day_of_price = eventData.day_of_price ?? null;
+    if (eventData.team_day_of_price !== undefined) updateData.team_day_of_price = eventData.team_day_of_price ?? null;
     if (eventData.strictly_price !== undefined) updateData.strictly_price = eventData.strictly_price ?? null;
     if (eventData.jnj_price !== undefined) updateData.jnj_price = eventData.jnj_price ?? null;
     if (eventData.ccs_team_price !== undefined) updateData.ccs_team_price = eventData.ccs_team_price ?? null;

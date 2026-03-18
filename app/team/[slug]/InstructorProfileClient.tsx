@@ -43,9 +43,9 @@ export default function InstructorProfileClient({
     router.back();
   };
 
-  const normalize = (s: string) => s.trim().toLowerCase();
+  const normalize = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
   const isNonCCS = (profile.role ?? "").toLowerCase() === "non-ccs-instructor";
-  const getInstructorTitle = (first: string, last: string) => {
+  const getInstructorTitle = (first: string | null | undefined, last: string | null | undefined) => {
     if (fromDirectory && isNonCCS) return "Instructor";
     const f = normalize(first);
     const l = normalize(last);

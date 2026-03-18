@@ -35,7 +35,7 @@ export default async function TeamPage() {
     (p) => (p.role ?? "").toLowerCase() !== "non-ccs-instructor"
   );
 
-  const normalize = (s: string) => s.trim().toLowerCase();
+  const normalize = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
   // Find Isaiah & Malissa
   const isaiah = ccsProfiles.find(

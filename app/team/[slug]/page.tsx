@@ -35,7 +35,7 @@ export default async function InstructorProfilePage({
     return <NotFound />;
   }
 
-  const normalize = (s: string) => s.trim().toLowerCase();
+  const normalize = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
   const matchingProfile = allProfiles.find(
     (p) =>
       normalize(p.first_name) === normalize(nameParts.firstName) &&

@@ -148,10 +148,9 @@ export default function SchedulePage() {
         alert(data.error || "Failed to add slot");
         return;
       }
-      setShowAddSlot(false);
-      setAddEventId("");
-      setAddPosition(POSITIONS[0]);
       await loadData();
+      // Keep modal open with same event selected so admin can add more positions
+      setAddPosition(POSITIONS[0]);
     } finally {
       setAdding(false);
     }
@@ -226,6 +225,9 @@ export default function SchedulePage() {
               <XMarkIcon className="w-6 h-6" />
             </button>
             <h3 className="text-xl font-bold text-primary mb-4">Add Event Slot</h3>
+            <p className="text-sm text-gray-400 mb-4 text-left">
+              Event stays selected so you can add multiple positions, then click Done when finished.
+            </p>
             <form onSubmit={handleAddSlot} className="space-y-4">
               <div>
                 <label className="block text-left text-sm font-medium text-gray-300 mb-1">
@@ -260,7 +262,7 @@ export default function SchedulePage() {
                   ))}
                 </select>
               </div>
-              <div className="flex gap-2 pt-2">
+              <div className="flex flex-wrap gap-2 pt-2">
                 <button
                   type="submit"
                   disabled={adding || !addEventId}
@@ -273,7 +275,7 @@ export default function SchedulePage() {
                   onClick={() => setShowAddSlot(false)}
                   className="px-4 py-2 rounded bg-neutral-700 text-gray-300 hover:bg-neutral-600"
                 >
-                  Cancel
+                  Done
                 </button>
               </div>
             </form>

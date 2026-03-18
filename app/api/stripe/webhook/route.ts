@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 import { eventSignupToken } from "@/lib/utils/qrCheckIn";
+import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
 
 function getWebhookBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
@@ -388,6 +389,10 @@ export async function POST(request: NextRequest) {
           // Send confirmation email for paid event signup (event amount = discounted when coupon used)
           const eventAmountDisplay = usedPromoInsert ? eventAmountAfterDiscount : subtotal;
           const eventAmountLabel = usedPromoInsert ? "Event Amount (After Discount)" : "Event Price";
+          const webhookQrPayload1 = eventSignupToken(String(signup.id));
+          const { contentId: qrContentId1, attachments: qrAttachments1 } = await makeQrCodeInlineAttachment(
+            webhookQrPayload1
+          );
           const html = `
             <!DOCTYPE html>
             <html>
@@ -475,6 +480,12 @@ export async function POST(request: NextRequest) {
                       <p style="margin: 5px 0 0 0;">Your registration is complete and your spot is secured!</p>
                     </div>
                     
+                    <div style="text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c;">
+                      <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
+                      <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
+                      <img src="cid:${qrContentId1}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+                    </div>
+                    
                     <p>Thank you for your payment. We're excited to see you at the event!</p>
                     <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
                   </div>
@@ -491,7 +502,10 @@ export async function POST(request: NextRequest) {
             await sendHtmlEmail(
               signup.email,
               `Payment Confirmed - ${signup.event_title}`,
-              html
+              html,
+              undefined,
+              undefined,
+              qrAttachments1
             );
             console.log("Webhook: Payment confirmation email sent successfully");
           } catch (e) {
@@ -540,9 +554,11 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        const webhookBase2 = getWebhookBaseUrl();
-        const webhookQrPayload2 = eventSignupToken(signup.id);
-        const webhookQrImageUrl2 = `${webhookBase2}/api/qr-image?t=${encodeURIComponent(webhookQrPayload2)}`;
+        const webhookQrPayload2 = eventSignupToken(String(signup.id));
+        const {
+          contentId: qrContentId2,
+          attachments: qrAttachments2,
+        } = await makeQrCodeInlineAttachment(webhookQrPayload2);
 
         const usedPromoExisting = metadata.used_promotion_code === "true";
         const eventAmountDisplay2 = usedPromoExisting ? eventAmountAfterDiscount : subtotal;
@@ -637,7 +653,7 @@ export async function POST(request: NextRequest) {
                   <div style="text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c;">
                     <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
                     <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
-                    <img src="${webhookQrImageUrl2}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+                    <img src="cid:${qrContentId2}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
                   </div>
                   <p>Thank you for your payment. We're excited to see you at the event!</p>
                   <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
@@ -655,7 +671,10 @@ export async function POST(request: NextRequest) {
           await sendHtmlEmail(
             signup.email,
             `Payment Confirmed - ${signup.event_title}`,
-            html
+            html,
+            undefined,
+            undefined,
+            qrAttachments2
           );
           console.log("Webhook: Payment confirmation email sent successfully");
         } catch (e) {
@@ -749,9 +768,8 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        const webhookBase3 = getWebhookBaseUrl();
-        const webhookQrPayload3 = eventSignupToken(signup.id);
-        const webhookQrImageUrl3 = `${webhookBase3}/api/qr-image?t=${encodeURIComponent(webhookQrPayload3)}`;
+        const webhookQrPayload3 = eventSignupToken(String(signup.id));
+        const { contentId: qrContentId3, attachments: qrAttachments3 } = await makeQrCodeInlineAttachment(webhookQrPayload3);
 
         const eventAmountDisplayCtS = usedPromoCashToStripe ? eventAmountAfterDiscountCtS : subtotal;
         const eventAmountLabelCtS = usedPromoCashToStripe ? "Event Amount (After Discount)" : "Event Price";
@@ -845,7 +863,7 @@ export async function POST(request: NextRequest) {
                   <div style="text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c;">
                     <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
                     <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
-                    <img src="${webhookQrImageUrl3}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+                    <img src="cid:${qrContentId3}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
                   </div>
                   <p>Thank you for your payment. We're excited to see you at the event!</p>
                   <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
@@ -863,7 +881,10 @@ export async function POST(request: NextRequest) {
           await sendHtmlEmail(
             signup.email,
             `Payment Confirmed - ${signup.event_title}`,
-            html
+            html,
+            undefined,
+            undefined,
+            qrAttachments3
           );
           console.log("Webhook: Payment confirmation email sent successfully");
         } catch (e) {

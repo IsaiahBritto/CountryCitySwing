@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import type { Attachment as ResendAttachment } from "resend";
 
 // Initialize Resend client
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -62,7 +63,8 @@ export const sendHtmlEmail = async (
   subject: string,
   html: string,
   from?: string,
-  text?: string
+  text?: string,
+  attachments?: ResendAttachment[]
 ) => {
   try {
     // Validate Resend API key
@@ -77,13 +79,21 @@ export const sendHtmlEmail = async (
 
     console.log(`Attempting to send email to: ${to}, from: ${fromEmail}, subject: ${subject}`);
 
-    const payload: { from: string; to: string; subject: string; html: string; text?: string } = {
+    const payload: {
+      from: string;
+      to: string;
+      subject: string;
+      html: string;
+      text?: string;
+      attachments?: ResendAttachment[];
+    } = {
       from: fromEmail,
       to,
       subject,
       html,
     };
     if (text != null && text !== "") payload.text = text;
+    if (attachments && attachments.length > 0) payload.attachments = attachments;
 
     const { data, error } = await resend.emails.send(payload);
 

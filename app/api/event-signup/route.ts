@@ -8,6 +8,7 @@ import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelper
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 import { formatEventDateInChicago, getEventDateStringInChicago, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
 import { eventSignupToken } from "@/lib/utils/qrCheckIn";
+import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -373,9 +374,8 @@ export async function POST(req: NextRequest) {
       : "";
 
   // 4️⃣ Send confirmation email for non-Stripe payments (with QR for check-in)
-  // Use hosted QR image URL so email clients that block data-URL images still show the QR
   const qrPayload = eventSignupToken(signupId);
-  const qrImageUrl = `${base}/api/qr-image?t=${encodeURIComponent(qrPayload)}`;
+  const { contentId: qrContentId, attachments: qrAttachments } = await makeQrCodeInlineAttachment(qrPayload);
   const html = `
     <!DOCTYPE html>
     <html>
@@ -447,7 +447,7 @@ export async function POST(req: NextRequest) {
             <div class="qr-box">
               <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
               <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
-              <img src="${qrImageUrl}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+              <img src="cid:${qrContentId}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
             </div>
             <p>Thank you for joining us — we can't wait to see you on the dance floor!</p>
             <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
@@ -464,7 +464,9 @@ export async function POST(req: NextRequest) {
       email,
       `Country City Swing Signup — ${event.title}`,
       html,
-      "confirmation@countrycityswing.dance"
+      "confirmation@countrycityswing.dance",
+      undefined,
+      qrAttachments
     );
     // Same success message for Cash or Stripe→Cash when promo covered full cost
     if (effectivePaymentMethod === "Cash" && paid) {

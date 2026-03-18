@@ -7,6 +7,7 @@ import { calculateProcessingFee, getDiscountedSubtotalFromCoupon, roundCurrency 
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 import { eventSignupToken } from "@/lib/utils/qrCheckIn";
+import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -152,9 +153,8 @@ export async function POST(req: NextRequest) {
           if (ev?.location) eventLocation = ev.location;
         }
 
-        const payBase = getBaseUrl(req);
         const payQrPayload = eventSignupToken(signupId);
-        const payQrImageUrl = `${payBase}/api/qr-image?t=${encodeURIComponent(payQrPayload)}`;
+        const { contentId: qrContentId, attachments: qrAttachments } = await makeQrCodeInlineAttachment(payQrPayload);
 
         const emailHtml = `
           <!DOCTYPE html>
@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
                   <div style="text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c;">
                     <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
                     <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
-                    <img src="${payQrImageUrl}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+                    <img src="cid:${qrContentId}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
                   </div>
                   <p>We can't wait to see you on the dance floor!</p>
                   <p style="margin-top: 20px; font-size: 0.9em; color: #666;">Questions? Contact us at contact.us@countrycityswing.dance</p>
@@ -220,7 +220,9 @@ export async function POST(req: NextRequest) {
             signup.email,
             `You're all set — ${signup.event_title || "Event"}`,
             emailHtml,
-            "confirmation@countrycityswing.dance"
+            "confirmation@countrycityswing.dance",
+            undefined,
+            qrAttachments
           );
         } catch (e) {
           console.error("Event signup pay: failed to send confirmation email", e);

@@ -122,7 +122,7 @@ export default function RegistrationPage() {
     try {
       const { data, error } = await supabaseBrowser
         .from("events")
-        .select("*")
+        .select("id,title,starts_at,ends_at,location,type")
         .order("starts_at", { ascending: true });
 
       if (error) {

@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     // Order by created_at desc to get the most recent one
     const { data: signup, error: fetchError } = await supabaseServer
       .from("signups")
-      .select("*")
+      .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid")
       .eq("email", email)
       .eq("event_id", eventId)
       .eq("payment_method", "Stripe")

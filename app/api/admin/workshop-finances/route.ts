@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseServer
       .from("workshop_finances")
-      .select("*")
+      .select("id,event_id,studio_cost,total_override,guest_instructor_amount,ccs_amount,updated_at")
       .eq("event_id", eventId)
       .maybeSingle();
 

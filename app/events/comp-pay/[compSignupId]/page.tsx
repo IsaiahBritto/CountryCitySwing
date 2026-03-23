@@ -18,7 +18,7 @@ export default function CompPaymentPage() {
       try {
         const { data, error: fetchError } = await supabaseBrowser
           .from("comp_signups")
-          .select("*")
+          .select("id,event_title,payment_method,amount_owed,paid")
           .eq("id", compSignupId)
           .single();
 

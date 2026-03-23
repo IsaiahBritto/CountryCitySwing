@@ -103,7 +103,9 @@ export default function Home() {
   const loadEvents = async () => {
     const { data, error } = await supabase
       .from("events")
-      .select("*")
+      .select(
+        "id,title,starts_at,ends_at,location,description,signup_link,price,day_of_price,team_day_of_price,ccs_team_price,strictly_price,jnj_price,type"
+      )
       .order("starts_at", { ascending: true });
 
     if (error) {

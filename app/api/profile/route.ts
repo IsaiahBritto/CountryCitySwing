@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseServer
       .from("profiles")
-      .select("*")
+      .select("id,first_name,last_name,role,photo_url,instagram_url,teaching_since,favorite_song,teaching_style,bio_long,specialty,phone_number,private_lessons,private_lessons_link,scheduling_enabled,prayer,state,zip_code,latitude,longitude,newsletter_opt_in")
       .eq("id", user.id)
       .single();
 

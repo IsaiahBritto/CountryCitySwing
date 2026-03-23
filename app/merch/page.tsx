@@ -65,7 +65,7 @@ export default function MerchPage() {
         // Fetch products from Supabase
         const { data, error } = await supabase
           .from("merch_products")
-          .select("*")
+          .select("id,name,type,price,available_sizes,main_image_url")
           .order("display_order", { ascending: true })
           .order("name", { ascending: true }); // Secondary sort by name
 
@@ -77,7 +77,7 @@ export default function MerchPage() {
           // Single query for all images (avoids N+1)
           const { data: allImages } = await supabase
             .from("merch_product_images")
-            .select("*")
+            .select("id,product_id,image_url,alt_text")
             .in("product_id", productIds)
             .order("display_order");
 

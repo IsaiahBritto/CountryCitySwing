@@ -30,7 +30,10 @@ function isFilledProfile(p: {
 
 export default async function InstructorsPage() {
   const [profilesResult, geography, countiesGeography] = await Promise.all([
-    supabaseServer.from("profiles").select("*").order("first_name", { ascending: true }),
+    supabaseServer
+      .from("profiles")
+      .select("id,first_name,last_name,photo_url,bio_long,specialty,role,state,zip_code,latitude,longitude")
+      .order("first_name", { ascending: true }),
     getUsStatesGeography(),
     getUsCountiesGeography(),
   ]);

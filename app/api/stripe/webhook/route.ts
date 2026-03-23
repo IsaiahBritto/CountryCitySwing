@@ -272,7 +272,7 @@ export async function POST(request: NextRequest) {
         // Check if signup already exists (idempotency)
         const { data: existingSignup, error: fetchExistingError } = await supabaseServer
           .from("signups")
-          .select("*")
+          .select("id,paid")
           .eq("id", signupId)
           .single();
 
@@ -519,7 +519,7 @@ export async function POST(request: NextRequest) {
         // If we get here, the signup already existed - fetch it for email sending
         const { data: signup, error: fetchError } = await supabaseServer
           .from("signups")
-          .select("*")
+          .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid")
           .eq("id", signupId)
           .single();
 
@@ -689,7 +689,7 @@ export async function POST(request: NextRequest) {
       if (isCashToStripe) {
         const { data: signup, error: fetchError } = await supabaseServer
           .from("signups")
-          .select("*")
+          .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid")
           .eq("id", signupId)
           .single();
 
@@ -916,7 +916,7 @@ export async function POST(request: NextRequest) {
       // Fetch the existing order
       const { data: order, error: fetchError } = await supabaseServer
         .from("merch_orders")
-        .select("*")
+        .select("id,first_name,last_name,email,created_at,delivery_method,shipping_address,items,shipping,total,paid")
         .eq("id", orderId)
         .single();
 
@@ -1132,7 +1132,7 @@ export async function POST(request: NextRequest) {
       // Check if order already exists (idempotency)
       const { data: existingOrder } = await supabaseServer
         .from("merch_orders")
-        .select("*")
+        .select("id,paid")
         .eq("email", metadata.email)
         .eq("stripe_session_id", session.id)
         .order("created_at", { ascending: false })

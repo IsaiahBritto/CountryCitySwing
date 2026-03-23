@@ -66,7 +66,7 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
       const [invResult, authResult] = await Promise.all([
         supabaseBrowser
           .from("merch_inventory")
-          .select("*")
+          .select("id,product_id,size,quantity")
           .order("product_id")
           .order("size"),
         supabaseBrowser.auth.getUser(),
@@ -108,7 +108,7 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
             .single(),
           supabaseBrowser
             .from("merch_orders")
-            .select("*")
+            .select("id,first_name,last_name,email,delivery_method,shipping_address,items,subtotal,shipping,total,status,paid,payment_method,tracking_number,notes,created_at")
             .order("created_at", { ascending: false }),
         ]);
 

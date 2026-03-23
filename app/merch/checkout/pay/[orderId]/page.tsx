@@ -22,7 +22,7 @@ export default function MerchOrderPaymentPage() {
       try {
         const { data, error: fetchError } = await supabaseBrowser
           .from("merch_orders")
-          .select("*")
+          .select("id,first_name,last_name,email,delivery_method,items,subtotal,shipping,total,paid,payment_method")
           .eq("id", orderId)
           .single();
 

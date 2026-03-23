@@ -24,7 +24,7 @@ export default function EventPaymentPage() {
       try {
         const { data, error: fetchError } = await supabaseBrowser
           .from("signups")
-          .select("*")
+          .select("id,event_id,event_title,first_name,last_name,email,payment_method,amount_owed,paid")
           .eq("id", signupId)
           .single();
 

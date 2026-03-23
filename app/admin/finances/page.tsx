@@ -105,6 +105,23 @@ interface CompSignup {
   stripe_processing_fee?: number | null;
 }
 
+interface EventFinanceMetrics {
+  event_id: string;
+  total_signups: number;
+  checked_in_count: number;
+  cash_total: number;
+  stripe_total: number;
+  other_total: number;
+  ccs_team_cash_total: number;
+  ccs_team_stripe_total: number;
+  ccs_team_total: number;
+  stripe_taxes_fees_total: number;
+  free_via_promo_count: number;
+  revenue_from_coupons: number;
+  is_comp_event: boolean;
+  refreshed_at: string;
+}
+
 function computeStats(
   signups: Signup[],
   eventPrice: number | null,
@@ -284,6 +301,8 @@ export default function AdminFinancesPage() {
   const [isCompEvent, setIsCompEvent] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingSignups, setLoadingSignups] = useState(false);
+  const [refreshingEventMetrics, setRefreshingEventMetrics] = useState(false);
+  const [eventMetrics, setEventMetrics] = useState<EventFinanceMetrics | null>(null);
   const [overviewStats, setOverviewStats] = useState<{
     totalSignups: number;
     checkedIn: number;
@@ -457,10 +476,11 @@ export default function AdminFinancesPage() {
       setCompSignups([]);
       setIsCompEvent(false);
       setSignupsError(null);
+      setEventMetrics(null);
       return;
     }
 
-    const loadSignups = async () => {
+    const loadMetrics = async () => {
       setLoadingSignups(true);
       setSignupsError(null);
       try {
@@ -468,16 +488,14 @@ export default function AdminFinancesPage() {
           setSignups([]);
           setCompSignups([]);
           setIsCompEvent(false);
+          setEventMetrics(null);
           setSignupsError("Session expired. Please sign in again.");
           setLoadingSignups(false);
           return;
         }
 
-        const params = new URLSearchParams({
-          event_id: selectedEvent.id,
-          filter: "all",
-        });
-        const res = await fetch(`/api/signups?${params}`, {
+        const params = new URLSearchParams({ event_id: selectedEvent.id });
+        const res = await fetch(`/api/admin/finance-metrics?${params}`, {
           headers: { Authorization: `Bearer ${authToken}` },
         });
 
@@ -488,38 +506,59 @@ export default function AdminFinancesPage() {
             (res.status === 401
               ? "Session expired. Please sign in again."
               : res.status === 403
-                ? "You don’t have permission to view signups."
-                : "Failed to load signups. Check your connection and try again.");
+                ? "You don’t have permission to view finance metrics."
+                : "Failed to load finance metrics. Check your connection and try again.");
           setSignupsError(msg);
-          setSignups([]);
-          setCompSignups([]);
-          setIsCompEvent(false);
+          setEventMetrics(null);
         } else {
           const json = await res.json();
-          const isComp = !!json.isComp;
+          const metrics = (json.data ?? null) as EventFinanceMetrics | null;
+          setEventMetrics(metrics);
+          const isComp = !!metrics?.is_comp_event || (selectedEvent.type || "").toLowerCase() === "comp";
           setIsCompEvent(isComp);
-          if (isComp) {
-            setCompSignups(json.compSignups || []);
-            setSignups([]);
-          } else {
-            setSignups(json.signups || []);
-            setCompSignups([]);
-          }
         }
       } catch (e) {
         setSignupsError(
           "Connection failed. Check your network and try again."
         );
-        setSignups([]);
-        setCompSignups([]);
-        setIsCompEvent(false);
+        setEventMetrics(null);
       } finally {
         setLoadingSignups(false);
       }
     };
 
-    loadSignups();
+    loadMetrics();
   }, [isAdmin, eventsView, selectedEvent, authToken]);
+
+  const refreshEventMetrics = useCallback(async () => {
+    if (!selectedEvent || !authToken) return;
+    setRefreshingEventMetrics(true);
+    setSignupsError(null);
+    try {
+      const res = await fetch("/api/admin/finance-metrics", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ event_id: selectedEvent.id }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string })?.error || "Failed to refresh finance metrics");
+      }
+      const { data } = await res.json();
+      const metrics = (data ?? null) as EventFinanceMetrics | null;
+      setEventMetrics(metrics);
+      if (metrics) {
+        setIsCompEvent(!!metrics.is_comp_event);
+      }
+    } catch (e) {
+      setSignupsError(e instanceof Error ? e.message : "Failed to refresh finance metrics");
+    } finally {
+      setRefreshingEventMetrics(false);
+    }
+  }, [selectedEvent, authToken]);
 
   useEffect(() => {
     if (!isAdmin || eventsView !== "overview" || selectedYear == null || !eventsInSelectedYear.length) {
@@ -542,22 +581,43 @@ export default function AdminFinancesPage() {
         }
 
         const isNashville = (ev: Event) => ev.title === NASHVILLE_EVENT_TITLE;
+        const eventIds = eventsInSelectedYear.map((ev) => ev.id);
+
+        const metricsRes = await fetch(
+          `/api/admin/finance-metrics?event_ids=${encodeURIComponent(eventIds.join(","))}`,
+          {
+            headers: { Authorization: `Bearer ${authToken}` },
+          }
+        );
+        if (!metricsRes.ok) {
+          const body = await metricsRes.json().catch(() => ({}));
+          throw new Error(
+            (body as { error?: string })?.error || "Failed to load finance metrics"
+          );
+        }
+        const metricsJson = await metricsRes.json();
+        const metricsRows = Array.isArray(metricsJson.data) ? metricsJson.data : [];
+        const metricsByEventId = new Map(
+          metricsRows.map((m: EventFinanceMetrics) => [m.event_id, m])
+        );
 
         const results = await Promise.all(
           eventsInSelectedYear.map(async (ev) => {
-            const params = new URLSearchParams({ event_id: ev.id, filter: "all" });
-            const res = await fetch(`/api/signups?${params}`, {
-              headers: { Authorization: `Bearer ${authToken}` },
-            });
-            if (!res.ok) {
-              const body = await res.json().catch(() => ({}));
-              throw new Error((body as { error?: string })?.error || "Failed to load signups");
-            }
-            const json = await res.json();
-            const isComp = !!json.isComp;
-            const stats = isComp
-              ? computeStatsComp(json.compSignups || [])
-              : computeStats(json.signups || [], ev.price, ev.ccs_team_price ?? null);
+            const m = metricsByEventId.get(ev.id);
+            const isComp = !!m?.is_comp_event;
+            const stats = {
+              totalSignups: Number(m?.total_signups ?? 0),
+              checkedIn: Number(m?.checked_in_count ?? 0),
+              cashTotal: Number(m?.cash_total ?? 0),
+              stripeTotal: Number(m?.stripe_total ?? 0),
+              otherTotal: Number(m?.other_total ?? 0),
+              ccsTeamCashTotal: Number(m?.ccs_team_cash_total ?? 0),
+              ccsTeamStripeTotal: Number(m?.ccs_team_stripe_total ?? 0),
+              ccsTeamTotal: Number(m?.ccs_team_total ?? 0),
+              stripeTaxesFees: Number(m?.stripe_taxes_fees_total ?? 0),
+              freeViaPromoCount: Number(m?.free_via_promo_count ?? 0),
+              revenueFromCoupons: Number(m?.revenue_from_coupons ?? 0),
+            };
 
             let nashvilleFinances: NashvilleFinances | null = null;
             let workshopFinances: WorkshopFinances | null = null;
@@ -972,11 +1032,26 @@ export default function AdminFinancesPage() {
     [selectedEvent?.id, isNashvilleEvent, authToken]
   );
 
-  const stats = eventsView === "overview" && overviewStats
-    ? overviewStats
-    : isCompEvent
-      ? computeStatsComp(compSignups)
-      : computeStats(signups, selectedEvent?.price ?? null, selectedEvent?.ccs_team_price ?? null);
+  const stats =
+    eventsView === "overview" && overviewStats
+      ? overviewStats
+      : eventMetrics
+        ? {
+            totalSignups: eventMetrics.total_signups,
+            checkedIn: eventMetrics.checked_in_count,
+            cashTotal: Number(eventMetrics.cash_total) || 0,
+            stripeTotal: Number(eventMetrics.stripe_total) || 0,
+            otherTotal: Number(eventMetrics.other_total) || 0,
+            ccsTeamCashTotal: Number(eventMetrics.ccs_team_cash_total) || 0,
+            ccsTeamStripeTotal: Number(eventMetrics.ccs_team_stripe_total) || 0,
+            ccsTeamTotal: Number(eventMetrics.ccs_team_total) || 0,
+            stripeTaxesFees: Number(eventMetrics.stripe_taxes_fees_total) || 0,
+            freeViaPromoCount: Number(eventMetrics.free_via_promo_count) || 0,
+            revenueFromCoupons: Number(eventMetrics.revenue_from_coupons) || 0,
+          }
+        : isCompEvent
+          ? computeStatsComp(compSignups)
+          : computeStats(signups, selectedEvent?.price ?? null, selectedEvent?.ccs_team_price ?? null);
 
   const stripeTaxesFees = stats.stripeTaxesFees ?? 0;
 
@@ -1597,6 +1672,21 @@ export default function AdminFinancesPage() {
                       Event price: ${Number(selectedEvent.price).toFixed(2)}
                     </p>
                   )}
+                  <div className="mt-3 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={refreshEventMetrics}
+                      disabled={refreshingEventMetrics || !authToken}
+                      className="rounded-md border border-primary/60 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {refreshingEventMetrics ? "Refreshing..." : "Refresh finance numbers"}
+                    </button>
+                    {eventMetrics?.refreshed_at && (
+                      <p className="text-xs text-neutral-500">
+                        Last refreshed: {dayjs(eventMetrics.refreshed_at).format("MMM D, YYYY h:mm A")}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {loadingSignups ? (
@@ -1607,16 +1697,22 @@ export default function AdminFinancesPage() {
                   <div className="rounded-lg border border-primary/50 bg-primary/10 px-4 py-4 text-primary">
                     <p className="font-medium">{signupsError}</p>
                     <p className="mt-2 text-sm text-neutral-400">
-                      Make sure you’re signed in as an admin and your session
-                      is valid. You can{" "}
+                      Make sure you’re signed in as an admin and your session is valid. You can{" "}
                       <Link href="/auth" className="underline hover:no-underline">
                         sign in again
                       </Link>{" "}
-                      or go back to the site and retry.
+                      or retry refreshing this event.
                     </p>
                   </div>
                 ) : (
                   <>
+                    {!eventMetrics && (
+                      <div className="mb-4 rounded-lg border border-neutral-700 bg-neutral-800/60 px-4 py-3 text-sm text-neutral-300">
+                        No saved finance metrics yet for this event. Click{" "}
+                        <span className="font-medium text-primary">Refresh finance numbers</span>{" "}
+                        to compute and store them.
+                      </div>
+                    )}
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
                         <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">

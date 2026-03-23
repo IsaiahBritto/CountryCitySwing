@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseServer
       .from("nashville_night_finances")
-      .select("*")
+      .select("id,event_id,venue_cost,cash_override,stripe_override,bt1_name,bt2_name,bt3_name,bt4_name,upper_level_teacher_name,bt1_payout_override,bt2_payout_override,bt3_payout_override,bt4_payout_override,upper_level_payout_override,bt1_paid,bt2_paid,bt3_paid,bt4_paid,upper_level_paid,bt1_paid_at,bt2_paid_at,bt3_paid_at,bt4_paid_at,upper_level_paid_at,updated_at")
       .eq("event_id", eventId)
       .maybeSingle();
 

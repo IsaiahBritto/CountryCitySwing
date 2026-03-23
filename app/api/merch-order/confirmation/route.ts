@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     if (orderId) {
       const { data: order, error: fetchError } = await supabaseServer
         .from("merch_orders")
-        .select("*")
+        .select("id,first_name,last_name,email,delivery_method,items,total,paid")
         .eq("id", orderId)
         .single();
 
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
     // This ensures we get the exact order created by this Stripe session
     const { data: order, error: fetchError } = await supabaseServer
       .from("merch_orders")
-      .select("*")
+      .select("id,first_name,last_name,email,delivery_method,items,total,paid")
       .eq("stripe_session_id", sessionId)
       .single();
 

@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
     const [financesRes, judgesRes] = await Promise.all([
       supabaseServer
         .from("comp_finances")
-        .select("*")
+        .select("studio_cost")
         .eq("event_id", eventId)
         .maybeSingle(),
       supabaseServer
@@ -227,7 +227,7 @@ export async function PATCH(req: NextRequest) {
     const [financesRes, judgesRes] = await Promise.all([
       supabaseServer
         .from("comp_finances")
-        .select("*")
+        .select("studio_cost")
         .eq("event_id", eventId)
         .maybeSingle(),
       supabaseServer

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     // Fetch order
     const { data: order, error: fetchError } = await supabaseServer
       .from("merch_orders")
-      .select("*")
+      .select("id,first_name,last_name,email,delivery_method,shipping_address,items,subtotal,shipping,total,paid,payment_method")
       .eq("id", orderId)
       .single();
 

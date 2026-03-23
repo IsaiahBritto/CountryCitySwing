@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     // Fetch signup
     const { data: signup, error: fetchError } = await supabaseServer
       .from("signups")
-      .select("*")
+      .select("id,event_id,event_title,first_name,last_name,email,payment_method,amount_owed,paid")
       .eq("id", signupId)
       .single();
 

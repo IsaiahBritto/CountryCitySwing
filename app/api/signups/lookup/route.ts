@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
     if (parsed.type === "event") {
       const { data, error } = await supabaseServer
         .from("signups")
-        .select("*")
+        .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in")
         .eq("id", parsed.id)
         .single();
       if (error || !data) {
@@ -73,7 +73,9 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseServer
       .from("comp_signups")
-      .select("*")
+      .select(
+        "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_follow_first_name,strictly_follow_last_name,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,payment_method,amount_owed,paid,checked_in"
+      )
       .eq("id", parsed.id)
       .single();
     if (error || !data) {

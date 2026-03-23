@@ -137,7 +137,9 @@ export async function GET(req: NextRequest) {
     if (isComp) {
       const { data: compList, error: compError } = await supabaseServer
         .from("comp_signups")
-        .select("*")
+        .select(
+          "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee"
+        )
         .eq("event_id", eventId)
         .order("created_at", { ascending: false });
 
@@ -170,7 +172,9 @@ export async function GET(req: NextRequest) {
     // Regular event: fetch from signups table
     const { data: allSignups, error } = await supabaseServer
       .from("signups")
-      .select("*")
+      .select(
+        "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,created_at,is_ccs_team,amount_owed,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code"
+      )
       .eq("event_id", eventId)
       .order("first_name", { ascending: true });
 

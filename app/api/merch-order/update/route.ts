@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     // Get the current order to check for status changes
     const { data: currentOrder, error: fetchError } = await supabaseServer
       .from("merch_orders")
-      .select("*")
+      .select("id,status,items,delivery_method,shipping_address,first_name,email,subtotal,shipping,total")
       .eq("id", orderId)
       .single();
 

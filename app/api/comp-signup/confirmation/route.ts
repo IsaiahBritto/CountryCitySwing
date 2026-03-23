@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
 
     const { data: signup, error: fetchError } = await supabaseServer
       .from("comp_signups")
-      .select("*")
+      .select("id,event_title,payment_method,paid")
       .eq("id", compSignupId)
       .single();
 

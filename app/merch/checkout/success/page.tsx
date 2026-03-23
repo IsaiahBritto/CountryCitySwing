@@ -23,7 +23,8 @@ function SuccessContent() {
   useEffect(() => {
     let pollInterval: NodeJS.Timeout | null = null;
     let pollAttempts = 0;
-    const maxPollAttempts = 60;
+    const pollIntervalMs = 3000;
+    const maxPollAttempts = 20; // Poll for up to 60 seconds (20 attempts * 3 seconds)
     let isMounted = true;
 
     async function loadOrder() {
@@ -78,7 +79,7 @@ function SuccessContent() {
           } else if (pollInterval) {
             clearInterval(pollInterval);
           }
-        }, 1000);
+        }, pollIntervalMs);
       }
     } else {
       setError("Invalid confirmation link");

@@ -1,5 +1,3 @@
-const { default: heicConvert }: any = await import("heic-convert");
-import sharp from "sharp";
 import { NextResponse } from "next/server";
 
 const API_KEY = process.env.GOOGLE_DRIVE_API_KEY;
@@ -91,7 +89,7 @@ async function listWeeklyPhotos(request: Request) {
   }
 }
 
-/** Latest mode: single most recent photo with base64 link (homepage). */
+/** Latest mode: single most recent photo metadata + URL (homepage). */
 async function latestWeeklyPhoto() {
   if (!API_KEY || !FOLDER_ID) {
     return NextResponse.json({ error: "Missing env vars" }, { status: 500 });
@@ -104,49 +102,13 @@ async function latestWeeklyPhoto() {
   if (!data.files?.length) return NextResponse.json({ file: null });
 
   const file = data.files[0];
-
-  if (!isHeic(file.mimeType)) {
-    const imgRes = await fetch(
-      `https://drive.google.com/uc?export=download&id=${file.id}`
-    );
-    if (!imgRes.ok) {
-      return NextResponse.json(
-        { error: "Failed to fetch image" },
-        { status: 500 }
-      );
-    }
-    const buffer = Buffer.from(await imgRes.arrayBuffer());
-    const base64 = buffer.toString("base64");
-    const dataUrl = `data:${file.mimeType};base64,${base64}`;
-    return NextResponse.json({
-      id: file.id,
-      name: file.name,
-      mimeType: file.mimeType,
-      link: dataUrl,
-      createdTime: file.createdTime,
-    });
-  }
-
-  const heicRes = await fetch(
-    `https://drive.google.com/uc?export=download&id=${file.id}`
-  );
-  const heicBuffer = Buffer.from(await heicRes.arrayBuffer());
-  const outputBuffer = await heicConvert({
-    buffer: heicBuffer,
-    format: "JPEG",
-    quality: 0.9,
-  });
-  const jpegBuffer = await sharp(outputBuffer)
-    .jpeg({ quality: 90 })
-    .toBuffer();
-  const base64 = jpegBuffer.toString("base64");
-  const dataUrl = `data:image/jpeg;base64,${base64}`;
+  const imageUrl = `/api/weekly-photo/${file.id}`;
 
   return NextResponse.json({
     id: file.id,
     name: file.name,
-    mimeType: "image/jpeg",
-    link: dataUrl,
+    mimeType: file.mimeType,
+    link: imageUrl,
     createdTime: file.createdTime,
   });
 }

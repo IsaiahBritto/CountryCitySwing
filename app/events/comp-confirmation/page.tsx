@@ -15,7 +15,8 @@ function CompConfirmationContent() {
   useEffect(() => {
     let pollInterval: NodeJS.Timeout | null = null;
     let pollAttempts = 0;
-    const maxPollAttempts = 60;
+    const pollIntervalMs = 3000;
+    const maxPollAttempts = 20; // Poll for up to 60 seconds (20 attempts * 3 seconds)
     let isMounted = true;
 
     async function loadSignup() {
@@ -29,7 +30,6 @@ function CompConfirmationContent() {
             setError("Comp signup not found yet. Your payment was successful — check your email or contact us at contact.us@countrycityswing.dance");
             setLoading(false);
           }
-          if (pollInterval) clearInterval(pollInterval!);
           return;
         }
         if (isMounted) {
@@ -51,7 +51,7 @@ function CompConfirmationContent() {
       pollInterval = setInterval(() => {
         if (pollAttempts < maxPollAttempts && isMounted) loadSignup();
         else if (pollInterval) clearInterval(pollInterval);
-      }, 1000);
+      }, pollIntervalMs);
     } else {
       setError("Invalid confirmation link");
       setLoading(false);

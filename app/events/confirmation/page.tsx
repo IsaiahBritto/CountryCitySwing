@@ -16,7 +16,8 @@ function ConfirmationContent() {
   useEffect(() => {
     let pollInterval: NodeJS.Timeout | null = null;
     let pollAttempts = 0;
-    const maxPollAttempts = 60; // Poll for up to 60 seconds (60 attempts * 1 second)
+    const pollIntervalMs = 3000;
+    const maxPollAttempts = 20; // Poll for up to 60 seconds (20 attempts * 3 seconds)
     let isMounted = true;
 
     async function loadSignup() {
@@ -64,14 +65,14 @@ function ConfirmationContent() {
       // Load immediately
       loadSignup();
       
-      // Poll every second until signup is found or max attempts reached
+      // Poll every 3 seconds until signup is found or max attempts reached
       pollInterval = setInterval(() => {
         if (pollAttempts < maxPollAttempts && isMounted) {
           loadSignup();
         } else if (pollInterval) {
           clearInterval(pollInterval);
         }
-      }, 1000);
+      }, pollIntervalMs);
     } else {
       setError("Invalid confirmation link");
       setLoading(false);

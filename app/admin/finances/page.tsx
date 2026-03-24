@@ -596,9 +596,11 @@ export default function AdminFinancesPage() {
           );
         }
         const metricsJson = await metricsRes.json();
-        const metricsRows = Array.isArray(metricsJson.data) ? metricsJson.data : [];
-        const metricsByEventId = new Map(
-          metricsRows.map((m: EventFinanceMetrics) => [m.event_id, m])
+        const metricsRows: EventFinanceMetrics[] = Array.isArray(metricsJson.data)
+          ? (metricsJson.data as EventFinanceMetrics[])
+          : [];
+        const metricsByEventId = new Map<string, EventFinanceMetrics>(
+          metricsRows.map((m) => [m.event_id, m])
         );
 
         const results = await Promise.all(

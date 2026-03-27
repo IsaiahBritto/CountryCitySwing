@@ -5,6 +5,7 @@ import "react-big-calendar/lib/css/react-big-calendar.css";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import LessonBookingModal from "./LessonBookingModal";
+import { DEFAULT_TIME_ZONE, getTimeZoneAbbreviation } from "@/lib/utils/dateHelpers";
 
 const locales = { "en-US": require("date-fns/locale/en-US") };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
@@ -18,6 +19,7 @@ interface SlotEvent {
   instructor_id: string;
   duration_minutes?: number;
   price?: number | null;
+  time_zone?: string | null;
 }
 
 export default function LessonSlotCalendar({ instructorId }: { instructorId: string }) {
@@ -30,7 +32,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
     async function fetchSlots() {
       const { data, error } = await supabaseBrowser
         .from("lesson_slots")
-        .select("id, instructor_id, start_time, end_time, duration_minutes, is_booked, price")
+        .select("id, instructor_id, start_time, end_time, duration_minutes, is_booked, price, time_zone")
         .eq("instructor_id", instructorId)
         .order("start_time", { ascending: true });
 
@@ -46,6 +48,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
           is_booked: s.is_booked,
           duration_minutes: s.duration_minutes,
           price: s.price || null,
+          time_zone: s.time_zone || null,
         }));
         setSlots(mapped);
       }
@@ -129,6 +132,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
             is_booked: selectedSlot.is_booked,
             duration_minutes: selectedSlot.duration_minutes,
             price: selectedSlot.price,
+            time_zone: selectedSlot.time_zone || DEFAULT_TIME_ZONE,
           }}
           onClose={handleBookingSuccess}
         />

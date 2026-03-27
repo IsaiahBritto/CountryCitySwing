@@ -5,7 +5,14 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
-import { formatEventDateInChicago, formatEventTimeInChicago, getEventDateStringInChicago, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
+import {
+  DEFAULT_TIME_ZONE,
+  formatEventDate,
+  formatEventTime,
+  getTimeZoneAbbreviation,
+  getEventDateString,
+  getDateStringInTimeZone,
+} from "@/lib/utils/dateHelpers";
 import SignupModalShell from "@/components/SignupModalShell";
 
 /* ---------- Validation Schema ---------- */
@@ -84,8 +91,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   const isInstructor = isInstructorProp ?? isInstructorFromRole;
   // Workshop day-of price: instructors use team_day_of_price on event day (never day_of_price)
   const isWorkshop = (event?.type ?? "").trim().toLowerCase() === "workshop";
-  const eventDateStr = event?.starts_at ? getEventDateStringInChicago(event.starts_at) : "";
-  const isEventToday = isWorkshop && eventDateStr === getTodayStringInChicago();
+  const eventTz = (event as any)?.time_zone || DEFAULT_TIME_ZONE;
+  const eventDateStr = event?.starts_at ? getEventDateString(event.starts_at, eventTz) : "";
+  const todayInTz = getDateStringInTimeZone(new Date().toISOString(), eventTz);
+  const isEventToday = isWorkshop && !!eventDateStr && eventDateStr === todayInTz;
   const dayOfPrice = event?.day_of_price != null ? Number(event.day_of_price) : undefined;
   const teamDayOfPrice = event?.team_day_of_price != null ? Number(event.team_day_of_price) : undefined;
   const basePrice = event?.price != null ? Number(event.price) : undefined;
@@ -366,9 +375,9 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     <SignupModalShell title={event.title} onClose={onClose}>
       <p className="text-gray-300 text-sm">
             <strong>Date:</strong>{" "}
-            {formatEventDateInChicago(event.starts_at)}
+            {formatEventDate(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)}
             {event.starts_at
-              ? ` • ${formatEventTimeInChicago(event.starts_at)}`
+              ? ` • ${formatEventTime(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)}`
               : ""}{" "}
             <br />
             <strong>Location:</strong> {event.location}

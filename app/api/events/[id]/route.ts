@@ -41,6 +41,7 @@ export async function PUT(
     if (eventData.ccs_team_price !== undefined) updateData.ccs_team_price = eventData.ccs_team_price ?? null;
     if (eventData.type !== undefined) updateData.type = eventData.type || null;
     if (eventData.ends_at !== undefined) updateData.ends_at = eventData.ends_at ?? null;
+    if (eventData.time_zone !== undefined) updateData.time_zone = eventData.time_zone || null;
 
     const { data, error } = await supabaseServer
       .from("events")

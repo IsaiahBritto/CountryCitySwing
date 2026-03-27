@@ -4,11 +4,13 @@ import { useState } from "react";
 import dayjs from "dayjs";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
 import {
-  formatEventDateInChicago,
-  formatEventTimeInChicago,
-  getEventDateStringInChicago,
-  getTodayStringInChicago,
-  isEventPastInChicago,
+  DEFAULT_TIME_ZONE,
+  formatEventDate,
+  formatEventTime,
+  getEventDateString,
+  getDateStringInTimeZone,
+  getTimeZoneAbbreviation,
+  isEventPast,
 } from "@/lib/utils/dateHelpers";
 import EventSignupModal from "@/components/EventSignupModal";
 import { CarouselEvent } from "./EventCarousel";
@@ -16,8 +18,10 @@ import { CarouselEvent } from "./EventCarousel";
 dayjs.extend(isSameOrAfter);
 
 function eventDisplayPrice(event: CarouselEvent, isInstructor: boolean): number | null | undefined {
+  const tz = event.time_zone || DEFAULT_TIME_ZONE;
+  const todayInTz = getDateStringInTimeZone(new Date().toISOString(), tz);
   const isEventToday =
-    event.starts_at && getEventDateStringInChicago(event.starts_at) === getTodayStringInChicago();
+    event.starts_at && getEventDateString(event.starts_at, tz) === todayInTz;
   if (isInstructor) {
     if (isEventToday && event.team_day_of_price != null && Number.isFinite(Number(event.team_day_of_price)))
       return Number(event.team_day_of_price);
@@ -42,7 +46,7 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
   // Find the closest upcoming workshop (not in the past in Nashville/Chicago time)
   // Only Convention type uses ends_at; Workshops are single-day
   const upcomingWorkshop = events
-    .filter((e) => e.type === "Workshop" && !isEventPastInChicago(e.starts_at))
+    .filter((e) => e.type === "Workshop" && !isEventPast(e.starts_at, undefined, e.time_zone || DEFAULT_TIME_ZONE))
     .sort((a, b) => dayjs(a.starts_at).diff(dayjs(b.starts_at)))[0];
 
   if (!upcomingWorkshop) return null;
@@ -64,8 +68,10 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
           {upcomingWorkshop.title}
         </h4>
         <p className="text-gray-400 mb-1">
-          {formatEventDateInChicago(upcomingWorkshop.starts_at)}
-          {upcomingWorkshop.starts_at ? ` • ${formatEventTimeInChicago(upcomingWorkshop.starts_at)}` : ""}
+          {formatEventDate(upcomingWorkshop.starts_at, upcomingWorkshop.time_zone || DEFAULT_TIME_ZONE)}
+          {upcomingWorkshop.starts_at
+            ? ` • ${formatEventTime(upcomingWorkshop.starts_at, upcomingWorkshop.time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(upcomingWorkshop.starts_at, upcomingWorkshop.time_zone || DEFAULT_TIME_ZONE)}`
+            : ""}
         </p>
         <p className="text-gray-400 italic mb-2">
           📍 {upcomingWorkshop.location}
@@ -78,7 +84,7 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
         <p className="text-neutral-200 mb-5">{upcomingWorkshop.description}</p>
 
         <div className="flex justify-center gap-3">
-          {isEventPastInChicago(upcomingWorkshop.starts_at) ? (
+          {isEventPast(upcomingWorkshop.starts_at, undefined, upcomingWorkshop.time_zone || DEFAULT_TIME_ZONE) ? (
             <button
               disabled
               className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

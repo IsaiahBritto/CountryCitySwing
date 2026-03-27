@@ -13,10 +13,12 @@ import CompSignupModal from "@/components/CompSignupModal";
 import EventFormModal from "@/components/EventFormModal";
 import EventsListSkeleton from "@/components/EventsListSkeleton";
 import {
-  formatEventDateInChicago,
-  formatEventTimeInChicago,
-  formatEventDateRangeInChicago,
-  isEventPastInChicago,
+  DEFAULT_TIME_ZONE,
+  formatEventDate,
+  formatEventTime,
+  formatEventDateRange,
+  getTimeZoneAbbreviation,
+  getDateStringInTimeZone,
 } from "@/lib/utils/dateHelpers";
 
 interface WeeklyPhoto {
@@ -104,7 +106,7 @@ export default function Home() {
     const { data, error } = await supabase
       .from("events")
       .select(
-        "id,title,starts_at,ends_at,location,description,signup_link,price,day_of_price,team_day_of_price,ccs_team_price,strictly_price,jnj_price,type"
+        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,day_of_price,team_day_of_price,ccs_team_price,strictly_price,jnj_price,type"
       )
       .order("starts_at", { ascending: true });
 
@@ -124,9 +126,14 @@ export default function Home() {
   };
 
   // Filter upcoming events only (today and future in Nashville/Chicago time)
-  const upcomingEvents = events.filter((e) =>
-    !isEventPastInChicago(e.starts_at, e.type === "Convention" && e.ends_at ? e.ends_at : undefined)
-  );
+  const upcomingEvents = events.filter((e) => {
+    const tz = e.time_zone || DEFAULT_TIME_ZONE;
+    const today = getDateStringInTimeZone(new Date().toISOString(), tz);
+    const endOrStart = e.type === "Convention" && e.ends_at ? e.ends_at : e.starts_at;
+    const eventEndDate = getDateStringInTimeZone(endOrStart, tz);
+    if (!today || !eventEndDate) return true;
+    return today <= eventEndDate;
+  });
 
   const handleEventSaved = () => {
     loadEvents();
@@ -296,12 +303,19 @@ export default function Home() {
                   {event.title}
                 </h3>
                 <p className="text-gray-400 mb-1">
-                  {event.type === "Convention" && event.ends_at
-                    ? formatEventDateRangeInChicago(event.starts_at, event.ends_at)
-                    : formatEventDateInChicago(event.starts_at)}
-                  {event.starts_at && !(event.type === "Convention" && event.ends_at)
-                    ? ` • ${formatEventTimeInChicago(event.starts_at)}`
-                    : ""}
+                  {(() => {
+                    const tz = event.time_zone || DEFAULT_TIME_ZONE;
+                    const tzAbbrev = getTimeZoneAbbreviation(event.starts_at, tz);
+                    const dateStr =
+                      event.type === "Convention" && event.ends_at
+                        ? formatEventDateRange(event.starts_at, event.ends_at, tz)
+                        : formatEventDate(event.starts_at, tz);
+                    const timeStr =
+                      event.starts_at && !(event.type === "Convention" && event.ends_at)
+                        ? ` • ${formatEventTime(event.starts_at, tz)}${tzAbbrev ? ` ${tzAbbrev}` : ""}`
+                        : "";
+                    return `${dateStr}${timeStr}`;
+                  })()}
                 </p>
                 {event.location && (
                   <p className="text-gray-300 italic mb-2">{event.location}</p>

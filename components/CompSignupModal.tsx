@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
-import { formatEventDateInChicago, formatEventTimeInChicago } from "@/lib/utils/dateHelpers";
+import { DEFAULT_TIME_ZONE, formatEventDate, formatEventTime, getTimeZoneAbbreviation } from "@/lib/utils/dateHelpers";
 import SignupModalShell from "@/components/SignupModalShell";
 
 type CompEvent = {
@@ -307,9 +307,9 @@ export default function CompSignupModal({
   const dateBlock = (
     <p className="text-gray-300 text-sm">
       <strong>Date:</strong>{" "}
-      {formatEventDateInChicago(event.starts_at)}
+      {formatEventDate(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)}
       {event.starts_at
-        ? ` • ${formatEventTimeInChicago(event.starts_at)}`
+        ? ` • ${formatEventTime(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)}`
         : ""}
       <br />
       <strong>Location:</strong> {event.location || "—"}

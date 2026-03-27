@@ -4,12 +4,14 @@ import { useState, useEffect, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
 import {
-  getEventDateStringInChicago,
-  getTodayStringInChicago,
-  isEventPastInChicago,
-  formatEventDateInChicago,
-  formatEventTimeInChicago,
-  formatEventDateRangeInChicago,
+  DEFAULT_TIME_ZONE,
+  isEventPast,
+  formatEventDate,
+  formatEventTime,
+  formatEventDateRange,
+  getTimeZoneAbbreviation,
+  getEventDateString,
+  getDateStringInTimeZone,
 } from "@/lib/utils/dateHelpers";
 import QRCheckInScanner from "@/components/QRCheckInScanner";
 
@@ -20,6 +22,7 @@ interface Event {
   ends_at?: string | null;
   location: string;
   type?: string;
+  time_zone?: string | null;
 }
 
 interface Signup {
@@ -122,7 +125,7 @@ export default function RegistrationPage() {
     try {
       const { data, error } = await supabaseBrowser
         .from("events")
-        .select("id,title,starts_at,ends_at,location,type")
+        .select("id,title,starts_at,ends_at,location,type,time_zone")
         .order("starts_at", { ascending: true });
 
       if (error) {
@@ -137,16 +140,26 @@ export default function RegistrationPage() {
           const monthEndStr = dayjs(pastEventsMonth + "-01").add(1, "month").format("YYYY-MM-DD");
           list = allEvents.filter(
             (e) => {
-              const eventDate = getEventDateStringInChicago(e.starts_at);
+              const tz = e.time_zone || DEFAULT_TIME_ZONE;
+              const eventDate = getEventDateString(e.starts_at, tz);
               return eventDate >= monthStartStr && eventDate < monthEndStr;
             }
           );
         } else if (isInstructor && !isAdmin) {
-          const todayChicago = getTodayStringInChicago();
-          list = allEvents.filter((e) => getEventDateStringInChicago(e.starts_at) === todayChicago);
+          const nowIso = new Date().toISOString();
+          list = allEvents.filter((e) => {
+            const tz = e.time_zone || DEFAULT_TIME_ZONE;
+            const todayInTz = getDateStringInTimeZone(nowIso, tz);
+            const eventDate = getEventDateString(e.starts_at, tz);
+            return !!todayInTz && !!eventDate && eventDate === todayInTz;
+          });
         } else {
           list = allEvents.filter((e) =>
-            !isEventPastInChicago(e.starts_at, e.type === "Convention" && e.ends_at ? e.ends_at : undefined)
+            !isEventPast(
+              e.starts_at,
+              e.type === "Convention" && e.ends_at ? e.ends_at : undefined,
+              e.time_zone || DEFAULT_TIME_ZONE
+            )
           );
         }
 
@@ -402,9 +415,11 @@ export default function RegistrationPage() {
     return "bg-neutral-800 border-neutral-700";
   };
 
-  const isSignedUpOnEventDay = (createdAt: string) =>
-    !!selectedEvent &&
-    getEventDateStringInChicago(selectedEvent.starts_at) === getEventDateStringInChicago(createdAt);
+  const isSignedUpOnEventDay = (createdAt: string) => {
+    if (!selectedEvent) return false;
+    const tz = selectedEvent.time_zone || DEFAULT_TIME_ZONE;
+    return getEventDateString(selectedEvent.starts_at, tz) === getEventDateString(createdAt, tz);
+  };
 
   if (loading) {
     return (
@@ -520,11 +535,11 @@ export default function RegistrationPage() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-sm md:text-base">{event.title}</h3>
                     <p className="text-xs md:text-sm text-gray-400 mt-1">
-                      {event.type === "Convention" && event.ends_at
-                        ? formatEventDateRangeInChicago(event.starts_at, event.ends_at)
-                        : formatEventDateInChicago(event.starts_at)}
+                        {event.type === "Convention" && event.ends_at
+                          ? formatEventDateRange(event.starts_at, event.ends_at, event.time_zone || DEFAULT_TIME_ZONE)
+                          : formatEventDate(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}
                       {event.starts_at && !(event.type === "Convention" && event.ends_at)
-                        ? ` · ${formatEventTimeInChicago(event.starts_at)}`
+                          ? ` · ${formatEventTime(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}`
                         : ""}
                     </p>
                     <p className="text-xs md:text-sm text-gray-400">

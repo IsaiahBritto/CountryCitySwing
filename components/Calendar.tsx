@@ -9,13 +9,13 @@ import { StarIcon, XMarkIcon } from "@heroicons/react/24/solid";
 import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
 import {
-  getEventDateStringInChicago,
-  getTodayStringInChicago,
-  formatEventDateInChicago,
-  formatEventTimeInChicago,
-  formatEventDateRangeInChicago,
-  eventSpansDateInChicago,
-  isEventPastInChicago,
+  DEFAULT_TIME_ZONE,
+  getDateStringInTimeZone,
+  getEventDateString,
+  formatEventDate,
+  formatEventTime,
+  formatEventDateRange,
+  getTimeZoneAbbreviation,
 } from "@/lib/utils/dateHelpers";
 
 dayjs.extend(weekday);
@@ -30,6 +30,7 @@ interface CalendarEvent {
   location: string;
   signupLink?: string;
   signup_link?: string;
+  time_zone?: string | null;
   description: string;
   price?: number | null;
   day_of_price?: number | null;
@@ -50,8 +51,10 @@ interface CalendarProps {
 const today = dayjs().format("YYYY-MM-DD");
 
 function eventDisplayPrice(event: CalendarEvent, isInstructor: boolean): number | null | undefined {
+  const tz = event.time_zone || DEFAULT_TIME_ZONE;
+  const todayInTz = getDateStringInTimeZone(new Date().toISOString(), tz);
   const isEventToday =
-    event.starts_at && getEventDateStringInChicago(event.starts_at) === getTodayStringInChicago();
+    event.starts_at && getEventDateString(event.starts_at, tz) === todayInTz;
   if (isInstructor) {
     if (isEventToday && event.team_day_of_price != null && Number.isFinite(Number(event.team_day_of_price)))
       return Number(event.team_day_of_price);
@@ -94,11 +97,16 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
   const getEventsForDay = (day: number): CalendarEvent[] => {
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
     return events.filter((e) => {
+      const tz = e.time_zone || DEFAULT_TIME_ZONE;
       const isConventionWithEnd = (e.type || "").trim().toLowerCase() === "convention" && e.ends_at;
       if (isConventionWithEnd) {
-        return eventSpansDateInChicago(e.starts_at, e.ends_at ?? null, dateStr);
+        const startDate = getEventDateString(e.starts_at, tz);
+        if (!startDate) return false;
+        const endDate = getEventDateString(e.ends_at as string, tz);
+        if (!endDate) return startDate === dateStr;
+        return dateStr >= startDate && dateStr <= endDate;
       }
-      return getEventDateStringInChicago(e.starts_at) === dateStr;
+      return getEventDateString(e.starts_at, tz) === dateStr;
     });
   };
 
@@ -281,11 +289,12 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                         <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
                           {event.type === "Convention" && event.ends_at ? (
                             <span className="flex items-center gap-1">
-                              🕐 {formatEventDateRangeInChicago(event.starts_at, event.ends_at)}
+                              🕐 {formatEventDateRange(event.starts_at, event.ends_at, event.time_zone || DEFAULT_TIME_ZONE)}
                             </span>
                           ) : event.starts_at ? (
                             <span className="flex items-center gap-1">
-                              🕐 {formatEventTimeInChicago(event.starts_at)}
+                              🕐 {formatEventTime(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}{" "}
+                              {getTimeZoneAbbreviation(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}
                             </span>
                           ) : null}
                           <span className="flex items-center gap-1">
@@ -361,10 +370,10 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
             </h3>
             <p className="text-gray-400 mb-2">
               {selectedEvent.type === "Convention" && selectedEvent.ends_at
-                ? formatEventDateRangeInChicago(selectedEvent.starts_at, selectedEvent.ends_at)
-                : formatEventDateInChicago(selectedEvent.starts_at)}
+                ? formatEventDateRange(selectedEvent.starts_at, selectedEvent.ends_at, selectedEvent.time_zone || DEFAULT_TIME_ZONE)
+                : formatEventDate(selectedEvent.starts_at, selectedEvent.time_zone || DEFAULT_TIME_ZONE)}
               {selectedEvent.starts_at && !(selectedEvent.type === "Convention" && selectedEvent.ends_at)
-                ? ` • ${formatEventTimeInChicago(selectedEvent.starts_at)}`
+                ? ` • ${formatEventTime(selectedEvent.starts_at, selectedEvent.time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(selectedEvent.starts_at, selectedEvent.time_zone || DEFAULT_TIME_ZONE)}`
                 : ""}
             </p>
             <p className="text-gray-300 mb-2 italic">
@@ -393,10 +402,14 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
 
             {/* Sign Up button (same for Comp and non-Comp); past events: Closed; Convention with link → open link */}
             <div className="flex justify-center gap-3 mt-4">
-              {isEventPastInChicago(
-                selectedEvent.starts_at,
-                selectedEvent.type === "Convention" && selectedEvent.ends_at ? selectedEvent.ends_at : undefined
-              ) ? (
+              {(() => {
+                const tz = selectedEvent.time_zone || DEFAULT_TIME_ZONE;
+                const endOrStart = selectedEvent.type === "Convention" && selectedEvent.ends_at ? selectedEvent.ends_at : selectedEvent.starts_at;
+                const todayInTz = getDateStringInTimeZone(new Date().toISOString(), tz);
+                const eventEndDate = getDateStringInTimeZone(endOrStart, tz);
+                const isPast = !!todayInTz && !!eventEndDate && eventEndDate < todayInTz;
+                return isPast;
+              })() ? (
                 <button
                   disabled
                   className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

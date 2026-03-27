@@ -4,6 +4,7 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { useEffect, useState, useCallback } from "react";
 import { XMarkIcon } from "@heroicons/react/24/solid";
 import dayjs from "dayjs";
+import { DEFAULT_TIME_ZONE, formatTimeRangeWithTimeZone } from "@/lib/utils/dateHelpers";
 
 interface BookingInfo {
   id: string;
@@ -22,6 +23,7 @@ interface InstructorSlotEditModalProps {
     instructor_id: string;
     start: string;
     end: string;
+    time_zone?: string | null;
     is_booked: boolean;
     duration_minutes: number;
     price?: number | null;
@@ -43,6 +45,7 @@ export default function InstructorSlotEditModal({
   // Form state
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
+  const [timeZone, setTimeZone] = useState(slot.time_zone || DEFAULT_TIME_ZONE);
   const [duration, setDuration] = useState(slot.duration_minutes || 60);
   const [price, setPrice] = useState<number | null>(slot.price || null);
 
@@ -90,6 +93,7 @@ export default function InstructorSlotEditModal({
     const startDate = dayjs(slot.start);
     setDate(startDate.format("YYYY-MM-DD"));
     setTime(startDate.format("HH:mm"));
+    setTimeZone(slot.time_zone || DEFAULT_TIME_ZONE);
     setDuration(slot.duration_minutes || 60);
     setPrice(slot.price || null);
 
@@ -115,6 +119,7 @@ export default function InstructorSlotEditModal({
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       duration_minutes: duration,
+      time_zone: timeZone,
     };
     
     if (price !== null && price !== undefined) {
@@ -158,10 +163,8 @@ export default function InstructorSlotEditModal({
             : "Your Instructor";
 
           const lessonDate = start.toISOString();
-          const lessonTime = start.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          });
+          const { startTime, tzAbbrev } = formatTimeRangeWithTimeZone(lessonDate, end.toISOString(), timeZone);
+          const lessonTime = `${startTime}${tzAbbrev ? ` ${tzAbbrev}` : ""}`;
 
           const studentFirstName = bookingInfo.first_name || bookingInfo.student_name?.split(" ")[0] || "";
           const studentLastName = bookingInfo.last_name || bookingInfo.student_name?.split(" ").slice(1).join(" ") || "";
@@ -374,6 +377,22 @@ export default function InstructorSlotEditModal({
               onChange={(e) => setTime(e.target.value)}
               className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              Time zone
+            </label>
+            <select
+              value={timeZone}
+              onChange={(e) => setTimeZone(e.target.value)}
+              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
+            >
+              <option value="America/Chicago">Central Time</option>
+              <option value="America/New_York">Eastern Time</option>
+              <option value="America/Denver">Mountain Time</option>
+              <option value="America/Los_Angeles">Pacific Time</option>
+            </select>
           </div>
 
           <div>

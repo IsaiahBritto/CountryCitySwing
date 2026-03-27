@@ -1,6 +1,7 @@
 "use client";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { useState } from "react";
+import { DEFAULT_TIME_ZONE, formatDateInTimeZone, formatTimeRangeWithTimeZone } from "@/lib/utils/dateHelpers";
 
 export default function LessonBookingModal({ slot, onClose }: any) {
   const [name, setName] = useState("");
@@ -36,7 +37,14 @@ export default function LessonBookingModal({ slot, onClose }: any) {
           Book Lesson
         </h3>
         <p className="text-gray-400 mb-3 text-center">
-          {slot.start.toLocaleString()} — {slot.end.toLocaleTimeString()}
+          {(() => {
+            const tz = slot?.time_zone || DEFAULT_TIME_ZONE;
+            const startIso = slot?.start?.toISOString ? slot.start.toISOString() : String(slot?.start);
+            const endIso = slot?.end?.toISOString ? slot.end.toISOString() : String(slot?.end);
+            const dateStr = formatDateInTimeZone(startIso, tz);
+            const { startTime, endTime, tzAbbrev } = formatTimeRangeWithTimeZone(startIso, endIso, tz);
+            return `${dateStr} • ${startTime} – ${endTime}${tzAbbrev ? ` ${tzAbbrev}` : ""}`;
+          })()}
         </p>
         <form onSubmit={handleSubmit} className="space-y-3">
           <input

@@ -3,6 +3,11 @@
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import {
+  DEFAULT_TIME_ZONE,
+  formatDateInTimeZone,
+  formatTimeRangeWithTimeZone,
+} from "@/lib/utils/dateHelpers";
 
 interface LessonBookingModalProps {
   slot: {
@@ -10,6 +15,7 @@ interface LessonBookingModalProps {
     instructor_id: string;
     start: string;        // ISO string
     end: string;          // ISO string
+    time_zone?: string | null;
     is_booked?: boolean;
     duration_minutes?: number;
     price?: number | null;
@@ -159,11 +165,9 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
 
       // Send confirmation emails
       try {
-        const lessonDate = new Date(slot.start);
-        const lessonTime = lessonDate.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
+        const tz = slot.time_zone || DEFAULT_TIME_ZONE;
+        const { startTime, tzAbbrev } = formatTimeRangeWithTimeZone(slot.start, slot.end, tz);
+        const lessonTime = `${startTime}${tzAbbrev ? ` ${tzAbbrev}` : ""}`;
         const lessonDuration = slot.duration_minutes || Math.round((new Date(slot.end).getTime() - new Date(slot.start).getTime()) / 60000);
         
         // Send email to student
@@ -266,11 +270,24 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
               {instructorName}
             </p>
           )}
-          <p>{new Date(slot.start).toLocaleDateString()}</p>
-          <p>
-            {new Date(slot.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} –{" "}
-            {new Date(slot.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          </p>
+          {(() => {
+            const tz = slot.time_zone || DEFAULT_TIME_ZONE;
+            const dateStr = formatDateInTimeZone(slot.start, tz, {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            });
+            const { startTime, endTime, tzAbbrev } = formatTimeRangeWithTimeZone(slot.start, slot.end, tz);
+            return (
+              <>
+                <p>{dateStr}</p>
+                <p>
+                  {startTime} – {endTime}{tzAbbrev ? ` ${tzAbbrev}` : ""}
+                </p>
+              </>
+            );
+          })()}
           <p className="text-gray-400 mt-1">
             Duration: {slot.duration_minutes || Math.round((new Date(slot.end).getTime() - new Date(slot.start).getTime()) / 60000)} minutes
           </p>

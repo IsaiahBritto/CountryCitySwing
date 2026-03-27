@@ -3,12 +3,18 @@
 import { useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { XMarkIcon } from "@heroicons/react/24/solid";
+import {
+  DEFAULT_TIME_ZONE,
+  formatDateInTimeZone,
+  formatTimeRangeWithTimeZone,
+} from "@/lib/utils/dateHelpers";
 
 interface CancelBookingModalProps {
   slot: {
     id: string;
     start: string;
     end: string;
+    time_zone?: string | null;
     price?: number | null;
     instructor_id?: string;
   };
@@ -68,11 +74,9 @@ export default function CancelBookingModal({
     // Send notification email to instructor
     if (slot.instructor_id && bookingInfo) {
       try {
-        const lessonDate = new Date(slot.start);
-        const lessonTime = lessonDate.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
+        const tz = slot.time_zone || DEFAULT_TIME_ZONE;
+        const { startTime, tzAbbrev } = formatTimeRangeWithTimeZone(slot.start, slot.end, tz);
+        const lessonTime = `${startTime}${tzAbbrev ? ` ${tzAbbrev}` : ""}`;
         
         const studentName = bookingInfo.first_name && bookingInfo.last_name
           ? `${bookingInfo.first_name} ${bookingInfo.last_name}`
@@ -134,13 +138,21 @@ export default function CancelBookingModal({
           </p>
           <div className="p-3 bg-neutral-800 rounded border border-neutral-700">
             <p className="text-sm text-gray-400 mb-1">Date & Time:</p>
-            <p className="text-white">
-              {new Date(slot.start).toLocaleDateString()} at{" "}
-              {new Date(slot.start).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </p>
+            {(() => {
+              const tz = slot.time_zone || DEFAULT_TIME_ZONE;
+              const dateStr = formatDateInTimeZone(slot.start, tz, {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+                year: "numeric",
+              });
+              const { startTime, endTime, tzAbbrev } = formatTimeRangeWithTimeZone(slot.start, slot.end, tz);
+              return (
+                <p className="text-white">
+                  {dateStr} • {startTime} – {endTime}{tzAbbrev ? ` ${tzAbbrev}` : ""}
+                </p>
+              );
+            })()}
             {slot.price && (
               <>
                 <p className="text-sm text-gray-400 mt-2 mb-1">Price:</p>

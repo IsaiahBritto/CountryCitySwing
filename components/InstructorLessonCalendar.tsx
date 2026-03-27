@@ -10,6 +10,7 @@ import LessonBookingModal from "@/components/LessonBookingModal";
 import InstructorSlotEditModal from "@/components/InstructorSlotEditModal";
 import CancelBookingModal from "@/components/CancelBookingModal";
 import { XMarkIcon } from "@heroicons/react/24/solid";
+import { DEFAULT_TIME_ZONE, formatTimeInTimeZone, getTimeZoneAbbreviation } from "@/lib/utils/dateHelpers";
 
 dayjs.extend(weekday);
 dayjs.extend(isoWeek);
@@ -25,6 +26,7 @@ interface LessonSlot {
   price?: number | null;
   booking_user_id?: string | null;
   booking_id?: string | null;
+  time_zone?: string | null;
 }
 
 export default function InstructorLessonCalendar({
@@ -62,7 +64,7 @@ export default function InstructorLessonCalendar({
       // First, fetch slots without the relationship to ensure we get the data
       const { data: slotsData, error: slotsError } = await supabaseBrowser
         .from("lesson_slots")
-        .select("id,start_time,end_time,is_booked,instructor_id,duration_minutes,price")
+        .select("id,start_time,end_time,is_booked,instructor_id,duration_minutes,price,time_zone")
         .eq("instructor_id", instructorId)
         .gte("start_time", start)
         .lte("end_time", end)
@@ -110,6 +112,7 @@ export default function InstructorLessonCalendar({
           price: d.price || null,
           booking_user_id: booking?.user_id || null,
           booking_id: booking?.id || null,
+          time_zone: d.time_zone || null,
         };
       });
 
@@ -421,6 +424,8 @@ export default function InstructorLessonCalendar({
                   {daySlots.map((s) => {
                     const isUserBooking = currentUserId && s.booking_user_id === currentUserId;
                     const isPast = isSlotPast(s);
+                    const tz = s.time_zone || DEFAULT_TIME_ZONE;
+                    const tzAbbrev = getTimeZoneAbbreviation(s.start, tz);
                     return (
                       <button
                         key={s.id}
@@ -438,7 +443,7 @@ export default function InstructorLessonCalendar({
                             : "bg-yellow-400 text-black hover:shadow-lg hover:shadow-yellow-400/70"
                         }`}
                       >
-                        {dayjs(s.start).format("h:mm A")}
+                        {formatTimeInTimeZone(s.start, tz)}{tzAbbrev ? ` ${tzAbbrev}` : ""}
                         {isUserBooking && !isInstructorView && " (Yours)"}
                         {isPast && !isInstructorView && !s.is_booked && " (Past)"}
                       </button>
@@ -484,6 +489,8 @@ export default function InstructorLessonCalendar({
                 .map((slot) => {
                   const isUserBooking = currentUserId && slot.booking_user_id === currentUserId;
                   const isPast = isSlotPast(slot);
+                  const tz = slot.time_zone || DEFAULT_TIME_ZONE;
+                  const tzAbbrev = getTimeZoneAbbreviation(slot.start, tz);
                   return (
                     <button
                       key={slot.id}
@@ -501,8 +508,8 @@ export default function InstructorLessonCalendar({
                           : "bg-yellow-400 text-black hover:shadow-lg hover:shadow-yellow-400/70"
                       }`}
                     >
-                      {dayjs(slot.start).format("h:mm A")} –{" "}
-                      {dayjs(slot.end).format("h:mm A")} (
+                      {formatTimeInTimeZone(slot.start, tz)} –{" "}
+                      {formatTimeInTimeZone(slot.end, tz)}{tzAbbrev ? ` ${tzAbbrev}` : ""} (
                       {isPast && !isInstructorView && !slot.is_booked
                         ? "Past"
                         : slot.is_booked 

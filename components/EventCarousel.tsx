@@ -4,12 +4,14 @@ import { useState, useRef } from "react";
 import dayjs from "dayjs";
 import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/solid";
 import {
-  formatEventDateInChicago,
-  formatEventTimeInChicago,
-  formatEventDateRangeInChicago,
-  getEventDateStringInChicago,
-  getTodayStringInChicago,
-  isEventPastInChicago,
+  DEFAULT_TIME_ZONE,
+  formatEventDate,
+  formatEventTime,
+  formatEventDateRange,
+  getEventDateString,
+  getDateStringInTimeZone,
+  getTimeZoneAbbreviation,
+  isEventPast,
 } from "@/lib/utils/dateHelpers";
 import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
@@ -22,6 +24,7 @@ export interface CarouselEvent {
   location: string;
   signupLink?: string;
   signup_link?: string;
+  time_zone?: string | null;
   description: string;
   price?: number | null;
   day_of_price?: number | null;
@@ -33,8 +36,10 @@ export interface CarouselEvent {
 }
 
 function eventDisplayPrice(event: CarouselEvent, isInstructor: boolean): number | null | undefined {
+  const tz = event.time_zone || DEFAULT_TIME_ZONE;
+  const todayInTz = getDateStringInTimeZone(new Date().toISOString(), tz);
   const isEventToday =
-    event.starts_at && getEventDateStringInChicago(event.starts_at) === getTodayStringInChicago();
+    event.starts_at && getEventDateString(event.starts_at, tz) === todayInTz;
   if (isInstructor) {
     if (isEventToday && event.team_day_of_price != null && Number.isFinite(Number(event.team_day_of_price)))
       return Number(event.team_day_of_price);
@@ -59,7 +64,11 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
 
   // Show only upcoming events (today and future in Nashville/Chicago time)
   const filteredEvents = events.filter((e) =>
-    !isEventPastInChicago(e.starts_at, e.type === "Convention" && e.ends_at ? e.ends_at : undefined)
+    !isEventPast(
+      e.starts_at,
+      e.type === "Convention" && e.ends_at ? e.ends_at : undefined,
+      e.time_zone || DEFAULT_TIME_ZONE
+    )
   );
 
   if (filteredEvents.length === 0) {
@@ -120,10 +129,10 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
                   )}
                   <p className="text-gray-400 mb-1">
                     {event.type === "Convention" && event.ends_at
-                      ? formatEventDateRangeInChicago(event.starts_at, event.ends_at)
-                      : formatEventDateInChicago(event.starts_at)}
+                      ? formatEventDateRange(event.starts_at, event.ends_at, event.time_zone || DEFAULT_TIME_ZONE)
+                      : formatEventDate(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}
                     {event.starts_at && !(event.type === "Convention" && event.ends_at)
-                      ? ` • ${formatEventTimeInChicago(event.starts_at)}`
+                      ? ` • ${formatEventTime(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}`
                       : ""}
                   </p>
 
@@ -152,7 +161,11 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
 
                   {/* --- Sign Up / Closed Button --- */}
                   <div className="flex justify-center gap-3">
-                    {isEventPastInChicago(event.starts_at, event.type === "Convention" && event.ends_at ? event.ends_at : undefined) ? (
+                    {isEventPast(
+                      event.starts_at,
+                      event.type === "Convention" && event.ends_at ? event.ends_at : undefined,
+                      event.time_zone || DEFAULT_TIME_ZONE
+                    ) ? (
                       <button
                         disabled
                         className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

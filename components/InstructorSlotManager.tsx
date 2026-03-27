@@ -2,11 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import {
+  DEFAULT_TIME_ZONE,
+  formatDateInTimeZone,
+  formatTimeRangeWithTimeZone,
+} from "@/lib/utils/dateHelpers";
 
 interface LessonSlot {
   id: string;
   start_time: string;
   end_time: string;
+  time_zone?: string | null;
   duration_minutes: number;
   is_booked: boolean;
   student_name?: string;
@@ -21,6 +27,7 @@ export default function InstructorSlotManager({
   const [slots, setSlots] = useState<LessonSlot[]>([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
+  const [selectedTimeZone, setSelectedTimeZone] = useState(DEFAULT_TIME_ZONE);
   const [duration, setDuration] = useState(60);
   const [price, setPrice] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,7 +42,7 @@ export default function InstructorSlotManager({
     const { data, error } = await supabaseBrowser
       .from("lesson_slots")
       .select(
-        `id, start_time, end_time, duration_minutes, is_booked,
+        `id, start_time, end_time, duration_minutes, is_booked, time_zone,
          lesson_bookings (student_name, student_email)`
       )
       .eq("instructor_id", instructorId)
@@ -172,6 +179,7 @@ export default function InstructorSlotManager({
         start_time: start.toISOString(),
         end_time: end.toISOString(),
         duration_minutes: duration,
+        time_zone: selectedTimeZone,
       };
       if (price !== null && price !== undefined) {
         slotData.price = price;
@@ -221,6 +229,7 @@ export default function InstructorSlotManager({
     if (failed.length === 0 && overlappingSlots.length === 0) {
       setSelectedDate("");
       setSelectedTime("");
+      setSelectedTimeZone(DEFAULT_TIME_ZONE);
       setPrice(null);
       setSelectedDays([]);
       setNumberOfWeeks(1);
@@ -274,6 +283,17 @@ export default function InstructorSlotManager({
             required
             className="px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
           />
+          <select
+            value={selectedTimeZone}
+            onChange={(e) => setSelectedTimeZone(e.target.value)}
+            className="px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+            title="Time zone"
+          >
+            <option value="America/Chicago">Central Time</option>
+            <option value="America/New_York">Eastern Time</option>
+            <option value="America/Denver">Mountain Time</option>
+            <option value="America/Los_Angeles">Pacific Time</option>
+          </select>
           <select
             value={duration}
             onChange={(e) => setDuration(Number(e.target.value))}
@@ -375,14 +395,19 @@ export default function InstructorSlotManager({
         {slots.map((slot) => {
           const start = new Date(slot.start_time);
           const end = new Date(slot.end_time);
-          const formattedDate = start.toLocaleDateString();
-          const formattedTime = `${start.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })} - ${end.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}`;
+          const tz = slot.time_zone || DEFAULT_TIME_ZONE;
+          const formattedDate = formatDateInTimeZone(slot.start_time, tz, {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
+          const { startTime, endTime, tzAbbrev } = formatTimeRangeWithTimeZone(
+            slot.start_time,
+            slot.end_time,
+            tz
+          );
+          const formattedTime = `${startTime} - ${endTime}${tzAbbrev ? ` ${tzAbbrev}` : ""}`;
 
           return (
             <div

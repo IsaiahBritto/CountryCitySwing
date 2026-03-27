@@ -7,8 +7,7 @@ import timezone from "dayjs/plugin/timezone";
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-/** Events are in America/Chicago (Nashville). Use this for consistent date display. */
-const EVENT_TIMEZONE = "America/Chicago";
+export const DEFAULT_TIME_ZONE = "America/Chicago";
 
 /**
  * Ensure an ISO string is parsed as UTC (Supabase/Postgres may return without "Z").
@@ -28,22 +27,32 @@ function normalizeToUtcString(isoString: string): string {
  * Format an ISO timestamp (UTC) as "YYYY-MM-DDTHH:mm" in America/Chicago
  * for use in datetime-local inputs. Prevents time shifting when editing events.
  */
-export function toDateTimeLocalChicago(isoString: string): string {
+export function toDateTimeLocalInTimeZone(isoString: string, timeZone: string): string {
   if (!isoString) return "";
+  const tz = timeZone || DEFAULT_TIME_ZONE;
   const utcStr = normalizeToUtcString(isoString);
   if (!utcStr) return "";
-  const d = dayjs.utc(utcStr).tz(EVENT_TIMEZONE);
+  const d = dayjs.utc(utcStr).tz(tz);
   return d.isValid() ? d.format("YYYY-MM-DDTHH:mm") : "";
+}
+
+export function toDateTimeLocalChicago(isoString: string): string {
+  return toDateTimeLocalInTimeZone(isoString, DEFAULT_TIME_ZONE);
 }
 
 /**
  * Parse "YYYY-MM-DDTHH:mm" as America/Chicago and return ISO string (UTC)
  * for saving to the API. Ensures the form time is stored correctly regardless of admin timezone.
  */
-export function fromDateTimeLocalChicago(dateTimeLocal: string): string {
+export function fromDateTimeLocalInTimeZone(dateTimeLocal: string, timeZone: string): string {
   if (!dateTimeLocal || !dateTimeLocal.includes("T")) return "";
-  const d = dayjs.tz(dateTimeLocal.replace("T", " "), EVENT_TIMEZONE);
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const d = dayjs.tz(dateTimeLocal.replace("T", " "), tz);
   return d.isValid() ? d.toISOString() : "";
+}
+
+export function fromDateTimeLocalChicago(dateTimeLocal: string): string {
+  return fromDateTimeLocalInTimeZone(dateTimeLocal, DEFAULT_TIME_ZONE);
 }
 
 export function parseLocalDate(dateStr: string) {
@@ -57,17 +66,44 @@ export function parseLocalDate(dateStr: string) {
 }
 
 /** Event date as YYYY-MM-DD in America/Chicago so calendar day matches list/carousel/spotlight. */
-export function getEventDateStringInChicago(startsAt: string): string {
-  if (!startsAt) return "";
-  const d = new Date(startsAt);
+export function getDateStringInTimeZone(isoDateTime: string, timeZone: string): string {
+  if (!isoDateTime) return "";
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const d = new Date(isoDateTime);
   if (isNaN(d.getTime())) return "";
   const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: EVENT_TIMEZONE,
+    timeZone: tz,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   });
-  return formatter.format(d); // "YYYY-MM-DD" with en-CA
+  return formatter.format(d);
+}
+
+/** Event date as YYYY-MM-DD in America/Chicago so calendar day matches list/carousel/spotlight. */
+export function getEventDateStringInChicago(startsAt: string): string {
+  return getDateStringInTimeZone(startsAt, DEFAULT_TIME_ZONE);
+}
+
+/** Formatted event date in America/Chicago (e.g. "Saturday, February 15, 2026"). */
+export function formatDateInTimeZone(
+  isoDateTime: string,
+  timeZone: string,
+  options: Intl.DateTimeFormatOptions = {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }
+): string {
+  if (!isoDateTime) return "";
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const d = new Date(isoDateTime);
+  if (isNaN(d.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    ...options,
+    timeZone: tz,
+  }).format(d);
 }
 
 /** Formatted event date in America/Chicago (e.g. "Saturday, February 15, 2026"). */
@@ -80,31 +116,120 @@ export function formatEventDateInChicago(
     year: "numeric",
   }
 ): string {
-  if (!startsAt) return "";
-  const d = new Date(startsAt);
+  return formatDateInTimeZone(startsAt, DEFAULT_TIME_ZONE, options);
+}
+
+/** Formatted event time in America/Chicago (e.g. "7:00 PM"). */
+export function formatTimeInTimeZone(isoDateTime: string, timeZone: string): string {
+  if (!isoDateTime) return "";
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const d = new Date(isoDateTime);
   if (isNaN(d.getTime())) return "";
   return new Intl.DateTimeFormat(undefined, {
-    ...options,
-    timeZone: EVENT_TIMEZONE,
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: tz,
   }).format(d);
 }
 
 /** Formatted event time in America/Chicago (e.g. "7:00 PM"). */
 export function formatEventTimeInChicago(startsAt: string): string {
-  if (!startsAt) return "";
-  const d = new Date(startsAt);
+  return formatTimeInTimeZone(startsAt, DEFAULT_TIME_ZONE);
+}
+
+export function getTimeZoneAbbreviation(isoDateTime: string, timeZone: string): string {
+  if (!isoDateTime) return "";
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const d = new Date(isoDateTime);
   if (isNaN(d.getTime())) return "";
-  return new Intl.DateTimeFormat(undefined, {
+  const parts = new Intl.DateTimeFormat(undefined, {
+    timeZone: tz,
+    timeZoneName: "short",
     hour: "numeric",
-    minute: "2-digit",
-    timeZone: EVENT_TIMEZONE,
-  }).format(d);
+  }).formatToParts(d);
+  const tzPart = parts.find((p) => p.type === "timeZoneName")?.value || "";
+  return tzPart;
+}
+
+export function formatTimeRangeWithTimeZone(
+  startIso: string,
+  endIso: string,
+  timeZone: string
+): { startTime: string; endTime: string; tzAbbrev: string } {
+  const tzAbbrev = getTimeZoneAbbreviation(startIso, timeZone);
+  return {
+    startTime: formatTimeInTimeZone(startIso, timeZone),
+    endTime: formatTimeInTimeZone(endIso, timeZone),
+    tzAbbrev,
+  };
+}
+
+export function formatEventDate(
+  startsAt: string,
+  timeZone: string = DEFAULT_TIME_ZONE,
+  options?: Intl.DateTimeFormatOptions
+): string {
+  return formatDateInTimeZone(startsAt, timeZone, options);
+}
+
+export function formatEventTime(startsAt: string, timeZone: string = DEFAULT_TIME_ZONE): string {
+  return formatTimeInTimeZone(startsAt, timeZone);
+}
+
+export function getEventDateString(startsAt: string, timeZone: string = DEFAULT_TIME_ZONE): string {
+  return getDateStringInTimeZone(startsAt, timeZone);
+}
+
+export function isEventPast(
+  startsAt: string,
+  endsAt: string | null | undefined,
+  timeZone: string = DEFAULT_TIME_ZONE
+): boolean {
+  const today = getDateStringInTimeZone(new Date().toISOString(), timeZone);
+  const endOrStart = endsAt || startsAt;
+  const eventEndDate = getDateStringInTimeZone(endOrStart, timeZone);
+  if (!today || !eventEndDate) return false;
+  return eventEndDate < today;
+}
+
+export function formatEventDateRange(
+  startsAt: string,
+  endsAt: string | null | undefined,
+  timeZone: string = DEFAULT_TIME_ZONE
+): string {
+  if (!startsAt) return "";
+  if (!endsAt) return formatEventDate(startsAt, timeZone);
+  const startDateStr = getEventDateString(startsAt, timeZone);
+  const endDateStr = getEventDateString(endsAt, timeZone);
+  if (!startDateStr || !endDateStr || startDateStr === endDateStr) {
+    return formatEventDate(startsAt, timeZone);
+  }
+  const startMonth = formatEventDate(startsAt, timeZone, { month: "long" });
+  const endMonth = formatEventDate(endsAt, timeZone, { month: "long" });
+  const year = formatEventDate(endsAt, timeZone, { year: "numeric" });
+  const sameMonth = startMonth === endMonth;
+  if (sameMonth) {
+    const startDay = formatEventDate(startsAt, timeZone, { day: "numeric" });
+    const endDay = formatEventDate(endsAt, timeZone, { day: "numeric" });
+    return `${startMonth} ${startDay} – ${endDay}, ${year}`;
+  }
+  const startFormatted = formatEventDate(startsAt, timeZone, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  const endFormatted = formatEventDate(endsAt, timeZone, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `${startFormatted} – ${endFormatted}`;
 }
 
 /** Today's date as YYYY-MM-DD in America/Chicago. */
 export function getTodayStringInChicago(): string {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: EVENT_TIMEZONE,
+    timeZone: DEFAULT_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -114,8 +239,8 @@ export function getTodayStringInChicago(): string {
 /** Start and end of today in America/Chicago as UTC ISO strings (for DB queries). */
 export function getTodayChicagoUtcRange(): { start: string; end: string } {
   const today = getTodayStringInChicago();
-  const start = dayjs.tz(`${today} 00:00:00`, EVENT_TIMEZONE).utc().toISOString();
-  const end = dayjs.tz(`${today} 23:59:59.999`, EVENT_TIMEZONE).utc().toISOString();
+  const start = dayjs.tz(`${today} 00:00:00`, DEFAULT_TIME_ZONE).utc().toISOString();
+  const end = dayjs.tz(`${today} 23:59:59.999`, DEFAULT_TIME_ZONE).utc().toISOString();
   return { start, end };
 }
 

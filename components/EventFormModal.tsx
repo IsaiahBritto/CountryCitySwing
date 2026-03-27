@@ -3,7 +3,11 @@
 import { useState, useEffect, useRef } from "react";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
-import { toDateTimeLocalChicago, fromDateTimeLocalChicago } from "@/lib/utils/dateHelpers";
+import {
+  DEFAULT_TIME_ZONE,
+  toDateTimeLocalInTimeZone,
+  fromDateTimeLocalInTimeZone,
+} from "@/lib/utils/dateHelpers";
 
 const CLASS_INTRO = "This is your one stop shop for weekly country swing fun! ";
 const DEFAULT_UPPER_LEVEL_NAMES = "Malissa and Isaiah";
@@ -45,6 +49,7 @@ interface Event {
   description?: string;
   signupLink?: string;
   signup_link?: string; // Database column name
+  time_zone?: string | null;
   price?: number | null;
   day_of_price?: number | null;
   team_day_of_price?: number | null;
@@ -74,6 +79,7 @@ export default function EventFormModal({
     location: "",
     description: "",
     signupLink: "",
+    time_zone: DEFAULT_TIME_ZONE,
     price: undefined,
     day_of_price: undefined,
     team_day_of_price: undefined,
@@ -96,13 +102,14 @@ export default function EventFormModal({
   useEffect(() => {
     if (open) {
       if (event) {
+        const tz = event.time_zone || DEFAULT_TIME_ZONE;
         // Format starts_at/ends_at in America/Chicago for datetime-local (avoids timezone shift on save)
         const startsAtStr = event.starts_at
-          ? toDateTimeLocalChicago(event.starts_at)
+          ? toDateTimeLocalInTimeZone(event.starts_at, tz)
           : "";
         const isConvention = (event.type || "").trim().toLowerCase() === "convention";
         const endsAtStr = isConvention && event.ends_at
-          ? toDateTimeLocalChicago(event.ends_at)
+          ? toDateTimeLocalInTimeZone(event.ends_at, tz)
           : "";
 
         const isClass = (event.type || "").trim().toLowerCase() === "class";
@@ -130,6 +137,7 @@ export default function EventFormModal({
           location: event.location || "",
           description,
           signupLink: event.signupLink || event.signup_link || "",
+          time_zone: tz,
           price: event.price ?? undefined,
           day_of_price: event.day_of_price ?? undefined,
           team_day_of_price: event.team_day_of_price ?? undefined,
@@ -148,6 +156,7 @@ export default function EventFormModal({
           location: "",
           description: "",
           signupLink: "",
+          time_zone: DEFAULT_TIME_ZONE,
           price: undefined,
           day_of_price: undefined,
           team_day_of_price: undefined,
@@ -227,8 +236,9 @@ export default function EventFormModal({
     e.preventDefault();
     setError("");
     if (formData.ends_at && formData.starts_at) {
-      const startISO = fromDateTimeLocalChicago(formData.starts_at);
-      const endISO = fromDateTimeLocalChicago(formData.ends_at);
+      const tz = formData.time_zone || DEFAULT_TIME_ZONE;
+      const startISO = fromDateTimeLocalInTimeZone(formData.starts_at, tz);
+      const endISO = fromDateTimeLocalInTimeZone(formData.ends_at, tz);
       if (startISO && endISO && endISO < startISO) {
         setError("End date & time must be on or after start date & time.");
         return;
@@ -243,23 +253,25 @@ export default function EventFormModal({
       const method = isEditMode ? "PUT" : "POST";
 
       // In edit mode, if user didn't change start/end time, send original values so time never shifts
+      const tz = formData.time_zone || DEFAULT_TIME_ZONE;
       const startUnchanged =
         isEditMode &&
         event?.starts_at &&
-        formData.starts_at === toDateTimeLocalChicago(event.starts_at);
+        formData.starts_at === toDateTimeLocalInTimeZone(event.starts_at, tz);
       const endUnchanged =
         isEditMode &&
         event?.ends_at != null &&
-        formData.ends_at === toDateTimeLocalChicago(event.ends_at);
+        formData.ends_at === toDateTimeLocalInTimeZone(event.ends_at, tz);
 
       const submitData: any = {
         title: formData.title,
         starts_at: startUnchanged
           ? event!.starts_at
           : formData.starts_at
-            ? fromDateTimeLocalChicago(formData.starts_at)
+            ? fromDateTimeLocalInTimeZone(formData.starts_at, tz)
             : "",
         location: formData.location,
+        time_zone: tz,
       };
 
       if (formData.description !== undefined) {
@@ -280,7 +292,7 @@ export default function EventFormModal({
         isConvention && formData.ends_at
           ? endUnchanged
             ? event!.ends_at!
-            : fromDateTimeLocalChicago(formData.ends_at)
+            : fromDateTimeLocalInTimeZone(formData.ends_at, tz)
           : null;
 
       const response = await fetch(url, {
@@ -369,6 +381,27 @@ export default function EventFormModal({
                 }
                 className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Time zone *
+              </label>
+              <select
+                value={formData.time_zone || DEFAULT_TIME_ZONE}
+                onChange={(e) => setFormData({ ...formData, time_zone: e.target.value })}
+                className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="America/Chicago">Central Time</option>
+                <option value="America/New_York">Eastern Time</option>
+                <option value="America/Denver">Mountain Time</option>
+                <option value="America/Los_Angeles">Pacific Time</option>
+              </select>
+              <p className="text-xs text-gray-400 mt-1">
+                Times are saved relative to this event’s time zone.
+              </p>
             </div>
           </div>
 

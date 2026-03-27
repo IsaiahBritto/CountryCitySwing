@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import {
   DEFAULT_TIME_ZONE,
+  fromDateTimeLocalInTimeZone,
   formatDateInTimeZone,
   formatTimeRangeWithTimeZone,
 } from "@/lib/utils/dateHelpers";
@@ -102,8 +103,8 @@ export default function InstructorSlotManager({
 
     setLoading(true);
 
-    // Create base date/time
-    const baseDate = new Date(`${selectedDate}T${selectedTime}`);
+    // Use date-only for recurring day generation to avoid local-time offsets.
+    const baseDate = new Date(`${selectedDate}T00:00:00`);
     const timeString = selectedTime; // Keep time string for reuse
 
     // Generate all slot dates
@@ -132,7 +133,12 @@ export default function InstructorSlotManager({
       const year = slotDate.getFullYear();
       const month = String(slotDate.getMonth() + 1).padStart(2, '0');
       const day = String(slotDate.getDate()).padStart(2, '0');
-      const start = new Date(`${year}-${month}-${day}T${timeString}`);
+      const localDateTime = `${year}-${month}-${day}T${timeString}`;
+      const startIso = fromDateTimeLocalInTimeZone(localDateTime, selectedTimeZone);
+      if (!startIso) {
+        continue;
+      }
+      const start = new Date(startIso);
       const end = new Date(start.getTime() + duration * 60000);
 
       // Check for overlaps

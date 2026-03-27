@@ -4,7 +4,12 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { useEffect, useState, useCallback } from "react";
 import { XMarkIcon } from "@heroicons/react/24/solid";
 import dayjs from "dayjs";
-import { DEFAULT_TIME_ZONE, formatTimeRangeWithTimeZone } from "@/lib/utils/dateHelpers";
+import {
+  DEFAULT_TIME_ZONE,
+  formatTimeRangeWithTimeZone,
+  toDateTimeLocalInTimeZone,
+  fromDateTimeLocalInTimeZone,
+} from "@/lib/utils/dateHelpers";
 
 interface BookingInfo {
   id: string;
@@ -90,10 +95,12 @@ export default function InstructorSlotEditModal({
 
   useEffect(() => {
     // Initialize form with current slot data
-    const startDate = dayjs(slot.start);
-    setDate(startDate.format("YYYY-MM-DD"));
-    setTime(startDate.format("HH:mm"));
-    setTimeZone(slot.time_zone || DEFAULT_TIME_ZONE);
+    const tz = slot.time_zone || DEFAULT_TIME_ZONE;
+    const localDateTime = toDateTimeLocalInTimeZone(slot.start, tz);
+    const [d, t] = localDateTime.split("T");
+    setDate(d || dayjs(slot.start).format("YYYY-MM-DD"));
+    setTime(t || dayjs(slot.start).format("HH:mm"));
+    setTimeZone(tz);
     setDuration(slot.duration_minutes || 60);
     setPrice(slot.price || null);
 
@@ -112,7 +119,13 @@ export default function InstructorSlotEditModal({
     }
 
     setSaving(true);
-    const start = new Date(`${date}T${time}`);
+    const startIso = fromDateTimeLocalInTimeZone(`${date}T${time}`, timeZone);
+    if (!startIso) {
+      setSaving(false);
+      alert("Invalid date/time for selected time zone.");
+      return;
+    }
+    const start = new Date(startIso);
     const end = new Date(start.getTime() + duration * 60000);
 
     const updateData: any = {

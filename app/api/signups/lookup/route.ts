@@ -62,7 +62,9 @@ export async function GET(req: NextRequest) {
     if (parsed.type === "event") {
       const { data, error } = await supabaseServer
         .from("signups")
-        .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at")
+        .select(
+          "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at"
+        )
         .eq("id", parsed.id)
         .single();
       if (error || !data) {

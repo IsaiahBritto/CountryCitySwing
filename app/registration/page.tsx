@@ -270,15 +270,22 @@ export default function RegistrationPage() {
       });
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const text = await response.text();
+        let errorData: { error?: string; details?: string; message?: string } = {};
+        try {
+          errorData = text ? JSON.parse(text) : {};
+        } catch {
+          errorData = { message: text?.slice(0, 500) || "Non-JSON error body" };
+        }
         console.error("Error loading signups:", {
           status: response.status,
           statusText: response.statusText,
-          error: errorData.error,
+          error: errorData.error ?? errorData.message,
+          details: errorData.details,
           eventId,
           isInstructor,
           isAdmin,
-          userRole
+          userRole,
         });
         setSignups([]);
         setCompSignups([]);

@@ -3,6 +3,12 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { computeCheckInArrivalBuckets } from "@/lib/utils/checkInArrivalBuckets";
 
+const COMP_SIGNUPS_SELECT =
+  "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee";
+
+const SIGNUPS_SELECT =
+  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code";
+
 const EVENT_META_CACHE_TTL_MS = 60_000; // 60 seconds
 const eventMetaCache = new Map<
   string,
@@ -144,16 +150,17 @@ export async function GET(req: NextRequest) {
     if (isComp) {
       const { data: compList, error: compError } = await supabaseServer
         .from("comp_signups")
-        .select(
-          "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee"
-        )
+        .select(COMP_SIGNUPS_SELECT)
         .eq("event_id", eventId)
         .order("created_at", { ascending: false });
 
       if (compError) {
         console.error("Error fetching comp signups:", compError);
         return NextResponse.json(
-          { error: "Failed to fetch comp signups" },
+          {
+            error: "Failed to fetch comp signups",
+            details: compError.message,
+          },
           { status: 500 }
         );
       }
@@ -184,16 +191,17 @@ export async function GET(req: NextRequest) {
     // Regular event: fetch from signups table
     const { data: allSignups, error } = await supabaseServer
       .from("signups")
-      .select(
-        "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code"
-      )
+      .select(SIGNUPS_SELECT)
       .eq("event_id", eventId)
       .order("first_name", { ascending: true });
 
     if (error) {
       console.error("Error fetching signups:", error);
       return NextResponse.json(
-        { error: "Failed to fetch signups" },
+        {
+          error: "Failed to fetch signups",
+          details: error.message,
+        },
         { status: 500 }
       );
     }
@@ -325,7 +333,7 @@ export async function PATCH(req: NextRequest) {
       if (error) {
         console.error("Error updating comp signup:", error);
         return NextResponse.json(
-          { error: "Failed to update comp signup" },
+          { error: "Failed to update comp signup", details: error.message },
           { status: 500 }
         );
       }
@@ -358,7 +366,7 @@ export async function PATCH(req: NextRequest) {
     if (error) {
       console.error("Error updating signup:", error);
       return NextResponse.json(
-        { error: "Failed to update signup" },
+        { error: "Failed to update signup", details: error.message },
         { status: 500 }
       );
     }

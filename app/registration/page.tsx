@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
 import {
@@ -13,6 +13,10 @@ import {
   getEventDateString,
   getDateStringInTimeZone,
 } from "@/lib/utils/dateHelpers";
+import {
+  type CheckInArrivalBuckets,
+  EMPTY_CHECK_IN_ARRIVAL_BUCKETS,
+} from "@/lib/utils/checkInArrivalBuckets";
 import QRCheckInScanner from "@/components/QRCheckInScanner";
 
 interface Event {
@@ -35,6 +39,7 @@ interface Signup {
   payment_method: string;
   paid: boolean;
   checked_in: boolean;
+  checked_in_at?: string | null;
   created_at: string;
 }
 
@@ -60,6 +65,7 @@ interface CompSignup {
   amount_owed: number;
   paid: boolean;
   checked_in?: boolean;
+  checked_in_at?: string | null;
   created_at: string;
 }
 
@@ -90,6 +96,9 @@ export default function RegistrationPage() {
   const [scannedResult, setScannedResult] = useState<{ signup: Signup | CompSignup; isComp: boolean } | null>(null);
   const [scannedCheckInFading, setScannedCheckInFading] = useState(false);
   const [wrongEventMessage, setWrongEventMessage] = useState<string | null>(null);
+  const [arrivalBuckets, setArrivalBuckets] = useState<CheckInArrivalBuckets>(
+    EMPTY_CHECK_IN_ARRIVAL_BUCKETS
+  );
 
   useEffect(() => {
     const loadUser = async () => {
@@ -246,6 +255,7 @@ export default function RegistrationPage() {
         setCompSignups([]);
         setTotalCount(0);
         setCheckedInCount(0);
+        setArrivalBuckets({ ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS });
         return;
       }
 
@@ -275,6 +285,7 @@ export default function RegistrationPage() {
         setIsCompEvent(false);
         setTotalCount(0);
         setCheckedInCount(0);
+        setArrivalBuckets({ ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS });
         return;
       }
 
@@ -288,12 +299,18 @@ export default function RegistrationPage() {
         setSignups([]);
         setTotalCount(typeof data.total === "number" ? data.total : list.length);
         setCheckedInCount(typeof data.checked_in === "number" ? data.checked_in : list.filter((c: CompSignup) => c.checked_in).length);
+        setArrivalBuckets(
+          data.check_in_arrival_buckets ?? { ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS }
+        );
         console.log("Comp signups loaded:", list.length, "for event", eventId);
       } else {
         const signupsList = data.signups || [];
         setCompSignups([]);
         setTotalCount(typeof data.total === "number" ? data.total : signupsList.length);
         setCheckedInCount(typeof data.checked_in === "number" ? data.checked_in : signupsList.filter((s: Signup) => s.checked_in).length);
+        setArrivalBuckets(
+          data.check_in_arrival_buckets ?? { ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS }
+        );
         const sorted = signupsList.sort((a: Signup, b: Signup) =>
           a.first_name.localeCompare(b.first_name, undefined, { sensitivity: "base" })
         );
@@ -307,6 +324,7 @@ export default function RegistrationPage() {
       setIsCompEvent(false);
       setTotalCount(0);
       setCheckedInCount(0);
+      setArrivalBuckets({ ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS });
     }
   };
 
@@ -315,13 +333,12 @@ export default function RegistrationPage() {
     field: "paid" | "checked_in",
     value: boolean,
     isCompSignup = false
-  ): Promise<boolean> => {
+  ): Promise<{ success: boolean; signup?: Signup | CompSignup }> => {
     setUpdating(signupId);
     try {
       if (!sessionToken) {
         alert("Not authenticated");
-        setUpdating(null);
-        return false;
+        return { success: false };
       }
 
       const response = await fetch("/api/signups", {
@@ -346,51 +363,60 @@ export default function RegistrationPage() {
           error: errorData.error,
         });
         alert("Failed to update signup status");
-        setUpdating(null);
-        return false;
-      } else {
-        // If checking in while viewing "not_checked_in" filter, trigger fade-out
-        if (field === "checked_in" && value === true && filter === "not_checked_in") {
-          setFadingOut((prev) => new Set(prev).add(signupId));
-          if (isCompSignup) {
-            setCheckedInCount((prev) => prev + 1);
-            setCompSignups((prev) =>
-              prev.map((c) =>
-                c.id === signupId ? { ...c, checked_in: true, paid: true } : c
-              )
-            );
-            setTimeout(() => {
-              setCompSignups((prev) => prev.filter((c) => c.id !== signupId));
-              setFadingOut((prev) => {
-                const next = new Set(prev);
-                next.delete(signupId);
-                return next;
-              });
-            }, 2000);
-          } else {
-            setSignups((prev) =>
-              prev.map((s) =>
-                s.id === signupId ? { ...s, checked_in: true, paid: true } : s
-              )
-            );
-            setTimeout(() => {
-              setSignups((prev) => prev.filter((s) => s.id !== signupId));
-              setFadingOut((prev) => {
-                const next = new Set(prev);
-                next.delete(signupId);
-                return next;
-              });
-            }, 2000);
-          }
-        } else {
-          if (selectedEvent) loadSignups(selectedEvent.id);
-        }
+        return { success: false };
       }
-      return true;
+
+      const result = await response.json();
+      const updatedSignup = result.signup as Signup | CompSignup | undefined;
+      const checkedInAtFromServer =
+        updatedSignup != null ? (updatedSignup as Signup | CompSignup).checked_in_at : undefined;
+
+      // If checking in while viewing "not_checked_in" filter, trigger fade-out
+      if (field === "checked_in" && value === true && filter === "not_checked_in") {
+        setFadingOut((prev) => new Set(prev).add(signupId));
+        const at =
+          typeof checkedInAtFromServer === "string"
+            ? checkedInAtFromServer
+            : new Date().toISOString();
+        if (isCompSignup) {
+          setCheckedInCount((prev) => prev + 1);
+          setCompSignups((prev) =>
+            prev.map((c) =>
+              c.id === signupId ? { ...c, checked_in: true, paid: true, checked_in_at: at } : c
+            )
+          );
+          setTimeout(() => {
+            setCompSignups((prev) => prev.filter((c) => c.id !== signupId));
+            setFadingOut((prev) => {
+              const next = new Set(prev);
+              next.delete(signupId);
+              return next;
+            });
+          }, 2000);
+        } else {
+          setSignups((prev) =>
+            prev.map((s) =>
+              s.id === signupId ? { ...s, checked_in: true, paid: true, checked_in_at: at } : s
+            )
+          );
+          setTimeout(() => {
+            setSignups((prev) => prev.filter((s) => s.id !== signupId));
+            setFadingOut((prev) => {
+              const next = new Set(prev);
+              next.delete(signupId);
+              return next;
+            });
+          }, 2000);
+        }
+      } else {
+        if (selectedEvent) loadSignups(selectedEvent.id);
+      }
+
+      return { success: true, signup: updatedSignup };
     } catch (err) {
       console.error("Error:", err);
       alert("Failed to update signup status");
-      return false;
+      return { success: false };
     } finally {
       setUpdating(null);
     }
@@ -605,6 +631,54 @@ export default function RegistrationPage() {
             {isCompEvent ? `${totalCount} comp registration(s) · ${checkedInCount} checked in` : `${totalCount} signed up · ${checkedInCount} checked in`}
           </p>
 
+          {checkedInCount > 0 && (
+            <div className="mb-4 rounded-lg border border-neutral-600 bg-neutral-900/50 p-4">
+              <h3 className="text-sm font-semibold text-white mb-1">Check-in timing vs. start</h3>
+              <p className="text-xs text-gray-500 mb-3">
+                Each count is registrations checked in during that window after scheduled start (
+                {selectedEvent.time_zone || DEFAULT_TIME_ZONE}). “Before start” is before that time; “Unknown
+                time” is checked in with no timestamp (e.g. before this feature).
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 text-sm">
+                <div className="rounded-md bg-neutral-800/80 px-3 py-2 border border-neutral-700">
+                  <div className="text-gray-400 text-xs">0–30 min</div>
+                  <div className="text-white font-semibold text-lg tabular-nums">{arrivalBuckets.m0_30}</div>
+                </div>
+                <div className="rounded-md bg-neutral-800/80 px-3 py-2 border border-neutral-700">
+                  <div className="text-gray-400 text-xs">30–35 min</div>
+                  <div className="text-white font-semibold text-lg tabular-nums">{arrivalBuckets.m30_35}</div>
+                </div>
+                <div className="rounded-md bg-neutral-800/80 px-3 py-2 border border-neutral-700">
+                  <div className="text-gray-400 text-xs">35–40 min</div>
+                  <div className="text-white font-semibold text-lg tabular-nums">{arrivalBuckets.m35_40}</div>
+                </div>
+                <div className="rounded-md bg-neutral-800/80 px-3 py-2 border border-neutral-700">
+                  <div className="text-gray-400 text-xs">40–45 min</div>
+                  <div className="text-white font-semibold text-lg tabular-nums">{arrivalBuckets.m40_45}</div>
+                </div>
+                <div className="rounded-md bg-neutral-800/80 px-3 py-2 border border-neutral-700 sm:col-span-2 md:col-span-1">
+                  <div className="text-gray-400 text-xs">45+ min</div>
+                  <div className="text-white font-semibold text-lg tabular-nums">{arrivalBuckets.m45plus}</div>
+                </div>
+              </div>
+              {(arrivalBuckets.beforeStart > 0 || arrivalBuckets.unknownTime > 0) && (
+                <div className="mt-3 flex flex-wrap gap-4 text-xs text-gray-400">
+                  {arrivalBuckets.beforeStart > 0 && (
+                    <span>
+                      Before start: <span className="text-gray-200 font-medium tabular-nums">{arrivalBuckets.beforeStart}</span>
+                    </span>
+                  )}
+                  {arrivalBuckets.unknownTime > 0 && (
+                    <span>
+                      Unknown time:{" "}
+                      <span className="text-gray-200 font-medium tabular-nums">{arrivalBuckets.unknownTime}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {isCompEvent ? (
             compSignups.length === 0 ? (
               <p className="text-gray-400">No comp signups found for this event.</p>
@@ -807,8 +881,10 @@ export default function RegistrationPage() {
                     <>
                       <button
                         onClick={async () => {
-                          const ok = await updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as CompSignup).paid, true);
-                          if (ok) setScannedResult((prev) => prev ? { ...prev, signup: { ...prev.signup, paid: true } } : null);
+                          const res = await updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as CompSignup).paid, true);
+                          if (res.success && res.signup) {
+                            setScannedResult((prev) => (prev ? { ...prev, signup: res.signup! } : null));
+                          }
                         }}
                         disabled={updating === scannedResult.signup.id || !!(scannedResult.signup as CompSignup).checked_in}
                         className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 disabled:opacity-50"
@@ -817,8 +893,16 @@ export default function RegistrationPage() {
                       </button>
                       <button
                         onClick={async () => {
-                          const ok = await updateSignupStatus(scannedResult.signup.id, "checked_in", !(scannedResult.signup as CompSignup).checked_in, true);
-                          if (ok) {
+                          const res = await updateSignupStatus(
+                            scannedResult.signup.id,
+                            "checked_in",
+                            !(scannedResult.signup as CompSignup).checked_in,
+                            true
+                          );
+                          if (res.success) {
+                            if (res.signup) {
+                              setScannedResult((prev) => (prev ? { ...prev, signup: res.signup! } : null));
+                            }
                             setScannedCheckInFading(true);
                             if (selectedEvent) loadSignups(selectedEvent.id);
                             setTimeout(() => {
@@ -838,8 +922,10 @@ export default function RegistrationPage() {
                     <>
                       <button
                         onClick={async () => {
-                          const ok = await updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as Signup).paid);
-                          if (ok) setScannedResult((prev) => prev ? { ...prev, signup: { ...prev.signup, paid: true } } : null);
+                          const res = await updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as Signup).paid);
+                          if (res.success && res.signup) {
+                            setScannedResult((prev) => (prev ? { ...prev, signup: res.signup! } : null));
+                          }
                         }}
                         disabled={updating === scannedResult.signup.id || (scannedResult.signup as Signup).checked_in}
                         className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 disabled:opacity-50"
@@ -848,8 +934,15 @@ export default function RegistrationPage() {
                       </button>
                       <button
                         onClick={async () => {
-                          const ok = await updateSignupStatus(scannedResult.signup.id, "checked_in", !(scannedResult.signup as Signup).checked_in);
-                          if (ok) {
+                          const res = await updateSignupStatus(
+                            scannedResult.signup.id,
+                            "checked_in",
+                            !(scannedResult.signup as Signup).checked_in
+                          );
+                          if (res.success) {
+                            if (res.signup) {
+                              setScannedResult((prev) => (prev ? { ...prev, signup: res.signup! } : null));
+                            }
                             setScannedCheckInFading(true);
                             if (selectedEvent) loadSignups(selectedEvent.id);
                             setTimeout(() => {

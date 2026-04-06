@@ -1,22 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
+import { computeCheckInArrivalBuckets } from "@/lib/utils/checkInArrivalBuckets";
 
-const EVENT_TYPE_CACHE_TTL_MS = 60_000; // 60 seconds
-const eventTypeCache = new Map<string, { type: string; ts: number }>();
+const EVENT_META_CACHE_TTL_MS = 60_000; // 60 seconds
+const eventMetaCache = new Map<
+  string,
+  { type: string; starts_at: string | null; ts: number }
+>();
 
-function getCachedEventType(eventId: string): string | null {
-  const entry = eventTypeCache.get(eventId);
+function getCachedEventMeta(eventId: string): { type: string; starts_at: string | null } | null {
+  const entry = eventMetaCache.get(eventId);
   if (!entry) return null;
-  if (Date.now() - entry.ts > EVENT_TYPE_CACHE_TTL_MS) {
-    eventTypeCache.delete(eventId);
+  if (Date.now() - entry.ts > EVENT_META_CACHE_TTL_MS) {
+    eventMetaCache.delete(eventId);
     return null;
   }
-  return entry.type;
+  return { type: entry.type, starts_at: entry.starts_at };
 }
 
-function setCachedEventType(eventId: string, type: string) {
-  eventTypeCache.set(eventId, { type, ts: Date.now() });
+function setCachedEventMeta(eventId: string, type: string, starts_at: string | null) {
+  eventMetaCache.set(eventId, { type, starts_at, ts: Date.now() });
 }
 
 // Helper to get user from access token (catches network/timeout so we don't throw)
@@ -113,11 +117,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    let eventType: string | null = getCachedEventType(eventId);
-    if (eventType === null) {
+    let eventMeta = getCachedEventMeta(eventId);
+    if (eventMeta === null) {
       const { data: eventRow, error: eventError } = await supabaseServer
         .from("events")
-        .select("type")
+        .select("type, starts_at")
         .eq("id", eventId)
         .single();
 
@@ -128,17 +132,20 @@ export async function GET(req: NextRequest) {
         );
       }
       const typeStr = (eventRow.type || "").toString();
-      eventType = typeStr;
-      setCachedEventType(eventId, typeStr);
+      const startsAt =
+        eventRow.starts_at != null ? String(eventRow.starts_at) : null;
+      eventMeta = { type: typeStr, starts_at: startsAt };
+      setCachedEventMeta(eventId, typeStr, startsAt);
     }
 
-    const isComp = (eventType ?? "").toLowerCase() === "comp";
+    const eventStartsAt = eventMeta.starts_at;
+    const isComp = (eventMeta.type ?? "").toLowerCase() === "comp";
 
     if (isComp) {
       const { data: compList, error: compError } = await supabaseServer
         .from("comp_signups")
         .select(
-          "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee"
+          "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee"
         )
         .eq("event_id", eventId)
         .order("created_at", { ascending: false });
@@ -153,6 +160,10 @@ export async function GET(req: NextRequest) {
 
       const list = compList || [];
       const compCheckedIn = list.filter((c: { checked_in?: boolean }) => c.checked_in === true).length;
+      const check_in_arrival_buckets = computeCheckInArrivalBuckets(
+        list,
+        eventStartsAt
+      );
       let compSignups = list;
       if (filter === "not_checked_in") {
         compSignups = list.filter((c: { checked_in?: boolean }) => c.checked_in !== true);
@@ -166,6 +177,7 @@ export async function GET(req: NextRequest) {
         isComp: true,
         total: list.length,
         checked_in: compCheckedIn,
+        check_in_arrival_buckets,
       });
     }
 
@@ -173,7 +185,7 @@ export async function GET(req: NextRequest) {
     const { data: allSignups, error } = await supabaseServer
       .from("signups")
       .select(
-        "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,created_at,is_ccs_team,amount_owed,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code"
+        "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code"
       )
       .eq("event_id", eventId)
       .order("first_name", { ascending: true });
@@ -189,6 +201,10 @@ export async function GET(req: NextRequest) {
     const list = allSignups || [];
     const total = list.length;
     const checked_in = list.filter((s: { checked_in?: boolean }) => s.checked_in === true).length;
+    const check_in_arrival_buckets = computeCheckInArrivalBuckets(
+      list,
+      eventStartsAt
+    );
 
     // Apply filter to list
     let signups = list;
@@ -198,7 +214,14 @@ export async function GET(req: NextRequest) {
       signups = list.filter((s: { checked_in?: boolean }) => s.checked_in === true);
     }
 
-    return NextResponse.json({ signups, compSignups: [], isComp: false, total, checked_in });
+    return NextResponse.json({
+      signups,
+      compSignups: [],
+      isComp: false,
+      total,
+      checked_in,
+      check_in_arrival_buckets,
+    });
   } catch (error: any) {
     console.error("Error:", error);
     return NextResponse.json(
@@ -274,14 +297,24 @@ export async function PATCH(req: NextRequest) {
           { status: 400 }
         );
       }
-      const updatePayload: { paid?: boolean; checked_in?: boolean; updated_at: string } = {
+      const updatePayload: {
+        paid?: boolean;
+        checked_in?: boolean;
+        checked_in_at?: string | null;
+        updated_at: string;
+      } = {
         updated_at: new Date().toISOString(),
       };
       if (field === "paid") {
         updatePayload.paid = !!value;
       } else {
         updatePayload.checked_in = !!value;
-        if (value === true) updatePayload.paid = true;
+        if (value === true) {
+          updatePayload.paid = true;
+          updatePayload.checked_in_at = new Date().toISOString();
+        } else {
+          updatePayload.checked_in_at = null;
+        }
       }
       const { data, error } = await supabaseServer
         .from("comp_signups")
@@ -306,9 +339,13 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const updateData: any = { [field]: value };
+    const updateData: Record<string, unknown> = { [field]: value };
     if (field === "checked_in" && value === true) {
       updateData.paid = true;
+      updateData.checked_in_at = new Date().toISOString();
+    }
+    if (field === "checked_in" && value === false) {
+      updateData.checked_in_at = null;
     }
 
     const { data, error } = await supabaseServer

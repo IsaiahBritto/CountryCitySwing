@@ -2,6 +2,7 @@
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { useState } from "react";
 import { DEFAULT_TIME_ZONE, formatDateInTimeZone, formatTimeRangeWithTimeZone } from "@/lib/utils/dateHelpers";
+import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 
 export default function LessonBookingModal({ slot, onClose }: any) {
   const [name, setName] = useState("");
@@ -22,8 +23,8 @@ export default function LessonBookingModal({ slot, onClose }: any) {
         .from("lesson_slots")
         .update({ is_booked: true })
         .eq("id", slot.id);
-      alert("Lesson booked successfully!");
-      onClose();
+      emitCcsSuccessToast("Lesson booked successfully.");
+      setTimeout(() => onClose(), 400);
     } else {
       alert("Failed to book lesson: " + error.message);
     }

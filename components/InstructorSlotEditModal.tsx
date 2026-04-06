@@ -10,6 +10,7 @@ import {
   toDateTimeLocalInTimeZone,
   fromDateTimeLocalInTimeZone,
 } from "@/lib/utils/dateHelpers";
+import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 
 interface BookingInfo {
   id: string;
@@ -208,9 +209,9 @@ export default function InstructorSlotEditModal({
     }
 
     setSaving(false);
-    alert("Slot updated successfully!");
+    emitCcsSuccessToast("Lesson slot updated successfully.");
     onUpdate();
-    onClose();
+    setTimeout(() => onClose(), 300);
   }
 
   async function handleUnbook() {
@@ -243,9 +244,9 @@ export default function InstructorSlotEditModal({
     if (slotError) {
       alert("Error updating slot: " + slotError.message);
     } else {
-      alert("Booking removed successfully!");
+      emitCcsSuccessToast("Booking removed successfully.");
       onUpdate();
-      onClose();
+      setTimeout(() => onClose(), 300);
     }
   }
 
@@ -275,9 +276,9 @@ export default function InstructorSlotEditModal({
     if (error) {
       alert("Error deleting slot: " + error.message);
     } else {
-      alert("Slot deleted successfully!");
+      emitCcsSuccessToast("Slot deleted successfully.");
       onUpdate();
-      onClose();
+      setTimeout(() => onClose(), 300);
     }
   }
 

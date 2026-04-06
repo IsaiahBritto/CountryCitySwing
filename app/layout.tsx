@@ -3,6 +3,7 @@ import { ReactNode } from "react";
 import Navbar from "../components/Navbar";
 import Footer from "../components/Footer";
 import CartProviderWrapper from "../components/CartProviderWrapper";
+import CcsToastHost from "../components/CcsToastHost";
 
 export const metadata = {
   title: "Country City Swing",
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" className="dark">
       <body className="bg-neutral-900 text-neutral-100 font-sans min-h-screen antialiased flex flex-col">
         <CartProviderWrapper>
+          <CcsToastHost />
           {/* Navbar */}
           <Navbar />
 

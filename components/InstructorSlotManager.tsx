@@ -8,6 +8,7 @@ import {
   formatDateInTimeZone,
   formatTimeRangeWithTimeZone,
 } from "@/lib/utils/dateHelpers";
+import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 
 interface LessonSlot {
   id: string;
@@ -214,22 +215,22 @@ export default function InstructorSlotManager({
     const successful = results.filter(r => r.success);
     const failed = results.filter(r => !r.success);
 
-    let message = `✅ Successfully added ${successful.length} slot(s)!\n`;
+    let message = `Successfully added ${successful.length} slot(s).`;
     
     if (failed.length > 0) {
       const failedDates = failed.map(f => f.date.toLocaleDateString()).join(', ');
-      message += `\n❌ Failed to add ${failed.length} slot(s):\n${failedDates}`;
+      message += ` Failed to add ${failed.length} slot(s): ${failedDates}.`;
       if (failed[0].error) {
-        message += `\n\nError: ${failed[0].error}`;
+        message += ` Error: ${failed[0].error}`;
       }
     }
 
     if (overlappingSlots.length > 0 && slotsToInsert.length > 0) {
       const overlapDates = overlappingSlots.map(os => os.date.toLocaleDateString()).join(', ');
-      message += `\n\n⚠️ Skipped ${overlappingSlots.length} overlapping slot(s):\n${overlapDates}`;
+      message += ` Skipped ${overlappingSlots.length} overlapping slot(s): ${overlapDates}.`;
     }
 
-    alert(message);
+    emitCcsSuccessToast(message);
 
     // Reset form if all slots were added successfully
     if (failed.length === 0 && overlappingSlots.length === 0) {

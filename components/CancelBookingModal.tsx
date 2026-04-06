@@ -8,6 +8,7 @@ import {
   formatDateInTimeZone,
   formatTimeRangeWithTimeZone,
 } from "@/lib/utils/dateHelpers";
+import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 
 interface CancelBookingModalProps {
   slot: {
@@ -105,9 +106,9 @@ export default function CancelBookingModal({
     if (slotError) {
       alert("Error updating slot: " + slotError.message);
     } else {
-      alert("✅ Lesson booking canceled successfully!");
+      emitCcsSuccessToast("Lesson booking canceled successfully.");
       onCancel();
-      onClose();
+      setTimeout(() => onClose(), 400);
     }
   }
 

@@ -12,6 +12,7 @@ import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
 import EventFormModal from "@/components/EventFormModal";
 import EventsListSkeleton from "@/components/EventsListSkeleton";
+import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 import {
   DEFAULT_TIME_ZONE,
   formatEventDate,
@@ -137,6 +138,9 @@ export default function Home() {
 
   const handleEventSaved = () => {
     loadEvents();
+    emitCcsSuccessToast(
+      eventToEdit ? "Event updated successfully." : "Event created successfully."
+    );
   };
 
   const handleEditEvent = (event: any) => {

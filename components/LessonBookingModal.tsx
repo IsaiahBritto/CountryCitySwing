@@ -8,6 +8,7 @@ import {
   formatDateInTimeZone,
   formatTimeRangeWithTimeZone,
 } from "@/lib/utils/dateHelpers";
+import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 
 interface LessonBookingModalProps {
   slot: {
@@ -209,8 +210,8 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
         // Don't fail the booking if email fails
       }
 
-      alert("✅ Lesson booked successfully!");
-      onClose(); // trigger calendar refresh + close modal
+      emitCcsSuccessToast("Private lesson booked successfully.");
+      setTimeout(() => onClose(), 400); // trigger calendar refresh + close modal
     } else {
       alert("❌ Booking failed: " + error.message);
     }

@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 import { eventSignupToken } from "@/lib/utils/qrCheckIn";
+import { compSignupToken } from "@/lib/utils/qrCheckIn";
 import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
 
 function getWebhookBaseUrl(): string {
@@ -16,6 +17,117 @@ export const runtime = "nodejs";
 
 // Route segment config for Next.js App Router
 export const dynamic = "force-dynamic";
+
+function getCompPrimaryEmail(comp: Record<string, any>): string | null {
+  return (
+    comp.strictly_lead_email ||
+    comp.jnj_lead_email ||
+    comp.strictly_follow_email ||
+    comp.jnj_follow_email ||
+    null
+  );
+}
+
+async function sendCompStripeConfirmationEmail(compSignupId: string) {
+  const { data: comp, error: fetchCompError } = await supabaseServer
+    .from("comp_signups")
+    .select(
+      "id,event_id,event_title,amount_owed,payment_method,strictly_lead_email,strictly_follow_email,jnj_lead_email,jnj_follow_email"
+    )
+    .eq("id", compSignupId)
+    .single();
+
+  if (fetchCompError || !comp) {
+    console.error(
+      "Webhook: could not fetch comp signup for confirmation email",
+      compSignupId,
+      fetchCompError
+    );
+    return;
+  }
+
+  const primaryEmail = getCompPrimaryEmail(comp as Record<string, any>);
+  if (!primaryEmail) return;
+
+  let eventDate = "";
+  if (comp.event_id) {
+    const { data: eventData } = await supabaseServer
+      .from("events")
+      .select("starts_at")
+      .eq("id", comp.event_id)
+      .single();
+    if (eventData?.starts_at) {
+      eventDate = formatEventDateInChicago(eventData.starts_at);
+    }
+  }
+
+  const compQrPayload = compSignupToken(compSignupId);
+  const { contentId: qrContentId, attachments: qrAttachments } =
+    await makeQrCodeInlineAttachment(compQrPayload);
+  const amount = Number(comp.amount_owed || 0);
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
+          .content { background-color: #f9f9f9; padding: 20px; }
+          .details-box { background-color: white; border: 2px solid #f2c94c; border-radius: 8px; padding: 20px; margin: 20px 0; }
+          .detail-row { padding: 10px 0; border-bottom: 1px solid #eee; }
+          .detail-row:last-child { border-bottom: none; }
+          .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>Country City Swing</h1>
+            <h2>Comp Registration Confirmation</h2>
+          </div>
+          <div class="content">
+            <p>Your How's My Dancing comp registration has been received.</p>
+            <div class="details-box">
+              <h3 style="margin-top: 0; color: #f2c94c;">${comp.event_title || "Comp Event"}</h3>
+              ${eventDate ? `<div class="detail-row"><strong>Date:</strong> ${eventDate}</div>` : ""}
+              <div class="detail-row"><strong>Amount due:</strong> $${amount.toFixed(2)}</div>
+              <div class="detail-row"><strong>Payment method:</strong> Stripe</div>
+              <div class="detail-row"><strong>Payment status:</strong> Paid</div>
+            </div>
+            <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+              <p style="margin: 0;">Thank you for your payment. Your comp registration is confirmed.</p>
+            </div>
+            <div style="text-align: center; margin: 20px 0; padding: 15px; background: #fff; border-radius: 8px; border: 2px solid #f2c94c;">
+              <p style="margin: 0 0 10px 0; font-size: 0.95em; color: #666;"><strong>Check-in at the event</strong></p>
+              <p style="margin: 0 0 12px 0; font-size: 0.85em; color: #888;">Show this QR code at the door for quick check-in.</p>
+              <img src="cid:${qrContentId}" alt="Check-in QR code" width="160" height="160" style="display: block; margin: 0 auto;" />
+            </div>
+            <p>Questions? Contact us at contact.us@countrycityswing.dance</p>
+          </div>
+          <div class="footer">Country City Swing — Nashville, TN</div>
+        </div>
+      </body>
+    </html>`;
+
+  try {
+    await sendHtmlEmail(
+      primaryEmail,
+      `Comp signup — ${comp.event_title || "Comp Event"}`,
+      html,
+      "confirmation@countrycityswing.dance",
+      undefined,
+      qrAttachments
+    );
+  } catch (e) {
+    console.error(
+      "Webhook: failed sending Stripe comp confirmation email",
+      compSignupId,
+      e
+    );
+  }
+}
 
 function getWebhookSecret(): string {
   const s = process.env.STRIPE_WEBHOOK_SECRET;
@@ -155,6 +267,7 @@ export async function POST(request: NextRequest) {
               { status: 500 }
             );
           }
+          await sendCompStripeConfirmationEmail(compSignupId);
           console.log("Webhook: Comp signup marked paid", compSignupId);
           return NextResponse.json({ received: true });
         }
@@ -208,6 +321,7 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           );
         }
+        await sendCompStripeConfirmationEmail(compSignupId);
         console.log("Webhook: Comp signup created and marked paid", compSignupId);
         return NextResponse.json({ received: true });
       }

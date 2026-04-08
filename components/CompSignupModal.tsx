@@ -16,7 +16,7 @@ type CompEvent = {
   jnj_price?: number | null;
 };
 
-type PaymentMethod = "Stripe" | "Cash" | "Venmo";
+type PaymentMethod = "Stripe" | "Cash";
 
 const ROLE_LEAD = "lead";
 const ROLE_FOLLOW = "follow";
@@ -500,7 +500,6 @@ export default function CompSignupModal({
               {[
                 { value: "Stripe" as PaymentMethod, label: "Stripe (Credit/Debit Card)" },
                 { value: "Cash" as PaymentMethod, label: "Cash" },
-                { value: "Venmo" as PaymentMethod, label: "I already sent a Venmo to @CountryCitySwing" },
               ].map(({ value, label }) => (
                 <label key={value} className="block text-sm">
                   <input
@@ -513,11 +512,6 @@ export default function CompSignupModal({
                   {label}
                 </label>
               ))}
-              {paymentMethod === "Venmo" && (
-                <div className="mt-2 p-3 rounded-lg border border-amber-500/60 bg-amber-950/30 text-amber-200 text-sm">
-                  <strong>Heads up:</strong> We are moving away from Venmo in the future. If you haven&apos;t paid yet, please use Stripe (card) instead of Venmo when possible.
-                </div>
-              )}
             </div>
 
             <div className="p-3 rounded-lg bg-neutral-800 border border-neutral-700">

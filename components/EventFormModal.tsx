@@ -12,6 +12,8 @@ import {
 const CLASS_INTRO = "This is your one stop shop for weekly country swing fun! ";
 const DEFAULT_UPPER_LEVEL_NAMES = "Malissa and Isaiah";
 const DEFAULT_BEGINNER_SENTENCE = "our team of amazing beginner instructors lead the beginner class scheduled weeks";
+/** Canonical title for weekly Nashville class nights (matches admin / finances). */
+const NASHVILLE_CLASS_EVENT_TITLE = "Nashville Country Swing Nights!";
 
 /** Extract "A", "B", or "C" from slot position e.g. "Beginner Lead Teacher Week A". */
 function getWeekLetterFromPosition(position: string): string | null {
@@ -38,6 +40,13 @@ function parseClassDescription(description: string): { upperNames: string; begin
   const upperNames = description.slice(0, idx).replace(CLASS_INTRO, "").trim() || DEFAULT_UPPER_LEVEL_NAMES;
   const beginnerPart = description.slice(idx + sep.length).trim() || DEFAULT_BEGINNER_SENTENCE;
   return { upperNames, beginnerPart };
+}
+
+function looksLikeAutoClassDescription(description: string): boolean {
+  return (
+    description.startsWith(CLASS_INTRO) &&
+    description.includes(" will be instructing the upper level class while ")
+  );
 }
 
 interface Event {
@@ -92,6 +101,7 @@ export default function EventFormModal({
   const [error, setError] = useState("");
   const [classUpperLevelNames, setClassUpperLevelNames] = useState(DEFAULT_UPPER_LEVEL_NAMES);
   const [classBeginnerPart, setClassBeginnerPart] = useState(DEFAULT_BEGINNER_SENTENCE);
+  const [classAutoDescription, setClassAutoDescription] = useState(false);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const upperNamesRef = useRef(classUpperLevelNames);
   upperNamesRef.current = classUpperLevelNames;
@@ -116,19 +126,25 @@ export default function EventFormModal({
         let description = event.description || "";
         let upperNames = DEFAULT_UPPER_LEVEL_NAMES;
         let beginnerPart = DEFAULT_BEGINNER_SENTENCE;
+        let autoDesc = false;
 
-        if (isClass && description) {
-          const parsed = parseClassDescription(description);
-          upperNames = parsed.upperNames;
-          beginnerPart = parsed.beginnerPart;
+        if (isClass) {
+          if (!description) {
+            autoDesc = true;
+            description = buildClassDescription(upperNames, beginnerPart);
+          } else if (looksLikeAutoClassDescription(description)) {
+            autoDesc = true;
+            const parsed = parseClassDescription(description);
+            upperNames = parsed.upperNames;
+            beginnerPart = parsed.beginnerPart;
+          } else {
+            autoDesc = false;
+          }
         }
 
         setClassUpperLevelNames(upperNames);
         setClassBeginnerPart(beginnerPart);
-
-        if (isClass && !description) {
-          description = buildClassDescription(upperNames, beginnerPart);
-        }
+        setClassAutoDescription(autoDesc);
 
         setFormData({
           title: event.title || "",
@@ -149,6 +165,7 @@ export default function EventFormModal({
       } else {
         setClassUpperLevelNames(DEFAULT_UPPER_LEVEL_NAMES);
         setClassBeginnerPart(DEFAULT_BEGINNER_SENTENCE);
+        setClassAutoDescription(false);
         setFormData({
           title: "",
           starts_at: "",
@@ -172,10 +189,10 @@ export default function EventFormModal({
 
   // Keep modal description in sync when Class parts change (e.g. after schedule fetch updates classBeginnerPart).
   useEffect(() => {
-    if (!open || !isClassType) return;
+    if (!open || !isClassType || !classAutoDescription) return;
     const built = buildClassDescription(classUpperLevelNames, classBeginnerPart);
     setFormData((prev) => (prev.description === built ? prev : { ...prev, description: built }));
-  }, [open, isClassType, classUpperLevelNames, classBeginnerPart]);
+  }, [open, isClassType, classAutoDescription, classUpperLevelNames, classBeginnerPart]);
 
   // When modal is open and event is Class with an id, fetch schedule slots and update beginner part.
   // Use event?.type (not formData.type) so we run as soon as the modal opens with a Class event,
@@ -275,9 +292,10 @@ export default function EventFormModal({
       };
 
       if (formData.description !== undefined) {
-        submitData.description = isClassType
-          ? buildClassDescription(classUpperLevelNames, classBeginnerPart)
-          : (formData.description || "");
+        submitData.description =
+          isClassType && classAutoDescription
+            ? buildClassDescription(classUpperLevelNames, classBeginnerPart)
+            : formData.description || "";
       }
       if (formData.signupLink !== undefined) submitData.signupLink = formData.signupLink || "";
       if (formData.price !== undefined) submitData.price = formData.price != null ? Number(formData.price) : null;
@@ -423,20 +441,6 @@ export default function EventFormModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Description
-            </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) =>
-                setFormData({ ...formData, description: e.target.value })
-              }
-              rows={4}
-              className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-            />
-          </div>
-
-            <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
               Type (e.g., "Class", "Workshop", "Comp", "Convention")
             </label>
             <input
@@ -449,11 +453,28 @@ export default function EventFormModal({
                 const isNowClass = (newType || "").trim().toLowerCase() === "class";
                 const wasConvention = (formData.type || "").trim().toLowerCase() === "convention";
                 const isNowConvention = (newType || "").trim().toLowerCase() === "convention";
+
+                if (!wasClass && isNowClass) {
+                  setClassAutoDescription(true);
+                  setFormData((prev) => {
+                    const next = {
+                      ...prev,
+                      type: newType,
+                      description: buildClassDescription(classUpperLevelNames, classBeginnerPart),
+                      title: NASHVILLE_CLASS_EVENT_TITLE,
+                    };
+                    if (wasConvention && !isNowConvention) next.ends_at = undefined;
+                    return next;
+                  });
+                  return;
+                }
+
+                if (wasClass && !isNowClass) {
+                  setClassAutoDescription(false);
+                }
+
                 setFormData((prev) => {
                   const next = { ...prev, type: newType };
-                  if (!wasClass && isNowClass) {
-                    next.description = buildClassDescription(classUpperLevelNames, classBeginnerPart);
-                  }
                   if (wasConvention && !isNowConvention) {
                     next.ends_at = undefined;
                   }
@@ -465,6 +486,32 @@ export default function EventFormModal({
           </div>
 
           {isClassType && (
+            <label className="flex items-start gap-2 text-sm text-gray-200 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1 rounded border-neutral-600 bg-neutral-700 text-primary focus:ring-primary"
+                checked={classAutoDescription}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setClassAutoDescription(on);
+                  if (on) {
+                    setFormData((prev) => ({
+                      ...prev,
+                      description: buildClassDescription(classUpperLevelNames, classBeginnerPart),
+                      title: NASHVILLE_CLASS_EVENT_TITLE,
+                    }));
+                  }
+                }}
+              />
+              <span>
+                Use autogenerated weekly class description (and set title to{" "}
+                <span className="font-medium text-primary">{NASHVILLE_CLASS_EVENT_TITLE}</span>
+                ). Uncheck to write your own title and description.
+              </span>
+            </label>
+          )}
+
+          {isClassType && classAutoDescription && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
                 Upper level instructors (for Class description)
@@ -472,14 +519,7 @@ export default function EventFormModal({
               <input
                 type="text"
                 value={classUpperLevelNames}
-                onChange={(e) => {
-                  const names = e.target.value;
-                  setClassUpperLevelNames(names);
-                  setFormData((prev) => ({
-                    ...prev,
-                    description: buildClassDescription(names, classBeginnerPart),
-                  }));
-                }}
+                onChange={(e) => setClassUpperLevelNames(e.target.value)}
                 placeholder={DEFAULT_UPPER_LEVEL_NAMES}
                 className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
               />
@@ -488,6 +528,28 @@ export default function EventFormModal({
               )}
             </div>
           )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Description
+            </label>
+            <textarea
+              value={formData.description}
+              onChange={(e) =>
+                setFormData({ ...formData, description: e.target.value })
+              }
+              rows={4}
+              disabled={isClassType && classAutoDescription}
+              className={`w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary resize-none ${
+                isClassType && classAutoDescription ? "opacity-80 cursor-not-allowed" : ""
+              }`}
+            />
+            {isClassType && classAutoDescription && (
+              <p className="text-xs text-gray-400 mt-1">
+                Generated from the template above. Uncheck “Use autogenerated…” to edit manually.
+              </p>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {formData.type === "Comp" ? (

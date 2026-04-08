@@ -50,6 +50,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  if (paymentMethod.toLowerCase() === "venmo") {
+    return NextResponse.json(
+      { error: "Venmo is not accepted. Please choose Stripe or Cash." },
+      { status: 400 }
+    );
+  }
+
   // Sanity check: reject only if the same email is already registered for the *same division*
   // (User may submit one form for Strictly and another for JnJ.)
   const norm = (e: unknown) =>
@@ -104,11 +111,7 @@ export async function POST(req: NextRequest) {
   }
 
   const effectivePayment =
-    paymentMethod.toLowerCase() === "cash"
-      ? "Cash"
-      : paymentMethod.toLowerCase() === "venmo"
-        ? "Venmo"
-        : "Stripe";
+    paymentMethod.toLowerCase() === "cash" ? "Cash" : "Stripe";
 
   const insertRow: Record<string, unknown> = {
     event_id: eventId,
@@ -221,7 +224,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Cash or Venmo (or Stripe with $0): insert and send email
+  // Cash or Stripe with $0: insert and send email
   if (effectivePayment === "Stripe" && amountOwed <= 0.5) {
     insertRow.paid = true;
     insertRow.amount_owed = 0;
@@ -262,12 +265,6 @@ export async function POST(req: NextRequest) {
         <p style="margin: 10px 0 0 0;">
           <a href="${paymentLink}" style="display: inline-block; background-color: #F2C94C; color: #000; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">Pay Online via Stripe</a>
         </p>
-      </div>
-    `
-      : effectivePayment === "Venmo"
-        ? `
-      <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
-        <p style="margin: 0;">You indicated you already sent a Venmo to @CountryCitySwing. Thank you!</p>
       </div>
     `
       : amountOwed <= 0.5

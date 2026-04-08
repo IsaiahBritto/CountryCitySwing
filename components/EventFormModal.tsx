@@ -15,6 +15,14 @@ const DEFAULT_BEGINNER_SENTENCE = "our team of amazing beginner instructors lead
 /** Canonical title for weekly Nashville class nights (matches admin / finances). */
 const NASHVILLE_CLASS_EVENT_TITLE = "Nashville Country Swing Nights!";
 
+/** Stored `events.type` values used across the site (carousel, calendar, workshop spotlight). */
+const EVENT_TYPE_OPTIONS = [
+  { value: "Class", label: "Class" },
+  { value: "Workshop", label: "Workshop" },
+  { value: "Comp", label: "Comp" },
+  { value: "Convention", label: "Convention" },
+] as const;
+
 /** Extract "A", "B", or "C" from slot position e.g. "Beginner Lead Teacher Week A". */
 function getWeekLetterFromPosition(position: string): string | null {
   const m = position.match(/Week ([ABC])/i);
@@ -107,7 +115,9 @@ export default function EventFormModal({
   upperNamesRef.current = classUpperLevelNames;
 
   const isEditMode = !!event;
-  const isClassType = (formData.type || "").trim().toLowerCase() === "class";
+  const typeNorm = (formData.type || "").trim().toLowerCase();
+  const isClassType = typeNorm === "class";
+  const isCompType = typeNorm === "comp";
 
   useEffect(() => {
     if (open) {
@@ -423,35 +433,18 @@ export default function EventFormModal({
             </div>
           </div>
 
-          {(formData.type || "").trim().toLowerCase() === "convention" && (
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                End date &amp; time (optional, for multi-day)
-              </label>
-              <input
-                type="datetime-local"
-                value={formData.ends_at ?? ""}
-                onChange={(e) =>
-                  setFormData({ ...formData, ends_at: e.target.value || undefined })
-                }
-                className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
-          )}
-
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Type (e.g., "Class", "Workshop", "Comp", "Convention")
+              Type *
             </label>
-            <input
-              type="text"
-              placeholder="Class, Workshop, Comp, Convention..."
-              value={formData.type}
+            <select
+              required
+              value={formData.type || ""}
               onChange={(e) => {
                 const newType = e.target.value;
-                const wasClass = (formData.type || "").trim().toLowerCase() === "class";
+                const wasClass = typeNorm === "class";
                 const isNowClass = (newType || "").trim().toLowerCase() === "class";
-                const wasConvention = (formData.type || "").trim().toLowerCase() === "convention";
+                const wasConvention = typeNorm === "convention";
                 const isNowConvention = (newType || "").trim().toLowerCase() === "convention";
 
                 if (!wasClass && isNowClass) {
@@ -482,8 +475,37 @@ export default function EventFormModal({
                 });
               }}
               className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
-            />
+            >
+              <option value="">Select type…</option>
+              {EVENT_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+              {formData.type &&
+                !EVENT_TYPE_OPTIONS.some((opt) => opt.value === formData.type) && (
+                  <option value={formData.type}>
+                    {formData.type} (current)
+                  </option>
+                )}
+            </select>
           </div>
+
+          {(formData.type || "").trim().toLowerCase() === "convention" && (
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                End date &amp; time (optional, for multi-day)
+              </label>
+              <input
+                type="datetime-local"
+                value={formData.ends_at ?? ""}
+                onChange={(e) =>
+                  setFormData({ ...formData, ends_at: e.target.value || undefined })
+                }
+                className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+          )}
 
           {isClassType && (
             <label className="flex items-start gap-2 text-sm text-gray-200 cursor-pointer">
@@ -552,7 +574,7 @@ export default function EventFormModal({
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {formData.type === "Comp" ? (
+            {isCompType ? (
               <>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-2">

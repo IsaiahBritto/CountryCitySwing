@@ -7,6 +7,16 @@ import Link from "next/link";
 import { computeNashvillePayouts } from "@/lib/utils/nashvillePayouts";
 
 const NASHVILLE_EVENT_TITLE = "Nashville Country Swing Nights!";
+const NASHVILLE_EVENT_TITLE_NORMALIZED = normalizeEventTitle(NASHVILLE_EVENT_TITLE);
+
+function normalizeEventTitle(title: string): string {
+  return title.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function isNashvilleNightTitle(title: string | null | undefined): boolean {
+  if (!title) return false;
+  return normalizeEventTitle(title) === NASHVILLE_EVENT_TITLE_NORMALIZED;
+}
 
 interface NashvilleFinances {
   id: string;
@@ -580,7 +590,7 @@ export default function AdminFinancesPage() {
           return;
         }
 
-        const isNashville = (ev: Event) => ev.title === NASHVILLE_EVENT_TITLE;
+        const isNashville = (ev: Event) => isNashvilleNightTitle(ev.title);
         const eventIds = eventsInSelectedYear.map((ev) => ev.id);
 
         const metricsRes = await fetch(
@@ -763,7 +773,7 @@ export default function AdminFinancesPage() {
     loadOverview();
   }, [isAdmin, eventsView, selectedYear, eventsInSelectedYear]);
 
-  const isNashvilleEvent = selectedEvent?.title === NASHVILLE_EVENT_TITLE;
+  const isNashvilleEvent = isNashvilleNightTitle(selectedEvent?.title);
   const isWorkshopEvent = (selectedEvent?.type ?? "").toLowerCase() === "workshop";
 
   useEffect(() => {

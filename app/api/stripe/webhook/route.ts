@@ -617,7 +617,7 @@ export async function POST(request: NextRequest) {
               signup.email,
               `Payment Confirmed - ${signup.event_title}`,
               html,
-              undefined,
+              "confirmation@countrycityswing.dance",
               undefined,
               qrAttachments1
             );
@@ -786,7 +786,7 @@ export async function POST(request: NextRequest) {
             signup.email,
             `Payment Confirmed - ${signup.event_title}`,
             html,
-            undefined,
+            "confirmation@countrycityswing.dance",
             undefined,
             qrAttachments2
           );
@@ -996,7 +996,7 @@ export async function POST(request: NextRequest) {
             signup.email,
             `Payment Confirmed - ${signup.event_title}`,
             html,
-            undefined,
+            "confirmation@countrycityswing.dance",
             undefined,
             qrAttachments3
           );

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { updateClassEventDescriptionFromSchedule } from "@/lib/classDescriptionSync";
+import { syncClassFinanceTeachersFromSchedule } from "@/lib/classFinanceSync";
+import { isEventPastInChicago } from "@/lib/utils/dateHelpers";
 
 async function getAuthUser(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -26,6 +28,10 @@ function isInstructorOrAdmin(role: string | null): boolean {
     r === "teacher" ||
     r.includes("teacher")
   );
+}
+
+function isAdmin(role: string | null): boolean {
+  return (role || "").trim().toLowerCase() === "admin";
 }
 
 /**
@@ -99,6 +105,19 @@ export async function POST(
       );
     }
 
+    const { data: event } = await supabaseServer
+      .from("events")
+      .select("starts_at, ends_at")
+      .eq("id", slot.event_id)
+      .maybeSingle();
+
+    if (!isAdmin(role) && event?.starts_at && isEventPastInChicago(event.starts_at, event.ends_at)) {
+      return NextResponse.json(
+        { error: "This event is locked. Instructors can no longer edit assignments after the event day." },
+        { status: 403 }
+      );
+    }
+
     const assignedAt = new Date().toISOString();
     const { data: updated, error: updateError } = await supabaseServer
       .from("team_slots")
@@ -116,6 +135,11 @@ export async function POST(
       await updateClassEventDescriptionFromSchedule(String(updated.event_id));
     } catch (syncErr) {
       console.error("Class description sync after signup:", syncErr);
+    }
+    try {
+      await syncClassFinanceTeachersFromSchedule(String(updated.event_id));
+    } catch (syncErr) {
+      console.error("Class finance sync after signup:", syncErr);
     }
 
     // Send confirmation email (assignee + admins)

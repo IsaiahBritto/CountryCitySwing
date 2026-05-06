@@ -366,6 +366,77 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Missing event_id" }, { status: 400 });
     }
 
+    const hasManualOverrides =
+      "cash_total" in body ||
+      "stripe_total" in body ||
+      "stripe_taxes_fees_total" in body;
+
+    const selectCols =
+      "event_id,total_signups,checked_in_count,cash_total,stripe_total,other_total,ccs_team_cash_total,ccs_team_stripe_total,ccs_team_total,stripe_taxes_fees_total,free_via_promo_count,revenue_from_coupons,is_comp_event,refreshed_at,updated_at";
+
+    if (hasManualOverrides) {
+      const updates: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if ("cash_total" in body) {
+        const cash = Number(body.cash_total);
+        if (!Number.isFinite(cash) || cash < 0) {
+          return NextResponse.json(
+            { error: "cash_total must be a non-negative number" },
+            { status: 400 }
+          );
+        }
+        updates.cash_total = round2(cash);
+      }
+
+      if ("stripe_total" in body) {
+        const stripe = Number(body.stripe_total);
+        if (!Number.isFinite(stripe) || stripe < 0) {
+          return NextResponse.json(
+            { error: "stripe_total must be a non-negative number" },
+            { status: 400 }
+          );
+        }
+        updates.stripe_total = round2(stripe);
+      }
+
+      if ("stripe_taxes_fees_total" in body) {
+        const fees = Number(body.stripe_taxes_fees_total);
+        if (!Number.isFinite(fees) || fees < 0) {
+          return NextResponse.json(
+            { error: "stripe_taxes_fees_total must be a non-negative number" },
+            { status: 400 }
+          );
+        }
+        updates.stripe_taxes_fees_total = round2(fees);
+      }
+
+      const { data: existing } = await supabaseServer
+        .from("event_finance_metrics")
+        .select("event_id")
+        .eq("event_id", eventId)
+        .maybeSingle();
+
+      // Ensure baseline row exists before applying manual overrides.
+      if (!existing) {
+        await computeAndPersistMetrics(eventId);
+      }
+
+      const { data, error } = await supabaseServer
+        .from("event_finance_metrics")
+        .update(updates)
+        .eq("event_id", eventId)
+        .select(selectCols)
+        .single();
+
+      if (error || !data) {
+        throw new Error("Failed to save manual finance overrides");
+      }
+
+      return NextResponse.json({ data });
+    }
+
     const data = await computeAndPersistMetrics(eventId);
     return NextResponse.json({ data });
   } catch (e) {

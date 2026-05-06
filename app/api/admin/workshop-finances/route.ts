@@ -116,6 +116,14 @@ export async function PATCH(req: NextRequest) {
     }
 
     const now = new Date().toISOString();
+    const { data: eventRow } = await supabaseServer
+      .from("events")
+      .select("type")
+      .eq("id", eventId)
+      .maybeSingle();
+    const isClassEvent =
+      ((eventRow?.type ?? "").toString().trim().toLowerCase() === "class");
+    const defaultStudioCost = isClassEvent ? 400 : 0;
 
     const { data: existing } = await supabaseServer
       .from("workshop_finances")
@@ -134,7 +142,11 @@ export async function PATCH(req: NextRequest) {
 
     // If guest_instructor_amount or ccs_amount are still unset, compute 90/10 from (total - studio) when we have both values
     const effectiveTotal = (updates.total_override as number | null | undefined) ?? existing?.total_override ?? null;
-    const effectiveStudio = (typeof updates.studio_cost === "number" ? updates.studio_cost : null) ?? (existing?.studio_cost != null ? Number(existing.studio_cost) : null);
+    const effectiveStudio =
+      (typeof updates.studio_cost === "number" ? updates.studio_cost : null) ??
+      (existing?.studio_cost != null
+        ? Number(existing.studio_cost)
+        : defaultStudioCost);
     if (
       effectiveTotal != null && typeof effectiveTotal === "number" &&
       effectiveStudio != null && typeof effectiveStudio === "number"
@@ -169,7 +181,7 @@ export async function PATCH(req: NextRequest) {
         .from("workshop_finances")
         .insert({
           event_id: eventId,
-          studio_cost: updates.studio_cost ?? 0,
+          studio_cost: updates.studio_cost ?? defaultStudioCost,
           total_override: updates.total_override ?? null,
           guest_instructor_amount: updates.guest_instructor_amount ?? null,
           ccs_amount: updates.ccs_amount ?? null,

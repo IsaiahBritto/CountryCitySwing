@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
     // Embed events in one query (team_slots.event_id -> events.id). Assignees still fetched separately (assignee_id -> auth.users, not profiles).
     let query = supabaseServer
       .from("team_slots")
-      .select("id, position, event_id, assignee_id, assigned_at, created_at, updated_at, event:events(id, title, starts_at, location)");
+      .select("id, position, event_id, assignee_id, assigned_at, created_at, updated_at, event:events(id, title, starts_at, ends_at, location)");
 
     if (eventId) query = query.eq("event_id", eventId);
 

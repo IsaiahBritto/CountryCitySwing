@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
 import Link from "next/link";
@@ -75,6 +75,23 @@ interface CompJudgePayoutInput {
 interface CompFinances {
   studio_cost: number;
   judges: CompJudgePayout[];
+}
+
+interface InstructorOption {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  displayName: string;
+  role?: string;
+}
+
+interface ScheduleSlotLite {
+  id: string;
+  position: string;
+  assignee?: {
+    first_name?: string;
+    last_name?: string;
+  } | null;
 }
 
 type EventsView = "upcoming" | "past" | "overview";
@@ -356,6 +373,17 @@ export default function AdminFinancesPage() {
   const [loadingCompFinances, setLoadingCompFinances] = useState(false);
   const [compFinancesError, setCompFinancesError] = useState<string | null>(null);
   const [compFinancesSaving, setCompFinancesSaving] = useState(false);
+  const [eventMetricsSaving, setEventMetricsSaving] = useState(false);
+  const [eventCashInput, setEventCashInput] = useState("");
+  const [eventStripeInput, setEventStripeInput] = useState("");
+  const [eventStripeFeesInput, setEventStripeFeesInput] = useState("");
+  const [financeInstructors, setFinanceInstructors] = useState<InstructorOption[]>(
+    []
+  );
+  const [classBeginnerLeadDefault, setClassBeginnerLeadDefault] =
+    useState<string>("Beginner Teacher 1");
+  const [classBeginnerFollowDefault, setClassBeginnerFollowDefault] =
+    useState<string>("Beginner Teacher 2");
   const [authToken, setAuthToken] = useState<string | null>(null);
 
   const filteredEvents = useMemo(() => {
@@ -570,6 +598,47 @@ export default function AdminFinancesPage() {
     }
   }, [selectedEvent, authToken]);
 
+  const patchEventMetrics = useCallback(
+    async (updates: {
+      cash_total?: number;
+      stripe_total?: number;
+      stripe_taxes_fees_total?: number;
+    }) => {
+      if (!selectedEvent || !authToken) return;
+      setEventMetricsSaving(true);
+      setSignupsError(null);
+      try {
+        const res = await fetch("/api/admin/finance-metrics", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            event_id: selectedEvent.id,
+            ...updates,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(
+            (body as { error?: string })?.error ||
+              "Failed to save finance overrides"
+          );
+        }
+        const { data } = await res.json();
+        setEventMetrics((data ?? null) as EventFinanceMetrics | null);
+      } catch (e) {
+        setSignupsError(
+          e instanceof Error ? e.message : "Failed to save finance overrides"
+        );
+      } finally {
+        setEventMetricsSaving(false);
+      }
+    },
+    [selectedEvent, authToken]
+  );
+
   useEffect(() => {
     if (!isAdmin || eventsView !== "overview" || selectedYear == null || !eventsInSelectedYear.length) {
       setOverviewStats(null);
@@ -774,14 +843,18 @@ export default function AdminFinancesPage() {
   }, [isAdmin, eventsView, selectedYear, eventsInSelectedYear]);
 
   const isNashvilleEvent = isNashvilleNightTitle(selectedEvent?.title);
-  const isWorkshopEvent = (selectedEvent?.type ?? "").toLowerCase() === "workshop";
+  const selectedType = (selectedEvent?.type ?? "").trim().toLowerCase();
+  const isWorkshopEvent = selectedType === "workshop";
+  const isClassEvent = selectedType === "class";
+  const usesWorkshopFinancesBreakdown = isWorkshopEvent || isClassEvent;
+  const usesNashvilleFinanceRecord = isNashvilleEvent || isClassEvent;
 
   useEffect(() => {
     if (
       !isAdmin ||
       eventsView === "overview" ||
       !selectedEvent ||
-      !isNashvilleEvent
+      !usesNashvilleFinanceRecord
     ) {
       setNashvilleFinances(null);
       setNashvilleError(null);
@@ -823,14 +896,79 @@ export default function AdminFinancesPage() {
     };
 
     load();
-  }, [isAdmin, eventsView, selectedEvent?.id, isNashvilleEvent, authToken]);
+  }, [
+    isAdmin,
+    eventsView,
+    selectedEvent?.id,
+    usesNashvilleFinanceRecord,
+    authToken,
+  ]);
+
+  useEffect(() => {
+    if (!isAdmin || eventsView === "overview" || !selectedEvent || !isClassEvent) {
+      setFinanceInstructors([]);
+      setClassBeginnerLeadDefault("Beginner Teacher 1");
+      setClassBeginnerFollowDefault("Beginner Teacher 2");
+      return;
+    }
+
+    const loadClassDefaults = async () => {
+      try {
+        if (!authToken) return;
+        const [instructorsRes, slotsRes] = await Promise.all([
+          fetch("/api/schedule/instructors", {
+            headers: { Authorization: `Bearer ${authToken}` },
+          }),
+          fetch(
+            `/api/schedule/slots?event_id=${encodeURIComponent(selectedEvent.id)}`,
+            {
+              headers: { Authorization: `Bearer ${authToken}` },
+            }
+          ),
+        ]);
+
+        if (instructorsRes.ok) {
+          const data = await instructorsRes.json();
+          setFinanceInstructors((data?.instructors ?? []) as InstructorOption[]);
+        }
+
+        if (slotsRes.ok) {
+          const data = await slotsRes.json();
+          const slots = (data?.slots ?? []) as ScheduleSlotLite[];
+          const toName = (s?: ScheduleSlotLite) => {
+            const n = [s?.assignee?.first_name, s?.assignee?.last_name]
+              .filter(Boolean)
+              .join(" ")
+              .trim();
+            return n || "";
+          };
+
+          const leadSlot = slots.find((s) =>
+            s.position.toLowerCase().includes("beginner lead teacher")
+          );
+          const followSlot = slots.find((s) =>
+            s.position.toLowerCase().includes("beginner follow teacher")
+          );
+
+          setClassBeginnerLeadDefault(toName(leadSlot) || "Beginner Teacher 1");
+          setClassBeginnerFollowDefault(
+            toName(followSlot) || "Beginner Teacher 2"
+          );
+        }
+      } catch {
+        // Non-fatal; defaults remain fallback values.
+      }
+    };
+
+    loadClassDefaults();
+  }, [isAdmin, eventsView, selectedEvent?.id, isClassEvent, authToken]);
 
   useEffect(() => {
     if (
       !isAdmin ||
       eventsView === "overview" ||
       !selectedEvent ||
-      !isWorkshopEvent ||
+      !usesWorkshopFinancesBreakdown ||
       isNashvilleEvent
     ) {
       setWorkshopFinances(null);
@@ -873,7 +1011,13 @@ export default function AdminFinancesPage() {
     };
 
     load();
-  }, [isAdmin, eventsView, selectedEvent?.id, isWorkshopEvent, isNashvilleEvent]);
+  }, [
+    isAdmin,
+    eventsView,
+    selectedEvent?.id,
+    usesWorkshopFinancesBreakdown,
+    isNashvilleEvent,
+  ]);
 
   useEffect(() => {
     if (
@@ -963,7 +1107,7 @@ export default function AdminFinancesPage() {
       guest_instructor_amount?: number | null;
       ccs_amount?: number | null;
     }) => {
-      if (!selectedEvent || !isWorkshopEvent || !authToken) return;
+      if (!selectedEvent || !usesWorkshopFinancesBreakdown || !authToken) return;
       setWorkshopSaving(true);
       try {
         const res = await fetch("/api/admin/workshop-finances", {
@@ -990,7 +1134,7 @@ export default function AdminFinancesPage() {
         setWorkshopSaving(false);
       }
     },
-    [selectedEvent?.id, isWorkshopEvent, authToken]
+    [selectedEvent?.id, usesWorkshopFinancesBreakdown, authToken]
   );
 
   const patchNashville = useCallback(
@@ -1014,7 +1158,7 @@ export default function AdminFinancesPage() {
       mark_bt4_paid?: boolean;
       mark_upper_level_paid?: boolean;
     }) => {
-      if (!selectedEvent || !isNashvilleEvent || !authToken) return;
+      if (!selectedEvent || !usesNashvilleFinanceRecord || !authToken) return;
       setNashvilleSaving(true);
       try {
         const res = await fetch("/api/admin/nashville-night-finances", {
@@ -1041,7 +1185,7 @@ export default function AdminFinancesPage() {
         setNashvilleSaving(false);
       }
     },
-    [selectedEvent?.id, isNashvilleEvent, authToken]
+    [selectedEvent?.id, usesNashvilleFinanceRecord, authToken]
   );
 
   const stats =
@@ -1081,6 +1225,20 @@ export default function AdminFinancesPage() {
     }
   }, [isNashvilleEvent, effectiveCash, effectiveStripe]);
 
+  useEffect(() => {
+    if (!isNashvilleEvent) {
+      setEventCashInput(String(stats.cashTotal));
+      setEventStripeInput(String(stats.stripeTotal));
+    }
+    setEventStripeFeesInput(String(stripeTaxesFees));
+  }, [
+    isNashvilleEvent,
+    stats.cashTotal,
+    stats.stripeTotal,
+    stripeTaxesFees,
+    selectedEvent?.id,
+  ]);
+
   const saveNashvilleCash = useCallback(() => {
     const v = parseFloat(nashvilleCashInput);
     if (!Number.isNaN(v) && v >= 0 && (selectedEvent != null) && isNashvilleEvent) {
@@ -1094,6 +1252,37 @@ export default function AdminFinancesPage() {
       patchNashville({ stripe_override: v });
     }
   }, [nashvilleStripeInput, selectedEvent, isNashvilleEvent, patchNashville]);
+
+  const saveEventCash = useCallback(() => {
+    const v = parseFloat(eventCashInput);
+    if (
+      !isNashvilleEvent &&
+      !Number.isNaN(v) &&
+      v >= 0 &&
+      selectedEvent != null
+    ) {
+      patchEventMetrics({ cash_total: v });
+    }
+  }, [eventCashInput, isNashvilleEvent, selectedEvent, patchEventMetrics]);
+
+  const saveEventStripe = useCallback(() => {
+    const v = parseFloat(eventStripeInput);
+    if (
+      !isNashvilleEvent &&
+      !Number.isNaN(v) &&
+      v >= 0 &&
+      selectedEvent != null
+    ) {
+      patchEventMetrics({ stripe_total: v });
+    }
+  }, [eventStripeInput, isNashvilleEvent, selectedEvent, patchEventMetrics]);
+
+  const saveStripeFees = useCallback(() => {
+    const v = parseFloat(eventStripeFeesInput);
+    if (!Number.isNaN(v) && v >= 0 && selectedEvent != null) {
+      patchEventMetrics({ stripe_taxes_fees_total: v });
+    }
+  }, [eventStripeFeesInput, selectedEvent, patchEventMetrics]);
 
   if (isAdmin === null) {
     return (
@@ -1812,22 +2001,42 @@ export default function AdminFinancesPage() {
                             <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
                               Cash
                             </p>
-                            <p className="mt-1 text-2xl font-bold text-primary">
-                              ${stats.cashTotal.toFixed(2)}
-                            </p>
+                            <div className="mt-1 flex items-baseline gap-1">
+                              <span className="text-neutral-500">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={eventCashInput}
+                                onChange={(e) => setEventCashInput(e.target.value)}
+                                onBlur={saveEventCash}
+                                disabled={eventMetricsSaving}
+                                className="w-24 rounded border border-neutral-600 bg-neutral-800 text-xl font-bold text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                              />
+                            </div>
                             <p className="mt-0.5 text-sm text-neutral-400">
-                              Cash + checked in
+                              Editable • Cash + checked in
                             </p>
                           </div>
                           <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
                             <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
                               Stripe
                             </p>
-                            <p className="mt-1 text-2xl font-bold text-accent">
-                              ${stats.stripeTotal.toFixed(2)}
-                            </p>
+                            <div className="mt-1 flex items-baseline gap-1">
+                              <span className="text-neutral-500">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={eventStripeInput}
+                                onChange={(e) => setEventStripeInput(e.target.value)}
+                                onBlur={saveEventStripe}
+                                disabled={eventMetricsSaving}
+                                className="w-24 rounded border border-neutral-600 bg-neutral-800 text-xl font-bold text-accent focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                              />
+                            </div>
                             <p className="mt-0.5 text-sm text-neutral-400">
-                              paid via Stripe
+                              Editable • paid via Stripe
                             </p>
                           </div>
                           <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
@@ -1885,15 +2094,23 @@ export default function AdminFinancesPage() {
                           $
                           {(isNashvilleEvent ? effectiveCash + effectiveStripe : stats.cashTotal + stats.stripeTotal + (stats.otherTotal ?? 0) + (stats.ccsTeamTotal ?? 0)).toFixed(2)}
                         </span>
-                        {stripeTaxesFees > 0 && (
-                          <span className="text-xs text-neutral-400">
-                            Taxes/Fees collected via Stripe:{" "}
-                            <span className="font-semibold text-accent">
-                              ${stripeTaxesFees.toFixed(2)}{" "}
-                            </span>
-                            (to remain in bank)
-                          </span>
-                        )}
+                        <div className="flex items-center gap-2 text-xs text-neutral-400">
+                          <span>Taxes/Fees collected via Stripe:</span>
+                          <span className="text-neutral-500">$</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={eventStripeFeesInput}
+                            onChange={(e) =>
+                              setEventStripeFeesInput(e.target.value)
+                            }
+                            onBlur={saveStripeFees}
+                            disabled={eventMetricsSaving}
+                            className="w-24 rounded border border-neutral-600 bg-neutral-800 px-2 py-0.5 text-xs font-semibold text-accent focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                          />
+                          <span>(to remain in bank)</span>
+                        </div>
                         {!isNashvilleEvent && (stats.revenueFromCoupons ?? 0) > 0 && (
                           <div className="mt-2 pt-2 border-t border-neutral-600 flex items-center justify-between text-sm">
                             <span className="text-neutral-400">Revenue from Coupons (included in total)</span>
@@ -1908,6 +2125,19 @@ export default function AdminFinancesPage() {
                         effectiveCash={effectiveCash}
                         effectiveStripe={effectiveStripe}
                         stripeTaxesFees={stripeTaxesFees}
+                        isClassEvent={isClassEvent}
+                        instructorOptions={Array.from(
+                          new Set([
+                            ...financeInstructors
+                              .map((i) => i.displayName?.trim())
+                              .filter((n): n is string => !!n),
+                            classBeginnerLeadDefault,
+                            classBeginnerFollowDefault,
+                            "Malissa",
+                          ])
+                        )}
+                        classBeginnerLeadDefault={classBeginnerLeadDefault}
+                        classBeginnerFollowDefault={classBeginnerFollowDefault}
                         nashville={nashvilleFinances}
                         loading={loadingNashville}
                         error={nashvilleError}
@@ -1916,10 +2146,11 @@ export default function AdminFinancesPage() {
                       />
                     )}
 
-                    {isWorkshopEvent && !isNashvilleEvent && (
+                    {usesWorkshopFinancesBreakdown && !isNashvilleEvent && (
                       <WorkshopBreakdown
                         computedTotalRevenue={stats.cashTotal + stats.stripeTotal + (stats.otherTotal ?? 0) + (stats.ccsTeamTotal ?? 0)}
                         workshop={workshopFinances}
+                        defaultStudioCost={isClassEvent ? 400 : 0}
                         loading={loadingWorkshop}
                         error={workshopError}
                         saving={workshopSaving}
@@ -1951,6 +2182,7 @@ export default function AdminFinancesPage() {
 function WorkshopBreakdown({
   computedTotalRevenue,
   workshop,
+  defaultStudioCost,
   loading,
   error,
   saving,
@@ -1958,6 +2190,7 @@ function WorkshopBreakdown({
 }: {
   computedTotalRevenue: number;
   workshop: WorkshopFinances | null;
+  defaultStudioCost: number;
   loading: boolean;
   error: string | null;
   saving: boolean;
@@ -1970,7 +2203,8 @@ function WorkshopBreakdown({
 }) {
   const effectiveTotalRevenue =
     workshop?.total_override != null ? Number(workshop.total_override) : computedTotalRevenue;
-  const studioCost = workshop?.studio_cost != null ? Number(workshop.studio_cost) : 0;
+  const studioCost =
+    workshop?.studio_cost != null ? Number(workshop.studio_cost) : defaultStudioCost;
   const remaining = Math.max(0, effectiveTotalRevenue - studioCost);
   const defaultGuest = Math.round(remaining * 0.9 * 100) / 100;
   const defaultCcs = Math.round(remaining * 0.1 * 100) / 100;
@@ -2440,6 +2674,10 @@ function NashvilleBreakdown({
   effectiveCash,
   effectiveStripe,
   stripeTaxesFees,
+  isClassEvent,
+  instructorOptions,
+  classBeginnerLeadDefault,
+  classBeginnerFollowDefault,
   nashville,
   loading,
   error,
@@ -2449,6 +2687,10 @@ function NashvilleBreakdown({
   effectiveCash: number;
   effectiveStripe: number;
   stripeTaxesFees: number;
+  isClassEvent: boolean;
+  instructorOptions: string[];
+  classBeginnerLeadDefault: string;
+  classBeginnerFollowDefault: string;
   nashville: NashvilleFinances | null;
   loading: boolean;
   error: string | null;
@@ -2560,11 +2802,16 @@ function NashvilleBreakdown({
   );
 
   const [venueInput, setVenueInput] = useState(String(venueCost));
-  const [bt1Name, setBt1Name] = useState(nashville?.bt1_name ?? "Beginner Teacher 1");
-  const [bt2Name, setBt2Name] = useState(nashville?.bt2_name ?? "Beginner Teacher 2");
+  const bt1Fallback = isClassEvent ? classBeginnerLeadDefault : "Beginner Teacher 1";
+  const bt2Fallback = isClassEvent ? classBeginnerFollowDefault : "Beginner Teacher 2";
+  const upperFallback = "Malissa";
+  const [bt1Name, setBt1Name] = useState(nashville?.bt1_name ?? bt1Fallback);
+  const [bt2Name, setBt2Name] = useState(nashville?.bt2_name ?? bt2Fallback);
   const [bt3Name, setBt3Name] = useState(nashville?.bt3_name ?? "Beginner Teacher 3");
   const [bt4Name, setBt4Name] = useState(nashville?.bt4_name ?? "Beginner Teacher 4");
-  const [malissaName, setMalissaName] = useState(nashville?.upper_level_teacher_name ?? "Malissa");
+  const [malissaName, setMalissaName] = useState(
+    nashville?.upper_level_teacher_name ?? upperFallback
+  );
   const [bt1PayoutInput, setBt1PayoutInput] = useState("");
   const [bt2PayoutInput, setBt2PayoutInput] = useState("");
   const [bt3PayoutInput, setBt3PayoutInput] = useState("");
@@ -2572,13 +2819,47 @@ function NashvilleBreakdown({
   const [malissaPayoutInput, setMalissaPayoutInput] = useState("");
   const [payoutOverrideError, setPayoutOverrideError] = useState<string | null>(null);
 
+  const classTeacherOptions = useMemo(() => {
+    if (!isClassEvent) return undefined;
+    return Array.from(
+      new Set(
+        [
+          ...instructorOptions,
+          bt1Name,
+          bt2Name,
+          malissaName,
+          nashville?.bt1_name ?? "",
+          nashville?.bt2_name ?? "",
+          nashville?.upper_level_teacher_name ?? "",
+          bt1Fallback,
+          bt2Fallback,
+          upperFallback,
+        ]
+          .map((s) => String(s || "").trim())
+          .filter(Boolean)
+      )
+    );
+  }, [
+    isClassEvent,
+    instructorOptions,
+    bt1Name,
+    bt2Name,
+    malissaName,
+    nashville?.bt1_name,
+    nashville?.bt2_name,
+    nashville?.upper_level_teacher_name,
+    bt1Fallback,
+    bt2Fallback,
+    upperFallback,
+  ]);
+
   useEffect(() => {
     setVenueInput(String(nashville?.venue_cost ?? 0));
-    setBt1Name(nashville?.bt1_name ?? "Beginner Teacher 1");
-    setBt2Name(nashville?.bt2_name ?? "Beginner Teacher 2");
+    setBt1Name(nashville?.bt1_name ?? bt1Fallback);
+    setBt2Name(nashville?.bt2_name ?? bt2Fallback);
     setBt3Name(nashville?.bt3_name ?? "Beginner Teacher 3");
     setBt4Name(nashville?.bt4_name ?? "Beginner Teacher 4");
-    setMalissaName(nashville?.upper_level_teacher_name ?? "Malissa");
+    setMalissaName(nashville?.upper_level_teacher_name ?? upperFallback);
   }, [
     nashville?.venue_cost,
     nashville?.bt1_name,
@@ -2586,6 +2867,9 @@ function NashvilleBreakdown({
     nashville?.bt3_name,
     nashville?.bt4_name,
     nashville?.upper_level_teacher_name,
+    bt1Fallback,
+    bt2Fallback,
+    upperFallback,
   ]);
 
   useEffect(() => {
@@ -2610,11 +2894,11 @@ function NashvilleBreakdown({
 
   const saveBt1Name = () => {
     const s = bt1Name.trim();
-    if (s && s !== (nashville?.bt1_name ?? "Beginner Teacher 1")) onPatch({ bt1_name: s });
+    if (s && s !== (nashville?.bt1_name ?? bt1Fallback)) onPatch({ bt1_name: s });
   };
   const saveBt2Name = () => {
     const s = bt2Name.trim();
-    if (s && s !== (nashville?.bt2_name ?? "Beginner Teacher 2")) onPatch({ bt2_name: s });
+    if (s && s !== (nashville?.bt2_name ?? bt2Fallback)) onPatch({ bt2_name: s });
   };
   const saveBt3Name = () => {
     const s = bt3Name.trim();
@@ -2626,8 +2910,46 @@ function NashvilleBreakdown({
   };
   const saveMalissaName = () => {
     const s = malissaName.trim();
-    if (s && s !== (nashville?.upper_level_teacher_name ?? "Malissa")) onPatch({ upper_level_teacher_name: s });
+    if (s && s !== (nashville?.upper_level_teacher_name ?? upperFallback)) onPatch({ upper_level_teacher_name: s });
   };
+
+  const normalizeTeacherName = (value: string) => value.trim().toLowerCase();
+  const bt1ScheduleMatch = useMemo(
+    () => normalizeTeacherName(bt1Name) === normalizeTeacherName(classBeginnerLeadDefault),
+    [bt1Name, classBeginnerLeadDefault]
+  );
+  const bt2ScheduleMatch = useMemo(
+    () => normalizeTeacherName(bt2Name) === normalizeTeacherName(classBeginnerFollowDefault),
+    [bt2Name, classBeginnerFollowDefault]
+  );
+  const bt1Label = isClassEvent ? (
+    <span className="inline-flex items-center gap-2">
+      <span>Beginner Teacher 1</span>
+      <span
+        className={bt1ScheduleMatch ? "text-emerald-500/80" : "text-red-500/80"}
+        title={bt1ScheduleMatch ? "Matches schedule assignment" : "Does not match schedule assignment"}
+        aria-label={bt1ScheduleMatch ? "Matches schedule assignment" : "Does not match schedule assignment"}
+      >
+        {bt1ScheduleMatch ? "✓" : "✗"}
+      </span>
+    </span>
+  ) : (
+    "Beginner Teacher 1"
+  );
+  const bt2Label = isClassEvent ? (
+    <span className="inline-flex items-center gap-2">
+      <span>Beginner Teacher 2</span>
+      <span
+        className={bt2ScheduleMatch ? "text-emerald-500/80" : "text-red-500/80"}
+        title={bt2ScheduleMatch ? "Matches schedule assignment" : "Does not match schedule assignment"}
+        aria-label={bt2ScheduleMatch ? "Matches schedule assignment" : "Does not match schedule assignment"}
+      >
+        {bt2ScheduleMatch ? "✓" : "✗"}
+      </span>
+    </span>
+  ) : (
+    "Beginner Teacher 2"
+  );
 
   const validateTeacherOverrides = useCallback(
     (next: {
@@ -2781,10 +3103,11 @@ function NashvilleBreakdown({
 
       <div className="mt-6 space-y-4">
         <TeacherRow
-          label="Beginner Teacher 1"
+          label={bt1Label}
           name={bt1Name}
           onNameChange={setBt1Name}
           onNameBlur={saveBt1Name}
+          nameOptions={classTeacherOptions}
           payout={effectivePayouts.bt1Payout}
           payoutInput={bt1PayoutInput}
           onPayoutChange={setBt1PayoutInput}
@@ -2798,10 +3121,11 @@ function NashvilleBreakdown({
           saving={saving}
         />
         <TeacherRow
-          label="Beginner Teacher 2"
+          label={bt2Label}
           name={bt2Name}
           onNameChange={setBt2Name}
           onNameBlur={saveBt2Name}
+          nameOptions={classTeacherOptions}
           payout={effectivePayouts.bt2Payout}
           payoutInput={bt2PayoutInput}
           onPayoutChange={setBt2PayoutInput}
@@ -2875,6 +3199,7 @@ function NashvilleBreakdown({
           name={malissaName}
           onNameChange={setMalissaName}
           onNameBlur={saveMalissaName}
+          nameOptions={classTeacherOptions}
           payout={effectivePayouts.malissaPayout}
           payoutInput={malissaPayoutInput}
           onPayoutChange={setMalissaPayoutInput}
@@ -2951,11 +3276,148 @@ function NashvilleBreakdown({
   );
 }
 
+function ClassTeacherAssignments({
+  nashville,
+  instructors,
+  leadDefault,
+  followDefault,
+  saving,
+  onPatch,
+}: {
+  nashville: NashvilleFinances | null;
+  instructors: InstructorOption[];
+  leadDefault: string;
+  followDefault: string;
+  saving: boolean;
+  onPatch: (u: {
+    bt1_name?: string;
+    bt2_name?: string;
+    upper_level_teacher_name?: string;
+  }) => Promise<void>;
+}) {
+  const [bt1Name, setBt1Name] = useState("");
+  const [bt2Name, setBt2Name] = useState("");
+  const [upperName, setUpperName] = useState("");
+
+  useEffect(() => {
+    setBt1Name(nashville?.bt1_name ?? leadDefault);
+  }, [nashville?.bt1_name, leadDefault]);
+
+  useEffect(() => {
+    setBt2Name(nashville?.bt2_name ?? followDefault);
+  }, [nashville?.bt2_name, followDefault]);
+
+  useEffect(() => {
+    setUpperName(nashville?.upper_level_teacher_name ?? "Malissa");
+  }, [nashville?.upper_level_teacher_name]);
+
+  const options = useMemo(() => {
+    const names = instructors
+      .map((i) => i.displayName?.trim())
+      .filter((n): n is string => !!n);
+    const extras = [leadDefault, followDefault, "Malissa"];
+    return Array.from(new Set([...names, ...extras]));
+  }, [instructors, leadDefault, followDefault]);
+
+  const saveBt1 = useCallback(() => {
+    const s = bt1Name.trim();
+    if (s && s !== (nashville?.bt1_name ?? leadDefault)) {
+      onPatch({ bt1_name: s });
+    }
+  }, [bt1Name, nashville?.bt1_name, leadDefault, onPatch]);
+
+  const saveBt2 = useCallback(() => {
+    const s = bt2Name.trim();
+    if (s && s !== (nashville?.bt2_name ?? followDefault)) {
+      onPatch({ bt2_name: s });
+    }
+  }, [bt2Name, nashville?.bt2_name, followDefault, onPatch]);
+
+  const saveUpper = useCallback(() => {
+    const s = upperName.trim();
+    const current = nashville?.upper_level_teacher_name ?? "Malissa";
+    if (s && s !== current) {
+      onPatch({ upper_level_teacher_name: s });
+    }
+  }, [upperName, nashville?.upper_level_teacher_name, onPatch]);
+
+  return (
+    <div className="mt-8 rounded-xl border border-primary/40 bg-neutral-800/30 p-6 ring-1 ring-primary/20">
+      <h3 className="mb-4 text-base font-semibold text-primary">
+        Class teacher assignments
+      </h3>
+      <p className="mb-4 text-sm text-neutral-400">
+        Beginner Teacher defaults come from this week&apos;s instructor schedule.
+      </p>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div>
+          <label className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+            Beginner Teacher 1
+          </label>
+          <select
+            value={bt1Name}
+            onChange={(e) => setBt1Name(e.target.value)}
+            onBlur={saveBt1}
+            disabled={saving}
+            className="mt-1 w-full rounded border border-neutral-600 bg-neutral-800 px-3 py-2 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+          >
+            {options.map((name) => (
+              <option key={`bt1-${name}`} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+            Beginner Teacher 2
+          </label>
+          <select
+            value={bt2Name}
+            onChange={(e) => setBt2Name(e.target.value)}
+            onBlur={saveBt2}
+            disabled={saving}
+            className="mt-1 w-full rounded border border-neutral-600 bg-neutral-800 px-3 py-2 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+          >
+            {options.map((name) => (
+              <option key={`bt2-${name}`} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+            Upper Level Teacher
+          </label>
+          <select
+            value={upperName}
+            onChange={(e) => setUpperName(e.target.value)}
+            onBlur={saveUpper}
+            disabled={saving}
+            className="mt-1 w-full rounded border border-neutral-600 bg-neutral-800 px-3 py-2 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+          >
+            {options.map((name) => (
+              <option key={`upper-${name}`} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TeacherRow({
   label,
   name,
   onNameChange,
   onNameBlur,
+  nameOptions,
   payout,
   payoutInput,
   onPayoutChange,
@@ -2968,10 +3430,11 @@ function TeacherRow({
   onMarkPaid,
   saving,
 }: {
-  label: string;
+  label: ReactNode;
   name: string;
   onNameChange: (s: string) => void;
   onNameBlur: () => void;
+  nameOptions?: string[];
   payout: number;
   payoutInput: string;
   onPayoutChange: (s: string) => void;
@@ -2988,14 +3451,30 @@ function TeacherRow({
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">{label}</p>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-          onBlur={onNameBlur}
-          disabled={saving}
-          className="mt-1 w-full rounded border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
-        />
+        {nameOptions && nameOptions.length > 0 ? (
+          <select
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            onBlur={onNameBlur}
+            disabled={saving}
+            className="mt-1 w-full rounded border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+          >
+            {nameOptions.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            onBlur={onNameBlur}
+            disabled={saving}
+            className="mt-1 w-full rounded border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+          />
+        )}
       </div>
       <div className="shrink-0">
         <p className="text-xs text-neutral-500">Payout</p>

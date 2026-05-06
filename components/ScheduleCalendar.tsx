@@ -6,6 +6,7 @@ import weekday from "dayjs/plugin/weekday";
 import isoWeek from "dayjs/plugin/isoWeek";
 import advancedFormat from "dayjs/plugin/advancedFormat";
 import { StarIcon, XMarkIcon } from "@heroicons/react/24/solid";
+import { getEventDateStringInChicago, getTodayStringInChicago, isEventPastInChicago } from "@/lib/utils/dateHelpers";
 
 dayjs.extend(weekday);
 dayjs.extend(isoWeek);
@@ -21,6 +22,7 @@ export interface ScheduleSlot {
     id: string;
     title: string;
     starts_at: string;
+    ends_at?: string | null;
     location?: string;
   } | null;
   assignee: {
@@ -48,7 +50,7 @@ interface ScheduleCalendarProps {
   getAuthHeaders: () => Promise<HeadersInit>;
 }
 
-const today = dayjs().format("YYYY-MM-DD");
+const today = getTodayStringInChicago();
 
 export default function ScheduleCalendar({
   slots,
@@ -96,7 +98,7 @@ export default function ScheduleCalendar({
 
   const getSlotsForDay = (day: number): ScheduleSlot[] => {
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
-    return slots.filter((s) => s.event?.starts_at && dayjs(s.event.starts_at).format("YYYY-MM-DD") === dateStr);
+    return slots.filter((s) => s.event?.starts_at && getEventDateStringInChicago(s.event.starts_at) === dateStr);
   };
 
   /** Number of slots on this day that have no assignee (available to pick up). */
@@ -241,7 +243,7 @@ export default function ScheduleCalendar({
   // Use current slots for the selected date so modal updates after signup/cancel/delete
   const modalDaySlots =
     selectedDate != null
-      ? slots.filter((s) => s.event?.starts_at && dayjs(s.event.starts_at).format("YYYY-MM-DD") === selectedDate)
+      ? slots.filter((s) => s.event?.starts_at && getEventDateStringInChicago(s.event.starts_at) === selectedDate)
       : [];
 
   const slotsByEvent = modalDaySlots.reduce<Record<string, ScheduleSlot[]>>((acc, s) => {
@@ -358,6 +360,10 @@ export default function ScheduleCalendar({
                           const name = assigneeName(slot);
                           const buttonLabel = assigneeButtonLabel(slot);
                           const isMe = currentUserId && slot.assignee_id === currentUserId;
+                          const eventIsPast =
+                            !!slot.event?.starts_at &&
+                            isEventPastInChicago(slot.event.starts_at, slot.event.ends_at ?? null);
+                          const canSelfEditSlot = isAdmin || !eventIsPast;
                           return (
                             <li
                               key={slot.id}
@@ -376,10 +382,14 @@ export default function ScheduleCalendar({
                                     {(isMe || isAdmin) && (
                                       <button
                                         type="button"
-                                        disabled={cancelling === slot.id}
+                                        disabled={cancelling === slot.id || !canSelfEditSlot}
                                         onClick={() => openRemoveModal(slot.id, name || buttonLabel, slot.position)}
                                         className="text-sm px-3 py-1.5 rounded border border-red-800/80 bg-red-900/40 text-red-200 hover:bg-red-800/60 disabled:opacity-50"
-                                        title="Remove from this slot"
+                                        title={
+                                          canSelfEditSlot
+                                            ? "Remove from this slot"
+                                            : "This event is locked for instructors after the event day"
+                                        }
                                       >
                                         {cancelling === slot.id ? "Removing�" : "Remove"}
                                       </button>
@@ -389,9 +399,14 @@ export default function ScheduleCalendar({
                                   <>
                                     <button
                                       type="button"
-                                      disabled={!!signingUp}
+                                      disabled={!!signingUp || !canSelfEditSlot}
                                       onClick={() => handleSignUp(slot.id)}
                                       className="btn-signup text-sm px-3 py-1.5 rounded"
+                                      title={
+                                        canSelfEditSlot
+                                          ? "Sign up for this slot"
+                                          : "This event is locked for instructors after the event day"
+                                      }
                                     >
                                       {signingUp === slot.id ? "�" : "Sign Me Up!"}
                                     </button>

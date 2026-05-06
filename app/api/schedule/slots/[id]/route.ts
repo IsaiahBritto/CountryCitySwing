@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { updateClassEventDescriptionFromSchedule } from "@/lib/classDescriptionSync";
+import { syncClassFinanceTeachersFromSchedule } from "@/lib/classFinanceSync";
 
 async function getAuthUser(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -134,6 +135,11 @@ export async function PUT(
     } catch (syncErr) {
       console.error("Class description sync after assign:", syncErr);
     }
+    try {
+      await syncClassFinanceTeachersFromSchedule(String(slot.event_id));
+    } catch (syncErr) {
+      console.error("Class finance sync after assign:", syncErr);
+    }
 
     // When admin assigns a user to the slot, send confirmation email to assignee and admins
     if (slot.assignee_id) {
@@ -221,11 +227,16 @@ export async function DELETE(
       return NextResponse.json({ error: "Failed to delete slot" }, { status: 500 });
     }
 
-    if (slotBeforeDelete?.event_id && slotBeforeDelete?.assignee_id) {
+    if (slotBeforeDelete?.event_id) {
       try {
         await updateClassEventDescriptionFromSchedule(String(slotBeforeDelete.event_id));
       } catch (syncErr) {
         console.error("Class description sync after slot delete:", syncErr);
+      }
+      try {
+        await syncClassFinanceTeachersFromSchedule(String(slotBeforeDelete.event_id));
+      } catch (syncErr) {
+        console.error("Class finance sync after slot delete:", syncErr);
       }
     }
 

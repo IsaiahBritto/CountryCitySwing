@@ -57,6 +57,22 @@ interface WorkshopFinances {
   updated_at: string;
 }
 
+interface TheSocialFinances {
+  id: string;
+  event_id: string;
+  venue_cost: number;
+  brandon_split_ratio: number;
+  kyler_split_ratio: number;
+  isaiah_split_ratio: number;
+  brandon_profit: number;
+  kyler_profit: number;
+  isaiah_profit: number;
+  brandon_paid_at: string | null;
+  kyler_paid_at: string | null;
+  isaiah_paid_at: string | null;
+  updated_at: string;
+}
+
 interface CompJudgePayout {
   id: string;
   judge_name: string;
@@ -355,6 +371,7 @@ export default function AdminFinancesPage() {
     totalPaidJudges: number;
     workshopCcsIncome: number;
     totalStripeTaxesFeesFromMerch: number;
+    totalSocialAllocatedProfits: number;
   } | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -369,6 +386,10 @@ export default function AdminFinancesPage() {
   const [loadingWorkshop, setLoadingWorkshop] = useState(false);
   const [workshopError, setWorkshopError] = useState<string | null>(null);
   const [workshopSaving, setWorkshopSaving] = useState(false);
+  const [socialFinances, setSocialFinances] = useState<TheSocialFinances | null>(null);
+  const [loadingSocial, setLoadingSocial] = useState(false);
+  const [socialError, setSocialError] = useState<string | null>(null);
+  const [socialSaving, setSocialSaving] = useState(false);
   const [compFinances, setCompFinances] = useState<CompFinances | null>(null);
   const [loadingCompFinances, setLoadingCompFinances] = useState(false);
   const [compFinancesError, setCompFinancesError] = useState<string | null>(null);
@@ -702,6 +723,7 @@ export default function AdminFinancesPage() {
 
             let nashvilleFinances: NashvilleFinances | null = null;
             let workshopFinances: WorkshopFinances | null = null;
+            let socialFinancesOverview: TheSocialFinances | null = null;
             let compFinances: CompFinances | null = null;
 
             if (isNashville(ev)) {
@@ -734,8 +756,17 @@ export default function AdminFinancesPage() {
                 compFinances = data ?? null;
               }
             }
+            if ((ev.type || "").trim().toLowerCase() === "social") {
+              const sr = await fetch(`/api/admin/the-social-finances?event_id=${ev.id}`, {
+                headers: { Authorization: `Bearer ${authToken}` },
+              });
+              if (sr.ok) {
+                const { data } = await sr.json();
+                socialFinancesOverview = data ?? null;
+              }
+            }
 
-            return { stats, nashvilleFinances, workshopFinances, compFinances };
+            return { stats, nashvilleFinances, workshopFinances, socialFinancesOverview, compFinances };
           })
         );
 
@@ -749,6 +780,7 @@ export default function AdminFinancesPage() {
         let totalPaidBt4 = 0;
         let totalPaidJudges = 0;
         let workshopCcsIncome = 0;
+        let totalSocialAllocatedProfits = 0;
 
         for (let i = 0; i < results.length; i++) {
           const r = results[i];
@@ -792,6 +824,14 @@ export default function AdminFinancesPage() {
               totalPaidJudges += Number(j.amount_paid) || 0;
             }
           }
+          if (r.socialFinancesOverview) {
+            const sf = r.socialFinancesOverview;
+            totalStudioRentals += Number(sf.venue_cost) || 0;
+            totalSocialAllocatedProfits +=
+              (Number(sf.brandon_profit) || 0) +
+              (Number(sf.kyler_profit) || 0) +
+              (Number(sf.isaiah_profit) || 0);
+          }
         }
 
         // Stripe taxes/fees from merch orders (paid via Stripe) in this year
@@ -827,6 +867,7 @@ export default function AdminFinancesPage() {
           totalPaidJudges: Math.round(totalPaidJudges * 100) / 100,
           workshopCcsIncome: Math.round(workshopCcsIncome * 100) / 100,
           totalStripeTaxesFeesFromMerch,
+          totalSocialAllocatedProfits: Math.round(totalSocialAllocatedProfits * 100) / 100,
         });
       } catch (e) {
         setOverviewError(
@@ -846,6 +887,7 @@ export default function AdminFinancesPage() {
   const selectedType = (selectedEvent?.type ?? "").trim().toLowerCase();
   const isWorkshopEvent = selectedType === "workshop";
   const isClassEvent = selectedType === "class";
+  const isSocialEvent = selectedType === "social";
   const usesWorkshopFinancesBreakdown = isWorkshopEvent || isClassEvent;
   const usesNashvilleFinanceRecord = isNashvilleEvent || isClassEvent;
 
@@ -1020,6 +1062,50 @@ export default function AdminFinancesPage() {
   ]);
 
   useEffect(() => {
+    if (!isAdmin || eventsView === "overview" || !selectedEvent || !isSocialEvent) {
+      setSocialFinances(null);
+      setSocialError(null);
+      return;
+    }
+
+    const load = async () => {
+      setLoadingSocial(true);
+      setSocialError(null);
+      try {
+        if (!authToken) {
+          setSocialError("Session expired. Please sign in again.");
+          setSocialFinances(null);
+          setLoadingSocial(false);
+          return;
+        }
+        const params = new URLSearchParams({ event_id: selectedEvent.id });
+        const res = await fetch(`/api/admin/the-social-finances?${params}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setSocialError(
+            (body as { error?: string })?.error || "Failed to load social finances"
+          );
+          setSocialFinances(null);
+        } else {
+          const { data } = await res.json();
+          setSocialFinances(data ?? null);
+        }
+      } catch (e) {
+        setSocialError(
+          e instanceof Error ? e.message : "Connection failed. Check your network and try again."
+        );
+        setSocialFinances(null);
+      } finally {
+        setLoadingSocial(false);
+      }
+    };
+
+    load();
+  }, [isAdmin, eventsView, selectedEvent?.id, isSocialEvent, authToken]);
+
+  useEffect(() => {
     if (
       !isAdmin ||
       eventsView === "overview" ||
@@ -1135,6 +1221,49 @@ export default function AdminFinancesPage() {
       }
     },
     [selectedEvent?.id, usesWorkshopFinancesBreakdown, authToken]
+  );
+
+  const patchSocial = useCallback(
+    async (updates: {
+      venue_cost?: number;
+      brandon_split_ratio?: number;
+      kyler_split_ratio?: number;
+      isaiah_split_ratio?: number;
+      brandon_profit?: number;
+      kyler_profit?: number;
+      isaiah_profit?: number;
+      mark_brandon_paid?: boolean;
+      mark_kyler_paid?: boolean;
+      mark_isaiah_paid?: boolean;
+    }) => {
+      if (!selectedEvent || !isSocialEvent || !authToken) return;
+      setSocialSaving(true);
+      try {
+        const res = await fetch("/api/admin/the-social-finances", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            event_id: selectedEvent.id,
+            ...updates,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string })?.error || "Failed to save");
+        }
+        const { data } = await res.json();
+        setSocialFinances(data);
+      } catch (e) {
+        console.error("Social finances PATCH:", e);
+        setSocialError(e instanceof Error ? e.message : "Failed to save");
+      } finally {
+        setSocialSaving(false);
+      }
+    },
+    [selectedEvent?.id, isSocialEvent, authToken]
   );
 
   const patchNashville = useCallback(
@@ -1724,9 +1853,22 @@ export default function AdminFinancesPage() {
                                 ${overviewFinances.totalStudioRentals.toFixed(2)}
                               </p>
                               <p className="mt-0.5 text-xs text-neutral-500">
-                                Across all event types (Nashville venue + workshops + comps)
+                                Nashville venue + workshops + comps + social venue
                               </p>
                             </div>
+                            {overviewFinances.totalSocialAllocatedProfits > 0 && (
+                              <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4 sm:col-span-2 lg:col-span-1">
+                                <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                  Social profit splits (planned)
+                                </p>
+                                <p className="mt-1 text-xl font-bold text-primary">
+                                  ${overviewFinances.totalSocialAllocatedProfits.toFixed(2)}
+                                </p>
+                                <p className="mt-0.5 text-xs text-neutral-500">
+                                  Sum of Brandon + Kyler + Isaiah allocations from Social events
+                                </p>
+                              </div>
+                            )}
                           </div>
 
                           <div className="mt-8 rounded-xl border border-primary/30 bg-neutral-800/50 p-6 ring-1 ring-primary/20">
@@ -1782,6 +1924,14 @@ export default function AdminFinancesPage() {
                                       −${overviewFinances.totalStudioRentals.toFixed(2)}
                                     </span>
                                   </div>
+                                  {overviewFinances.totalSocialAllocatedProfits > 0 && (
+                                    <div className="flex items-center justify-between text-neutral-300">
+                                      <span>Social splits (Brandon / Kyler / Isaiah)</span>
+                                      <span className="font-semibold text-white">
+                                        −${overviewFinances.totalSocialAllocatedProfits.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
                                   <div className="flex items-center justify-between text-neutral-300">
                                     <span>Upper Level Teacher</span>
                                     <span className="font-semibold text-white">
@@ -1826,7 +1976,16 @@ export default function AdminFinancesPage() {
                                   <div className="flex items-center justify-between font-medium text-white">
                                     <span>Total money out</span>
                                     <span>
-                                      −${(overviewFinances.totalStudioRentals + overviewFinances.totalPaidMalissa + overviewFinances.totalPaidBt1 + overviewFinances.totalPaidBt2 + overviewFinances.totalPaidBt3 + overviewFinances.totalPaidBt4 + overviewFinances.totalPaidJudges).toFixed(2)}
+                                      −${(
+                                        overviewFinances.totalStudioRentals +
+                                        overviewFinances.totalSocialAllocatedProfits +
+                                        overviewFinances.totalPaidMalissa +
+                                        overviewFinances.totalPaidBt1 +
+                                        overviewFinances.totalPaidBt2 +
+                                        overviewFinances.totalPaidBt3 +
+                                        overviewFinances.totalPaidBt4 +
+                                        overviewFinances.totalPaidJudges
+                                      ).toFixed(2)}
                                     </span>
                                   </div>
                                 </div>
@@ -1838,7 +1997,16 @@ export default function AdminFinancesPage() {
                                     $
                                     {(
                                       (overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0))
-                                      - (overviewFinances.totalStudioRentals + overviewFinances.totalPaidMalissa + overviewFinances.totalPaidBt1 + overviewFinances.totalPaidBt2 + overviewFinances.totalPaidBt3 + overviewFinances.totalPaidBt4 + overviewFinances.totalPaidJudges)
+                                      - (
+                                        overviewFinances.totalStudioRentals +
+                                        overviewFinances.totalSocialAllocatedProfits +
+                                        overviewFinances.totalPaidMalissa +
+                                        overviewFinances.totalPaidBt1 +
+                                        overviewFinances.totalPaidBt2 +
+                                        overviewFinances.totalPaidBt3 +
+                                        overviewFinances.totalPaidBt4 +
+                                        overviewFinances.totalPaidJudges
+                                      )
                                     ).toFixed(2)}
                                   </span>
                                 </div>
@@ -2168,6 +2336,22 @@ export default function AdminFinancesPage() {
                         onPatch={patchCompFinances}
                       />
                     )}
+
+                    {isSocialEvent && (
+                      <SocialBreakdown
+                        computedTotalRevenue={
+                          stats.cashTotal +
+                          stats.stripeTotal +
+                          (stats.otherTotal ?? 0) +
+                          (stats.ccsTeamTotal ?? 0)
+                        }
+                        social={socialFinances}
+                        loading={loadingSocial}
+                        error={socialError}
+                        saving={socialSaving}
+                        onPatch={patchSocial}
+                      />
+                    )}
                   </>
                 )}
               </>
@@ -2175,6 +2359,304 @@ export default function AdminFinancesPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function roundMoney(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+function SocialBreakdown({
+  computedTotalRevenue,
+  social,
+  loading,
+  error,
+  saving,
+  onPatch,
+}: {
+  computedTotalRevenue: number;
+  social: TheSocialFinances | null;
+  loading: boolean;
+  error: string | null;
+  saving: boolean;
+  onPatch: (u: {
+    venue_cost?: number;
+    brandon_split_ratio?: number;
+    kyler_split_ratio?: number;
+    isaiah_split_ratio?: number;
+    brandon_profit?: number;
+    kyler_profit?: number;
+    isaiah_profit?: number;
+    mark_brandon_paid?: boolean;
+    mark_kyler_paid?: boolean;
+    mark_isaiah_paid?: boolean;
+  }) => Promise<void>;
+}) {
+  const [venueInput, setVenueInput] = useState("0");
+  const [brandonPct, setBrandonPct] = useState("20");
+  const [kylerPct, setKylerPct] = useState("30");
+  const [isaiahPct, setIsaiahPct] = useState("50");
+  const [brandonProfitIn, setBrandonProfitIn] = useState("0");
+  const [kylerProfitIn, setKylerProfitIn] = useState("0");
+  const [isaiahProfitIn, setIsaiahProfitIn] = useState("0");
+
+  useEffect(() => {
+    if (social) {
+      setVenueInput(String(Number(social.venue_cost)));
+      setBrandonPct(String(Math.round(Number(social.brandon_split_ratio) * 100)));
+      setKylerPct(String(Math.round(Number(social.kyler_split_ratio) * 100)));
+      setIsaiahPct(String(Math.round(Number(social.isaiah_split_ratio) * 100)));
+      setBrandonProfitIn(String(Number(social.brandon_profit)));
+      setKylerProfitIn(String(Number(social.kyler_profit)));
+      setIsaiahProfitIn(String(Number(social.isaiah_profit)));
+      return;
+    }
+    setVenueInput("0");
+    setBrandonPct("20");
+    setKylerPct("30");
+    setIsaiahPct("50");
+    const rem = Math.max(0, computedTotalRevenue);
+    setBrandonProfitIn(String(roundMoney(rem * 0.2)));
+    setKylerProfitIn(String(roundMoney(rem * 0.3)));
+    setIsaiahProfitIn(String(roundMoney(rem * 0.5)));
+  }, [social, computedTotalRevenue]);
+
+  const venueNum = Math.max(0, parseFloat(venueInput) || 0);
+  const remaining = Math.max(0, roundMoney(computedTotalRevenue - venueNum));
+  const sumSplitPct =
+    (parseFloat(brandonPct) || 0) + (parseFloat(kylerPct) || 0) + (parseFloat(isaiahPct) || 0);
+  const splitWarning = Math.abs(sumSplitPct - 100) > 0.05;
+
+  const saveVenue = useCallback(() => {
+    const v = parseFloat(venueInput);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ venue_cost: roundMoney(v) });
+  }, [venueInput, onPatch]);
+
+  const saveSplits = useCallback(() => {
+    const b = (parseFloat(brandonPct) || 0) / 100;
+    const k = (parseFloat(kylerPct) || 0) / 100;
+    const i = (parseFloat(isaiahPct) || 0) / 100;
+    if (![b, k, i].every((x) => x >= 0 && x <= 1)) return;
+    onPatch({
+      brandon_split_ratio: Number(b.toFixed(6)),
+      kyler_split_ratio: Number(k.toFixed(6)),
+      isaiah_split_ratio: Number(i.toFixed(6)),
+    });
+  }, [brandonPct, kylerPct, isaiahPct, onPatch]);
+
+  const saveBrandonProfit = useCallback(() => {
+    const v = parseFloat(brandonProfitIn);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ brandon_profit: roundMoney(v) });
+  }, [brandonProfitIn, onPatch]);
+  const saveKylerProfit = useCallback(() => {
+    const v = parseFloat(kylerProfitIn);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ kyler_profit: roundMoney(v) });
+  }, [kylerProfitIn, onPatch]);
+  const saveIsaiahProfit = useCallback(() => {
+    const v = parseFloat(isaiahProfitIn);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ isaiah_profit: roundMoney(v) });
+  }, [isaiahProfitIn, onPatch]);
+
+  const bProf = parseFloat(brandonProfitIn) || 0;
+  const kProf = parseFloat(kylerProfitIn) || 0;
+  const iProf = parseFloat(isaiahProfitIn) || 0;
+  const reconciliation = roundMoney(remaining - bProf - kProf - iProf);
+
+  if (loading) {
+    return (
+      <div className="mt-8 rounded-xl border border-neutral-700 bg-neutral-800/30 px-4 py-8 text-center text-neutral-400">
+        Loading social breakdown…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="mt-8 rounded-lg border border-primary/50 bg-primary/10 px-4 py-4 text-primary">
+        <p className="font-medium">{error}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-8 rounded-xl border border-primary/40 bg-neutral-800/30 p-6 ring-1 ring-primary/20">
+      <h3 className="mb-4 text-base font-semibold text-primary">Social breakdown</h3>
+
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-neutral-300">Venue cost</label>
+          <div className="flex items-baseline gap-1">
+            <span className="text-neutral-500">$</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={venueInput}
+              onChange={(e) => setVenueInput(e.target.value)}
+              onBlur={saveVenue}
+              disabled={saving}
+              className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-neutral-300">Distributable</span>
+          <span className="text-lg font-bold text-white">${remaining.toFixed(2)}</span>
+          <span className="text-xs text-neutral-500">(Combined revenue − Venue cost)</span>
+        </div>
+
+        {splitWarning && (
+          <p className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200/90">
+            Split percentages sum to {sumSplitPct.toFixed(1)}% (expected 100% for a full default split).
+          </p>
+        )}
+
+        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4 space-y-4">
+          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">Default shares (editable)</p>
+          <div className="flex flex-wrap gap-4 items-end">
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">Brandon %</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={brandonPct}
+                onChange={(e) => setBrandonPct(e.target.value)}
+                onBlur={saveSplits}
+                disabled={saving}
+                className="w-20 rounded border border-neutral-600 bg-neutral-800 px-2 py-1 text-white disabled:opacity-60"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">Kyler %</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={kylerPct}
+                onChange={(e) => setKylerPct(e.target.value)}
+                onBlur={saveSplits}
+                disabled={saving}
+                className="w-20 rounded border border-neutral-600 bg-neutral-800 px-2 py-1 text-white disabled:opacity-60"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">Isaiah %</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={isaiahPct}
+                onChange={(e) => setIsaiahPct(e.target.value)}
+                onBlur={saveSplits}
+                disabled={saving}
+                className="w-20 rounded border border-neutral-600 bg-neutral-800 px-2 py-1 text-white disabled:opacity-60"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-4">
+        <SocialPersonRow
+          label="Brandon"
+          profitInput={brandonProfitIn}
+          onProfitChange={setBrandonProfitIn}
+          onProfitBlur={saveBrandonProfit}
+          paidAt={social?.brandon_paid_at ?? null}
+          onMarkPaid={() => onPatch({ mark_brandon_paid: true })}
+          saving={saving}
+        />
+        <SocialPersonRow
+          label="Kyler"
+          profitInput={kylerProfitIn}
+          onProfitChange={setKylerProfitIn}
+          onProfitBlur={saveKylerProfit}
+          paidAt={social?.kyler_paid_at ?? null}
+          onMarkPaid={() => onPatch({ mark_kyler_paid: true })}
+          saving={saving}
+        />
+        <SocialPersonRow
+          label="Isaiah"
+          profitInput={isaiahProfitIn}
+          onProfitChange={setIsaiahProfitIn}
+          onProfitBlur={saveIsaiahProfit}
+          paidAt={social?.isaiah_paid_at ?? null}
+          onMarkPaid={() => onPatch({ mark_isaiah_paid: true })}
+          saving={saving}
+        />
+      </div>
+
+      <div className="mt-6 rounded-lg border border-neutral-700 bg-neutral-900/40 px-4 py-3 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-neutral-400">Reconciliation (distributable − splits)</span>
+          <span className={`font-semibold ${Math.abs(reconciliation) < 0.02 ? "text-emerald-400" : "text-amber-300"}`}>
+            ${reconciliation.toFixed(2)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SocialPersonRow({
+  label,
+  profitInput,
+  onProfitChange,
+  onProfitBlur,
+  paidAt,
+  onMarkPaid,
+  saving,
+}: {
+  label: string;
+  profitInput: string;
+  onProfitChange: (s: string) => void;
+  onProfitBlur: () => void;
+  paidAt: string | null;
+  onMarkPaid: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">{label}</p>
+        <div className="mt-1 flex items-baseline gap-1">
+          <span className="text-neutral-500">$</span>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            value={profitInput}
+            onChange={(e) => onProfitChange(e.target.value)}
+            onBlur={onProfitBlur}
+            disabled={saving}
+            className="w-32 rounded border border-neutral-600 bg-neutral-800 px-2 py-1 font-semibold text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+          />
+        </div>
+        <p className="mt-1 text-xs text-neutral-500">Profit allocation (editable)</p>
+      </div>
+      <div className="shrink-0">
+        {paidAt ? (
+          <div className="rounded-lg border border-primary/50 bg-primary/10 px-3 py-2 text-center">
+            <p className="text-xs font-medium text-primary">Paid</p>
+            <p className="text-xs text-neutral-400">{dayjs(paidAt).format("MMM D, YYYY")}</p>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onMarkPaid}
+            className="rounded-lg border border-primary/60 bg-primary/15 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/25 disabled:opacity-60"
+          >
+            Mark paid
+          </button>
+        )}
+      </div>
     </div>
   );
 }

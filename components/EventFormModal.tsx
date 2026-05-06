@@ -19,6 +19,7 @@ const NASHVILLE_CLASS_EVENT_TITLE = "Nashville Country Swing Nights!";
 const EVENT_TYPE_OPTIONS = [
   { value: "Class", label: "Class" },
   { value: "Workshop", label: "Workshop" },
+  { value: "Social", label: "Social" },
   { value: "Comp", label: "Comp" },
   { value: "Convention", label: "Convention" },
 ] as const;

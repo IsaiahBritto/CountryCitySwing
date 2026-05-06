@@ -38,7 +38,7 @@ export function buildNewsletterHtml(
   for (const e of weekEvents) {
     const timePart = e.starts_at ? " &middot; " + formatEventTimeInChicago(e.starts_at) : "";
     const locPart = e.location ? " &middot; " + escapeHtml(e.location) : "";
-    const signupHref = e.signup_link ? escapeHtml(e.signup_link) : siteUrl + "/events";
+    const signupHref = e.signup_link ? escapeHtml(e.signup_link) : siteUrl + "/#events";
     const signupPart =
       '<table cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;"><tr><td bgcolor="#F2C94C" style="background-color:#F2C94C;border-radius:6px;padding:6px 14px;"><a href="' + signupHref + '" style="color:#0D0D0D;font-size:14px;text-decoration:none;font-weight:600;">Sign up</a></td></tr></table>';
     eventItems.push(
@@ -54,7 +54,7 @@ export function buildNewsletterHtml(
 
   let workshopSection = "";
   if (workshop) {
-    const workshopSignupHref = workshop.signup_link ? escapeHtml(workshop.signup_link) : siteUrl + "/events";
+    const workshopSignupHref = workshop.signup_link ? escapeHtml(workshop.signup_link) : siteUrl + "/#events";
     const descSnippet = workshop.description
       ? escapeHtml(workshop.description.slice(0, 200)) + (workshop.description.length > 200 ? "&#8230;" : "")
       : "";
@@ -97,7 +97,7 @@ export function buildNewsletterText(
   weekEvents: NewsletterEventRow[],
   unsubscribeUrl: string
 ): string {
-  const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance";
+  const siteUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
   const lines: string[] = [
     "Country City Swing",
     "Nashville's Country Swing partner dancing",
@@ -108,7 +108,7 @@ export function buildNewsletterText(
     lines.push(workshop.title);
     lines.push(formatEventDateInChicago(workshop.starts_at) + (workshop.starts_at ? " " + formatEventTimeInChicago(workshop.starts_at) : ""));
     if (workshop.location) lines.push(workshop.location);
-    lines.push((workshop.signup_link || siteUrl + "/events") + "\n");
+    lines.push((workshop.signup_link || siteUrl + "/#events") + "\n");
   }
   lines.push("THIS WEEK'S SCHEDULE");
   if (weekEvents.length > 0) {

@@ -9,6 +9,7 @@ import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxC
 import { formatEventDateInChicago, getEventDateStringInChicago, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
 import { eventSignupToken } from "@/lib/utils/qrCheckIn";
 import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
+import { CanonicalEventError, resolveCanonicalEventById } from "@/lib/utils/canonicalEvent";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -39,9 +40,21 @@ export async function POST(req: NextRequest) {
   } = data;
   const isCcsTeam = isCcsTeamFromBody === true || isCcsTeamFromBody === "true";
 
-  // Normalize event and price (client may send snake_case or price as string)
+  // Read event id only; all other event fields come from canonical DB row.
   const event = eventPayload ?? data.event ?? {};
-  const eventId = event?.id;
+  const rawEventId = event?.id ?? data.event_id;
+  let canonicalEvent;
+  try {
+    canonicalEvent = await resolveCanonicalEventById(rawEventId);
+  } catch (err) {
+    if (err instanceof CanonicalEventError) {
+      const status = err.code === "MISSING_EVENT_ID" ? 400 : 404;
+      return NextResponse.json({ error: err.message }, { status });
+    }
+    console.error("[event-signup] canonical event resolution failed", err);
+    return NextResponse.json({ error: "Failed to resolve event." }, { status: 500 });
+  }
+  const eventId = canonicalEvent.id;
   const emailTrimmed = typeof email === "string" ? email.trim().toLowerCase() : "";
 
   // Sanity check: reject if already registered for this event (event_id + email)
@@ -53,8 +66,8 @@ export async function POST(req: NextRequest) {
       .ilike("email", emailTrimmed)
       .maybeSingle();
     if (existing) {
-      const eventTitle = event.title ?? "This event";
-      const eventDate = event.starts_at ? formatEventDateInChicago(event.starts_at) : "";
+      const eventTitle = canonicalEvent.title ?? "This event";
+      const eventDate = canonicalEvent.starts_at ? formatEventDateInChicago(canonicalEvent.starts_at) : "";
       return NextResponse.json(
         {
           error: "Already registered",
@@ -67,35 +80,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const eventPriceNum =
-    typeof event.price === "number"
-      ? event.price
-      : typeof event.price === "string"
-        ? parseFloat(event.price)
-        : Number((event as Record<string, unknown>)?.price);
-  let eventPrice = Number.isFinite(eventPriceNum) ? eventPriceNum : 0;
-
-  // If event price missing but we have event.id, fetch from DB (so Cash + promo can apply)
-  if (eventPrice <= 0 && event?.id) {
-    try {
-      const { data: ev } = await supabaseServer
-        .from("events")
-        .select("price")
-        .eq("id", event.id)
-        .single();
-      if (ev?.price != null) {
-        const p = Number(ev.price);
-        if (Number.isFinite(p)) eventPrice = p;
-      }
-    } catch (_) {
-      // ignore
-    }
-  }
+  let eventPrice = canonicalEvent.price;
 
   // Workshop day-of price (never used for instructors; instructors use team_day_of_price)
-  const eventType = (event?.type ?? (event as Record<string, unknown>)?.type as string)?.trim().toLowerCase();
+  const eventType = canonicalEvent.type.trim().toLowerCase();
   const isWorkshop = eventType === "workshop";
-  const eventStartsAt = event?.starts_at ?? (event as Record<string, unknown>)?.starts_at;
+  const eventStartsAt = canonicalEvent.starts_at;
   const isEventToday =
     isWorkshop &&
     typeof eventStartsAt === "string" &&
@@ -103,59 +93,17 @@ export async function POST(req: NextRequest) {
 
   if (isCcsTeam) {
     // Instructor/team: use team_day_of_price on event day, else ccs_team_price (never day_of_price)
-    if (event?.id) {
-      try {
-        const { data: ev } = await supabaseServer
-          .from("events")
-          .select("ccs_team_price, team_day_of_price")
-          .eq("id", event.id)
-          .single();
-        if (ev) {
-          const teamPrice = ev.ccs_team_price != null ? Number(ev.ccs_team_price) : null;
-          const teamDayPrice = ev.team_day_of_price != null ? Number(ev.team_day_of_price) : null;
-          if (isEventToday && teamDayPrice != null && Number.isFinite(teamDayPrice) && teamDayPrice >= 0) {
-            eventPrice = teamDayPrice;
-          } else if (teamPrice != null && Number.isFinite(teamPrice) && teamPrice >= 0) {
-            eventPrice = teamPrice;
-          }
-        }
-      } catch (_) {
-        // ignore
-      }
-    } else {
-      const teamPriceRaw = event?.ccs_team_price ?? (event as Record<string, unknown>)?.ccs_team_price;
-      const teamDayPriceRaw = event?.team_day_of_price ?? (event as Record<string, unknown>)?.team_day_of_price;
-      const teamPrice = teamPriceRaw != null ? Number(teamPriceRaw) : null;
-      const teamDayPrice = teamDayPriceRaw != null ? Number(teamDayPriceRaw) : null;
-      if (isEventToday && teamDayPrice != null && Number.isFinite(teamDayPrice) && teamDayPrice >= 0) {
-        eventPrice = teamDayPrice;
-      } else if (teamPrice != null && Number.isFinite(teamPrice) && teamPrice >= 0) {
-        eventPrice = teamPrice;
-      }
+    const teamPrice = canonicalEvent.ccs_team_price;
+    const teamDayPrice = canonicalEvent.team_day_of_price;
+    if (isEventToday && teamDayPrice != null && Number.isFinite(teamDayPrice) && teamDayPrice >= 0) {
+      eventPrice = teamDayPrice;
+    } else if (teamPrice != null && Number.isFinite(teamPrice) && teamPrice >= 0) {
+      eventPrice = teamPrice;
     }
   } else if (isEventToday) {
     // Non-instructor: use day_of_price on event day when set
-    if (event?.id) {
-      try {
-        const { data: ev } = await supabaseServer
-          .from("events")
-          .select("day_of_price")
-          .eq("id", event.id)
-          .single();
-        if (ev?.day_of_price != null) {
-          const dayPrice = Number(ev.day_of_price);
-          if (Number.isFinite(dayPrice) && dayPrice >= 0) eventPrice = dayPrice;
-        }
-      } catch (_) {
-        // ignore
-      }
-    } else {
-      const dayOfPriceRaw = event?.day_of_price ?? (event as Record<string, unknown>)?.day_of_price;
-      if (dayOfPriceRaw != null) {
-        const dayPrice = typeof dayOfPriceRaw === "number" ? dayOfPriceRaw : parseFloat(String(dayOfPriceRaw));
-        if (Number.isFinite(dayPrice) && dayPrice >= 0) eventPrice = dayPrice;
-      }
-    }
+    const dayPrice = canonicalEvent.day_of_price;
+    if (dayPrice != null && Number.isFinite(dayPrice) && dayPrice >= 0) eventPrice = dayPrice;
   }
 
   // Accept promo from body (camelCase or snake_case)
@@ -202,8 +150,8 @@ export async function POST(req: NextRequest) {
             price_data: {
               currency: "usd",
               product_data: {
-                name: event.title,
-                description: `Event on ${formatEventDateInChicago(event.starts_at)} at ${event.location}`,
+                name: canonicalEvent.title,
+                description: `Event on ${formatEventDateInChicago(canonicalEvent.starts_at || "")} at ${canonicalEvent.location || ""}`,
                 tax_code: getEventTaxCode(),
               },
               unit_amount: Math.round(eventPrice * 100),
@@ -238,8 +186,8 @@ export async function POST(req: NextRequest) {
           client_reference_id: signupId,
           metadata: {
             signup_id: signupId,
-            event_id: event.id,
-            event_title: event.title,
+            event_id: canonicalEvent.id,
+            event_title: canonicalEvent.title,
             first_name: firstName,
             last_name: lastName,
             email,
@@ -313,8 +261,8 @@ export async function POST(req: NextRequest) {
     .from("signups")
     .insert([
       {
-        event_id: event.id,
-        event_title: event.title,
+        event_id: canonicalEvent.id,
+        event_title: canonicalEvent.title,
         first_name: firstName,
         last_name: lastName,
         email,
@@ -413,16 +361,16 @@ export async function POST(req: NextRequest) {
               </div>
               <div class="detail-row">
                 <div class="detail-label">Event</div>
-                <div class="detail-value"><strong>${event.title}</strong></div>
+                <div class="detail-value"><strong>${canonicalEvent.title}</strong></div>
               </div>
               <div class="detail-row">
                 <div class="detail-label">Date</div>
-                <div class="detail-value">${formatEventDateInChicago(event.starts_at)}</div>
+                <div class="detail-value">${canonicalEvent.starts_at ? formatEventDateInChicago(canonicalEvent.starts_at) : ""}</div>
               </div>
-              ${event.location ? `
+              ${canonicalEvent.location ? `
               <div class="detail-row">
                 <div class="detail-label">Location</div>
-                <div class="detail-value">${event.location}</div>
+                <div class="detail-value">${canonicalEvent.location}</div>
               </div>
               ` : ""}
               ${eventPrice > 0 ? `
@@ -462,7 +410,7 @@ export async function POST(req: NextRequest) {
   try {
     await sendHtmlEmail(
       email,
-      `Country City Swing Signup — ${event.title}`,
+      `Country City Swing Signup — ${canonicalEvent.title}`,
       html,
       "confirmation@countrycityswing.dance",
       undefined,

@@ -7,6 +7,7 @@ import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 import { eventSignupToken } from "@/lib/utils/qrCheckIn";
 import { compSignupToken } from "@/lib/utils/qrCheckIn";
 import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
+import { CanonicalEventError, resolveCanonicalEventById } from "@/lib/utils/canonicalEvent";
 
 function getWebhookBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
@@ -26,6 +27,15 @@ function getCompPrimaryEmail(comp: Record<string, any>): string | null {
     comp.jnj_follow_email ||
     null
   );
+}
+
+async function tryResolveCanonicalEvent(eventId: string | null | undefined) {
+  if (!eventId) return null;
+  try {
+    return await resolveCanonicalEventById(eventId);
+  } catch (err) {
+    return null;
+  }
 }
 
 async function sendCompStripeConfirmationEmail(compSignupId: string) {
@@ -375,10 +385,33 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
+        if (!metadata.event_id) {
+          console.error("Webhook: Missing event_id for stripe_checkout", { signupId, sessionId: session.id });
+          return NextResponse.json(
+            { error: "Missing event_id in Stripe metadata" },
+            { status: 400 }
+          );
+        }
+        let canonicalEvent;
+        try {
+          canonicalEvent = await resolveCanonicalEventById(metadata.event_id);
+        } catch (err) {
+          const status = err instanceof CanonicalEventError && err.code === "MISSING_EVENT_ID" ? 400 : 404;
+          console.error("Webhook: canonical event lookup failed", {
+            signupId,
+            sessionId: session.id,
+            eventId: metadata.event_id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return NextResponse.json(
+            { error: "Event not found for this signup" },
+            { status }
+          );
+        }
 
         console.log("Webhook: Metadata received", { 
           signupId, 
-          eventId: metadata.event_id,
+          eventId: canonicalEvent.id,
           email: metadata.email,
           hasAllFields: !!(metadata.first_name && metadata.last_name && metadata.email)
         });
@@ -436,8 +469,8 @@ export async function POST(request: NextRequest) {
             .from("signups")
             .insert([
               {
-                event_id: metadata.event_id,
-                event_title: metadata.event_title,
+                event_id: canonicalEvent.id,
+                event_title: canonicalEvent.title,
                 first_name: metadata.first_name,
                 last_name: metadata.last_name,
                 email: metadata.email,
@@ -477,28 +510,10 @@ export async function POST(request: NextRequest) {
           
           // Retrieve tax and fee amounts from Stripe session (already computed above)
           
-          // Fetch event details for email
-          let eventDate = "";
-          let eventLocation = "";
-          let eventPrice = null;
-          
-          if (signup.event_id) {
-            try {
-              const { data: eventData } = await supabaseServer
-                .from("events")
-                .select("starts_at, location, price")
-                .eq("id", signup.event_id)
-                .single();
-              
-              if (eventData) {
-                eventDate = eventData.starts_at ? formatEventDateInChicago(eventData.starts_at) : "";
-                eventLocation = eventData.location || "";
-                eventPrice = eventData.price;
-              }
-            } catch (e) {
-              console.error("Webhook: Error fetching event details", e);
-            }
-          }
+          const eventDate = canonicalEvent.starts_at ? formatEventDateInChicago(canonicalEvent.starts_at) : "";
+          const eventLocation = canonicalEvent.location || "";
+          const eventPrice = canonicalEvent.price;
+          const canonicalEventTitle = canonicalEvent.title || signup.event_title;
           
           // Send confirmation email for paid event signup (event amount = discounted when coupon used)
           const eventAmountDisplay = usedPromoInsert ? eventAmountAfterDiscount : subtotal;
@@ -543,7 +558,7 @@ export async function POST(request: NextRequest) {
                       </div>
                       <div class="detail-row">
                         <div class="detail-label">Event</div>
-                        <div class="detail-value"><strong>${signup.event_title}</strong></div>
+                        <div class="detail-value"><strong>${canonicalEventTitle}</strong></div>
                       </div>
                       ${eventDate ? `
                       <div class="detail-row">
@@ -615,7 +630,7 @@ export async function POST(request: NextRequest) {
             console.log("Webhook: Sending payment confirmation email to:", signup.email);
             await sendHtmlEmail(
               signup.email,
-              `Payment Confirmed - ${signup.event_title}`,
+              `Payment Confirmed - ${canonicalEventTitle}`,
               html,
               "confirmation@countrycityswing.dance",
               undefined,
@@ -645,28 +660,13 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Fetch event details for email
-        let eventDate = "";
-        let eventLocation = "";
-        let eventPrice = null;
-        
-        if (signup.event_id) {
-          try {
-            const { data: eventData } = await supabaseServer
-              .from("events")
-              .select("starts_at, location, price")
-              .eq("id", signup.event_id)
-              .single();
-            
-            if (eventData) {
-              eventDate = eventData.starts_at ? formatEventDateInChicago(eventData.starts_at) : "";
-              eventLocation = eventData.location || "";
-              eventPrice = eventData.price;
-            }
-          } catch (e) {
-            console.error("Webhook: Error fetching event details", e);
-          }
-        }
+        const canonicalEventForExisting = await tryResolveCanonicalEvent(signup.event_id);
+        const eventDate = canonicalEventForExisting?.starts_at
+          ? formatEventDateInChicago(canonicalEventForExisting.starts_at)
+          : "";
+        const eventLocation = canonicalEventForExisting?.location || "";
+        const eventPrice = canonicalEventForExisting?.price ?? null;
+        const canonicalEventTitle = canonicalEventForExisting?.title || signup.event_title;
 
         const webhookQrPayload2 = eventSignupToken(String(signup.id));
         const {
@@ -714,7 +714,7 @@ export async function POST(request: NextRequest) {
                     </div>
                     <div class="detail-row">
                       <div class="detail-label">Event</div>
-                      <div class="detail-value"><strong>${signup.event_title}</strong></div>
+                      <div class="detail-value"><strong>${canonicalEventTitle}</strong></div>
                     </div>
                     ${eventDate ? `
                     <div class="detail-row">
@@ -784,7 +784,7 @@ export async function POST(request: NextRequest) {
           console.log("Webhook: Sending payment confirmation email to:", signup.email);
           await sendHtmlEmail(
             signup.email,
-            `Payment Confirmed - ${signup.event_title}`,
+            `Payment Confirmed - ${canonicalEventTitle}`,
             html,
             "confirmation@countrycityswing.dance",
             undefined,
@@ -859,28 +859,13 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // Fetch event details for email
-        let eventDate = "";
-        let eventLocation = "";
-        let eventPrice = null;
-        
-        if (signup.event_id) {
-          try {
-            const { data: eventData } = await supabaseServer
-              .from("events")
-              .select("starts_at, location, price")
-              .eq("id", signup.event_id)
-              .single();
-            
-            if (eventData) {
-              eventDate = eventData.starts_at ? formatEventDateInChicago(eventData.starts_at) : "";
-              eventLocation = eventData.location || "";
-              eventPrice = eventData.price;
-            }
-          } catch (e) {
-            console.error("Webhook: Error fetching event details", e);
-          }
-        }
+        const canonicalEventForCashToStripe = await tryResolveCanonicalEvent(signup.event_id);
+        const eventDate = canonicalEventForCashToStripe?.starts_at
+          ? formatEventDateInChicago(canonicalEventForCashToStripe.starts_at)
+          : "";
+        const eventLocation = canonicalEventForCashToStripe?.location || "";
+        const eventPrice = canonicalEventForCashToStripe?.price ?? null;
+        const canonicalEventTitle = canonicalEventForCashToStripe?.title || signup.event_title;
 
         const webhookQrPayload3 = eventSignupToken(String(signup.id));
         const { contentId: qrContentId3, attachments: qrAttachments3 } = await makeQrCodeInlineAttachment(webhookQrPayload3);
@@ -924,7 +909,7 @@ export async function POST(request: NextRequest) {
                     </div>
                     <div class="detail-row">
                       <div class="detail-label">Event</div>
-                      <div class="detail-value"><strong>${signup.event_title}</strong></div>
+                      <div class="detail-value"><strong>${canonicalEventTitle}</strong></div>
                     </div>
                     ${eventDate ? `
                     <div class="detail-row">
@@ -994,7 +979,7 @@ export async function POST(request: NextRequest) {
           console.log("Webhook: Sending payment confirmation email to:", signup.email);
           await sendHtmlEmail(
             signup.email,
-            `Payment Confirmed - ${signup.event_title}`,
+            `Payment Confirmed - ${canonicalEventTitle}`,
             html,
             "confirmation@countrycityswing.dance",
             undefined,

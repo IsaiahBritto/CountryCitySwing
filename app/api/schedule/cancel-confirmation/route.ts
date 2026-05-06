@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { formatEventDateInChicago, formatEventTimeInChicago } from "@/lib/utils/dateHelpers";
+import { createScheduleConfirmationEmailHtml } from "@/lib/email/scheduleConfirmationEmail";
 
 /**
  * POST - Send confirmation email to (former) assignee and all admins when someone cancels a schedule slot.
@@ -35,21 +36,17 @@ export async function POST(req: NextRequest) {
     const eventDate = event?.starts_at ? formatEventDateInChicago(event.starts_at) : "—";
     const eventTime = event?.starts_at ? formatEventTimeInChicago(event.starts_at) : "";
     const eventTitle = event?.title || "Event";
+    const eventLocation = event?.location || "";
 
-    const html = `
-      <div style="font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto">
-        <h2 style="color:#F2C94C;margin-bottom:20px">Schedule Cancellation Confirmation</h2>
-        <p style="font-size:16px;line-height:1.6">Hi ${assigneeName || "there"},</p>
-        <p style="font-size:16px;line-height:1.6">Your schedule slot has been removed:</p>
-        <div style="background-color:#1a1a1a;padding:20px;border-radius:8px;margin:20px 0">
-          <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Event:</strong> ${eventTitle}</p>
-          <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Position:</strong> ${position}</p>
-          <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Date:</strong> ${eventDate}</p>
-          ${eventTime ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Time:</strong> ${eventTime}</p>` : ""}
-        </div>
-        <p style="font-size:16px;line-height:1.6">You can sign up for other slots on the Schedule page.</p>
-        <p style="margin-top:30px;color:#888;font-size:14px">— The Country City Swing Team</p>
-      </div>`;
+    const html = createScheduleConfirmationEmailHtml({
+      kind: "cancel",
+      recipientName: assigneeName,
+      eventTitle,
+      position,
+      eventDate,
+      eventTime,
+      eventLocation,
+    });
 
     if (assigneeEmail) {
       await sendHtmlEmail(

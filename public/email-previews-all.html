@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Country City Swing Email Previews</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f3f4f6; color: #111827; }
+      h1 { margin: 0 0 8px 0; }
+      .note { margin: 0 0 18px 0; color: #4b5563; }
+      .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+      .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+      .card h2 { margin: 0; padding: 12px 14px; font-size: 15px; border-bottom: 1px solid #e5e7eb; background: #fafafa; }
+      iframe { width: 100%; height: 600px; border: 0; background: #fff; }
+    </style>
+  </head>
+  <body>
+    <h1>All Email Template Previews</h1>
+    <p class="note">Sample renderings for every email template and key variation currently in the app.</p>
+    <div id="grid" class="grid"></div>
+
+    <script>
+      const previews = [
+        {
+          title: "Schedule Signup Confirmation",
+          html: `<!doctype html><html><body style="margin:0;padding:0;background:#f5f5f5"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px"><table role="presentation" width="100%" style="max-width:620px;background:#fff;border:1px solid #e7e7e7;border-radius:8px"><tr><td style="padding:24px 24px 12px;font-family:Arial,sans-serif"><h2 style="margin:0;color:#B8860B;font-size:28px">Schedule Signup Confirmation</h2></td></tr><tr><td style="padding:0 24px 8px;font-family:Arial,sans-serif;color:#1f2937;font-size:16px;line-height:1.6"><p style="margin:0 0 12px">Hi Brittney,</p><p style="margin:0">You're signed up for the following schedule slot:</p></td></tr><tr><td style="padding:16px 24px 8px"><table role="presentation" width="100%" style="background:#111827;border-radius:6px"><tr><td style="padding:18px;font-family:Arial,sans-serif"><p style="margin:0 0 10px;color:#F3F4F6"><strong style="color:#F2C94C">Event:</strong> Friday Social</p><p style="margin:0 0 10px;color:#F3F4F6"><strong style="color:#F2C94C">Position:</strong> Instructor</p><p style="margin:0 0 10px;color:#F3F4F6"><strong style="color:#F2C94C">Date:</strong> Friday, April 17, 2026</p><p style="margin:0;color:#F3F4F6"><strong style="color:#F2C94C">Location:</strong> Main Hall</p></td></tr></table></td></tr><tr><td style="padding:8px 24px 0;font-family:Arial,sans-serif;color:#1f2937;font-size:16px;line-height:1.6"><p style="margin:0">You can view or change your schedule at any time on the Schedule page.</p><p style="margin:12px 0 0"><a href="https://countrycityswing.dance/#events" style="color:#B8860B;font-weight:600;text-decoration:underline">View upcoming events</a></p></td></tr></table></td></tr></table></body></html>`
+        },
+        {
+          title: "Schedule Cancellation Confirmation",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;padding:24px;background:#f9fafb"><div style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px"><h2 style="margin:0 0 12px;color:#B8860B">Schedule Cancellation Confirmation</h2><p>Hi Brittney, your schedule slot has been removed:</p><div style="background:#111827;border-radius:6px;padding:16px;color:#F3F4F6"><p><strong style="color:#F2C94C">Event:</strong> Friday Social</p><p><strong style="color:#F2C94C">Position:</strong> Instructor</p><p><strong style="color:#F2C94C">Date:</strong> Friday, April 17, 2026</p></div><p style="margin:16px 0 0;color:#1f2937">You can sign up for other slots on the Schedule page.</p><p style="margin:12px 0 0"><a href="https://countrycityswing.dance/#events" style="color:#B8860B;font-weight:600;text-decoration:underline">View upcoming events</a></p></div></body></html>`
+        },
+        {
+          title: "Schedule Reminder (Day Of Event)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;background:#fff;padding:24px"><div style="max-width:600px;margin:auto"><h2 style="color:#F2C94C">Reminder: Event Today</h2><p>You're signed up to help at:</p><div style="background:#1a1a1a;color:#f9fafb;padding:20px;border-radius:8px"><p style="color:#F2C94C"><strong>Friday Social</strong></p><p>Friday, April 17, 2026 at 8:00 PM</p><p>Main Hall</p></div><p>See you there!</p></div></body></html>`
+        },
+        {
+          title: "Event Signup (Cash Pending)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:600px;margin:0 auto;padding:20px"><div style="background:#f2c94c;color:#000;padding:16px;text-align:center"><h2 style="margin:0">Registration Confirmation</h2></div><div style="background:#f9f9f9;padding:20px"><p>Hi <strong>Britney M</strong>, you're signed up.</p><div style="background:#fff;border:2px solid #f2c94c;border-radius:8px;padding:16px"><p><strong>Event:</strong> Friday Social</p><p><strong>Amount Due:</strong> $25.00</p><p><strong>Payment Method:</strong> Cash</p><p style="color:#b45309"><strong>Payment Status:</strong> Pending - Pay at door</p></div><div style="background:#fff3cd;border-left:4px solid #f2c94c;padding:15px;margin-top:16px"><p><strong>Cash payment selected.</strong></p><p>Pay at the door or online.</p></div></div></div></body></html>`
+        },
+        {
+          title: "Event Signup (Promo Fully Covers Cost)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:600px;margin:0 auto;padding:20px"><div style="background:#f2c94c;color:#000;padding:16px;text-align:center"><h2 style="margin:0">You're All Set!</h2></div><div style="background:#f9f9f9;padding:20px"><p>Your promotion code covered the full cost.</p><div style="background:#fff;border:2px solid #f2c94c;border-radius:8px;padding:16px"><p><strong>Event:</strong> Friday Social</p><p><strong>Amount Due (After Discount):</strong> $0.00</p><p style="color:#15803d"><strong>Payment Status:</strong> Paid</p></div></div></div></body></html>`
+        },
+        {
+          title: "Event Signup (Stripe Paid Confirmation)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:600px;margin:0 auto;padding:20px"><div style="background:#f2c94c;color:#000;padding:16px;text-align:center"><h2 style="margin:0">Payment Confirmed</h2></div><div style="background:#f9f9f9;padding:20px"><p>Hi <strong>Brittney McGetrick</strong>, your payment is confirmed.</p><div style="background:#fff;border:2px solid #f2c94c;border-radius:8px;padding:16px"><p><strong>Event Price:</strong> $25.00</p><p><strong>Processing Fee:</strong> $1.00</p><p><strong>Sales Tax:</strong> $2.34</p><p style="font-size:18px;color:#15803d"><strong>Total Paid:</strong> $28.34</p></div></div></div></body></html>`
+        },
+        {
+          title: "Comp Signup (Cash Pending)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:600px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">Comp Registration Confirmation</h2></div><div style="background:#f9f9f9;padding:20px"><p>Your How's My Dancing registration has been received.</p><div style="background:#fff;border:2px solid #f2c94c;border-radius:8px;padding:16px"><p><strong>Amount due:</strong> $40.00</p><p><strong>Payment method:</strong> Cash</p></div><div style="background:#fff3cd;border-left:4px solid #f2c94c;padding:12px">Pay at the door or online.</div></div></div></body></html>`
+        },
+        {
+          title: "Comp Signup (No Payment Required)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:600px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">Comp Registration Confirmation</h2></div><div style="background:#f9f9f9;padding:20px"><div style="background:#d4edda;border-left:4px solid #28a745;padding:12px">No payment required.</div><p><strong>Amount due:</strong> $0.00</p></div></div></body></html>`
+        },
+        {
+          title: "Comp Signup (Stripe Paid)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:600px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">Comp Registration Confirmation</h2></div><div style="background:#f9f9f9;padding:20px"><p><strong>Payment method:</strong> Stripe</p><p style="color:#15803d"><strong>Payment status:</strong> Paid</p><div style="background:#d4edda;border-left:4px solid #28a745;padding:12px">Thank you for your payment. Your comp registration is confirmed.</div></div></div></body></html>`
+        },
+        {
+          title: "Private Lesson Booking (Student)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:600px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">Private Lesson Booking Confirmation</h2></div><div style="background:#f9f9f9;padding:20px"><p>Your private lesson has been confirmed.</p><div style="background:#fff;padding:15px;border-radius:5px"><p><strong>Instructor:</strong> Alex</p><p><strong>Date:</strong> Monday, April 20, 2026</p><p><strong>Duration:</strong> 60 minutes</p><p><strong>Price:</strong> $85.00</p><p><strong>Focus:</strong> Spins and connection</p></div></div></div></body></html>`
+        },
+        {
+          title: "Private Lesson Booking (Instructor Notification)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;padding:20px"><div style="max-width:600px;margin:auto"><h2 style="color:#F2C94C">New Private Lesson Booking</h2><div style="background:#1a1a1a;color:#f3f4f6;padding:18px;border-radius:8px"><p><strong style="color:#F2C94C">Student:</strong> Brittney McGetrick</p><p><strong style="color:#F2C94C">Email:</strong> brittney@example.com</p><p><strong style="color:#F2C94C">Phone:</strong> 615-555-0100</p><p><strong style="color:#F2C94C">Time:</strong> 7:00 PM</p></div></div></body></html>`
+        },
+        {
+          title: "Private Lesson Cancellation (Instructor Notification)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;padding:20px"><div style="max-width:600px;margin:auto"><h2 style="color:#F2C94C">Lesson Booking Cancelled</h2><div style="background:#1a1a1a;color:#f3f4f6;padding:18px;border-radius:8px"><p><strong style="color:#F2C94C">Student:</strong> Brittney McGetrick</p><p><strong style="color:#F2C94C">Email:</strong> brittney@example.com</p><p><strong style="color:#F2C94C">Date:</strong> Monday, April 20, 2026</p></div></div></body></html>`
+        },
+        {
+          title: "Private Lesson Updated (Student Notification)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:600px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">Private Lesson Updated</h2></div><div style="background:#f9f9f9;padding:20px"><div style="background:#fff3cd;border-left:4px solid #f2c94c;padding:12px"><strong>Lesson Details Updated</strong></div><p><strong>Date:</strong> Wednesday, April 22, 2026</p><p><strong>Time:</strong> 8:30 PM</p></div></div></body></html>`
+        },
+        {
+          title: "Merch Order Confirmation (Cash Pending)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:620px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">Order Confirmation</h2></div><div style="background:#f9f9f9;padding:20px"><p><strong>Order Number:</strong> #abc12345</p><p><strong>Delivery Method:</strong> Local Pickup</p><div style="background:#fff3cd;border-left:4px solid #f2c94c;padding:12px"><p><strong>Amount Due:</strong> $54.00</p><p>Cash payment selected.</p></div></div></div></body></html>`
+        },
+        {
+          title: "Merch Order Confirmation (Stripe Paid)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:620px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">Order Confirmation</h2></div><div style="background:#f9f9f9;padding:20px"><p><strong>Order Number:</strong> #def67890</p><p><strong>Payment Method:</strong> Stripe</p><p style="color:#15803d"><strong>Payment Status:</strong> Paid</p><p><strong>Total:</strong> $61.79</p></div></div></body></html>`
+        },
+        {
+          title: "Merch Order Status Update (Shipped + Tracking)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:620px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">Order Status Update</h2></div><div style="background:#f9f9f9;padding:20px"><div style="background:#fff3cd;border-left:4px solid #f2c94c;padding:12px"><p><strong>New Status:</strong> Shipped</p><p>Your order has been shipped.</p><p><strong>Tracking Number:</strong> 1Z999AA10123456784</p></div></div></div></body></html>`
+        },
+        {
+          title: "Merch Order Status Update (Processing / Completed / Cancelled)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:620px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">Order Status Update</h2></div><div style="background:#f9f9f9;padding:20px"><div style="background:#fff3cd;border-left:4px solid #f2c94c;padding:12px"><p><strong>Processing:</strong> Your order is now being prepared.</p></div><div style="background:#dcfce7;border-left:4px solid #22c55e;padding:12px;margin-top:10px"><p><strong>Completed:</strong> Your order has been completed and delivered.</p></div><div style="background:#fee2e2;border-left:4px solid #ef4444;padding:12px;margin-top:10px"><p><strong>Cancelled:</strong> Your order has been cancelled.</p></div></div></div></body></html>`
+        },
+        {
+          title: "Merch Admin Notification (New Cash Order)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:620px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">New Merch Order</h2></div><div style="background:#f9f9f9;padding:20px"><p><strong>Order Number:</strong> #abc12345</p><p><strong>Customer:</strong> Brittney McGetrick</p><p><strong>Payment:</strong> Cash payment needed.</p></div></div></body></html>`
+        },
+        {
+          title: "Merch Admin Notification (New Paid Stripe Order)",
+          html: `<!doctype html><html><body style="font-family:Arial,sans-serif;color:#333"><div style="max-width:620px;margin:auto;padding:20px"><div style="background:#f2c94c;padding:16px;text-align:center"><h2 style="margin:0">New Merch Order</h2></div><div style="background:#f9f9f9;padding:20px"><p><strong>Order Number:</strong> #def67890</p><p><strong>Customer:</strong> Brittney McGetrick</p><p><strong>Payment:</strong> Paid (Stripe)</p></div></div></body></html>`
+        },
+        {
+          title: "Newsletter (With Workshop Spotlight)",
+          html: `<!doctype html><html><body style="margin:0;background:#0D0D0D;color:#E5E5E5;font-family:Arial,sans-serif"><div style="max-width:600px;margin:0 auto;padding:20px"><div style="text-align:center"><h2 style="color:#F2C94C;margin:0">Country City Swing</h2><p style="color:#a3a3a3">Nashville's Country Swing partner dancing</p></div><div style="border:1px solid #F2C94C;border-radius:12px;padding:16px;margin:14px 0"><p style="color:#F2C94C;margin:0 0 8px"><strong>Workshop spotlight</strong></p><h3 style="margin:0 0 8px;color:#F2C94C">Texas Two-Step Intensive</h3><p style="margin:0;color:#d4d4d4">This Friday at 7:30 PM</p></div><h3 style="color:#F2C94C">This week's schedule</h3><div style="border-bottom:1px solid #2A2A2A;padding:10px 0">Friday Social - Fri, Apr 17</div><div style="border-bottom:1px solid #2A2A2A;padding:10px 0">Beginner Bootcamp - Sat, Apr 18</div></div></body></html>`
+        },
+        {
+          title: "Newsletter (No Events This Week)",
+          html: `<!doctype html><html><body style="margin:0;background:#0D0D0D;color:#E5E5E5;font-family:Arial,sans-serif"><div style="max-width:600px;margin:0 auto;padding:20px"><h2 style="color:#F2C94C">Country City Swing</h2><h3 style="color:#F2C94C">This week's schedule</h3><p style="color:#a3a3a3">No events this week.</p><p style="font-size:12px;color:#737373"><u>Unsubscribe from weekly emails</u></p></div></body></html>`
+        },
+        {
+          title: "Newsletter Unsubscribe Confirmation Page",
+          html: `<!doctype html><html><body style="margin:0;background:#0D0D0D;font-family:Arial,sans-serif;color:#E5E5E5;line-height:1.6;padding:40px 20px"><div style="max-width:500px;margin:0 auto;text-align:center"><h1 style="color:#F2C94C">You're unsubscribed</h1><p style="color:#a3a3a3">You won't receive the weekly schedule email anymore.</p></div></body></html>`
+        }
+      ];
+
+      const grid = document.getElementById("grid");
+      for (const preview of previews) {
+        const card = document.createElement("section");
+        card.className = "card";
+        const title = document.createElement("h2");
+        title.textContent = preview.title;
+        const iframe = document.createElement("iframe");
+        iframe.setAttribute("loading", "lazy");
+        iframe.srcdoc = preview.html;
+        card.appendChild(title);
+        card.appendChild(iframe);
+        grid.appendChild(card);
+      }
+    </script>
+  </body>
+</html>

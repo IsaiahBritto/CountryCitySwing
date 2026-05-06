@@ -5,11 +5,9 @@ import dayjs from "dayjs";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
 import {
   DEFAULT_TIME_ZONE,
-  formatEventDate,
-  formatEventTime,
+  formatEventScheduleSubtitle,
   getEventDateString,
   getDateStringInTimeZone,
-  getTimeZoneAbbreviation,
   isEventPast,
 } from "@/lib/utils/dateHelpers";
 import EventSignupModal from "@/components/EventSignupModal";
@@ -44,7 +42,6 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
   const [selectedEvent, setSelectedEvent] = useState<CarouselEvent | null>(null);
 
   // Find the closest upcoming workshop (not in the past in Nashville/Chicago time)
-  // Only Convention type uses ends_at; Workshops are single-day
   const upcomingWorkshop = events
     .filter((e) => e.type === "Workshop" && !isEventPast(e.starts_at, undefined, e.time_zone || DEFAULT_TIME_ZONE))
     .sort((a, b) => dayjs(a.starts_at).diff(dayjs(b.starts_at)))[0];
@@ -68,9 +65,13 @@ export default function WorkshopSpotlight({ events, isAdmin = false, isInstructo
           {upcomingWorkshop.title}
         </h4>
         <p className="text-gray-400 mb-1">
-          {formatEventDate(upcomingWorkshop.starts_at, upcomingWorkshop.time_zone || DEFAULT_TIME_ZONE)}
           {upcomingWorkshop.starts_at
-            ? ` • ${formatEventTime(upcomingWorkshop.starts_at, upcomingWorkshop.time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(upcomingWorkshop.starts_at, upcomingWorkshop.time_zone || DEFAULT_TIME_ZONE)}`
+            ? formatEventScheduleSubtitle(
+                upcomingWorkshop.starts_at,
+                upcomingWorkshop.ends_at,
+                upcomingWorkshop.time_zone || DEFAULT_TIME_ZONE,
+                upcomingWorkshop.type
+              )
             : ""}
         </p>
         <p className="text-gray-400 italic mb-2">

@@ -15,10 +15,7 @@ import EventsListSkeleton from "@/components/EventsListSkeleton";
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 import {
   DEFAULT_TIME_ZONE,
-  formatEventDate,
-  formatEventTime,
-  formatEventDateRange,
-  getTimeZoneAbbreviation,
+  formatEventScheduleSubtitle,
   getDateStringInTimeZone,
 } from "@/lib/utils/dateHelpers";
 
@@ -130,7 +127,7 @@ export default function Home() {
   const upcomingEvents = events.filter((e) => {
     const tz = e.time_zone || DEFAULT_TIME_ZONE;
     const today = getDateStringInTimeZone(new Date().toISOString(), tz);
-    const endOrStart = e.type === "Convention" && e.ends_at ? e.ends_at : e.starts_at;
+    const endOrStart = e.ends_at ?? e.starts_at;
     const eventEndDate = getDateStringInTimeZone(endOrStart, tz);
     if (!today || !eventEndDate) return true;
     return today <= eventEndDate;
@@ -307,19 +304,14 @@ export default function Home() {
                   {event.title}
                 </h3>
                 <p className="text-gray-400 mb-1">
-                  {(() => {
-                    const tz = event.time_zone || DEFAULT_TIME_ZONE;
-                    const tzAbbrev = getTimeZoneAbbreviation(event.starts_at, tz);
-                    const dateStr =
-                      event.type === "Convention" && event.ends_at
-                        ? formatEventDateRange(event.starts_at, event.ends_at, tz)
-                        : formatEventDate(event.starts_at, tz);
-                    const timeStr =
-                      event.starts_at && !(event.type === "Convention" && event.ends_at)
-                        ? ` • ${formatEventTime(event.starts_at, tz)}${tzAbbrev ? ` ${tzAbbrev}` : ""}`
-                        : "";
-                    return `${dateStr}${timeStr}`;
-                  })()}
+                  {event.starts_at
+                    ? formatEventScheduleSubtitle(
+                        event.starts_at,
+                        event.ends_at,
+                        event.time_zone || DEFAULT_TIME_ZONE,
+                        event.type
+                      )
+                    : ""}
                 </p>
                 {event.location && (
                   <p className="text-gray-300 italic mb-2">{event.location}</p>

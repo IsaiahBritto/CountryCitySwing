@@ -5,12 +5,9 @@ import dayjs from "dayjs";
 import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/solid";
 import {
   DEFAULT_TIME_ZONE,
-  formatEventDate,
-  formatEventTime,
-  formatEventDateRange,
+  formatEventScheduleSubtitle,
   getEventDateString,
   getDateStringInTimeZone,
-  getTimeZoneAbbreviation,
   isEventPast,
 } from "@/lib/utils/dateHelpers";
 import EventSignupModal from "@/components/EventSignupModal";
@@ -64,11 +61,7 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
 
   // Show only upcoming events (today and future in Nashville/Chicago time)
   const filteredEvents = events.filter((e) =>
-    !isEventPast(
-      e.starts_at,
-      e.type === "Convention" && e.ends_at ? e.ends_at : undefined,
-      e.time_zone || DEFAULT_TIME_ZONE
-    )
+    !isEventPast(e.starts_at, e.ends_at ?? undefined, e.time_zone || DEFAULT_TIME_ZONE)
   );
 
   if (filteredEvents.length === 0) {
@@ -128,11 +121,13 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
                     </span>
                   )}
                   <p className="text-gray-400 mb-1">
-                    {event.type === "Convention" && event.ends_at
-                      ? formatEventDateRange(event.starts_at, event.ends_at, event.time_zone || DEFAULT_TIME_ZONE)
-                      : formatEventDate(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}
-                    {event.starts_at && !(event.type === "Convention" && event.ends_at)
-                      ? ` • ${formatEventTime(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}`
+                    {event.starts_at
+                      ? formatEventScheduleSubtitle(
+                          event.starts_at,
+                          event.ends_at,
+                          event.time_zone || DEFAULT_TIME_ZONE,
+                          event.type
+                        )
                       : ""}
                   </p>
 
@@ -161,11 +156,7 @@ export default function EventCarousel({ events, isAdmin = false, isInstructor = 
 
                   {/* --- Sign Up / Closed Button --- */}
                   <div className="flex justify-center gap-3">
-                    {isEventPast(
-                      event.starts_at,
-                      event.type === "Convention" && event.ends_at ? event.ends_at : undefined,
-                      event.time_zone || DEFAULT_TIME_ZONE
-                    ) ? (
+                    {isEventPast(event.starts_at, event.ends_at ?? undefined, event.time_zone || DEFAULT_TIME_ZONE) ? (
                       <button
                         disabled
                         className="inline-block bg-gray-500 text-gray-200 font-semibold px-5 py-2 rounded-md cursor-not-allowed opacity-70"

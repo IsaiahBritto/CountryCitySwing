@@ -7,9 +7,7 @@ import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import {
   DEFAULT_TIME_ZONE,
-  formatEventDate,
-  formatEventTime,
-  getTimeZoneAbbreviation,
+  formatEventScheduleSubtitle,
   getEventDateString,
   getDateStringInTimeZone,
 } from "@/lib/utils/dateHelpers";
@@ -374,10 +372,14 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   return (
     <SignupModalShell title={event.title} onClose={onClose}>
       <p className="text-gray-300 text-sm">
-            <strong>Date:</strong>{" "}
-            {formatEventDate(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)}
+            <strong>When:</strong>{" "}
             {event.starts_at
-              ? ` • ${formatEventTime(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)}`
+              ? formatEventScheduleSubtitle(
+                  event.starts_at,
+                  (event as any).ends_at,
+                  (event as any).time_zone || DEFAULT_TIME_ZONE,
+                  (event as any).type
+                )
               : ""}{" "}
             <br />
             <strong>Location:</strong> {event.location}

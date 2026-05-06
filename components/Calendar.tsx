@@ -12,10 +12,8 @@ import {
   DEFAULT_TIME_ZONE,
   getDateStringInTimeZone,
   getEventDateString,
-  formatEventDate,
-  formatEventTime,
-  formatEventDateRange,
-  getTimeZoneAbbreviation,
+  formatEventScheduleSubtitle,
+  eventSpansDateInTimeZone,
 } from "@/lib/utils/dateHelpers";
 
 dayjs.extend(weekday);
@@ -98,13 +96,11 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
     return events.filter((e) => {
       const tz = e.time_zone || DEFAULT_TIME_ZONE;
-      const isConventionWithEnd = (e.type || "").trim().toLowerCase() === "convention" && e.ends_at;
-      if (isConventionWithEnd) {
-        const startDate = getEventDateString(e.starts_at, tz);
-        if (!startDate) return false;
-        const endDate = getEventDateString(e.ends_at as string, tz);
-        if (!endDate) return startDate === dateStr;
-        return dateStr >= startDate && dateStr <= endDate;
+      const isConvention = (e.type || "").trim().toLowerCase() === "convention";
+      // Conventions span every calendar day from start through end. Other types only show on
+      // the start date even if ends_at is the next calendar day (e.g. 10 PM–2 AM).
+      if (isConvention && e.ends_at) {
+        return eventSpansDateInTimeZone(e.starts_at, e.ends_at, dateStr, tz);
       }
       return getEventDateString(e.starts_at, tz) === dateStr;
     });
@@ -287,14 +283,15 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                           {event.title}
                         </h4>
                         <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
-                          {event.type === "Convention" && event.ends_at ? (
+                          {event.starts_at ? (
                             <span className="flex items-center gap-1">
-                              🕐 {formatEventDateRange(event.starts_at, event.ends_at, event.time_zone || DEFAULT_TIME_ZONE)}
-                            </span>
-                          ) : event.starts_at ? (
-                            <span className="flex items-center gap-1">
-                              🕐 {formatEventTime(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}{" "}
-                              {getTimeZoneAbbreviation(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}
+                              🕐{" "}
+                              {formatEventScheduleSubtitle(
+                                event.starts_at,
+                                event.ends_at,
+                                event.time_zone || DEFAULT_TIME_ZONE,
+                                event.type
+                              )}
                             </span>
                           ) : null}
                           <span className="flex items-center gap-1">
@@ -369,11 +366,13 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
               {selectedEvent.title}
             </h3>
             <p className="text-gray-400 mb-2">
-              {selectedEvent.type === "Convention" && selectedEvent.ends_at
-                ? formatEventDateRange(selectedEvent.starts_at, selectedEvent.ends_at, selectedEvent.time_zone || DEFAULT_TIME_ZONE)
-                : formatEventDate(selectedEvent.starts_at, selectedEvent.time_zone || DEFAULT_TIME_ZONE)}
-              {selectedEvent.starts_at && !(selectedEvent.type === "Convention" && selectedEvent.ends_at)
-                ? ` • ${formatEventTime(selectedEvent.starts_at, selectedEvent.time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(selectedEvent.starts_at, selectedEvent.time_zone || DEFAULT_TIME_ZONE)}`
+              {selectedEvent.starts_at
+                ? formatEventScheduleSubtitle(
+                    selectedEvent.starts_at,
+                    selectedEvent.ends_at,
+                    selectedEvent.time_zone || DEFAULT_TIME_ZONE,
+                    selectedEvent.type
+                  )
                 : ""}
             </p>
             <p className="text-gray-300 mb-2 italic">
@@ -404,7 +403,7 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
             <div className="flex justify-center gap-3 mt-4">
               {(() => {
                 const tz = selectedEvent.time_zone || DEFAULT_TIME_ZONE;
-                const endOrStart = selectedEvent.type === "Convention" && selectedEvent.ends_at ? selectedEvent.ends_at : selectedEvent.starts_at;
+                const endOrStart = selectedEvent.ends_at ?? selectedEvent.starts_at;
                 const todayInTz = getDateStringInTimeZone(new Date().toISOString(), tz);
                 const eventEndDate = getDateStringInTimeZone(endOrStart, tz);
                 const isPast = !!todayInTz && !!eventEndDate && eventEndDate < todayInTz;

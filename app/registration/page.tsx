@@ -6,10 +6,7 @@ import dayjs from "dayjs";
 import {
   DEFAULT_TIME_ZONE,
   isEventPast,
-  formatEventDate,
-  formatEventTime,
-  formatEventDateRange,
-  getTimeZoneAbbreviation,
+  formatEventScheduleSubtitle,
   getEventDateString,
   getDateStringInTimeZone,
 } from "@/lib/utils/dateHelpers";
@@ -164,11 +161,7 @@ export default function RegistrationPage() {
           });
         } else {
           list = allEvents.filter((e) =>
-            !isEventPast(
-              e.starts_at,
-              e.type === "Convention" && e.ends_at ? e.ends_at : undefined,
-              e.time_zone || DEFAULT_TIME_ZONE
-            )
+            !isEventPast(e.starts_at, e.ends_at ?? undefined, e.time_zone || DEFAULT_TIME_ZONE)
           );
         }
 
@@ -568,11 +561,13 @@ export default function RegistrationPage() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-sm md:text-base">{event.title}</h3>
                     <p className="text-xs md:text-sm text-gray-400 mt-1">
-                        {event.type === "Convention" && event.ends_at
-                          ? formatEventDateRange(event.starts_at, event.ends_at, event.time_zone || DEFAULT_TIME_ZONE)
-                          : formatEventDate(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}
-                      {event.starts_at && !(event.type === "Convention" && event.ends_at)
-                          ? ` · ${formatEventTime(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(event.starts_at, event.time_zone || DEFAULT_TIME_ZONE)}`
+                      {event.starts_at
+                        ? formatEventScheduleSubtitle(
+                            event.starts_at,
+                            event.ends_at,
+                            event.time_zone || DEFAULT_TIME_ZONE,
+                            event.type
+                          )
                         : ""}
                     </p>
                     <p className="text-xs md:text-sm text-gray-400">

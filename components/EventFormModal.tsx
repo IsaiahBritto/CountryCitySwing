@@ -128,8 +128,7 @@ export default function EventFormModal({
         const startsAtStr = event.starts_at
           ? toDateTimeLocalInTimeZone(event.starts_at, tz)
           : "";
-        const isConvention = (event.type || "").trim().toLowerCase() === "convention";
-        const endsAtStr = isConvention && event.ends_at
+        const endsAtStr = event.ends_at
           ? toDateTimeLocalInTimeZone(event.ends_at, tz)
           : "";
 
@@ -160,7 +159,7 @@ export default function EventFormModal({
         setFormData({
           title: event.title || "",
           starts_at: startsAtStr,
-          ends_at: isConvention ? (endsAtStr || undefined) : undefined,
+          ends_at: endsAtStr || undefined,
           location: event.location || "",
           description,
           signupLink: event.signupLink || event.signup_link || "",
@@ -316,13 +315,11 @@ export default function EventFormModal({
       if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null ? Number(formData.jnj_price) : null;
       if (formData.ccs_team_price !== undefined) submitData.ccs_team_price = formData.ccs_team_price != null ? Number(formData.ccs_team_price) : null;
       if (formData.type !== undefined) submitData.type = formData.type || "";
-      const isConvention = (formData.type || "").trim().toLowerCase() === "convention";
-      submitData.ends_at =
-        isConvention && formData.ends_at
-          ? endUnchanged
-            ? event!.ends_at!
-            : fromDateTimeLocalInTimeZone(formData.ends_at, tz)
-          : null;
+      submitData.ends_at = formData.ends_at
+        ? endUnchanged
+          ? event!.ends_at!
+          : fromDateTimeLocalInTimeZone(formData.ends_at, tz)
+        : null;
 
       const response = await fetch(url, {
         method,
@@ -505,6 +502,25 @@ export default function EventFormModal({
                 }
                 className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
               />
+            </div>
+          )}
+
+          {(formData.type || "").trim().toLowerCase() !== "convention" && !!formData.type && (
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                End date &amp; time (optional)
+              </label>
+              <input
+                type="datetime-local"
+                value={formData.ends_at ?? ""}
+                onChange={(e) =>
+                  setFormData({ ...formData, ends_at: e.target.value || undefined })
+                }
+                className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Usually same day as start (e.g. end time). Leave blank if not needed.
+              </p>
             </div>
           )}
 

@@ -192,6 +192,68 @@ export function isEventPast(
   return eventEndDate < today;
 }
 
+/** True when start and end fall on the same calendar day in the given time zone. */
+export function areSameCalendarDayInTimeZone(
+  startsAt: string,
+  endsAt: string,
+  timeZone: string = DEFAULT_TIME_ZONE
+): boolean {
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const a = getDateStringInTimeZone(startsAt, tz);
+  const b = getDateStringInTimeZone(endsAt, tz);
+  return !!a && !!b && a === b;
+}
+
+/**
+ * Whether a calendar date (YYYY-MM-DD in `timeZone`) falls within [startsAt, endsAt] inclusive.
+ * Used for multi-day events (convention or optional end on another day).
+ */
+export function eventSpansDateInTimeZone(
+  startsAt: string,
+  endsAt: string | null | undefined,
+  dateStr: string,
+  timeZone: string = DEFAULT_TIME_ZONE
+): boolean {
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const startDate = getDateStringInTimeZone(startsAt, tz);
+  if (!startDate) return false;
+  if (!endsAt) return startDate === dateStr;
+  const endDate = getDateStringInTimeZone(endsAt, tz);
+  if (!endDate) return startDate === dateStr;
+  return dateStr >= startDate && dateStr <= endDate;
+}
+
+/**
+ * Single-line schedule text for lists/carousel: date, optional time range, timezone abbrev.
+ * Convention multi-day: date range only (existing UX). Same-day end: "start–end" times.
+ */
+export function formatEventScheduleSubtitle(
+  startsAt: string,
+  endsAt: string | null | undefined,
+  timeZone: string = DEFAULT_TIME_ZONE,
+  eventType: string | null | undefined = undefined
+): string {
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const typeNorm = (eventType || "").trim().toLowerCase();
+  const isConvention = typeNorm === "convention";
+  const abbrev = getTimeZoneAbbreviation(startsAt, tz);
+
+  if (!endsAt) {
+    return `${formatEventDate(startsAt, tz)} • ${formatEventTime(startsAt, tz)}${abbrev ? ` ${abbrev}` : ""}`;
+  }
+
+  const sameDay = areSameCalendarDayInTimeZone(startsAt, endsAt, tz);
+
+  if (!sameDay) {
+    if (isConvention) {
+      return formatEventDateRange(startsAt, endsAt, tz);
+    }
+    return `${formatEventDateRange(startsAt, endsAt, tz)} • ${formatEventTime(startsAt, tz)}–${formatEventTime(endsAt, tz)}${abbrev ? ` ${abbrev}` : ""}`;
+  }
+
+  return `${formatEventDate(startsAt, tz)} • ${formatEventTime(startsAt, tz)}–${formatEventTime(endsAt, tz)}${abbrev ? ` ${abbrev}` : ""}`;
+}
+
 export function formatEventDateRange(
   startsAt: string,
   endsAt: string | null | undefined,

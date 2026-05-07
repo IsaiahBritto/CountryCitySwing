@@ -8,7 +8,7 @@ export const metadata = {
 
 const DNA_EXTERNAL_URL = "https://wyldcountryevents.com/dna";
 const DNA_TICKETS = "https://www.danceplace.com/index/no/16408/DNA-2026-Nashville_+TN-United+States-Country+Swing+Dance+event";
-const DNA_SCHEDULE = "https://img1.wsimg.com/blobby/go/a769d4db-06c5-4be3-806a-8f9c1ddee1b0/DNA%20Schedule%202026.pdf";
+const DNA_SCHEDULE = "https://img1.wsimg.com/blobby/go/a769d4db-06c5-4be3-806a-8f9c1ddee1b0/DNA%202026%20SCHEDULE.pdf";
 const DNA_VENUE = "https://www.dancenashville.com/"
 
 export default function DNAPage() {

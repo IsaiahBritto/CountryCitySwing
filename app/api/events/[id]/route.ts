@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { ensureSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
 
 // PUT - Update an event (admin only)
 export async function PUT(
@@ -74,6 +75,12 @@ export async function PUT(
         { error: "Event not found or update returned no data" },
         { status: 404 }
       );
+    }
+
+    try {
+      await ensureSocialDoormanSlots(data.id, data);
+    } catch (slotErr) {
+      console.error("Error syncing Social Doorman slots:", slotErr);
     }
 
     return NextResponse.json({ success: true, event: data });

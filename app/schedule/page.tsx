@@ -21,7 +21,10 @@ interface EventOption {
   id: string;
   title: string;
   starts_at: string;
+  ends_at?: string | null;
   location?: string;
+  type?: string;
+  time_zone?: string | null;
 }
 
 interface InstructorOption {
@@ -57,8 +60,8 @@ export default function SchedulePage() {
 
   const loadData = useCallback(async () => {
     const headers = await getAuthHeaders();
-    const [eventsRes, slotsRes, instructorsRes] = await Promise.all([
-      fetch("/api/schedule/events", { headers }),
+    const eventsRes = await fetch("/api/schedule/events", { headers });
+    const [slotsRes, instructorsRes] = await Promise.all([
       fetch("/api/schedule/slots", { headers }),
       fetch("/api/schedule/instructors", { headers }),
     ]);
@@ -82,8 +85,31 @@ export default function SchedulePage() {
     const slotsData = await slotsRes.json();
     const instructorsData = instructorsRes.ok ? await instructorsRes.json() : { instructors: [] };
 
-    setEvents(eventsData.events || []);
-    setSlots(slotsData.slots || []);
+    const eventList: EventOption[] = eventsData.events || [];
+    const eventsById = new Map(eventList.map((ev) => [String(ev.id), ev]));
+    const rawSlots: ScheduleSlot[] = slotsData.slots || [];
+    const hydratedSlots = rawSlots.map((slot) => {
+      const ev = eventsById.get(String(slot.event_id));
+      return {
+        ...slot,
+        event:
+          slot.event ??
+          (ev
+            ? {
+                id: String(ev.id),
+                title: ev.title,
+                starts_at: ev.starts_at,
+                ends_at: ev.ends_at ?? null,
+                location: ev.location,
+                type: ev.type,
+                time_zone: ev.time_zone ?? null,
+              }
+            : null),
+      };
+    });
+
+    setEvents(eventList);
+    setSlots(hydratedSlots);
     setInstructors(instructorsData.instructors || []);
     setError(null);
     setLoading(false);
@@ -201,6 +227,7 @@ export default function SchedulePage() {
 
       <ScheduleCalendar
         slots={slots}
+        scheduleEvents={events}
         currentUserId={userId}
         isAdmin={role === "admin"}
         instructors={instructors}
@@ -242,8 +269,12 @@ export default function SchedulePage() {
                   <option value="">Select an event</option>
                   {events.map((ev) => (
                     <option key={ev.id} value={ev.id}>
-                      {ev.title} – {new Date(ev.starts_at).toLocaleDateString()}
-                      {ev.starts_at ? ` ${new Date(ev.starts_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : ""}
+                      {ev.title}
+                      {ev.type ? ` (${ev.type})` : ""} –{" "}
+                      {new Date(ev.starts_at).toLocaleDateString()}
+                      {ev.starts_at
+                        ? ` ${new Date(ev.starts_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`
+                        : ""}
                     </option>
                   ))}
                 </select>

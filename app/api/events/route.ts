@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { ensureSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
 
 // GET - Fetch all events (public)
 export async function GET() {
@@ -74,6 +75,12 @@ export async function POST(req: NextRequest) {
         { error: "Failed to create event" },
         { status: 500 }
       );
+    }
+
+    try {
+      await ensureSocialDoormanSlots(data.id, data);
+    } catch (slotErr) {
+      console.error("Error creating Social Doorman slots:", slotErr);
     }
 
     return NextResponse.json({ success: true, event: data });

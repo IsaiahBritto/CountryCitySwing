@@ -6,7 +6,19 @@ import weekday from "dayjs/plugin/weekday";
 import isoWeek from "dayjs/plugin/isoWeek";
 import advancedFormat from "dayjs/plugin/advancedFormat";
 import { StarIcon, XMarkIcon } from "@heroicons/react/24/solid";
-import { getEventDateStringInChicago, getTodayStringInChicago, isEventPastInChicago } from "@/lib/utils/dateHelpers";
+import {
+  compareScheduleSlotsByTime,
+  getDoormanSlotDisplay,
+  isDoormanPosition,
+} from "@/lib/socialScheduleSlots";
+import {
+  DEFAULT_TIME_ZONE,
+  eventSpansDateInTimeZone,
+  formatEventScheduleSubtitle,
+  getEventDateStringInChicago,
+  getTodayStringInChicago,
+  isEventPastInChicago,
+} from "@/lib/utils/dateHelpers";
 
 dayjs.extend(weekday);
 dayjs.extend(isoWeek);
@@ -18,12 +30,17 @@ export interface ScheduleSlot {
   event_id: string;
   assignee_id: string | null;
   assigned_at: string | null;
+  created_at?: string | null;
+  slot_starts_at?: string | null;
+  slot_ends_at?: string | null;
   event: {
     id: string;
     title: string;
     starts_at: string;
     ends_at?: string | null;
     location?: string;
+    type?: string;
+    time_zone?: string | null;
   } | null;
   assignee: {
     id: string;
@@ -41,8 +58,19 @@ export interface InstructorOption {
   role?: string;
 }
 
+export interface ScheduleEventOption {
+  id: string;
+  title: string;
+  starts_at: string;
+  ends_at?: string | null;
+  location?: string;
+  type?: string;
+  time_zone?: string | null;
+}
+
 interface ScheduleCalendarProps {
   slots: ScheduleSlot[];
+  scheduleEvents?: ScheduleEventOption[];
   currentUserId: string | null;
   isAdmin: boolean;
   instructors?: InstructorOption[];
@@ -54,6 +82,7 @@ const today = getTodayStringInChicago();
 
 export default function ScheduleCalendar({
   slots,
+  scheduleEvents = [],
   currentUserId,
   isAdmin,
   instructors = [],
@@ -96,6 +125,19 @@ export default function ScheduleCalendar({
   const nextMonth = () => setCurrentMonth(currentMonth.add(1, "month"));
   const prevMonth = () => setCurrentMonth(currentMonth.subtract(1, "month"));
 
+  const getScheduleEventsForDay = (day: number): ScheduleEventOption[] => {
+    const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
+    return scheduleEvents.filter((e) => {
+      if (!e.starts_at) return false;
+      const tz = e.time_zone || DEFAULT_TIME_ZONE;
+      const isConvention = (e.type || "").trim().toLowerCase() === "convention";
+      if (isConvention && e.ends_at) {
+        return eventSpansDateInTimeZone(e.starts_at, e.ends_at, dateStr, tz);
+      }
+      return getEventDateStringInChicago(e.starts_at) === dateStr;
+    });
+  };
+
   const getSlotsForDay = (day: number): ScheduleSlot[] => {
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
     return slots.filter((s) => s.event?.starts_at && getEventDateStringInChicago(s.event.starts_at) === dateStr);
@@ -108,7 +150,8 @@ export default function ScheduleCalendar({
 
   const handleDayClick = (day: number) => {
     const dateSlots = getSlotsForDay(day);
-    if (dateSlots.length === 0) return;
+    const dayEvents = getScheduleEventsForDay(day);
+    if (dateSlots.length === 0 && dayEvents.length === 0) return;
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
     setSelectedDate(dateStr);
     setDaySlots(dateSlots);
@@ -229,6 +272,44 @@ export default function ScheduleCalendar({
         ? "Signed up"
         : null;
 
+  const sortSlotsForDisplay = (eventSlots: ScheduleSlot[]) =>
+    [...eventSlots].sort(compareScheduleSlotsByTime);
+
+  const doormanIndexInEvent = (slot: ScheduleSlot, eventSlots: ScheduleSlot[]) => {
+    const ordered = sortSlotsForDisplay(eventSlots.filter((s) => isDoormanPosition(s.position)));
+    return ordered.findIndex((s) => s.id === slot.id);
+  };
+
+  const slotDisplayFor = (slot: ScheduleSlot, eventSlots: ScheduleSlot[]) => {
+    const idx = doormanIndexInEvent(slot, eventSlots);
+    const doormanCount = eventSlots.filter((s) => isDoormanPosition(s.position)).length;
+    return getDoormanSlotDisplay(
+      slot.position,
+      idx >= 0 ? idx : 0,
+      slot.event ?? null,
+      doormanCount,
+      { slot_starts_at: slot.slot_starts_at, slot_ends_at: slot.slot_ends_at }
+    );
+  };
+
+  const slotPositionLabel = (slot: ScheduleSlot, eventSlots: ScheduleSlot[]) => {
+    const { role, timeRange } = slotDisplayFor(slot, eventSlots);
+    if (timeRange) {
+      return (
+        <span className="text-neutral-200">
+          <span className="block font-medium text-white">{timeRange}</span>
+          <span className="text-sm text-gray-400">{role}</span>
+        </span>
+      );
+    }
+    return <span className="text-neutral-200">{role}</span>;
+  };
+
+  const slotPositionSummary = (slot: ScheduleSlot, eventSlots: ScheduleSlot[]) => {
+    const { role, timeRange } = slotDisplayFor(slot, eventSlots);
+    return timeRange ? `${role}, ${timeRange}` : role;
+  };
+
   /** First name + last initial for grey button (e.g. "Jane S") */
   const assigneeButtonLabel = (s: ScheduleSlot): string | null => {
     if (!s.assignee_id) return null;
@@ -252,6 +333,21 @@ export default function ScheduleCalendar({
     acc[eid].push(s);
     return acc;
   }, {});
+
+  const modalDayEvents =
+    selectedDate != null
+      ? scheduleEvents.filter((e) => {
+          if (!e.starts_at) return false;
+          const tz = e.time_zone || DEFAULT_TIME_ZONE;
+          const isConvention = (e.type || "").trim().toLowerCase() === "convention";
+          if (isConvention && e.ends_at) {
+            return eventSpansDateInTimeZone(e.starts_at, e.ends_at, selectedDate, tz);
+          }
+          return getEventDateStringInChicago(e.starts_at) === selectedDate;
+        })
+      : [];
+
+  const eventsWithoutSlots = modalDayEvents.filter((e) => !slotsByEvent[String(e.id)]);
 
   return (
     <>
@@ -288,25 +384,28 @@ export default function ScheduleCalendar({
           {weeks.map((week, wi) =>
             week.map((day, di) => {
               const daySlotsCount = day ? getSlotsForDay(day).length : 0;
+              const dayEventsCount = day ? getScheduleEventsForDay(day).length : 0;
               const availableCount = day ? getAvailableCountForDay(day) : 0;
-              const hasSlots = daySlotsCount > 0;
+              const hasActivity = daySlotsCount > 0 || dayEventsCount > 0;
               const dateStr = day && currentMonth.date(day).format("YYYY-MM-DD");
               const isToday = dateStr === today;
               return (
                 <div
                   key={`${wi}-${di}`}
-                  onClick={() => hasSlots && day && handleDayClick(day)}
+                  onClick={() => hasActivity && day && handleDayClick(day)}
                   className={`group h-16 flex flex-col justify-center items-center rounded-md transition overflow-hidden
-                    ${hasSlots ? "bg-primary text-black hover:bg-yellow-400 cursor-pointer" : "bg-neutral-900 text-gray-300"}
+                    ${hasActivity ? "bg-primary text-black hover:bg-yellow-400 cursor-pointer" : "bg-neutral-900 text-gray-300"}
                     ${isToday ? "ring-2 ring-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)]" : ""}`}
                 >
                   {day != null && <span className="font-medium text-base">{day}</span>}
-                  {hasSlots && (
+                  {hasActivity && (
                     <div className="flex items-center gap-1 mt-1">
                       <StarIcon className="w-4 h-4 text-yellow-600 group-hover:text-black" />
-                      <span className="text-xs font-semibold text-yellow-600 group-hover:text-black">
-                        {availableCount}
-                      </span>
+                      {availableCount > 0 && (
+                        <span className="text-xs font-semibold text-yellow-600 group-hover:text-black">
+                          {availableCount}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -338,10 +437,35 @@ export default function ScheduleCalendar({
                 Schedule - {dayjs(selectedDate).format("dddd, MMMM D, YYYY")}
               </h3>
               <p className="text-gray-400 mb-6">
-                {modalDaySlots.length} slot{modalDaySlots.length !== 1 ? "s" : ""} on this day
+                {modalDayEvents.length} event{modalDayEvents.length !== 1 ? "s" : ""}
+                {modalDaySlots.length > 0 &&
+                  ` · ${modalDaySlots.length} slot${modalDaySlots.length !== 1 ? "s" : ""}`}
               </p>
 
               <div className="space-y-6">
+                {eventsWithoutSlots.map((ev) => (
+                  <div key={ev.id} className="bg-neutral-800 rounded-lg p-4 border border-neutral-700">
+                    <h4 className="text-lg font-semibold text-primary mb-1">
+                      {ev.title}
+                      {ev.type ? (
+                        <span className="text-sm font-normal text-gray-400 ml-2">({ev.type})</span>
+                      ) : null}
+                    </h4>
+                    <p className="text-sm text-gray-400 mb-2">
+                      {formatEventScheduleSubtitle(
+                        ev.starts_at,
+                        ev.ends_at ?? null,
+                        ev.time_zone || DEFAULT_TIME_ZONE,
+                        ev.type
+                      )}
+                      {ev.location ? ` · ${ev.location}` : ""}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      No staff slots yet.
+                      {isAdmin ? " Use Add Slot above to create positions for this event." : ""}
+                    </p>
+                  </div>
+                ))}
                 {Object.entries(slotsByEvent).map(([eventId, eventSlots]) => {
                   const ev = eventSlots[0]?.event;
                   return (
@@ -356,7 +480,7 @@ export default function ScheduleCalendar({
                         </p>
                       )}
                       <ul className="space-y-2">
-                        {eventSlots.map((slot) => {
+                        {sortSlotsForDisplay(eventSlots).map((slot) => {
                           const name = assigneeName(slot);
                           const buttonLabel = assigneeButtonLabel(slot);
                           const isMe = currentUserId && slot.assignee_id === currentUserId;
@@ -369,7 +493,7 @@ export default function ScheduleCalendar({
                               key={slot.id}
                               className="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-neutral-700 last:border-0"
                             >
-                              <span className="text-neutral-200">{slot.position}</span>
+                              {slotPositionLabel(slot, eventSlots)}
                               <div className="flex items-center gap-2 flex-wrap">
                                 {buttonLabel ? (
                                   <>
@@ -383,7 +507,13 @@ export default function ScheduleCalendar({
                                       <button
                                         type="button"
                                         disabled={cancelling === slot.id || !canSelfEditSlot}
-                                        onClick={() => openRemoveModal(slot.id, name || buttonLabel, slot.position)}
+                                        onClick={() =>
+                                          openRemoveModal(
+                                            slot.id,
+                                            name || buttonLabel,
+                                            slotPositionSummary(slot, eventSlots)
+                                          )
+                                        }
                                         className="text-sm px-3 py-1.5 rounded border border-red-800/80 bg-red-900/40 text-red-200 hover:bg-red-800/60 disabled:opacity-50"
                                         title={
                                           canSelfEditSlot
@@ -413,7 +543,9 @@ export default function ScheduleCalendar({
                                     {isAdmin && (
                                       <button
                                         type="button"
-                                        onClick={() => openAssignModal(slot.id, slot.position)}
+                                        onClick={() =>
+                                          openAssignModal(slot.id, slotPositionSummary(slot, eventSlots))
+                                        }
                                         className="text-sm px-3 py-1.5 rounded border border-primary/60 bg-primary/20 text-primary hover:bg-primary/30"
                                         title="Assign an instructor"
                                       >
@@ -495,7 +627,8 @@ export default function ScheduleCalendar({
           >
             <h3 className="text-xl font-bold text-primary mb-2">Assign instructor</h3>
             <p className="text-gray-400 mb-4">
-              Assign someone to <strong className="text-primary">{assignModal.position}</strong>
+              Assign someone to{" "}
+              <strong className="text-primary">{assignModal.position}</strong>
             </p>
             <label className="block text-sm font-medium text-gray-300 mb-2">Instructor</label>
             <select

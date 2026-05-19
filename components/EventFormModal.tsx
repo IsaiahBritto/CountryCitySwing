@@ -262,6 +262,11 @@ export default function EventFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    const isSocialType = (formData.type || "").trim().toLowerCase() === "social";
+    if (isSocialType && !formData.ends_at) {
+      setError("Social events need an end time so Doorman slots can be opened for each hour.");
+      return;
+    }
     if (formData.ends_at && formData.starts_at) {
       const tz = formData.time_zone || DEFAULT_TIME_ZONE;
       const startISO = fromDateTimeLocalInTimeZone(formData.starts_at, tz);
@@ -508,10 +513,12 @@ export default function EventFormModal({
           {(formData.type || "").trim().toLowerCase() !== "convention" && !!formData.type && (
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                End date &amp; time (optional)
+                End date &amp; time
+                {(formData.type || "").trim().toLowerCase() === "social" ? " *" : " (optional)"}
               </label>
               <input
                 type="datetime-local"
+                required={(formData.type || "").trim().toLowerCase() === "social"}
                 value={formData.ends_at ?? ""}
                 onChange={(e) =>
                   setFormData({ ...formData, ends_at: e.target.value || undefined })
@@ -519,7 +526,9 @@ export default function EventFormModal({
                 className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
               />
               <p className="text-xs text-gray-400 mt-1">
-                Usually same day as start (e.g. end time). Leave blank if not needed.
+                {(formData.type || "").trim().toLowerCase() === "social"
+                  ? "Required. One Doorman slot is opened on the schedule for each hour from start to end."
+                  : "Usually same day as start (e.g. end time). Leave blank if not needed."}
               </p>
             </div>
           )}

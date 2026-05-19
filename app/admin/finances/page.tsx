@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } fro
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
 import Link from "next/link";
+import { isCcsInstructorRole } from "@/lib/instructorProfiles";
 import { computeNashvillePayouts } from "@/lib/utils/nashvillePayouts";
 
 const NASHVILLE_EVENT_TITLE = "Nashville Country Swing Nights!";
@@ -971,7 +972,10 @@ export default function AdminFinancesPage() {
 
         if (instructorsRes.ok) {
           const data = await instructorsRes.json();
-          setFinanceInstructors((data?.instructors ?? []) as InstructorOption[]);
+          const list = ((data?.instructors ?? []) as InstructorOption[]).filter((i) =>
+            isCcsInstructorRole(i.role)
+          );
+          setFinanceInstructors(list);
         }
 
         if (slotsRes.ok) {
@@ -3795,6 +3799,7 @@ function ClassTeacherAssignments({
 
   const options = useMemo(() => {
     const names = instructors
+      .filter((i) => isCcsInstructorRole(i.role))
       .map((i) => i.displayName?.trim())
       .filter((n): n is string => !!n);
     const extras = [leadDefault, followDefault, "Malissa"];

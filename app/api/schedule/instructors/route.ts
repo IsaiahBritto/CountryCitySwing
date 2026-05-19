@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isCcsInstructorRole } from "@/lib/instructorProfiles";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 async function getAuthUser(req: NextRequest) {
@@ -21,8 +22,8 @@ function isInstructorOrAdmin(role: string | null): boolean {
 }
 
 /**
- * GET - List instructors and admins (for admin assign dropdown).
- * Instructors and admins only.
+ * GET - List CCS instructors (for admin assign dropdown on Schedule).
+ * Only profiles with role exactly "instructor". Caller must be instructor or admin.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -41,21 +42,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Select without email so query succeeds if profiles has no email column.
-    // Fetch profiles with role set; filter to admin/instructor in JS (handles any casing).
     const { data: list } = await supabaseServer
       .from("profiles")
       .select("id, first_name, last_name, role")
-      .not("role", "is", null)
+      .eq("role", "instructor")
       .order("first_name", { ascending: true });
 
-    const roleLower = (r: string | null) => (r || "").trim().toLowerCase();
     const all = (list || [])
-      .filter((p: any) => {
-        const r = roleLower(p.role);
-        if (!r) return false;
-        return r === "admin" || r === "instructor" || r.includes("instructor");
-      })
+      .filter((p: any) => isCcsInstructorRole(p.role))
       .map((p: any) => ({
         id: p.id,
         first_name: p.first_name,

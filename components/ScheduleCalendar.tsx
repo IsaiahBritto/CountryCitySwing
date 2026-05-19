@@ -6,6 +6,7 @@ import weekday from "dayjs/plugin/weekday";
 import isoWeek from "dayjs/plugin/isoWeek";
 import advancedFormat from "dayjs/plugin/advancedFormat";
 import { StarIcon, XMarkIcon } from "@heroicons/react/24/solid";
+import { isCcsInstructorRole } from "@/lib/instructorProfiles";
 import {
   compareScheduleSlotsByTime,
   getDoormanSlotDisplay,
@@ -101,9 +102,8 @@ export default function ScheduleCalendar({
   const [assigneeSelectId, setAssigneeSelectId] = useState<string>("");
   const [assigning, setAssigning] = useState(false);
 
-  // Show everyone except admin (instructors + any other non-admin role); sort by first name
   const instructorsOnly = [...instructors]
-    .filter((i) => (i.role || "").trim().toLowerCase() !== "admin")
+    .filter((i) => isCcsInstructorRole(i.role))
     .sort((a, b) => (a.first_name || "").localeCompare(b.first_name || "", undefined, { sensitivity: "base" }));
 
   const daysInMonth = currentMonth.daysInMonth();

@@ -19,6 +19,7 @@ interface SlotEvent {
   instructor_id: string;
   duration_minutes?: number;
   price?: number | null;
+  location?: string | null;
   time_zone?: string | null;
 }
 
@@ -32,7 +33,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
     async function fetchSlots() {
       const { data, error } = await supabaseBrowser
         .from("lesson_slots")
-        .select("id, instructor_id, start_time, end_time, duration_minutes, is_booked, price, time_zone")
+        .select("id, instructor_id, start_time, end_time, duration_minutes, is_booked, price, time_zone, location")
         .eq("instructor_id", instructorId)
         .order("start_time", { ascending: true });
 
@@ -48,6 +49,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
           is_booked: s.is_booked,
           duration_minutes: s.duration_minutes,
           price: s.price || null,
+          location: s.location || null,
           time_zone: s.time_zone || null,
         }));
         setSlots(mapped);
@@ -132,6 +134,7 @@ export default function LessonSlotCalendar({ instructorId }: { instructorId: str
             is_booked: selectedSlot.is_booked,
             duration_minutes: selectedSlot.duration_minutes,
             price: selectedSlot.price,
+            location: selectedSlot.location,
             time_zone: selectedSlot.time_zone || DEFAULT_TIME_ZONE,
           }}
           onClose={handleBookingSuccess}

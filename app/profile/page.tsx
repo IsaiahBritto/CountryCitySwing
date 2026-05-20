@@ -33,6 +33,7 @@ interface Profile {
   phone_number: string | null;
   private_lessons: string | null;
   private_lessons_link: string | null;
+  private_lesson_disclaimer: string | null;
   scheduling_enabled: boolean | null;
   prayer: string | null;
   state: string | null;
@@ -133,6 +134,7 @@ export default function ProfilePage() {
       updateData.prayer = profile.prayer ?? null;
       if (profile.role === "instructor" || profile.role === "admin") {
         updateData.scheduling_enabled = profile.scheduling_enabled ?? false;
+        updateData.private_lesson_disclaimer = profile.private_lesson_disclaimer ?? null;
       }
     }
 
@@ -500,24 +502,45 @@ export default function ProfilePage() {
               className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
             />
 
-            {/* Scheduling Toggle: only for core CCS instructors, not Non-CCS-Instructor */}
+            {/* Scheduling: only for core CCS instructors, not Non-CCS-Instructor */}
             {(profile.role === "instructor" || profile.role === "admin") && (
-              <div className="flex items-center justify-between mt-6">
-                <label className="text-gray-300 font-medium">
-                  Enable scheduling through CCS website
-                </label>
-                <input
-                  type="checkbox"
-                  checked={!!profile.scheduling_enabled}
-                  onChange={(e) =>
-                    setProfile({
-                      ...profile,
-                      scheduling_enabled: e.target.checked,
-                    })
-                  }
-                  className="w-5 h-5 accent-yellow-400"
-                />
-              </div>
+              <>
+                <div className="flex items-center justify-between mt-6">
+                  <label className="text-gray-300 font-medium">
+                    Enable scheduling through CCS website
+                  </label>
+                  <input
+                    type="checkbox"
+                    checked={!!profile.scheduling_enabled}
+                    onChange={(e) =>
+                      setProfile({
+                        ...profile,
+                        scheduling_enabled: e.target.checked,
+                      })
+                    }
+                    className="w-5 h-5 accent-yellow-400"
+                  />
+                </div>
+                <div className="mt-4">
+                  <label className="block text-gray-300 font-medium mb-1">
+                    Private lesson booking disclaimer (optional)
+                  </label>
+                  <p className="text-xs text-gray-400 mb-2">
+                    If set, students must read and acknowledge this before confirming a booking on your calendar.
+                  </p>
+                  <textarea
+                    value={profile.private_lesson_disclaimer || ""}
+                    onChange={(e) =>
+                      setProfile({
+                        ...profile,
+                        private_lesson_disclaimer: e.target.value,
+                      })
+                    }
+                    placeholder="e.g. cancellation policy, what to bring, studio rules..."
+                    className="w-full h-28 px-3 py-2 rounded bg-neutral-900 border border-neutral-700 resize-none text-sm"
+                  />
+                </div>
+              </>
             )}
 
           </>

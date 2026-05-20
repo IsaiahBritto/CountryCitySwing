@@ -15,6 +15,7 @@ export async function POST(req: Request) {
       lessonDuration,
       lessonFocus,
       lessonPrice,
+      lessonLocation,
     } = await req.json();
 
     if (!instructorId || !studentEmail || !lessonDate || !lessonTime) {
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
           <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Duration:</strong> ${lessonDuration} minutes</p>
           ${lessonPrice ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Price:</strong> $${lessonPrice.toFixed(2)}</p>` : ""}
           ${lessonFocus ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Focus:</strong> ${lessonFocus}</p>` : ""}
+          ${lessonLocation ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Location:</strong> ${lessonLocation}</p>` : ""}
         </div>
 
         <p style="font-size:16px;line-height:1.6">The student has been sent a confirmation email. You can view and manage this booking in your instructor dashboard.</p>

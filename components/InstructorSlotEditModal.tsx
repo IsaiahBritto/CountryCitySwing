@@ -11,6 +11,7 @@ import {
   fromDateTimeLocalInTimeZone,
 } from "@/lib/utils/dateHelpers";
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
+import LessonDurationSelect from "@/components/LessonDurationSelect";
 
 interface BookingInfo {
   id: string;
@@ -33,6 +34,7 @@ interface InstructorSlotEditModalProps {
     is_booked: boolean;
     duration_minutes: number;
     price?: number | null;
+    location?: string | null;
   };
   onClose: () => void;
   onUpdate: () => void;
@@ -54,6 +56,7 @@ export default function InstructorSlotEditModal({
   const [timeZone, setTimeZone] = useState(slot.time_zone || DEFAULT_TIME_ZONE);
   const [duration, setDuration] = useState(slot.duration_minutes || 60);
   const [price, setPrice] = useState<number | null>(slot.price || null);
+  const [location, setLocation] = useState(slot.location || "");
 
   const fetchBookingInfo = useCallback(async () => {
     setLoading(true);
@@ -104,6 +107,7 @@ export default function InstructorSlotEditModal({
     setTimeZone(tz);
     setDuration(slot.duration_minutes || 60);
     setPrice(slot.price || null);
+    setLocation(slot.location || "");
 
     // Fetch booking info if slot is booked
     if (slot.is_booked) {
@@ -139,11 +143,13 @@ export default function InstructorSlotEditModal({
     if (price !== null && price !== undefined) {
       updateData.price = price;
     }
+    updateData.location = location.trim() || null;
 
     // Store old slot data for comparison
     const oldStart = new Date(slot.start);
     const oldDuration = slot.duration_minutes || 60;
     const oldPrice = slot.price;
+    const oldLocation = (slot.location || "").trim();
 
     const { error } = await supabaseBrowser
       .from("lesson_slots")
@@ -162,8 +168,9 @@ export default function InstructorSlotEditModal({
       const startChanged = oldStart.getTime() !== start.getTime();
       const durationChanged = oldDuration !== duration;
       const priceChanged = oldPrice !== price;
+      const locationChanged = oldLocation !== location.trim();
 
-      if (startChanged || durationChanged || priceChanged) {
+      if (startChanged || durationChanged || priceChanged || locationChanged) {
         try {
           // Fetch instructor name
           const { data: instructorProfile } = await supabaseBrowser
@@ -198,6 +205,7 @@ export default function InstructorSlotEditModal({
                 lessonDuration: duration,
                 lessonFocus: bookingInfo.lesson_focus || null,
                 lessonPrice: price,
+                lessonLocation: location.trim() || null,
               }),
             });
           }
@@ -413,16 +421,11 @@ export default function InstructorSlotEditModal({
             <label className="block text-sm font-medium text-gray-300 mb-1">
               Duration (minutes)
             </label>
-            <select
+            <LessonDurationSelect
               value={duration}
-              onChange={(e) => setDuration(Number(e.target.value))}
+              onChange={setDuration}
               className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
-            >
-              <option value={30}>30</option>
-              <option value={45}>45</option>
-              <option value={60}>60</option>
-              <option value={90}>90</option>
-            </select>
+            />
           </div>
 
           <div>
@@ -436,6 +439,19 @@ export default function InstructorSlotEditModal({
               value={price === null ? "" : price}
               onChange={(e) => setPrice(e.target.value === "" ? null : parseFloat(e.target.value))}
               placeholder="Optional"
+              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">
+              Location
+            </label>
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Optional — studio, address, or link"
               className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
             />
           </div>

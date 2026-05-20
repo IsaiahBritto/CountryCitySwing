@@ -10,7 +10,12 @@ import LessonBookingModal from "@/components/LessonBookingModal";
 import InstructorSlotEditModal from "@/components/InstructorSlotEditModal";
 import CancelBookingModal from "@/components/CancelBookingModal";
 import { XMarkIcon } from "@heroicons/react/24/solid";
-import { DEFAULT_TIME_ZONE, formatTimeInTimeZone, getTimeZoneAbbreviation } from "@/lib/utils/dateHelpers";
+import {
+  DEFAULT_TIME_ZONE,
+  formatTimeInTimeZone,
+  getDateStringInTimeZone,
+  getTimeZoneAbbreviation,
+} from "@/lib/utils/dateHelpers";
 
 dayjs.extend(weekday);
 dayjs.extend(isoWeek);
@@ -24,6 +29,7 @@ interface LessonSlot {
   instructor_id: string;
   duration_minutes: number;
   price?: number | null;
+  location?: string | null;
   booking_user_id?: string | null;
   booking_id?: string | null;
   time_zone?: string | null;
@@ -57,17 +63,25 @@ export default function InstructorLessonCalendar({
   // --- Fetch slots from Supabase ---
   const fetchSlots = useCallback(async () => {
     setLoading(true);
-    const start = currentMonth.startOf("month").toISOString();
-    const end = currentMonth.endOf("month").toISOString();
-    
+    const rangeStart =
+      view === "week"
+        ? currentMonth.startOf("week").startOf("day")
+        : currentMonth.startOf("month");
+    const rangeEnd =
+      view === "week"
+        ? currentMonth.startOf("week").add(6, "day").endOf("day")
+        : currentMonth.endOf("month");
+
     try {
-      // First, fetch slots without the relationship to ensure we get the data
+      // Fetch any slot overlapping the visible range (not only slots fully inside it).
+      // The old filter required end_time <= month end, which dropped slots whose end crossed
+      // a day/month boundary — especially common for custom durations like 50 minutes.
       const { data: slotsData, error: slotsError } = await supabaseBrowser
         .from("lesson_slots")
-        .select("id,start_time,end_time,is_booked,instructor_id,duration_minutes,price,time_zone")
+        .select("id,start_time,end_time,is_booked,instructor_id,duration_minutes,price,time_zone,location")
         .eq("instructor_id", instructorId)
-        .gte("start_time", start)
-        .lte("end_time", end)
+        .lt("start_time", rangeEnd.toISOString())
+        .gt("end_time", rangeStart.toISOString())
         .order("start_time", { ascending: true });
 
       if (slotsError) {
@@ -110,6 +124,7 @@ export default function InstructorLessonCalendar({
           instructor_id: d.instructor_id,
           duration_minutes: d.duration_minutes,
           price: d.price || null,
+          location: d.location || null,
           booking_user_id: booking?.user_id || null,
           booking_id: booking?.id || null,
           time_zone: d.time_zone || null,
@@ -122,7 +137,7 @@ export default function InstructorLessonCalendar({
     } finally {
       setLoading(false);
     }
-  }, [instructorId, currentMonth]);
+  }, [instructorId, currentMonth, view]);
 
   useEffect(() => {
     fetchSlots();
@@ -188,7 +203,10 @@ export default function InstructorLessonCalendar({
   // --- Calendar data helpers ---
   const getSlotsForDay = (day: number) => {
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
-    const daySlots = slots.filter((s) => dayjs(s.start).format("YYYY-MM-DD") === dateStr);
+    const daySlots = slots.filter((s) => {
+      const tz = s.time_zone || DEFAULT_TIME_ZONE;
+      return getDateStringInTimeZone(s.start, tz) === dateStr;
+    });
     // Sort by start time (earliest first)
     return daySlots.sort((a, b) => {
       const timeA = new Date(a.start).getTime();
@@ -399,7 +417,10 @@ export default function InstructorLessonCalendar({
           <div className="grid grid-cols-7 gap-1">
             {weekDays.map((d) => {
               const daySlots = slots
-                .filter((s) => dayjs(s.start).isSame(d, "day"))
+                .filter((s) => {
+                  const tz = s.time_zone || DEFAULT_TIME_ZONE;
+                  return getDateStringInTimeZone(s.start, tz) === d.format("YYYY-MM-DD");
+                })
                 .sort((a, b) => {
                   const timeA = new Date(a.start).getTime();
                   const timeB = new Date(b.start).getTime();
@@ -480,7 +501,13 @@ export default function InstructorLessonCalendar({
 
             <div className="space-y-2">
               {slots
-                .filter((s) => dayjs(s.start).isSame(selectedDate, "day"))
+                .filter((s) => {
+                  const tz = s.time_zone || DEFAULT_TIME_ZONE;
+                  return (
+                    getDateStringInTimeZone(s.start, tz) ===
+                    selectedDate.format("YYYY-MM-DD")
+                  );
+                })
                 .sort((a, b) => {
                   const timeA = new Date(a.start).getTime();
                   const timeB = new Date(b.start).getTime();
@@ -508,15 +535,24 @@ export default function InstructorLessonCalendar({
                           : "bg-yellow-400 text-black hover:shadow-lg hover:shadow-yellow-400/70"
                       }`}
                     >
-                      {formatTimeInTimeZone(slot.start, tz)} –{" "}
-                      {formatTimeInTimeZone(slot.end, tz)}{tzAbbrev ? ` ${tzAbbrev}` : ""} (
-                      {isPast && !isInstructorView && !slot.is_booked
-                        ? "Past"
-                        : slot.is_booked 
-                        ? isUserBooking && !isInstructorView 
-                          ? "Your Booking" 
-                          : "Booked" 
-                        : "Available"})
+                      <span className="block">
+                        {formatTimeInTimeZone(slot.start, tz)} –{" "}
+                        {formatTimeInTimeZone(slot.end, tz)}
+                        {tzAbbrev ? ` ${tzAbbrev}` : ""} (
+                        {isPast && !isInstructorView && !slot.is_booked
+                          ? "Past"
+                          : slot.is_booked
+                            ? isUserBooking && !isInstructorView
+                              ? "Your Booking"
+                              : "Booked"
+                            : "Available"}
+                        )
+                      </span>
+                      {slot.location && (
+                        <span className="block text-xs opacity-80 mt-0.5 truncate">
+                          {slot.location}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

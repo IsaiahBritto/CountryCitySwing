@@ -9,6 +9,7 @@ import {
   formatTimeRangeWithTimeZone,
 } from "@/lib/utils/dateHelpers";
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
+import LessonDurationSelect from "@/components/LessonDurationSelect";
 
 interface LessonSlot {
   id: string;
@@ -16,6 +17,7 @@ interface LessonSlot {
   end_time: string;
   time_zone?: string | null;
   duration_minutes: number;
+  location?: string | null;
   is_booked: boolean;
   student_name?: string;
   student_email?: string;
@@ -28,10 +30,11 @@ export default function InstructorSlotManager({
 }) {
   const [slots, setSlots] = useState<LessonSlot[]>([]);
   const [selectedDate, setSelectedDate] = useState("");
-  const [selectedTime, setSelectedTime] = useState("");
+  const [selectedTimes, setSelectedTimes] = useState<string[]>([""]);
   const [selectedTimeZone, setSelectedTimeZone] = useState(DEFAULT_TIME_ZONE);
   const [duration, setDuration] = useState(60);
   const [price, setPrice] = useState<number | null>(null);
+  const [location, setLocation] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedDays, setSelectedDays] = useState<number[]>([]); // 0 = Sunday, 6 = Saturday
   const [numberOfWeeks, setNumberOfWeeks] = useState(1);
@@ -44,7 +47,7 @@ export default function InstructorSlotManager({
     const { data, error } = await supabaseBrowser
       .from("lesson_slots")
       .select(
-        `id, start_time, end_time, duration_minutes, is_booked, time_zone,
+        `id, start_time, end_time, duration_minutes, is_booked, time_zone, location,
          lesson_bookings (student_name, student_email)`
       )
       .eq("instructor_id", instructorId)
@@ -89,10 +92,33 @@ export default function InstructorSlotManager({
     return dates.sort((a, b) => a.getTime() - b.getTime());
   }
 
+  function getUniqueTimes(): string[] {
+    return [...new Set(selectedTimes.map((t) => t.trim()).filter(Boolean))];
+  }
+
+  function addTimeRow() {
+    setSelectedTimes((prev) => [...prev, ""]);
+  }
+
+  function updateTimeRow(index: number, value: string) {
+    setSelectedTimes((prev) => prev.map((t, i) => (i === index ? value : t)));
+  }
+
+  function removeTimeRow(index: number) {
+    setSelectedTimes((prev) =>
+      prev.length <= 1 ? [""] : prev.filter((_, i) => i !== index)
+    );
+  }
+
+  const slotCountPreview =
+    getUniqueTimes().length *
+    (selectedDays.length > 0 ? selectedDays.length * numberOfWeeks : 1);
+
   async function addSlot(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedDate || !selectedTime) {
-      alert("Please select a date and time");
+    const times = getUniqueTimes();
+    if (!selectedDate || times.length === 0) {
+      alert("Please select a date and at least one time");
       return;
     }
 
@@ -106,7 +132,6 @@ export default function InstructorSlotManager({
 
     // Use date-only for recurring day generation to avoid local-time offsets.
     const baseDate = new Date(`${selectedDate}T00:00:00`);
-    const timeString = selectedTime; // Keep time string for reuse
 
     // Generate all slot dates
     const slotDates = selectedDays.length > 0 
@@ -125,48 +150,63 @@ export default function InstructorSlotManager({
       return;
     }
 
-    // Generate all slots to insert
-    const slotsToInsert: Array<{ start: Date; end: Date; date: Date }> = [];
-    const overlappingSlots: Array<{ date: Date; existingSlot: any }> = [];
+    // Generate all slots to insert (every date × every time)
+    const slotsToInsert: Array<{
+      start: Date;
+      end: Date;
+      date: Date;
+      timeLabel: string;
+    }> = [];
+    const overlappingSlots: Array<{
+      date: Date;
+      timeLabel: string;
+      existingSlot: any;
+    }> = [];
 
     for (const slotDate of slotDates) {
-      // Create start time by combining the date with the selected time
-      const year = slotDate.getFullYear();
-      const month = String(slotDate.getMonth() + 1).padStart(2, '0');
-      const day = String(slotDate.getDate()).padStart(2, '0');
-      const localDateTime = `${year}-${month}-${day}T${timeString}`;
-      const startIso = fromDateTimeLocalInTimeZone(localDateTime, selectedTimeZone);
-      if (!startIso) {
-        continue;
-      }
-      const start = new Date(startIso);
-      const end = new Date(start.getTime() + duration * 60000);
+      for (const timeString of times) {
+        const year = slotDate.getFullYear();
+        const month = String(slotDate.getMonth() + 1).padStart(2, "0");
+        const day = String(slotDate.getDate()).padStart(2, "0");
+        const localDateTime = `${year}-${month}-${day}T${timeString}`;
+        const startIso = fromDateTimeLocalInTimeZone(
+          localDateTime,
+          selectedTimeZone
+        );
+        if (!startIso) {
+          continue;
+        }
+        const start = new Date(startIso);
+        const end = new Date(start.getTime() + duration * 60000);
+        const timeLabel = formatTimeLabel(timeString);
 
-      // Check for overlaps
-      const overlappingSlot = allSlots?.find((existingSlot: any) => {
-        const existingStart = new Date(existingSlot.start_time);
-        const existingEnd = new Date(existingSlot.end_time);
-        return start < existingEnd && end > existingStart;
-      });
+        const overlappingSlot = allSlots?.find((existingSlot: any) => {
+          const existingStart = new Date(existingSlot.start_time);
+          const existingEnd = new Date(existingSlot.end_time);
+          return start < existingEnd && end > existingStart;
+        });
 
-      if (overlappingSlot) {
-        overlappingSlots.push({ date: slotDate, existingSlot: overlappingSlot });
-      } else {
-        slotsToInsert.push({ start, end, date: slotDate });
+        if (overlappingSlot) {
+          overlappingSlots.push({ date: slotDate, timeLabel, existingSlot: overlappingSlot });
+        } else {
+          slotsToInsert.push({ start, end, date: slotDate, timeLabel });
+        }
       }
     }
 
     // Report overlapping slots if any
     if (overlappingSlots.length > 0) {
-      const overlapMessages = overlappingSlots.map(({ date, existingSlot }) => {
-        const existingStart = new Date(existingSlot.start_time);
-        const overlapDate = date.toLocaleDateString();
-        const overlapTime = existingStart.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-        return `${overlapDate} (overlaps with ${overlapTime})`;
-      }).join('\n');
+      const overlapMessages = overlappingSlots
+        .map(({ date, timeLabel, existingSlot }) => {
+          const existingStart = new Date(existingSlot.start_time);
+          const overlapDate = date.toLocaleDateString();
+          const overlapTime = existingStart.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          return `${overlapDate} at ${timeLabel} (overlaps with ${overlapTime})`;
+        })
+        .join("\n");
 
       if (slotsToInsert.length === 0) {
         alert(
@@ -191,20 +231,29 @@ export default function InstructorSlotManager({
       if (price !== null && price !== undefined) {
         slotData.price = price;
       }
+      const locationTrimmed = location.trim();
+      if (locationTrimmed) {
+        slotData.location = locationTrimmed;
+      }
       return slotData;
     });
 
-    const results: Array<{ success: boolean; date: Date; error?: string }> = [];
+    const results: Array<{
+      success: boolean;
+      date: Date;
+      timeLabel: string;
+      error?: string;
+    }> = [];
 
-    // Insert slots one by one to track individual failures
     for (let i = 0; i < slotsToAdd.length; i++) {
       const { error } = await supabaseBrowser
         .from("lesson_slots")
         .insert(slotsToAdd[i]);
-      
+
       results.push({
         success: !error,
         date: slotsToInsert[i].date,
+        timeLabel: slotsToInsert[i].timeLabel,
         error: error?.message,
       });
     }
@@ -218,16 +267,20 @@ export default function InstructorSlotManager({
     let message = `Successfully added ${successful.length} slot(s).`;
     
     if (failed.length > 0) {
-      const failedDates = failed.map(f => f.date.toLocaleDateString()).join(', ');
-      message += ` Failed to add ${failed.length} slot(s): ${failedDates}.`;
+      const failedLabels = failed
+        .map((f) => `${f.date.toLocaleDateString()} at ${f.timeLabel}`)
+        .join(", ");
+      message += ` Failed to add ${failed.length} slot(s): ${failedLabels}.`;
       if (failed[0].error) {
         message += ` Error: ${failed[0].error}`;
       }
     }
 
     if (overlappingSlots.length > 0 && slotsToInsert.length > 0) {
-      const overlapDates = overlappingSlots.map(os => os.date.toLocaleDateString()).join(', ');
-      message += ` Skipped ${overlappingSlots.length} overlapping slot(s): ${overlapDates}.`;
+      const overlapLabels = overlappingSlots
+        .map((os) => `${os.date.toLocaleDateString()} at ${os.timeLabel}`)
+        .join(", ");
+      message += ` Skipped ${overlappingSlots.length} overlapping slot(s): ${overlapLabels}.`;
     }
 
     emitCcsSuccessToast(message);
@@ -235,9 +288,10 @@ export default function InstructorSlotManager({
     // Reset form if all slots were added successfully
     if (failed.length === 0 && overlappingSlots.length === 0) {
       setSelectedDate("");
-      setSelectedTime("");
+      setSelectedTimes([""]);
       setSelectedTimeZone(DEFAULT_TIME_ZONE);
       setPrice(null);
+      setLocation("");
       setSelectedDays([]);
       setNumberOfWeeks(1);
     }
@@ -283,13 +337,6 @@ export default function InstructorSlotManager({
             required
             className="px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
           />
-          <input
-            type="time"
-            value={selectedTime}
-            onChange={(e) => setSelectedTime(e.target.value)}
-            required
-            className="px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-          />
           <select
             value={selectedTimeZone}
             onChange={(e) => setSelectedTimeZone(e.target.value)}
@@ -301,14 +348,11 @@ export default function InstructorSlotManager({
             <option value="America/Denver">Mountain Time</option>
             <option value="America/Los_Angeles">Pacific Time</option>
           </select>
-          <select
+          <LessonDurationSelect
             value={duration}
-            onChange={(e) => setDuration(Number(e.target.value))}
+            onChange={setDuration}
             className="px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-          >
-            <option value={45}>45 Minutes</option>
-            <option value={60}>1 Hour</option>
-          </select>
+          />
           <input
             type="number"
             step="0.01"
@@ -318,6 +362,66 @@ export default function InstructorSlotManager({
             placeholder="Price ($)"
             className="px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
           />
+        </div>
+
+        <div className="max-w-2xl mx-auto">
+          <label className="block text-sm text-gray-300 mb-1 text-center">
+            Location <span className="text-gray-500">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            placeholder="e.g. CCS Studio, 123 Main St, or Zoom link"
+            className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+          />
+        </div>
+
+        <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-700">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h4 className="text-sm font-semibold text-yellow-400">Times on this day</h4>
+            <button
+              type="button"
+              onClick={addTimeRow}
+              className="text-sm text-yellow-400 hover:text-yellow-300"
+            >
+              + Add time
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mb-3 text-center">
+            Add every start time you want (same duration, price, time zone, and location for all).
+          </p>
+          <div className="space-y-2">
+            {selectedTimes.map((time, index) => (
+              <div key={index} className="flex items-center justify-center gap-2">
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => updateTimeRow(index, e.target.value)}
+                  required={index === 0}
+                  className="flex-1 max-w-xs px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
+                />
+                {selectedTimes.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeTimeRow(index)}
+                    className="text-sm text-red-400 hover:text-red-300 px-2"
+                    aria-label="Remove time"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          {getUniqueTimes().length > 0 && (
+            <p className="text-xs text-gray-400 text-center mt-3">
+              {getUniqueTimes().length} time{getUniqueTimes().length !== 1 ? "s" : ""} selected
+              {selectedDays.length > 0
+                ? ` × ${selectedDays.length * numberOfWeeks} day(s) = ${slotCountPreview} slot(s)`
+                : ` = ${slotCountPreview} slot(s) on this date`}
+            </p>
+          )}
         </div>
 
         {/* Recurring Options */}
@@ -375,9 +479,9 @@ export default function InstructorSlotManager({
             </div>
           )}
 
-          {selectedDays.length > 0 && (
+          {selectedDays.length > 0 && getUniqueTimes().length > 0 && (
             <p className="text-xs text-gray-400 text-center mt-2">
-              Will create {selectedDays.length * numberOfWeeks} slot{selectedDays.length * numberOfWeeks !== 1 ? 's' : ''} at this time
+              Will create {slotCountPreview} slot{slotCountPreview !== 1 ? "s" : ""} (each time on each selected day)
             </p>
           )}
         </div>
@@ -388,7 +492,11 @@ export default function InstructorSlotManager({
             disabled={loading}
             className="btn-signup px-6 py-2 rounded-md"
           >
-            {loading ? "Adding Slots..." : selectedDays.length > 0 ? `Add ${selectedDays.length * numberOfWeeks} Slot${selectedDays.length * numberOfWeeks !== 1 ? 's' : ''}` : "Add Slot"}
+            {loading
+              ? "Adding Slots..."
+              : slotCountPreview > 0
+                ? `Add ${slotCountPreview} Slot${slotCountPreview !== 1 ? "s" : ""}`
+                : "Add Slot"}
           </button>
         </div>
       </form>
@@ -430,6 +538,9 @@ export default function InstructorSlotManager({
                   {formattedDate} ({slot.duration_minutes} min)
                 </p>
                 <p className="text-gray-400">{formattedTime}</p>
+                {slot.location && (
+                  <p className="text-gray-500 text-sm mt-0.5">{slot.location}</p>
+                )}
                 {slot.is_booked && (
                   <p className="text-sm text-red-400 mt-1">
                     Booked by {slot.student_name || "Unknown"} (
@@ -461,4 +572,12 @@ export default function InstructorSlotManager({
       </div>
     </div>
   );
+}
+
+function formatTimeLabel(time24: string): string {
+  const [h, m] = time24.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return time24;
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
 }

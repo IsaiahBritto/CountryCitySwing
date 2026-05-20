@@ -20,6 +20,7 @@ interface LessonBookingModalProps {
     is_booked?: boolean;
     duration_minutes?: number;
     price?: number | null;
+    location?: string | null;
   };
   onClose: () => void;
 }
@@ -28,9 +29,13 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [instructorName, setInstructorName] = useState<string | null>(null);
+  const [instructorDisclaimer, setInstructorDisclaimer] = useState<string | null>(null);
+  const [disclaimerAcknowledged, setDisclaimerAcknowledged] = useState(false);
   const [slotPrice, setSlotPrice] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const hasDisclaimer = Boolean(instructorDisclaimer?.trim());
   
   // Form fields
   const [firstName, setFirstName] = useState("");
@@ -65,15 +70,20 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
     checkAuth();
   }, []);
 
-  // Fetch instructor name for display
+  // Fetch instructor name and optional booking disclaimer
   useEffect(() => {
     async function fetchInstructor() {
       const { data } = await supabaseBrowser
         .from("profiles")
-        .select("first_name, last_name")
+        .select("first_name, last_name, private_lesson_disclaimer")
         .eq("id", slot.instructor_id)
         .single();
-      if (data) setInstructorName(`${data.first_name} ${data.last_name}`);
+      if (data) {
+        setInstructorName(`${data.first_name} ${data.last_name}`);
+        const disclaimer = data.private_lesson_disclaimer?.trim() || null;
+        setInstructorDisclaimer(disclaimer);
+        setDisclaimerAcknowledged(false);
+      }
     }
     fetchInstructor();
   }, [slot.instructor_id]);
@@ -107,6 +117,10 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
     }
     if (!lessonFocus) {
       alert("Please select a lesson focus");
+      return;
+    }
+    if (hasDisclaimer && !disclaimerAcknowledged) {
+      alert("Please read and acknowledge the booking disclaimer before confirming.");
       return;
     }
 
@@ -185,6 +199,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             lessonDuration,
             lessonFocus,
             lessonPrice: slot.price,
+            lessonLocation: slot.location?.trim() || null,
           }),
         });
 
@@ -203,6 +218,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             lessonDuration,
             lessonFocus,
             lessonPrice: slot.price,
+            lessonLocation: slot.location?.trim() || null,
           }),
         });
       } catch (emailError) {
@@ -295,6 +311,12 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
           {slot.price && (
             <p className="text-yellow-400 font-semibold mt-2">
               Price: ${slot.price.toFixed(2)}
+            </p>
+          )}
+          {slot.location?.trim() && (
+            <p className="text-gray-300 mt-2">
+              <span className="text-yellow-400/90 font-medium">Location: </span>
+              {slot.location.trim()}
             </p>
           )}
         </div>
@@ -401,6 +423,29 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             </div>
           </div>
 
+          {hasDisclaimer && (
+            <div className="rounded-lg border border-yellow-400/50 bg-gradient-to-b from-yellow-400/10 to-transparent p-4 shadow-[inset_0_1px_0_rgba(242,201,76,0.15)]">
+              <p className="text-xs font-semibold uppercase tracking-wide text-yellow-400 mb-2">
+                Booking disclaimer
+              </p>
+              <div className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto pr-1">
+                {instructorDisclaimer}
+              </div>
+              <label className="flex items-start gap-3 mt-4 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={disclaimerAcknowledged}
+                  onChange={(e) => setDisclaimerAcknowledged(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 shrink-0 accent-yellow-400"
+                />
+                <span className="text-sm text-gray-300 group-hover:text-gray-200">
+                  I have read and understand the disclaimer above.{" "}
+                  <span className="text-red-400">*</span>
+                </span>
+              </label>
+            </div>
+          )}
+
           <div className="flex justify-center gap-4 items-center pt-4 border-t border-neutral-700">
             <button
               type="button"
@@ -411,8 +456,8 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             </button>
             <button
               type="submit"
-              disabled={saving}
-              className="btn-signup px-4 py-2 rounded-md"
+              disabled={saving || (hasDisclaimer && !disclaimerAcknowledged)}
+              className="btn-signup px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? "Booking..." : "Confirm Booking"}
             </button>

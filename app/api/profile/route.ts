@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseServer
       .from("profiles")
-      .select("id,first_name,last_name,role,photo_url,instagram_url,teaching_since,favorite_song,teaching_style,bio_long,specialty,phone_number,private_lessons,private_lessons_link,scheduling_enabled,prayer,state,zip_code,latitude,longitude,newsletter_opt_in")
+      .select("id,first_name,last_name,role,photo_url,instagram_url,teaching_since,favorite_song,teaching_style,bio_long,specialty,phone_number,private_lessons,private_lessons_link,private_lesson_disclaimer,scheduling_enabled,prayer,state,zip_code,latitude,longitude,newsletter_opt_in")
       .eq("id", user.id)
       .single();
 
@@ -207,11 +207,16 @@ export async function PATCH(req: NextRequest) {
       if (body.latitude !== undefined) updateData.latitude = typeof body.latitude === "number" ? body.latitude : null;
       if (body.longitude !== undefined) updateData.longitude = typeof body.longitude === "number" ? body.longitude : null;
       // Scheduling only for core instructor/admin, not non-ccs-instructor
-      if ((effectiveRole === "instructor" || effectiveRole === "admin") && body.scheduling_enabled !== undefined) {
-        updateData.scheduling_enabled =
-          body.scheduling_enabled === true || body.scheduling_enabled === false
-            ? body.scheduling_enabled
-            : null;
+      if (effectiveRole === "instructor" || effectiveRole === "admin") {
+        if (body.scheduling_enabled !== undefined) {
+          updateData.scheduling_enabled =
+            body.scheduling_enabled === true || body.scheduling_enabled === false
+              ? body.scheduling_enabled
+              : null;
+        }
+        if (body.private_lesson_disclaimer !== undefined) {
+          updateData.private_lesson_disclaimer = emptyToNull(body.private_lesson_disclaimer);
+        }
       }
     }
 

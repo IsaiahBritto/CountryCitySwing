@@ -9,7 +9,16 @@ export const metadata = {
   title: "Country City Swing",
   description: "Nashville’s Country Swing partner dancing studio",
   icons: {
-    icon: "/media/logo-dark.png", // Browser tab icon (favicon)
+    icon: [
+      {
+        url: "/media/logo-light.png",
+        media: "(prefers-color-scheme: light)",
+      },
+      {
+        url: "/media/logo-dark.png",
+        media: "(prefers-color-scheme: dark)",
+      },
+    ],
   },
 };
 

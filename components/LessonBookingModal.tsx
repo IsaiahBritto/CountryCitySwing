@@ -115,6 +115,10 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
       alert("Email is required");
       return;
     }
+    if (!phoneNumber.trim()) {
+      alert("Phone number is required");
+      return;
+    }
     if (!lessonFocus) {
       alert("Please select a lesson focus");
       return;
@@ -138,7 +142,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
       first_name: firstName.trim(),
       last_name: lastName.trim(),
       email: email.trim(),
-      phone_number: phoneNumber.trim() || null,
+      phone_number: phoneNumber.trim(),
       lesson_focus: lessonFocus,
       user_id: user.id,
     };
@@ -212,7 +216,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             studentFirstName: firstName.trim(),
             studentLastName: lastName.trim(),
             studentEmail: email.trim(),
-            studentPhone: phoneNumber.trim() || null,
+            studentPhone: phoneNumber.trim(),
             lessonDate: slot.start,
             lessonTime,
             lessonDuration,
@@ -367,16 +371,16 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
 
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
-              Phone Number
+              Phone Number <span className="text-red-400">*</span>
             </label>
             <input
               type="tel"
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
+              required
               className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 focus:border-yellow-400 focus:outline-none"
               placeholder="(555) 123-4567"
             />
-            <p className="text-xs text-gray-400 mt-1">Optional but encouraged</p>
           </div>
 
           <div>

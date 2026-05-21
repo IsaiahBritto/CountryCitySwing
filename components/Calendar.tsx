@@ -207,12 +207,8 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                     ${
                       hasEvents
                         ? eventType === "Convention"
-                          ? "bg-emerald-500/50 text-white hover:bg-emerald-500"
-                          : eventType === "Workshop"
-                          ? "bg-yellow-400/50 text-black hover:bg-yellow-400"
-                          : eventType === "Comp"
-                          ? "bg-blue-500/50 text-white hover:bg-blue-500"
-                          : "bg-primary text-black hover:bg-yellow-400"
+                          ? "bg-emerald-500 text-white hover:bg-emerald-500/50"
+                          : "bg-yellow-400 text-black hover:bg-yellow-400/50"
                         : "bg-neutral-900 text-gray-300"
                     }
                     ${
@@ -225,9 +221,21 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                   {day && <span className="font-medium text-base">{day}</span>}
                   {hasEvents && (
                     <div className="flex items-center gap-1 mt-1">
-                      <StarIcon className="w-4 h-4 transition-colors text-yellow-400 group-hover:text-black" />
+                      <StarIcon
+                        className={`w-4 h-4 transition-colors ${
+                          eventType === "Convention"
+                            ? "text-yellow-400"
+                            : "text-black"
+                        }`}
+                      />
                       {eventCount > 1 && (
-                        <span className="text-xs font-semibold text-yellow-600 group-hover:text-black">
+                        <span
+                          className={`text-xs font-semibold ${
+                            eventType === "Convention"
+                              ? "text-yellow-600"
+                              : "text-black"
+                          }`}
+                        >
                           {eventCount}
                         </span>
                       )}

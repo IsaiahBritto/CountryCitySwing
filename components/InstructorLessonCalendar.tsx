@@ -365,7 +365,7 @@ export default function InstructorLessonCalendar({
                       ${
                         hasSlots
                           ? available > 0
-                            ? "bg-primary text-black hover:bg-yellow-400"
+                            ? "bg-yellow-400 text-black hover:bg-yellow-400/50"
                             : "bg-neutral-700 text-gray-300"
                           : "bg-neutral-900 text-gray-500"
                       }

@@ -383,10 +383,17 @@ export default function ScheduleCalendar({
         <div className="grid grid-cols-7 gap-2 text-center">
           {weeks.map((week, wi) =>
             week.map((day, di) => {
+              const dayEvents = day ? getScheduleEventsForDay(day) : [];
               const daySlotsCount = day ? getSlotsForDay(day).length : 0;
-              const dayEventsCount = day ? getScheduleEventsForDay(day).length : 0;
+              const dayEventsCount = dayEvents.length;
               const availableCount = day ? getAvailableCountForDay(day) : 0;
+              const isConventionDay = dayEvents.some(
+                (e) => (e.type || "").trim() === "Convention"
+              );
               const hasActivity = daySlotsCount > 0 || dayEventsCount > 0;
+              const hasOpenSlots = availableCount > 0;
+              const hasSlotsOnlyFullyAssigned =
+                daySlotsCount > 0 && !hasOpenSlots && dayEventsCount === 0;
               const dateStr = day && currentMonth.date(day).format("YYYY-MM-DD");
               const isToday = dateStr === today;
               return (
@@ -394,15 +401,36 @@ export default function ScheduleCalendar({
                   key={`${wi}-${di}`}
                   onClick={() => hasActivity && day && handleDayClick(day)}
                   className={`group h-16 flex flex-col justify-center items-center rounded-md transition overflow-hidden
-                    ${hasActivity ? "bg-primary text-black hover:bg-yellow-400 cursor-pointer" : "bg-neutral-900 text-gray-300"}
+                    ${hasActivity ? "cursor-pointer" : ""}
+                    ${
+                      isConventionDay
+                        ? "bg-emerald-500 text-white hover:bg-emerald-500/50"
+                        : hasOpenSlots || dayEventsCount > 0
+                        ? "bg-yellow-400 text-black hover:bg-yellow-400/50"
+                        : hasSlotsOnlyFullyAssigned
+                        ? "bg-neutral-700 text-gray-300"
+                        : "bg-neutral-900 text-gray-300"
+                    }
                     ${isToday ? "ring-2 ring-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)]" : ""}`}
                 >
                   {day != null && <span className="font-medium text-base">{day}</span>}
                   {hasActivity && (
                     <div className="flex items-center gap-1 mt-1">
-                      <StarIcon className="w-4 h-4 text-yellow-600 group-hover:text-black" />
+                      <StarIcon
+                        className={`w-4 h-4 transition-colors ${
+                          isConventionDay
+                            ? "text-yellow-400"
+                            : hasSlotsOnlyFullyAssigned
+                            ? "text-gray-300"
+                            : "text-black"
+                        }`}
+                      />
                       {availableCount > 0 && (
-                        <span className="text-xs font-semibold text-yellow-600 group-hover:text-black">
+                        <span
+                          className={`text-xs font-semibold ${
+                            isConventionDay ? "text-yellow-600" : "text-black"
+                          }`}
+                        >
                           {availableCount}
                         </span>
                       )}

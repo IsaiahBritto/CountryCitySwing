@@ -169,7 +169,7 @@ export default function Home() {
           </div>
         )}
         <Image
-          src="/media/logo.PNG"   // 👈 Always dark logo
+          src="/media/logo-dark.png"   // 👈 Always dark logo
           alt="Country City Swing Logo"
           width={150}
           height={150}

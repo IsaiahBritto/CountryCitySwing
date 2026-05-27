@@ -21,11 +21,11 @@ export default function BioHeader({ theme }: BioHeaderProps) {
       {isPoster ? (
         <div className="mx-auto mb-5 flex h-[150px] w-[150px] items-center justify-center">
           <Image
-            src="/media/logo-dark.jpg"
+            src="/media/logo-dark.PNG"
             alt="Country City Swing Logo"
             width={150}
             height={150}
-            className="block h-[150px] w-[150px] mix-blend-screen drop-shadow-[0_0_6px_rgba(242,201,76,1),0_0_14px_rgba(242,201,76,0.85),0_0_24px_rgba(187,134,252,0.7)]"
+            className="block h-[150px] w-[150px] drop-shadow-[0_0_6px_rgba(242,201,76,0.55),0_0_14px_rgba(242,201,76,0.4),0_0_24px_rgba(187,134,252,0.65)]"
             priority
           />
         </div>

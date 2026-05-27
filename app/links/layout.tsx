@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     siteName: "Country City Swing",
     images: [
       {
-        url: "/media/logo-dark.jpg",
+        url: "/media/logo-dark.PNG",
         width: 150,
         height: 150,
         alt: "Country City Swing logo",
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     card: "summary",
     title,
     description,
-    images: ["/media/logo-dark.jpg"],
+    images: ["/media/logo-dark.PNG"],
   },
 };
 

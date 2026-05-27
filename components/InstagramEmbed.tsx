@@ -1,15 +1,16 @@
 "use client";
 
-const INSTAGRAM_HANDLE =
-  (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_INSTAGRAM_HANDLE) ||
-  "countrycityswing";
+import {
+  INSTAGRAM_HANDLE,
+  instagramProfileUrl,
+} from "@/lib/socialLinks";
 
 /** Optional third‑party feed embed URL (e.g. EmbedSocial, Curator.io). Shows the real feed. */
 const CUSTOM_EMBED_URL =
   typeof process !== "undefined" ? process.env.NEXT_PUBLIC_INSTAGRAM_EMBED_URL : undefined;
 
 const NATIVE_EMBED_URL = `https://www.instagram.com/${INSTAGRAM_HANDLE}/embed`;
-const PROFILE_URL = `https://www.instagram.com/${INSTAGRAM_HANDLE}/`;
+const PROFILE_URL = instagramProfileUrl();
 
 export default function InstagramEmbed() {
   const embedUrl = (CUSTOM_EMBED_URL?.trim() || NATIVE_EMBED_URL) as string;

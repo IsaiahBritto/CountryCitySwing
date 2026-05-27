@@ -306,3 +306,90 @@ img {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* -------------------------------------------------------
+   Link tree page (/links)
+------------------------------------------------------- */
+.link-tree {
+  position: relative;
+  background-color: #0a0a0c;
+  background-image:
+    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(187, 134, 252, 0.18) 0%, transparent 55%),
+    radial-gradient(ellipse 100% 70% at 50% 100%, rgba(242, 201, 76, 0.12) 0%, transparent 50%),
+    radial-gradient(ellipse 80% 60% at 0% 50%, rgba(187, 134, 252, 0.15) 0%, transparent 45%),
+    radial-gradient(ellipse 80% 60% at 100% 50%, rgba(187, 134, 252, 0.15) 0%, transparent 45%);
+}
+
+.link-tree-logo {
+  box-shadow:
+    0 0 24px rgba(242, 201, 76, 0.55),
+    0 0 48px rgba(187, 134, 252, 0.35);
+}
+
+.link-tree-title {
+  text-shadow:
+    0 0 20px rgba(242, 201, 76, 0.5),
+    0 0 40px rgba(187, 134, 252, 0.25);
+}
+
+.link-tree-divider {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(242, 201, 76, 0.5),
+    rgba(187, 134, 252, 0.5),
+    transparent
+  );
+}
+
+.link-tree-link {
+  position: relative;
+  transition: transform 0.2s ease, filter 0.2s ease;
+  box-shadow:
+    0 0 6px rgba(242, 201, 76, 0.22),
+    0 0 10px rgba(187, 134, 252, 0.18);
+}
+
+.link-tree-link:hover,
+.link-tree-link:focus-visible {
+  transform: scale(1.02);
+  filter: brightness(1.06);
+  box-shadow:
+    0 0 10px rgba(242, 201, 76, 0.35),
+    0 0 16px rgba(187, 134, 252, 0.28);
+}
+
+.link-tree-tile-primary-wrap {
+  animation: goldPulse 4s ease-in-out infinite, purplePulse 5s ease-in-out infinite;
+}
+
+.link-tree-tile-accent-wrap {
+  animation: purplePulse 4s ease-in-out infinite, goldPulse 5s ease-in-out infinite;
+}
+
+.link-tree-tile-ghost-wrap {
+  animation: purplePulse 5s ease-in-out infinite, goldPulse 6s ease-in-out infinite;
+}
+
+.link-tree-social {
+  transition: transform 0.2s ease;
+}
+
+.link-tree-social:hover,
+.link-tree-social:focus-visible {
+  transform: scale(1.02);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link-tree-link:hover,
+  .link-tree-link:focus-visible,
+  .link-tree-social:hover,
+  .link-tree-social:focus-visible {
+    transform: none;
+  }
+
+  .link-tree-tile-primary-wrap,
+  .link-tree-tile-accent-wrap {
+    animation: none;
+  }
+}

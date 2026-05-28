@@ -18,9 +18,6 @@ export const BIO_FOOTER_LINE = "Country City Swing · Nashville, TN";
 
 export const THE_SOCIAL_SECTION_TITLE = "The Social.";
 
-const THE_SOCIAL_SPOTIFY_PLAYLIST =
-  "https://open.spotify.com/playlist/4FtXSbbhvWrGm9CH0kkxzn?si=23CXQtXVRCm7WZ9soGYmSw";
-
 export interface ExternalPlaylistLink {
   id: string;
   label: string;
@@ -31,17 +28,17 @@ export const theSocialPlaylistLinks: ExternalPlaylistLink[] = [
   {
     id: "country-swing-playlist",
     label: "Country Swing Playlist",
-    href: THE_SOCIAL_SPOTIFY_PLAYLIST,
+    href: "https://open.spotify.com/playlist/4FtXSbbhvWrGm9CH0kkxzn?si=aAe9nVMKRkWMzbgiz4dFXw&pi=9dPqoJoAT9W0y&pt=f870754a07d5aa3bc3f420b48df30d12",
   },
   {
     id: "west-coast-swing-playlist",
     label: "West Coast Swing Playlist",
-    href: THE_SOCIAL_SPOTIFY_PLAYLIST,
+    href: "https://open.spotify.com/playlist/4eRJZ0KSiK5Rdjp7iVOTbm?si=l6Y6sUEcRkmo35uSEjR0Sg&pt=01a03c5f0f49f1ae6d56c4e1aee5a058&pi=zQgCo5PuR8mKj",
   },
   {
     id: "line-dance-playlist",
     label: "Line Dance Playlist",
-    href: THE_SOCIAL_SPOTIFY_PLAYLIST,
+    href: "https://open.spotify.com/playlist/2QHnuDywacKhgKZTScSpC7?si=6XAc15WmQZCsMADENP8nHw&pt=574b2357938dee8e4390415f14763ce8&pi=_PESQqtLRQ-vm",
   },
 ];
 

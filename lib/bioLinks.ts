@@ -16,6 +16,35 @@ export const BIO_TAGLINE =
 
 export const BIO_FOOTER_LINE = "Country City Swing · Nashville, TN";
 
+export const THE_SOCIAL_SECTION_TITLE = "The Social.";
+
+const THE_SOCIAL_SPOTIFY_PLAYLIST =
+  "https://open.spotify.com/playlist/4FtXSbbhvWrGm9CH0kkxzn?si=23CXQtXVRCm7WZ9soGYmSw";
+
+export interface ExternalPlaylistLink {
+  id: string;
+  label: string;
+  href: string;
+}
+
+export const theSocialPlaylistLinks: ExternalPlaylistLink[] = [
+  {
+    id: "country-swing-playlist",
+    label: "Country Swing Playlist",
+    href: THE_SOCIAL_SPOTIFY_PLAYLIST,
+  },
+  {
+    id: "west-coast-swing-playlist",
+    label: "West Coast Swing Playlist",
+    href: THE_SOCIAL_SPOTIFY_PLAYLIST,
+  },
+  {
+    id: "line-dance-playlist",
+    label: "Line Dance Playlist",
+    href: THE_SOCIAL_SPOTIFY_PLAYLIST,
+  },
+];
+
 export type BioLinkVariant = "primary" | "accent" | "ghost";
 
 export interface BioLink {
@@ -79,6 +108,19 @@ function isInternalHref(href: string): boolean {
     return false;
   }
   return href.startsWith("/") || href.startsWith("#");
+}
+
+/** Append Instagram bio UTM params to external URLs (e.g. Spotify). */
+export function withBioExternalUtm(href: string, campaign?: string): string {
+  try {
+    const url = new URL(href);
+    url.searchParams.set("utm_source", "instagram");
+    url.searchParams.set("utm_medium", "bio");
+    if (campaign) url.searchParams.set("utm_campaign", campaign);
+    return url.toString();
+  } catch {
+    return href;
+  }
 }
 
 /** Append Instagram bio UTM params to internal paths only. */

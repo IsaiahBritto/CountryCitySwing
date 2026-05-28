@@ -9,7 +9,7 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import LessonBookingModal from "@/components/LessonBookingModal";
 import InstructorSlotEditModal from "@/components/InstructorSlotEditModal";
 import CancelBookingModal from "@/components/CancelBookingModal";
-import { XMarkIcon } from "@heroicons/react/24/solid";
+import LessonModalShell from "@/components/LessonModalShell";
 import {
   DEFAULT_TIME_ZONE,
   formatTimeInTimeZone,
@@ -479,86 +479,71 @@ export default function InstructorLessonCalendar({
 
       {/* --- Day Modal --- */}
       {selectedDate && (
-        <div
-          className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50"
-          onClick={closeDayView}
+        <LessonModalShell
+          title={selectedDate.format("dddd, MMMM D")}
+          onClose={closeDayView}
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="bg-neutral-900 text-white rounded-lg p-6 w-[90%] max-w-md shadow-lg border border-yellow-400/30"
-          >
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="text-xl font-semibold text-primary">
-                {selectedDate.format("dddd, MMMM D")}
-              </h3>
-              <button
-                onClick={closeDayView}
-                className="text-neutral-400 hover:text-primary"
-              >
-                <XMarkIcon className="w-6 h-6" />
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              {slots
-                .filter((s) => {
-                  const tz = s.time_zone || DEFAULT_TIME_ZONE;
-                  return (
-                    getDateStringInTimeZone(s.start, tz) ===
-                    selectedDate.format("YYYY-MM-DD")
-                  );
-                })
-                .sort((a, b) => {
-                  const timeA = new Date(a.start).getTime();
-                  const timeB = new Date(b.start).getTime();
-                  return timeA - timeB;
-                })
-                .map((slot) => {
-                  const isUserBooking = currentUserId && slot.booking_user_id === currentUserId;
-                  const isPast = isSlotPast(slot);
-                  const tz = slot.time_zone || DEFAULT_TIME_ZONE;
-                  const tzAbbrev = getTimeZoneAbbreviation(slot.start, tz);
-                  return (
-                    <button
-                      key={slot.id}
-                      onClick={() => handleSlotClick(slot)}
-                      disabled={isPast && !isInstructorView}
-                      className={`block w-full text-left px-4 py-2 rounded transition-all ${
-                        isPast && !isInstructorView
-                          ? "bg-neutral-800 text-gray-600 cursor-not-allowed opacity-50"
-                          : slot.is_booked
+          <div className="space-y-2">
+            {slots
+              .filter((s) => {
+                const tz = s.time_zone || DEFAULT_TIME_ZONE;
+                return (
+                  getDateStringInTimeZone(s.start, tz) ===
+                  selectedDate.format("YYYY-MM-DD")
+                );
+              })
+              .sort((a, b) => {
+                const timeA = new Date(a.start).getTime();
+                const timeB = new Date(b.start).getTime();
+                return timeA - timeB;
+              })
+              .map((slot) => {
+                const isUserBooking =
+                  currentUserId && slot.booking_user_id === currentUserId;
+                const isPast = isSlotPast(slot);
+                const tz = slot.time_zone || DEFAULT_TIME_ZONE;
+                const tzAbbrev = getTimeZoneAbbreviation(slot.start, tz);
+                return (
+                  <button
+                    key={slot.id}
+                    type="button"
+                    onClick={() => handleSlotClick(slot)}
+                    disabled={isPast && !isInstructorView}
+                    className={`block w-full rounded px-4 py-2 text-left transition-all ${
+                      isPast && !isInstructorView
+                        ? "cursor-not-allowed bg-neutral-800 text-gray-600 opacity-50"
+                        : slot.is_booked
                           ? isInstructorView
-                            ? "bg-neutral-800 text-gray-300 hover:bg-neutral-700 cursor-pointer"
+                            ? "cursor-pointer bg-neutral-800 text-gray-300 hover:bg-neutral-700"
                             : isUserBooking
-                            ? "bg-blue-600 text-white hover:bg-blue-700 cursor-pointer"
-                            : "bg-neutral-800 text-gray-500 cursor-not-allowed"
+                              ? "cursor-pointer bg-blue-600 text-white hover:bg-blue-700"
+                              : "cursor-not-allowed bg-neutral-800 text-gray-500"
                           : "bg-yellow-400 text-black hover:shadow-lg hover:shadow-yellow-400/70"
-                      }`}
-                    >
-                      <span className="block">
-                        {formatTimeInTimeZone(slot.start, tz)} –{" "}
-                        {formatTimeInTimeZone(slot.end, tz)}
-                        {tzAbbrev ? ` ${tzAbbrev}` : ""} (
-                        {isPast && !isInstructorView && !slot.is_booked
-                          ? "Past"
-                          : slot.is_booked
-                            ? isUserBooking && !isInstructorView
-                              ? "Your Booking"
-                              : "Booked"
-                            : "Available"}
-                        )
+                    }`}
+                  >
+                    <span className="block">
+                      {formatTimeInTimeZone(slot.start, tz)} –{" "}
+                      {formatTimeInTimeZone(slot.end, tz)}
+                      {tzAbbrev ? ` ${tzAbbrev}` : ""} (
+                      {isPast && !isInstructorView && !slot.is_booked
+                        ? "Past"
+                        : slot.is_booked
+                          ? isUserBooking && !isInstructorView
+                            ? "Your Booking"
+                            : "Booked"
+                          : "Available"}
+                      )
+                    </span>
+                    {slot.location && (
+                      <span className="mt-0.5 block truncate text-xs opacity-80">
+                        {slot.location}
                       </span>
-                      {slot.location && (
-                        <span className="block text-xs opacity-80 mt-0.5 truncate">
-                          {slot.location}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-            </div>
+                    )}
+                  </button>
+                );
+              })}
           </div>
-        </div>
+        </LessonModalShell>
       )}
 
       {/* --- Booking Modal (for public view, available slots) --- */}

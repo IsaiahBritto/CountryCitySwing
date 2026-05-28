@@ -9,6 +9,7 @@ import {
   formatTimeRangeWithTimeZone,
 } from "@/lib/utils/dateHelpers";
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
+import LessonModalShell from "@/components/LessonModalShell";
 
 interface LessonBookingModalProps {
   slot: {
@@ -241,51 +242,69 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
 
   if (loading) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50">
-        <div className="bg-neutral-900 text-white rounded-lg p-6 w-[90%] max-w-sm shadow-lg border border-yellow-400/30">
-          <p className="text-center">Loading...</p>
-        </div>
-      </div>
+      <LessonModalShell title="Book Private Lesson" onClose={onClose} maxWidthClassName="max-w-md">
+        <p className="text-center text-gray-300">Loading...</p>
+      </LessonModalShell>
     );
   }
 
   if (!user) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50">
-        <div className="bg-neutral-900 text-white rounded-lg p-6 w-[90%] max-w-sm shadow-lg border border-yellow-400/30">
-          <h3 className="text-xl font-semibold text-primary mb-3 text-center">
-            Sign In Required
-          </h3>
-          <p className="text-gray-300 text-sm mb-4 text-center">
-            You must be signed in to book a private lesson.
-          </p>
+      <LessonModalShell
+        title="Sign In Required"
+        onClose={onClose}
+        maxWidthClassName="max-w-sm"
+        footer={
           <div className="flex justify-center gap-3">
             <button
+              type="button"
               onClick={onClose}
-              className="text-gray-400 hover:text-red-400 transition-colors"
+              className="text-gray-400 transition-colors hover:text-red-400"
             >
               Cancel
             </button>
             <Link
               href="/auth"
-              className="btn-signup px-4 py-2 rounded-md text-center"
+              className="btn-signup rounded-md px-4 py-2 text-center"
             >
               Sign In
             </Link>
           </div>
-        </div>
-      </div>
+        }
+      >
+        <p className="text-center text-sm text-gray-300">
+          You must be signed in to book a private lesson.
+        </p>
+      </LessonModalShell>
     );
   }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-50">
-      <div className="bg-neutral-900 text-white rounded-lg p-6 w-[90%] max-w-md shadow-lg border border-yellow-400/30 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-xl font-semibold text-primary mb-3 text-center">
-          Book Private Lesson
-        </h3>
-
-        <div className="text-gray-300 text-sm mb-4 text-center">
+    <LessonModalShell
+      title="Book Private Lesson"
+      onClose={onClose}
+      maxWidthClassName="max-w-md"
+      footer={
+        <div className="flex items-center justify-center gap-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-gray-400 transition-colors hover:text-red-400"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="lesson-booking-form"
+            disabled={saving || (hasDisclaimer && !disclaimerAcknowledged)}
+            className="btn-signup rounded-md px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saving ? "Booking..." : "Confirm Booking"}
+          </button>
+        </div>
+      }
+    >
+        <div className="mb-4 text-center text-sm text-gray-300">
           {instructorName && (
             <p className="mb-1 text-yellow-400 font-semibold">
               {instructorName}
@@ -325,7 +344,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form id="lesson-booking-form" onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -450,24 +469,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             </div>
           )}
 
-          <div className="flex justify-center gap-4 items-center pt-4 border-t border-neutral-700">
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-gray-400 hover:text-red-400 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving || (hasDisclaimer && !disclaimerAcknowledged)}
-              className="btn-signup px-4 py-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {saving ? "Booking..." : "Confirm Booking"}
-            </button>
-          </div>
         </form>
-      </div>
-    </div>
+    </LessonModalShell>
   );
 }

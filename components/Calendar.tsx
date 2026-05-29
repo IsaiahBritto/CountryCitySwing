@@ -207,7 +207,7 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                     ${
                       hasEvents
                         ? eventType === "Convention"
-                          ? "bg-emerald-500 text-white hover:bg-emerald-500/50"
+                          ? "bg-[#2BC929] text-black hover:bg-[#2BC929]/50"
                           : "bg-yellow-400 text-black hover:bg-yellow-400/50"
                         : "bg-neutral-900 text-gray-300"
                     }
@@ -222,20 +222,10 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                   {hasEvents && (
                     <div className="flex items-center gap-1 mt-1">
                       <StarIcon
-                        className={`w-4 h-4 transition-colors ${
-                          eventType === "Convention"
-                            ? "text-yellow-400"
-                            : "text-black"
-                        }`}
+                        className="w-4 h-4 transition-colors text-black"
                       />
                       {eventCount > 1 && (
-                        <span
-                          className={`text-xs font-semibold ${
-                            eventType === "Convention"
-                              ? "text-yellow-600"
-                              : "text-black"
-                          }`}
-                        >
+                        <span className="text-xs font-semibold text-black">
                           {eventCount}
                         </span>
                       )}
@@ -308,7 +298,7 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                           {event.type && (
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                               event.type === "Convention"
-                                ? "bg-emerald-500/20 text-emerald-400"
+                                ? "bg-[#2BC929]/20 text-[#2BC929]"
                                 : event.type === "Workshop"
                                 ? "bg-yellow-400/20 text-yellow-400"
                                 : event.type === "Comp"

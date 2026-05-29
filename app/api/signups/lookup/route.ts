@@ -1,52 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { parseCheckInToken } from "@/lib/utils/qrCheckIn";
+import {
+  assertRegistrationEventAccess,
+  loadRegistrationEvent,
+  requireRegistrationAuth,
+} from "@/lib/registrationAuth";
 
-async function getUserFromToken(accessToken: string) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-  if (!supabaseUrl || !supabaseAnonKey) {
-    return { user: null, error: { message: "Auth not configured" } };
-  }
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
-  try {
-    const { data: { user }, error } = await client.auth.getUser(accessToken);
-    return { user, error };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Auth request failed";
-    return { user: null, error: { message } };
-  }
-}
-
-/** GET /api/signups/lookup?token=ccs:s:<id> or token=ccs:c:<id> — returns one signup for QR check-in (instructor/admin only). */
+/** GET /api/signups/lookup?token=ccs:s:<id> or token=ccs:c:<id> — returns one signup for QR check-in. */
 export async function GET(req: NextRequest) {
   try {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized: Missing or invalid authorization header" }, { status: 401 });
-    }
-    const accessToken = authHeader.replace("Bearer ", "");
-    const { user, error: authError } = await getUserFromToken(accessToken);
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized: Invalid token" }, { status: 401 });
-    }
-
-    const { data: profile, error: profileError } = await supabaseServer
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-    if (profileError || !profile) {
-      return NextResponse.json({ error: "User profile not found" }, { status: 403 });
-    }
-    const roleLower = (profile.role || "").toLowerCase();
-    const allowed = roleLower === "admin" || roleLower === "instructor" || roleLower.includes("instructor");
-    if (!allowed) {
-      return NextResponse.json({ error: "Forbidden: Admin or instructor access required" }, { status: 403 });
-    }
+    const auth = await requireRegistrationAuth(req);
+    if (!auth.ok) return auth.response;
 
     const { searchParams } = new URL(req.url);
     const token = searchParams.get("token");
@@ -70,6 +35,15 @@ export async function GET(req: NextRequest) {
       if (error || !data) {
         return NextResponse.json({ error: "Registration not found" }, { status: 404 });
       }
+
+      const { event, error: eventError } = await loadRegistrationEvent(String(data.event_id));
+      if (eventError) return eventError;
+      if (!event) {
+        return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      }
+      const accessErr = assertRegistrationEventAccess(auth.access.level, event);
+      if (accessErr) return accessErr;
+
       return NextResponse.json({ signup: data, isComp: false });
     }
 
@@ -83,9 +57,21 @@ export async function GET(req: NextRequest) {
     if (error || !data) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
     }
+
+    const { event, error: eventError } = await loadRegistrationEvent(String(data.event_id));
+    if (eventError) return eventError;
+    if (!event) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+    const accessErr = assertRegistrationEventAccess(auth.access.level, event);
+    if (accessErr) return accessErr;
+
     return NextResponse.json({ signup: data, isComp: true });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Signups lookup error:", err);
-    return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Internal server error" },
+      { status: 500 }
+    );
   }
 }

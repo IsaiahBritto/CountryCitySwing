@@ -224,6 +224,39 @@ export function eventSpansDateInTimeZone(
 }
 
 /**
+ * True when `now` is within the registration window for check-in staff.
+ * Open from the event start calendar day through `ends_at` (including after midnight).
+ * Without `ends_at`, open only on the start calendar day (full day).
+ */
+export function isRegistrationWindowOpen(
+  startsAt: string,
+  endsAt: string | null | undefined,
+  timeZone: string = DEFAULT_TIME_ZONE,
+  now: Date = new Date()
+): boolean {
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const nowIso = now.toISOString();
+
+  if (endsAt) {
+    const endMs = new Date(endsAt).getTime();
+    if (!Number.isNaN(endMs) && now.getTime() > endMs) return false;
+  }
+
+  const todayInTz = getDateStringInTimeZone(nowIso, tz);
+  const startDate = getDateStringInTimeZone(startsAt, tz);
+  if (!todayInTz || !startDate || todayInTz < startDate) return false;
+
+  if (!endsAt) {
+    return todayInTz === startDate;
+  }
+
+  const endDate = getDateStringInTimeZone(endsAt, tz);
+  if (!endDate || todayInTz > endDate) return false;
+
+  return eventSpansDateInTimeZone(startsAt, endsAt, todayInTz, tz);
+}
+
+/**
  * Single-line schedule text for lists/carousel: date, optional time range, timezone abbrev.
  * Convention multi-day: date range only (existing UX). Same-day end: "start–end" times.
  */
@@ -236,6 +269,7 @@ export function formatEventScheduleSubtitle(
   const tz = timeZone || DEFAULT_TIME_ZONE;
   const typeNorm = (eventType || "").trim().toLowerCase();
   const isConvention = typeNorm === "convention";
+  const isSocial = typeNorm === "social";
   const abbrev = getTimeZoneAbbreviation(startsAt, tz);
 
   if (!endsAt) {
@@ -243,15 +277,19 @@ export function formatEventScheduleSubtitle(
   }
 
   const sameDay = areSameCalendarDayInTimeZone(startsAt, endsAt, tz);
+  const timeRange = `${formatEventTime(startsAt, tz)}–${formatEventTime(endsAt, tz)}${abbrev ? ` ${abbrev}` : ""}`;
 
   if (!sameDay) {
     if (isConvention) {
       return formatEventDateRange(startsAt, endsAt, tz);
     }
-    return `${formatEventDateRange(startsAt, endsAt, tz)} • ${formatEventTime(startsAt, tz)}–${formatEventTime(endsAt, tz)}${abbrev ? ` ${abbrev}` : ""}`;
+    if (isSocial) {
+      return `${formatEventDate(startsAt, tz)} • ${timeRange}`;
+    }
+    return `${formatEventDateRange(startsAt, endsAt, tz)} • ${timeRange}`;
   }
 
-  return `${formatEventDate(startsAt, tz)} • ${formatEventTime(startsAt, tz)}–${formatEventTime(endsAt, tz)}${abbrev ? ` ${abbrev}` : ""}`;
+  return `${formatEventDate(startsAt, tz)} • ${timeRange}`;
 }
 
 export function formatEventDateRange(

@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
-import { getEventDateStringInChicago, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
 
 interface UserMeta {
   id?: string;
@@ -87,17 +86,7 @@ export default function Navbar() {
           (roleLower === "instructor" || roleLower.includes("instructor"));
         setIsAdmin(isAdminRole);
         setShowSchedule(isAdminRole || isInstructor);
-        if (isAdminRole) {
-          setShowRegistration(true);
-        } else if (isInstructor && Array.isArray(data.events_near_today)) {
-          const todayChicago = getTodayStringInChicago();
-          const hasEventToday = data.events_near_today.some(
-            (e: { starts_at: string }) => getEventDateStringInChicago(e.starts_at) === todayChicago
-          );
-          setShowRegistration(!!hasEventToday);
-        } else {
-          setShowRegistration(false);
-        }
+        setShowRegistration(!!data.show_registration);
       } catch {
         setProfile(null);
         setShowRegistration(false);

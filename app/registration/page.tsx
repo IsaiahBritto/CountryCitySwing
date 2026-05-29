@@ -1,20 +1,24 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
 import {
   DEFAULT_TIME_ZONE,
   isEventPast,
+  isRegistrationWindowOpen,
   formatEventScheduleSubtitle,
   getEventDateString,
-  getDateStringInTimeZone,
 } from "@/lib/utils/dateHelpers";
+import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import {
   type CheckInArrivalBuckets,
   EMPTY_CHECK_IN_ARRIVAL_BUCKETS,
 } from "@/lib/utils/checkInArrivalBuckets";
 import QRCheckInScanner from "@/components/QRCheckInScanner";
+
+type RegistrationAccessLevel = "admin" | "instructor" | "social_viewer";
 
 interface Event {
   id: string; // UUID, not number
@@ -82,8 +86,16 @@ export default function RegistrationPage() {
   const [fadingOut, setFadingOut] = useState<Set<string>>(new Set());
   const [userEmail, setUserEmail] = useState<string>("");
   const [userRole, setUserRole] = useState<string>("");
+  const [registrationAccess, setRegistrationAccess] =
+    useState<RegistrationAccessLevel | null>(null);
+  const [checkingAccess, setCheckingAccess] = useState(true);
   const [isInstructor, setIsInstructor] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const isSocialViewer = registrationAccess === "social_viewer";
+  const canAccessRegistration =
+    registrationAccess === "admin" ||
+    registrationAccess === "instructor" ||
+    registrationAccess === "social_viewer";
   const [eventsView, setEventsView] = useState<"current" | "past">("current");
   const [pastEventsMonth, setPastEventsMonth] = useState(() =>
     dayjs().format("YYYY-MM")
@@ -99,32 +111,53 @@ export default function RegistrationPage() {
 
   useEffect(() => {
     const loadUser = async () => {
+      setCheckingAccess(true);
       const { data: { session } } = await supabaseBrowser.auth.getSession();
       setSessionToken(session?.access_token ?? null);
-      const user = session?.user;
-      if (user) {
-        setUserEmail(user.email || "");
-        const { data: profile } = await supabaseBrowser
-          .from("profiles")
-          .select("role")
-          .eq("id", user.id)
-          .single();
-        if (profile) {
-          setUserRole(profile.role || "");
-          const roleLower = (profile.role || "").toLowerCase();
-          const isAdminRole = roleLower === "admin";
-          const isInstructorRole = !isAdminRole && (roleLower === "instructor" || roleLower.includes("instructor"));
-          setIsInstructor(isInstructorRole);
-          setIsAdmin(isAdminRole);
+      if (!session?.access_token) {
+        setUserEmail("");
+        setUserRole("");
+        setRegistrationAccess(null);
+        setIsInstructor(false);
+        setIsAdmin(false);
+        setCheckingAccess(false);
+        return;
+      }
+      setUserEmail(session.user?.email || "");
+      try {
+        const res = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${session!.access_token}` },
+        });
+        if (!res.ok) {
+          setRegistrationAccess(null);
+          setIsInstructor(false);
+          setIsAdmin(false);
+          setCheckingAccess(false);
+          return;
         }
+        const data = await res.json();
+        const access = data.registration_access as RegistrationAccessLevel | null | undefined;
+        const allowed =
+          access === "admin" || access === "instructor" || access === "social_viewer";
+        setRegistrationAccess(allowed ? access! : null);
+        setIsAdmin(access === "admin");
+        setIsInstructor(access === "instructor");
+        setUserRole(data.profile?.role || "");
+      } catch {
+        setRegistrationAccess(null);
+        setIsInstructor(false);
+        setIsAdmin(false);
+      } finally {
+        setCheckingAccess(false);
       }
     };
     loadUser();
   }, []);
 
   useEffect(() => {
+    if (!canAccessRegistration) return;
     loadEvents();
-  }, [isInstructor, isAdmin, eventsView, pastEventsMonth]);
+  }, [canAccessRegistration, isInstructor, isAdmin, isSocialViewer, eventsView, pastEventsMonth]);
 
   const loadEvents = async () => {
     setLoading(true);
@@ -151,13 +184,18 @@ export default function RegistrationPage() {
               return eventDate >= monthStartStr && eventDate < monthEndStr;
             }
           );
-        } else if (isInstructor && !isAdmin) {
-          const nowIso = new Date().toISOString();
+        } else if ((isInstructor || isSocialViewer) && !isAdmin) {
           list = allEvents.filter((e) => {
             const tz = e.time_zone || DEFAULT_TIME_ZONE;
-            const todayInTz = getDateStringInTimeZone(nowIso, tz);
-            const eventDate = getEventDateString(e.starts_at, tz);
-            return !!todayInTz && !!eventDate && eventDate === todayInTz;
+            if (
+              !isRegistrationWindowOpen(e.starts_at, e.ends_at ?? undefined, tz)
+            ) {
+              return false;
+            }
+            if (isSocialViewer) {
+              return isSocialEventType(e.type);
+            }
+            return true;
           });
         } else {
           list = allEvents.filter((e) =>
@@ -447,6 +485,31 @@ export default function RegistrationPage() {
     return getEventDateString(selectedEvent.starts_at, tz) === getEventDateString(createdAt, tz);
   };
 
+  if (checkingAccess) {
+    return (
+      <div className="max-w-6xl mx-auto mt-10 text-center">
+        <p className="text-gray-400">Checking access…</p>
+      </div>
+    );
+  }
+
+  if (!canAccessRegistration) {
+    return (
+      <div className="mx-auto max-w-2xl mt-10 rounded-xl border border-neutral-700 bg-neutral-800/50 p-8 text-center">
+        <h1 className="mb-2 text-xl font-semibold text-primary">Access denied</h1>
+        <p className="mb-6 text-neutral-400">
+          You don&apos;t have permission to view event registration.
+        </p>
+        <Link
+          href="/"
+          className="inline-block rounded-md bg-primary px-4 py-2 font-medium text-black transition hover:bg-primary/90"
+        >
+          Back to home
+        </Link>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="max-w-6xl mx-auto mt-10 text-center">
@@ -533,17 +596,21 @@ export default function RegistrationPage() {
         <h2 className="text-lg md:text-xl font-semibold text-white mb-3 md:mb-4">
           {isViewingPastMonth
             ? `Past Events — ${pastMonthStart.format("MMMM YYYY")}`
-            : isInstructor && !isAdmin
-              ? "Today's Events"
-              : "Upcoming Events"}
+            : isSocialViewer
+              ? "Today's Social Events"
+              : isInstructor && !isAdmin
+                ? "Today's Events"
+                : "Upcoming Events"}
         </h2>
         {events.length === 0 ? (
           <p className="text-gray-400">
             {isViewingPastMonth
               ? "No events in this month"
-              : isInstructor && !isAdmin
-                ? "No events scheduled for today"
-                : "No upcoming events"}
+              : isSocialViewer
+                ? "No Social events in the registration window"
+                : isInstructor && !isAdmin
+                  ? "No events in the registration window"
+                  : "No upcoming events"}
           </p>
         ) : (
           <div className="space-y-2">

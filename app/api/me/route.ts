@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { resolveFinanceAccess } from "@/lib/financeAuth";
+import {
+  resolveRegistrationAccess,
+  showRegistrationForEvents,
+  type RegistrationEventRow,
+} from "@/lib/registrationAuth";
 
 async function getUserFromToken(accessToken: string) {
   const client = createClient(
@@ -20,7 +25,7 @@ async function getUserFromToken(accessToken: string) {
 
 /**
  * GET - Current user + profile in one round trip.
- * Query: ?events_near_today=1 to include minimal events for instructor Registration link.
+ * Query: ?events_near_today=1 to include registration window events for Navbar.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -58,28 +63,55 @@ export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
     const includeEventsNearToday = searchParams.get("events_near_today") === "1";
     const roleLower = (profile.role || "").toLowerCase();
-    // Non-CCS-Instructor does not get events_near_today / Schedule (profile-only role)
+    // Non-CCS-Instructor does not get Schedule tab (profile-only role)
     const isInstructor =
       roleLower !== "admin" &&
       roleLower !== "non-ccs-instructor" &&
       (roleLower === "instructor" || roleLower.includes("instructor"));
 
+    const registrationAccess = resolveRegistrationAccess(profile.id, profile.role);
+    const financeAccess = resolveFinanceAccess(profile.id, profile.role);
+
     let events_near_today: { id: string; starts_at: string }[] | undefined;
-    if (includeEventsNearToday && isInstructor) {
+    let showRegistration = registrationAccess === "admin";
+
+    const needsRegistrationEvents =
+      includeEventsNearToday &&
+      registrationAccess != null &&
+      registrationAccess !== "admin";
+
+    const needsScheduleEvents =
+      includeEventsNearToday && isInstructor;
+
+    if (needsRegistrationEvents || needsScheduleEvents) {
       const from = new Date();
       from.setDate(from.getDate() - 7);
       const to = new Date();
       to.setDate(to.getDate() + 7);
       const { data: events } = await supabaseServer
         .from("events")
-        .select("id, starts_at")
+        .select("id, starts_at, ends_at, type, time_zone")
         .gte("starts_at", from.toISOString())
         .lte("starts_at", to.toISOString())
         .order("starts_at", { ascending: true });
-      events_near_today = events ?? [];
+
+      const eventRows = (events ?? []) as RegistrationEventRow[];
+
+      if (needsScheduleEvents) {
+        events_near_today = (events ?? []).map((e: { id: string; starts_at: string }) => ({
+          id: e.id,
+          starts_at: e.starts_at,
+        }));
+      }
+
+      if (needsRegistrationEvents) {
+        showRegistration = showRegistrationForEvents(registrationAccess, eventRows);
+      }
     }
 
-    const financeAccess = resolveFinanceAccess(profile.id, profile.role);
+    if (registrationAccess === "admin") {
+      showRegistration = true;
+    }
 
     return NextResponse.json({
       user: {
@@ -94,6 +126,8 @@ export async function GET(req: NextRequest) {
         role: profile.role,
       },
       finance_access: financeAccess,
+      registration_access: registrationAccess,
+      show_registration: showRegistration,
       ...(events_near_today !== undefined && { events_near_today }),
     });
   } catch (err) {

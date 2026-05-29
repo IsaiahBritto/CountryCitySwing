@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { createClient } from "@supabase/supabase-js";
 import { computeCheckInArrivalBuckets } from "@/lib/utils/checkInArrivalBuckets";
+import {
+  assertRegistrationEventAccess,
+  loadRegistrationEvent,
+  requireRegistrationAuth,
+  type RegistrationEventRow,
+} from "@/lib/registrationAuth";
 
 const COMP_SIGNUPS_SELECT =
   "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee";
@@ -12,104 +17,40 @@ const SIGNUPS_SELECT =
 const EVENT_META_CACHE_TTL_MS = 60_000; // 60 seconds
 const eventMetaCache = new Map<
   string,
-  { type: string; starts_at: string | null; ts: number }
+  { event: RegistrationEventRow; ts: number }
 >();
 
-function getCachedEventMeta(eventId: string): { type: string; starts_at: string | null } | null {
+function getCachedEventMeta(eventId: string): RegistrationEventRow | null {
   const entry = eventMetaCache.get(eventId);
   if (!entry) return null;
   if (Date.now() - entry.ts > EVENT_META_CACHE_TTL_MS) {
     eventMetaCache.delete(eventId);
     return null;
   }
-  return { type: entry.type, starts_at: entry.starts_at };
+  return entry.event;
 }
 
-function setCachedEventMeta(eventId: string, type: string, starts_at: string | null) {
-  eventMetaCache.set(eventId, { type, starts_at, ts: Date.now() });
+function setCachedEventMeta(eventId: string, event: RegistrationEventRow) {
+  eventMetaCache.set(eventId, { event, ts: Date.now() });
 }
 
-// Helper to get user from access token (catches network/timeout so we don't throw)
-async function getUserFromToken(accessToken: string) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+async function getEventMetaForAccess(
+  eventId: string
+): Promise<{ event: RegistrationEventRow | null; error?: NextResponse }> {
+  let eventMeta = getCachedEventMeta(eventId);
+  if (eventMeta) return { event: eventMeta };
 
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    },
-  });
-
-  try {
-    const { data: { user }, error } = await client.auth.getUser(accessToken);
-    return { user, error };
-  } catch (err: unknown) {
-    // Network/timeout (e.g. ConnectTimeoutError) - don't throw; return so caller can return 503
-    const message = err instanceof Error ? err.message : "Auth request failed";
-    const cause = err instanceof Error && "cause" in err ? (err as { cause?: Error }).cause : undefined;
-    const isTimeout =
-      message.includes("fetch failed") ||
-      message.includes("timeout") ||
-      message.includes("Timeout") ||
-      (cause instanceof Error && (cause.message?.includes("timeout") || (cause as { code?: string }).code === "UND_ERR_CONNECT_TIMEOUT"));
-    return {
-      user: null,
-      error: { message: isTimeout ? "Auth service temporarily unavailable (timeout)" : message },
-      isNetworkError: !!isTimeout,
-    };
-  }
+  const loaded = await loadRegistrationEvent(eventId);
+  if (!loaded.event) return loaded;
+  setCachedEventMeta(eventId, loaded.event);
+  return { event: loaded.event };
 }
 
-// GET - Fetch signups for an event (admin and instructor only)
+// GET - Fetch signups for an event (admin, instructor, or social registration viewer)
 export async function GET(req: NextRequest) {
   try {
-    // Get access token from Authorization header
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Unauthorized: Missing or invalid authorization header" },
-        { status: 401 }
-      );
-    }
-
-    const accessToken = authHeader.replace("Bearer ", "");
-    const { user, error: authError, isNetworkError } = await getUserFromToken(accessToken);
-
-    if (authError || !user) {
-      const status = isNetworkError ? 503 : 401;
-      const message = isNetworkError
-        ? "Auth service temporarily unavailable. Please check your connection and try again."
-        : "Unauthorized: Invalid token";
-      return NextResponse.json({ error: message }, { status });
-    }
-
-    // Check user role using service role client (bypasses RLS)
-    const { data: profile, error: profileError } = await supabaseServer
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError || !profile) {
-      return NextResponse.json(
-        { error: "User profile not found" },
-        { status: 403 }
-      );
-    }
-
-    // Use case-insensitive role check
-    const roleLower = (profile.role || "").toLowerCase();
-    const isAdmin = roleLower === "admin";
-    const isInstructor = roleLower === "instructor" || roleLower.includes("instructor");
-
-    if (!isAdmin && !isInstructor) {
-      return NextResponse.json(
-        { error: "Forbidden: Admin or instructor access required" },
-        { status: 403 }
-      );
-    }
+    const auth = await requireRegistrationAuth(req);
+    if (!auth.ok) return auth.response;
 
     // Get event_id from query params
     const { searchParams } = new URL(req.url);
@@ -123,26 +64,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    let eventMeta = getCachedEventMeta(eventId);
-    if (eventMeta === null) {
-      const { data: eventRow, error: eventError } = await supabaseServer
-        .from("events")
-        .select("type, starts_at")
-        .eq("id", eventId)
-        .single();
-
-      if (eventError || !eventRow) {
-        return NextResponse.json(
-          { error: "Event not found" },
-          { status: 404 }
-        );
-      }
-      const typeStr = (eventRow.type || "").toString();
-      const startsAt =
-        eventRow.starts_at != null ? String(eventRow.starts_at) : null;
-      eventMeta = { type: typeStr, starts_at: startsAt };
-      setCachedEventMeta(eventId, typeStr, startsAt);
+    const { event: eventMeta, error: eventError } = await getEventMetaForAccess(eventId);
+    if (eventError) return eventError;
+    if (!eventMeta) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
+
+    const accessErr = assertRegistrationEventAccess(auth.access.level, eventMeta);
+    if (accessErr) return accessErr;
 
     const eventStartsAt = eventMeta.starts_at;
     const isComp = (eventMeta.type ?? "").toLowerCase() === "comp";
@@ -242,51 +171,8 @@ export async function GET(req: NextRequest) {
 // PATCH - Update signup status (admin and instructor only)
 export async function PATCH(req: NextRequest) {
   try {
-    // Get access token from Authorization header
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { error: "Unauthorized: Missing or invalid authorization header" },
-        { status: 401 }
-      );
-    }
-
-    const accessToken = authHeader.replace("Bearer ", "");
-    const { user, error: authError, isNetworkError } = await getUserFromToken(accessToken);
-
-    if (authError || !user) {
-      const status = isNetworkError ? 503 : 401;
-      const message = isNetworkError
-        ? "Auth service temporarily unavailable. Please check your connection and try again."
-        : "Unauthorized: Invalid token";
-      return NextResponse.json({ error: message }, { status });
-    }
-
-    // Check user role
-    const { data: profile, error: profileError } = await supabaseServer
-      .from("profiles")
-      .select("role")
-      .eq("id", user.id)
-      .single();
-
-    if (profileError || !profile) {
-      return NextResponse.json(
-        { error: "User profile not found" },
-        { status: 403 }
-      );
-    }
-
-    // Use case-insensitive role check
-    const roleLower = (profile.role || "").toLowerCase();
-    const isAdmin = roleLower === "admin";
-    const isInstructor = roleLower === "instructor" || roleLower.includes("instructor");
-
-    if (!isAdmin && !isInstructor) {
-      return NextResponse.json(
-        { error: "Forbidden: Admin or instructor access required" },
-        { status: 403 }
-      );
-    }
+    const auth = await requireRegistrationAuth(req);
+    if (!auth.ok) return auth.response;
 
     const body = await req.json();
     const { signupId, field, value, isComp } = body;
@@ -305,6 +191,26 @@ export async function PATCH(req: NextRequest) {
           { status: 400 }
         );
       }
+
+      const { data: existingComp, error: existingCompError } = await supabaseServer
+        .from("comp_signups")
+        .select("event_id")
+        .eq("id", signupId)
+        .single();
+      if (existingCompError || !existingComp?.event_id) {
+        return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+      }
+
+      const { event: eventMeta, error: eventError } = await getEventMetaForAccess(
+        String(existingComp.event_id)
+      );
+      if (eventError) return eventError;
+      if (!eventMeta) {
+        return NextResponse.json({ error: "Event not found" }, { status: 404 });
+      }
+      const accessErr = assertRegistrationEventAccess(auth.access.level, eventMeta);
+      if (accessErr) return accessErr;
+
       const updatePayload: {
         paid?: boolean;
         checked_in?: boolean;
@@ -346,6 +252,25 @@ export async function PATCH(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    const { data: existingSignup, error: existingSignupError } = await supabaseServer
+      .from("signups")
+      .select("event_id")
+      .eq("id", signupId)
+      .single();
+    if (existingSignupError || !existingSignup?.event_id) {
+      return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
+
+    const { event: eventMeta, error: eventError } = await getEventMetaForAccess(
+      String(existingSignup.event_id)
+    );
+    if (eventError) return eventError;
+    if (!eventMeta) {
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
+    }
+    const accessErr = assertRegistrationEventAccess(auth.access.level, eventMeta);
+    if (accessErr) return accessErr;
 
     const updateData: Record<string, unknown> = { [field]: value };
     if (field === "checked_in" && value === true) {

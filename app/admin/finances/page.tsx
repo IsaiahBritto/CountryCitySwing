@@ -5,7 +5,10 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
 import Link from "next/link";
 import { isCcsInstructorRole } from "@/lib/instructorProfiles";
+import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { computeNashvillePayouts } from "@/lib/utils/nashvillePayouts";
+
+type FinanceAccessLevel = "admin" | "social_viewer";
 
 const NASHVILLE_EVENT_TITLE = "Nashville Country Swing Nights!";
 const NASHVILLE_EVENT_TITLE_NORMALIZED = normalizeEventTitle(NASHVILLE_EVENT_TITLE);
@@ -374,7 +377,13 @@ export default function AdminFinancesPage() {
     totalStripeTaxesFeesFromMerch: number;
     totalSocialAllocatedProfits: number;
   } | null>(null);
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [financeAccess, setFinanceAccess] = useState<FinanceAccessLevel | null>(null);
+  const [checkingAccess, setCheckingAccess] = useState(true);
+  const canAccessFinances =
+    financeAccess === "admin" || financeAccess === "social_viewer";
+  const isFullAdmin = financeAccess === "admin";
+  const isSocialViewer = financeAccess === "social_viewer";
+  const readOnlyFinance = isSocialViewer;
   const [error, setError] = useState<string | null>(null);
   const [signupsError, setSignupsError] = useState<string | null>(null);
   const [nashvilleFinances, setNashvilleFinances] = useState<NashvilleFinances | null>(null);
@@ -460,11 +469,13 @@ export default function AdminFinancesPage() {
   }, [events, selectedYear]);
 
   useEffect(() => {
-    const checkAdmin = async () => {
+    const checkAccess = async () => {
+      setCheckingAccess(true);
       const { data: { session } } = await supabaseBrowser.auth.getSession();
       if (!session?.access_token) {
-        setIsAdmin(false);
+        setFinanceAccess(null);
         setAuthToken(null);
+        setCheckingAccess(false);
         return;
       }
       try {
@@ -472,25 +483,28 @@ export default function AdminFinancesPage() {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         if (!res.ok) {
-          setIsAdmin(false);
+          setFinanceAccess(null);
           setAuthToken(null);
+          setCheckingAccess(false);
           return;
         }
         const data = await res.json();
-        const roleLower = (data.profile?.role || "").toLowerCase();
-        const admin = roleLower === "admin";
-        setIsAdmin(admin);
-        setAuthToken(admin ? session.access_token : null);
+        const access = data.finance_access as FinanceAccessLevel | null | undefined;
+        const allowed = access === "admin" || access === "social_viewer";
+        setFinanceAccess(allowed ? access! : null);
+        setAuthToken(allowed ? session.access_token : null);
       } catch {
-        setIsAdmin(false);
+        setFinanceAccess(null);
         setAuthToken(null);
+      } finally {
+        setCheckingAccess(false);
       }
     };
-    checkAdmin();
+    checkAccess();
   }, []);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!canAccessFinances) return;
 
     const loadEvents = async () => {
       setLoading(true);
@@ -504,13 +518,24 @@ export default function AdminFinancesPage() {
         setError("Failed to load events.");
         setEvents([]);
       } else {
-        setEvents((data as Event[]) || []);
+        const loaded = (data as Event[]) || [];
+        setEvents(
+          isSocialViewer
+            ? loaded.filter((ev) => isSocialEventType(ev.type))
+            : loaded
+        );
       }
       setLoading(false);
     };
 
     loadEvents();
-  }, [isAdmin]);
+  }, [canAccessFinances, isSocialViewer]);
+
+  useEffect(() => {
+    if (isSocialViewer && eventsView === "overview") {
+      setEventsView("upcoming");
+    }
+  }, [isSocialViewer, eventsView]);
 
   useEffect(() => {
     if (eventsView === "overview") {
@@ -531,7 +556,7 @@ export default function AdminFinancesPage() {
   }, [eventsView, filteredEvents, years, selectedYear, selectedEvent?.id]);
 
   useEffect(() => {
-    if (!isAdmin || eventsView === "overview" || !selectedEvent) {
+    if (!canAccessFinances || eventsView === "overview" || !selectedEvent) {
       setSignups([]);
       setCompSignups([]);
       setIsCompEvent(false);
@@ -588,7 +613,7 @@ export default function AdminFinancesPage() {
     };
 
     loadMetrics();
-  }, [isAdmin, eventsView, selectedEvent, authToken]);
+  }, [canAccessFinances, eventsView, selectedEvent, authToken]);
 
   const refreshEventMetrics = useCallback(async () => {
     if (!selectedEvent || !authToken) return;
@@ -662,7 +687,7 @@ export default function AdminFinancesPage() {
   );
 
   useEffect(() => {
-    if (!isAdmin || eventsView !== "overview" || selectedYear == null || !eventsInSelectedYear.length) {
+    if (!isFullAdmin || eventsView !== "overview" || selectedYear == null || !eventsInSelectedYear.length) {
       setOverviewStats(null);
       setOverviewFinances(null);
       setOverviewError(null);
@@ -882,7 +907,7 @@ export default function AdminFinancesPage() {
     };
 
     loadOverview();
-  }, [isAdmin, eventsView, selectedYear, eventsInSelectedYear]);
+  }, [isFullAdmin, eventsView, selectedYear, eventsInSelectedYear]);
 
   const isNashvilleEvent = isNashvilleNightTitle(selectedEvent?.title);
   const selectedType = (selectedEvent?.type ?? "").trim().toLowerCase();
@@ -894,7 +919,7 @@ export default function AdminFinancesPage() {
 
   useEffect(() => {
     if (
-      !isAdmin ||
+      !isFullAdmin ||
       eventsView === "overview" ||
       !selectedEvent ||
       !usesNashvilleFinanceRecord
@@ -940,7 +965,7 @@ export default function AdminFinancesPage() {
 
     load();
   }, [
-    isAdmin,
+    isFullAdmin,
     eventsView,
     selectedEvent?.id,
     usesNashvilleFinanceRecord,
@@ -948,7 +973,7 @@ export default function AdminFinancesPage() {
   ]);
 
   useEffect(() => {
-    if (!isAdmin || eventsView === "overview" || !selectedEvent || !isClassEvent) {
+    if (!isFullAdmin || eventsView === "overview" || !selectedEvent || !isClassEvent) {
       setFinanceInstructors([]);
       setClassBeginnerLeadDefault("Beginner Teacher 1");
       setClassBeginnerFollowDefault("Beginner Teacher 2");
@@ -1007,11 +1032,11 @@ export default function AdminFinancesPage() {
     };
 
     loadClassDefaults();
-  }, [isAdmin, eventsView, selectedEvent?.id, isClassEvent, authToken]);
+  }, [isFullAdmin, eventsView, selectedEvent?.id, isClassEvent, authToken]);
 
   useEffect(() => {
     if (
-      !isAdmin ||
+      !isFullAdmin ||
       eventsView === "overview" ||
       !selectedEvent ||
       !usesWorkshopFinancesBreakdown ||
@@ -1058,7 +1083,7 @@ export default function AdminFinancesPage() {
 
     load();
   }, [
-    isAdmin,
+    isFullAdmin,
     eventsView,
     selectedEvent?.id,
     usesWorkshopFinancesBreakdown,
@@ -1066,7 +1091,7 @@ export default function AdminFinancesPage() {
   ]);
 
   useEffect(() => {
-    if (!isAdmin || eventsView === "overview" || !selectedEvent || !isSocialEvent) {
+    if (!canAccessFinances || eventsView === "overview" || !selectedEvent || !isSocialEvent) {
       setSocialFinances(null);
       setSocialError(null);
       return;
@@ -1107,11 +1132,11 @@ export default function AdminFinancesPage() {
     };
 
     load();
-  }, [isAdmin, eventsView, selectedEvent?.id, isSocialEvent, authToken]);
+  }, [canAccessFinances, eventsView, selectedEvent?.id, isSocialEvent, authToken]);
 
   useEffect(() => {
     if (
-      !isAdmin ||
+      !isFullAdmin ||
       eventsView === "overview" ||
       !selectedEvent ||
       !isCompEvent
@@ -1156,7 +1181,7 @@ export default function AdminFinancesPage() {
     };
 
     load();
-  }, [isAdmin, eventsView, selectedEvent?.id, isCompEvent]);
+  }, [isFullAdmin, eventsView, selectedEvent?.id, isCompEvent]);
 
   const patchCompFinances = useCallback(
     async (updates: { studio_cost?: number; judges?: CompJudgePayoutInput[]; mark_judge_paid?: string }) => {
@@ -1417,7 +1442,7 @@ export default function AdminFinancesPage() {
     }
   }, [eventStripeFeesInput, selectedEvent, patchEventMetrics]);
 
-  if (isAdmin === null) {
+  if (checkingAccess) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <p className="text-neutral-400">Checking access…</p>
@@ -1425,14 +1450,14 @@ export default function AdminFinancesPage() {
     );
   }
 
-  if (!isAdmin) {
+  if (!canAccessFinances) {
     return (
       <div className="mx-auto max-w-2xl rounded-xl border border-neutral-700 bg-neutral-800/50 p-8 text-center">
         <h1 className="mb-2 text-xl font-semibold text-primary">
           Access denied
         </h1>
         <p className="mb-6 text-neutral-400">
-          This page is for administrators only.
+          You don&apos;t have permission to view event finances.
         </p>
         <Link
           href="/"
@@ -1452,16 +1477,20 @@ export default function AdminFinancesPage() {
             Event finances
           </h1>
           <p className="mt-1 text-sm text-neutral-400">
-            Admin-only • High-level signup and revenue by event
+            {isSocialViewer
+              ? "Social event finances (read-only)"
+              : "Admin-only • High-level signup and revenue by event"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href="/admin/users"
-            className="text-sm text-neutral-400 transition hover:text-primary"
-          >
-            User roles
-          </Link>
+          {isFullAdmin && (
+            <Link
+              href="/admin/users"
+              className="text-sm text-neutral-400 transition hover:text-primary"
+            >
+              User roles
+            </Link>
+          )}
           <Link
             href="/"
             className="text-sm text-neutral-400 transition hover:text-primary"
@@ -1483,7 +1512,7 @@ export default function AdminFinancesPage() {
         </div>
       ) : !events.length ? (
         <div className="rounded-xl border border-neutral-700 bg-neutral-800/30 p-8 text-center text-neutral-400">
-          No events found.
+          {isSocialViewer ? "No Social events found." : "No events found."}
         </div>
       ) : (
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
@@ -1518,19 +1547,21 @@ export default function AdminFinancesPage() {
               >
                 Past
               </button>
-              <button
-                type="button"
-                onClick={() => setEventsView("overview")}
-                className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
-                  eventsView === "overview"
-                    ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
-                    : "text-primary/70 hover:bg-primary/15 hover:text-primary"
-                }`}
-              >
-                Overview
-              </button>
+              {isFullAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setEventsView("overview")}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
+                    eventsView === "overview"
+                      ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
+                      : "text-primary/70 hover:bg-primary/15 hover:text-primary"
+                  }`}
+                >
+                  Overview
+                </button>
+              )}
             </div>
-            {eventsView === "overview" ? (
+            {eventsView === "overview" && isFullAdmin ? (
               !years.length ? (
                 <p className="px-2 py-4 text-center text-sm text-neutral-500">
                   No years with events
@@ -2046,14 +2077,16 @@ export default function AdminFinancesPage() {
                     </p>
                   )}
                   <div className="mt-3 flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={refreshEventMetrics}
-                      disabled={refreshingEventMetrics || !authToken}
-                      className="rounded-md border border-primary/60 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {refreshingEventMetrics ? "Refreshing..." : "Refresh finance numbers"}
-                    </button>
+                    {!readOnlyFinance && (
+                      <button
+                        type="button"
+                        onClick={refreshEventMetrics}
+                        disabled={refreshingEventMetrics || !authToken}
+                        className="rounded-md border border-primary/60 bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {refreshingEventMetrics ? "Refreshing..." : "Refresh finance numbers"}
+                      </button>
+                    )}
                     {eventMetrics?.refreshed_at && (
                       <p className="text-xs text-neutral-500">
                         Last refreshed: {dayjs(eventMetrics.refreshed_at).format("MMM D, YYYY h:mm A")}
@@ -2070,7 +2103,7 @@ export default function AdminFinancesPage() {
                   <div className="rounded-lg border border-primary/50 bg-primary/10 px-4 py-4 text-primary">
                     <p className="font-medium">{signupsError}</p>
                     <p className="mt-2 text-sm text-neutral-400">
-                      Make sure you’re signed in as an admin and your session is valid. You can{" "}
+                      Make sure you&apos;re signed in and your session is valid. You can{" "}
                       <Link href="/auth" className="underline hover:no-underline">
                         sign in again
                       </Link>{" "}
@@ -2079,11 +2112,16 @@ export default function AdminFinancesPage() {
                   </div>
                 ) : (
                   <>
-                    {!eventMetrics && (
+                    {!eventMetrics && !readOnlyFinance && (
                       <div className="mb-4 rounded-lg border border-neutral-700 bg-neutral-800/60 px-4 py-3 text-sm text-neutral-300">
                         No saved finance metrics yet for this event. Click{" "}
                         <span className="font-medium text-primary">Refresh finance numbers</span>{" "}
                         to compute and store them.
+                      </div>
+                    )}
+                    {!eventMetrics && readOnlyFinance && (
+                      <div className="mb-4 rounded-lg border border-neutral-700 bg-neutral-800/60 px-4 py-3 text-sm text-neutral-300">
+                        No saved finance metrics yet for this event.
                       </div>
                     )}
                     <div className="grid gap-4 sm:grid-cols-2">
@@ -2173,42 +2211,54 @@ export default function AdminFinancesPage() {
                             <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
                               Cash
                             </p>
-                            <div className="mt-1 flex items-baseline gap-1">
-                              <span className="text-neutral-500">$</span>
-                              <input
-                                type="number"
-                                min={0}
-                                step={0.01}
-                                value={eventCashInput}
-                                onChange={(e) => setEventCashInput(e.target.value)}
-                                onBlur={saveEventCash}
-                                disabled={eventMetricsSaving}
-                                className="w-24 rounded border border-neutral-600 bg-neutral-800 text-xl font-bold text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
-                              />
-                            </div>
+                            {readOnlyFinance ? (
+                              <p className="mt-1 text-2xl font-bold text-primary">
+                                ${stats.cashTotal.toFixed(2)}
+                              </p>
+                            ) : (
+                              <div className="mt-1 flex items-baseline gap-1">
+                                <span className="text-neutral-500">$</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.01}
+                                  value={eventCashInput}
+                                  onChange={(e) => setEventCashInput(e.target.value)}
+                                  onBlur={saveEventCash}
+                                  disabled={eventMetricsSaving}
+                                  className="w-24 rounded border border-neutral-600 bg-neutral-800 text-xl font-bold text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                                />
+                              </div>
+                            )}
                             <p className="mt-0.5 text-sm text-neutral-400">
-                              Editable • Cash + checked in
+                              {readOnlyFinance ? "Cash + checked in" : "Editable • Cash + checked in"}
                             </p>
                           </div>
                           <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
                             <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
                               Stripe
                             </p>
-                            <div className="mt-1 flex items-baseline gap-1">
-                              <span className="text-neutral-500">$</span>
-                              <input
-                                type="number"
-                                min={0}
-                                step={0.01}
-                                value={eventStripeInput}
-                                onChange={(e) => setEventStripeInput(e.target.value)}
-                                onBlur={saveEventStripe}
-                                disabled={eventMetricsSaving}
-                                className="w-24 rounded border border-neutral-600 bg-neutral-800 text-xl font-bold text-accent focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
-                              />
-                            </div>
+                            {readOnlyFinance ? (
+                              <p className="mt-1 text-2xl font-bold text-accent">
+                                ${stats.stripeTotal.toFixed(2)}
+                              </p>
+                            ) : (
+                              <div className="mt-1 flex items-baseline gap-1">
+                                <span className="text-neutral-500">$</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.01}
+                                  value={eventStripeInput}
+                                  onChange={(e) => setEventStripeInput(e.target.value)}
+                                  onBlur={saveEventStripe}
+                                  disabled={eventMetricsSaving}
+                                  className="w-24 rounded border border-neutral-600 bg-neutral-800 text-xl font-bold text-accent focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                                />
+                              </div>
+                            )}
                             <p className="mt-0.5 text-sm text-neutral-400">
-                              Editable • paid via Stripe
+                              {readOnlyFinance ? "Paid via Stripe" : "Editable • paid via Stripe"}
                             </p>
                           </div>
                           <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
@@ -2268,19 +2318,27 @@ export default function AdminFinancesPage() {
                         </span>
                         <div className="flex items-center gap-2 text-xs text-neutral-400">
                           <span>Taxes/Fees collected via Stripe:</span>
-                          <span className="text-neutral-500">$</span>
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.01}
-                            value={eventStripeFeesInput}
-                            onChange={(e) =>
-                              setEventStripeFeesInput(e.target.value)
-                            }
-                            onBlur={saveStripeFees}
-                            disabled={eventMetricsSaving}
-                            className="w-24 rounded border border-neutral-600 bg-neutral-800 px-2 py-0.5 text-xs font-semibold text-accent focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
-                          />
+                          {readOnlyFinance ? (
+                            <span className="font-semibold text-accent">
+                              ${(stats.stripeTaxesFees ?? 0).toFixed(2)}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="text-neutral-500">$</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={eventStripeFeesInput}
+                                onChange={(e) =>
+                                  setEventStripeFeesInput(e.target.value)
+                                }
+                                onBlur={saveStripeFees}
+                                disabled={eventMetricsSaving}
+                                className="w-24 rounded border border-neutral-600 bg-neutral-800 px-2 py-0.5 text-xs font-semibold text-accent focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                              />
+                            </>
+                          )}
                           <span>(to remain in bank)</span>
                         </div>
                         {!isNashvilleEvent && (stats.revenueFromCoupons ?? 0) > 0 && (
@@ -2353,6 +2411,7 @@ export default function AdminFinancesPage() {
                         loading={loadingSocial}
                         error={socialError}
                         saving={socialSaving}
+                        readOnly={readOnlyFinance}
                         onPatch={patchSocial}
                       />
                     )}
@@ -2377,6 +2436,7 @@ function SocialBreakdown({
   loading,
   error,
   saving,
+  readOnly = false,
   onPatch,
 }: {
   computedTotalRevenue: number;
@@ -2384,6 +2444,7 @@ function SocialBreakdown({
   loading: boolean;
   error: string | null;
   saving: boolean;
+  readOnly?: boolean;
   onPatch: (u: {
     venue_cost?: number;
     brandon_split_ratio?: number;
@@ -2490,19 +2551,23 @@ function SocialBreakdown({
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm font-medium text-neutral-300">Venue cost</label>
-          <div className="flex items-baseline gap-1">
-            <span className="text-neutral-500">$</span>
-            <input
-              type="number"
-              min={0}
-              step={0.01}
-              value={venueInput}
-              onChange={(e) => setVenueInput(e.target.value)}
-              onBlur={saveVenue}
-              disabled={saving}
-              className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
-            />
-          </div>
+          {readOnly ? (
+            <span className="text-lg font-bold text-white">${venueNum.toFixed(2)}</span>
+          ) : (
+            <div className="flex items-baseline gap-1">
+              <span className="text-neutral-500">$</span>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={venueInput}
+                onChange={(e) => setVenueInput(e.target.value)}
+                onBlur={saveVenue}
+                disabled={saving}
+                className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -2518,7 +2583,16 @@ function SocialBreakdown({
         )}
 
         <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4 space-y-4">
-          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">Default shares (editable)</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+            {readOnly ? "Default shares" : "Default shares (editable)"}
+          </p>
+          {readOnly ? (
+            <div className="flex flex-wrap gap-6 text-sm text-neutral-300">
+              <span>Brandon: {brandonPct}%</span>
+              <span>Kyler: {kylerPct}%</span>
+              <span>Isaiah: {isaiahPct}%</span>
+            </div>
+          ) : (
           <div className="flex flex-wrap gap-4 items-end">
             <div>
               <label className="block text-xs text-neutral-400 mb-1">Brandon %</label>
@@ -2563,6 +2637,7 @@ function SocialBreakdown({
               />
             </div>
           </div>
+          )}
         </div>
       </div>
 
@@ -2575,6 +2650,7 @@ function SocialBreakdown({
           paidAt={social?.brandon_paid_at ?? null}
           onMarkPaid={() => onPatch({ mark_brandon_paid: true })}
           saving={saving}
+          readOnly={readOnly}
         />
         <SocialPersonRow
           label="Kyler"
@@ -2584,6 +2660,7 @@ function SocialBreakdown({
           paidAt={social?.kyler_paid_at ?? null}
           onMarkPaid={() => onPatch({ mark_kyler_paid: true })}
           saving={saving}
+          readOnly={readOnly}
         />
         <SocialPersonRow
           label="Isaiah"
@@ -2593,6 +2670,7 @@ function SocialBreakdown({
           paidAt={social?.isaiah_paid_at ?? null}
           onMarkPaid={() => onPatch({ mark_isaiah_paid: true })}
           saving={saving}
+          readOnly={readOnly}
         />
       </div>
 
@@ -2616,6 +2694,7 @@ function SocialPersonRow({
   paidAt,
   onMarkPaid,
   saving,
+  readOnly = false,
 }: {
   label: string;
   profitInput: string;
@@ -2624,31 +2703,44 @@ function SocialPersonRow({
   paidAt: string | null;
   onMarkPaid: () => void;
   saving: boolean;
+  readOnly?: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">{label}</p>
-        <div className="mt-1 flex items-baseline gap-1">
-          <span className="text-neutral-500">$</span>
-          <input
-            type="number"
-            min={0}
-            step={0.01}
-            value={profitInput}
-            onChange={(e) => onProfitChange(e.target.value)}
-            onBlur={onProfitBlur}
-            disabled={saving}
-            className="w-32 rounded border border-neutral-600 bg-neutral-800 px-2 py-1 font-semibold text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
-          />
-        </div>
-        <p className="mt-1 text-xs text-neutral-500">Profit allocation (editable)</p>
+        {readOnly ? (
+          <p className="mt-1 text-xl font-semibold text-white">
+            ${(parseFloat(profitInput) || 0).toFixed(2)}
+          </p>
+        ) : (
+          <div className="mt-1 flex items-baseline gap-1">
+            <span className="text-neutral-500">$</span>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={profitInput}
+              onChange={(e) => onProfitChange(e.target.value)}
+              onBlur={onProfitBlur}
+              disabled={saving}
+              className="w-32 rounded border border-neutral-600 bg-neutral-800 px-2 py-1 font-semibold text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+            />
+          </div>
+        )}
+        <p className="mt-1 text-xs text-neutral-500">
+          {readOnly ? "Profit allocation" : "Profit allocation (editable)"}
+        </p>
       </div>
       <div className="shrink-0">
         {paidAt ? (
           <div className="rounded-lg border border-primary/50 bg-primary/10 px-3 py-2 text-center">
             <p className="text-xs font-medium text-primary">Paid</p>
             <p className="text-xs text-neutral-400">{dayjs(paidAt).format("MMM D, YYYY")}</p>
+          </div>
+        ) : readOnly ? (
+          <div className="rounded-lg border border-neutral-600 bg-neutral-800/80 px-3 py-2 text-center">
+            <p className="text-xs font-medium text-neutral-400">Unpaid</p>
           </div>
         ) : (
           <button

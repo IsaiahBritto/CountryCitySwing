@@ -26,6 +26,7 @@ export default function Navbar() {
   const [showRegistration, setShowRegistration] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showFinances, setShowFinances] = useState(false);
 
   // Load and listen for auth changes
   useEffect(() => {
@@ -50,6 +51,7 @@ export default function Navbar() {
         setShowRegistration(false);
         setShowSchedule(false);
         setIsAdmin(false);
+        setShowFinances(false);
         return;
       }
       try {
@@ -61,6 +63,7 @@ export default function Navbar() {
           setShowRegistration(false);
           setShowSchedule(false);
           setIsAdmin(false);
+          setShowFinances(false);
           return;
         }
         const data = await res.json();
@@ -70,10 +73,13 @@ export default function Navbar() {
           setShowRegistration(false);
           setShowSchedule(false);
           setIsAdmin(false);
+          setShowFinances(false);
           return;
         }
         const roleLower = (p.role || "").toLowerCase();
         const isAdminRole = roleLower === "admin";
+        const financeAccess = data.finance_access as string | null | undefined;
+        setShowFinances(financeAccess === "admin" || financeAccess === "social_viewer");
         // Non-CCS-Instructor does not get Schedule tab (profile-only role)
         const isInstructor =
           !isAdminRole &&
@@ -97,6 +103,7 @@ export default function Navbar() {
         setShowRegistration(false);
         setShowSchedule(false);
         setIsAdmin(false);
+        setShowFinances(false);
       }
     };
     fetchMe();
@@ -178,7 +185,7 @@ export default function Navbar() {
               Schedule
             </Link>
           )}
-          {isAdmin && (
+          {showFinances && (
             <Link href="/admin/finances" className={linkClass}>
               Finances
             </Link>
@@ -219,7 +226,7 @@ export default function Navbar() {
               Schedule
             </Link>
           )}
-          {isAdmin && (
+          {showFinances && (
             <Link href="/admin/finances" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
               Finances
             </Link>

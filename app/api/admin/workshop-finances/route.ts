@@ -1,63 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
-
-async function getAdminFromToken(accessToken: string) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
-  const { data: { user }, error } = await client.auth.getUser(accessToken);
-  return { user, error };
-}
-
-function requireAdmin(req: NextRequest) {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return NextResponse.json(
-      { error: "Unauthorized: Missing or invalid authorization header" },
-      { status: 401 }
-    );
-  }
-  return authHeader.replace("Bearer ", "");
-}
-
-async function checkAdmin(accessToken: string) {
-  const { user, error } = await getAdminFromToken(accessToken);
-  if (error || !user) {
-    return NextResponse.json(
-      { error: "Unauthorized: Invalid token" },
-      { status: 401 }
-    );
-  }
-  const { data: profile, error: profileError } = await supabaseServer
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (profileError || !profile) {
-    return NextResponse.json(
-      { error: "User profile not found" },
-      { status: 403 }
-    );
-  }
-  const roleLower = (profile.role || "").toLowerCase();
-  if (roleLower !== "admin") {
-    return NextResponse.json(
-      { error: "Forbidden: Admin access required" },
-      { status: 403 }
-    );
-  }
-  return null;
-}
+import { requireFinanceAuth } from "@/lib/financeAuth";
 
 export async function GET(req: NextRequest) {
   try {
-    const token = requireAdmin(req);
-    if (token instanceof NextResponse) return token;
-    const authErr = await checkAdmin(token);
-    if (authErr) return authErr;
+    const auth = await requireFinanceAuth(req, { requireAdmin: true });
+    if (!auth.ok) return auth.response;
 
     const { searchParams } = new URL(req.url);
     const eventId = searchParams.get("event_id");
@@ -94,10 +42,8 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const token = requireAdmin(req);
-    if (token instanceof NextResponse) return token;
-    const authErr = await checkAdmin(token);
-    if (authErr) return authErr;
+    const auth = await requireFinanceAuth(req, { requireAdmin: true });
+    if (!auth.ok) return auth.response;
 
     const body = await req.json();
     const {

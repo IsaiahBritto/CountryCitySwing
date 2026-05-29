@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { assertSocialEvent, requireFinanceAuth } from "@/lib/financeAuth";
 
 interface SignupRow {
   payment_method: string | null;
@@ -38,59 +38,6 @@ type Metrics = {
   revenue_from_coupons: number;
   is_comp_event: boolean;
 };
-
-async function getAdminFromToken(accessToken: string) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const client = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
-  const {
-    data: { user },
-    error,
-  } = await client.auth.getUser(accessToken);
-  return { user, error };
-}
-
-function requireAdmin(req: NextRequest) {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return NextResponse.json(
-      { error: "Unauthorized: Missing or invalid authorization header" },
-      { status: 401 }
-    );
-  }
-  return authHeader.replace("Bearer ", "");
-}
-
-async function checkAdmin(accessToken: string) {
-  const { user, error } = await getAdminFromToken(accessToken);
-  if (error || !user) {
-    return NextResponse.json(
-      { error: "Unauthorized: Invalid token" },
-      { status: 401 }
-    );
-  }
-  const { data: profile, error: profileError } = await supabaseServer
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (profileError || !profile) {
-    return NextResponse.json(
-      { error: "User profile not found" },
-      { status: 403 }
-    );
-  }
-  const roleLower = (profile.role || "").toLowerCase();
-  if (roleLower !== "admin") {
-    return NextResponse.json(
-      { error: "Forbidden: Admin access required" },
-      { status: 403 }
-    );
-  }
-  return null;
-}
 
 function round2(v: number): number {
   return Math.round((v + Number.EPSILON) * 100) / 100;
@@ -287,14 +234,30 @@ async function computeAndPersistMetrics(eventId: string) {
 
 export async function GET(req: NextRequest) {
   try {
-    const token = requireAdmin(req);
-    if (token instanceof NextResponse) return token;
-    const authErr = await checkAdmin(token);
-    if (authErr) return authErr;
+    const auth = await requireFinanceAuth(req);
+    if (!auth.ok) return auth.response;
 
     const { searchParams } = new URL(req.url);
     const eventId = searchParams.get("event_id");
     const eventIdsRaw = searchParams.get("event_ids");
+
+    if (auth.access.level === "social_viewer") {
+      if (eventIdsRaw) {
+        return NextResponse.json(
+          { error: "Forbidden: Bulk finance metrics not allowed" },
+          { status: 403 }
+        );
+      }
+      if (!eventId) {
+        return NextResponse.json(
+          { error: "Missing event_id parameter" },
+          { status: 400 }
+        );
+      }
+      const socialErr = await assertSocialEvent(eventId);
+      if (socialErr) return socialErr;
+    }
+
     const selectCols =
       "event_id,total_signups,checked_in_count,cash_total,stripe_total,other_total,ccs_team_cash_total,ccs_team_stripe_total,ccs_team_total,stripe_taxes_fees_total,free_via_promo_count,revenue_from_coupons,is_comp_event,refreshed_at,updated_at";
 
@@ -355,10 +318,8 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const token = requireAdmin(req);
-    if (token instanceof NextResponse) return token;
-    const authErr = await checkAdmin(token);
-    if (authErr) return authErr;
+    const auth = await requireFinanceAuth(req, { requireAdmin: true });
+    if (!auth.ok) return auth.response;
 
     const body = await req.json();
     const eventId = typeof body.event_id === "string" ? body.event_id : "";

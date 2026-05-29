@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { resolveFinanceAccess } from "@/lib/financeAuth";
 
 async function getUserFromToken(accessToken: string) {
   const client = createClient(
@@ -78,6 +79,8 @@ export async function GET(req: NextRequest) {
       events_near_today = events ?? [];
     }
 
+    const financeAccess = resolveFinanceAccess(profile.id, profile.role);
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -90,6 +93,7 @@ export async function GET(req: NextRequest) {
         last_name: profile.last_name,
         role: profile.role,
       },
+      finance_access: financeAccess,
       ...(events_near_today !== undefined && { events_near_today }),
     });
   } catch (err) {

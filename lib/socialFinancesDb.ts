@@ -31,14 +31,14 @@ export const SOCIAL_FINANCE_SELECT_NO_COMMENT_NO_CCS_CASH =
 export const SOCIAL_FINANCE_SELECT_LEGACY =
   "id,event_id,venue_cost,brandon_split_ratio,kyler_split_ratio,isaiah_split_ratio,brandon_profit,kyler_profit,isaiah_profit,brandon_paid_at,kyler_paid_at,isaiah_paid_at,updated_at";
 
-const SOCIAL_FINANCE_SELECT_FALLBACKS = [
+const SOCIAL_FINANCE_SELECT_FALLBACKS: string[] = [
   SOCIAL_FINANCE_SELECT_FULL,
   SOCIAL_FINANCE_SELECT_NO_CCS_CASH,
   SOCIAL_FINANCE_SELECT_NO_OTHER_COMMENT,
   SOCIAL_FINANCE_SELECT_NO_CCS,
   SOCIAL_FINANCE_SELECT_NO_COMMENT_NO_CCS_CASH,
   SOCIAL_FINANCE_SELECT_LEGACY,
-] as const;
+];
 
 function isRecoverableSocialFinanceSelectError(error: unknown): boolean {
   return (
@@ -92,6 +92,19 @@ type SocialFinanceRowRaw = Partial<SocialFinancesRow> & {
   other_expense?: number | null;
   other_expense_comment?: string | null;
 };
+
+async function querySocialFinanceRowByEventId(
+  eventId: string,
+  selectCols: string
+): Promise<{ data: SocialFinanceRowRaw | null; error: unknown | null }> {
+  const { data, error } = await supabaseServer
+    .from("the_social_finances")
+    .select(selectCols)
+    .eq("event_id", eventId)
+    .maybeSingle();
+
+  return { data: (data ?? null) as SocialFinanceRowRaw | null, error };
+}
 
 export function isMissingCcsProfitColumn(error: unknown): boolean {
   return isMissingSocialFinanceColumn(error, "ccs_profit");
@@ -205,11 +218,7 @@ export async function fetchSocialFinancesByEventId(
   let lastError: unknown = null;
 
   for (const selectCols of SOCIAL_FINANCE_SELECT_FALLBACKS) {
-    const result = await supabaseServer
-      .from("the_social_finances")
-      .select(selectCols)
-      .eq("event_id", eventId)
-      .maybeSingle();
+    const result = await querySocialFinanceRowByEventId(eventId, selectCols);
 
     if (result.error) {
       lastError = result.error;
@@ -223,7 +232,7 @@ export async function fetchSocialFinancesByEventId(
       return { data: null, error: null };
     }
 
-    const raw = result.data as SocialFinanceRowRaw;
+    const raw = result.data;
     const needsMetricsForCcs =
       !selectIncludesColumn(selectCols, "ccs_profit") ||
       !selectIncludesColumn(selectCols, "ccs_cash_profit");

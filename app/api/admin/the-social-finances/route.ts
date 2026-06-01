@@ -1,27 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
 import { requireFinanceAuth } from "@/lib/financeAuth";
+import {
+  DEFAULT_SOCIAL_VENUE_COST,
+  computeSocialSplit,
+  totalRevenueFromMetricsRow,
+} from "@/lib/socialFinancesConstants";
+import {
+  SOCIAL_FINANCES_MIGRATION_HINT,
+  fetchSocialFinancesByEventId,
+  isMissingCcsProfitColumn,
+  isMissingSocialFinanceColumn,
+  loadEventFinanceMetrics,
+  selectSocialFinancesAfterWrite,
+  writeSocialFinancesInsert,
+  writeSocialFinancesUpdate,
+} from "@/lib/socialFinancesDb";
 
 function round2(v: number): number {
   return Math.round((v + Number.EPSILON) * 100) / 100;
-}
-
-const SELECT_COLS =
-  "id,event_id,venue_cost,brandon_split_ratio,kyler_split_ratio,isaiah_split_ratio,brandon_profit,kyler_profit,isaiah_profit,brandon_paid_at,kyler_paid_at,isaiah_paid_at,updated_at";
-
-async function totalRevenueFromMetrics(eventId: string): Promise<number> {
-  const { data: m } = await supabaseServer
-    .from("event_finance_metrics")
-    .select("cash_total,stripe_total,other_total,ccs_team_total")
-    .eq("event_id", eventId)
-    .maybeSingle();
-  if (!m) return 0;
-  return round2(
-    Number(m.cash_total ?? 0) +
-      Number(m.stripe_total ?? 0) +
-      Number(m.other_total ?? 0) +
-      Number(m.ccs_team_total ?? 0)
-  );
 }
 
 export async function GET(req: NextRequest) {
@@ -38,21 +34,18 @@ export async function GET(req: NextRequest) {
     const auth = await requireFinanceAuth(req, { eventId });
     if (!auth.ok) return auth.response;
 
-    const { data, error } = await supabaseServer
-      .from("the_social_finances")
-      .select(SELECT_COLS)
-      .eq("event_id", eventId)
-      .maybeSingle();
+    const { data, error } = await fetchSocialFinancesByEventId(eventId);
 
     if (error) {
       console.error("the-social-finances GET:", error);
+      const hint = isMissingCcsProfitColumn(error) ? ` ${SOCIAL_FINANCES_MIGRATION_HINT}` : "";
       return NextResponse.json(
-        { error: "Failed to fetch social finances" },
+        { error: `Failed to fetch social finances.${hint}` },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ data: data ?? null });
+    return NextResponse.json({ data });
   } catch (e) {
     console.error("the-social-finances GET:", e);
     return NextResponse.json(
@@ -77,22 +70,20 @@ export async function PATCH(req: NextRequest) {
 
     const {
       venue_cost: venueCost,
+      other_expense: otherExpense,
+      other_expense_comment: otherExpenseComment,
       brandon_split_ratio: brandonSplitRatio,
       kyler_split_ratio: kylerSplitRatio,
       isaiah_split_ratio: isaiahSplitRatio,
       brandon_profit: brandonProfit,
       kyler_profit: kylerProfit,
-      isaiah_profit: isaiahProfit,
+      ccs_profit: ccsProfit,
       mark_brandon_paid: markBrandonPaid,
       mark_kyler_paid: markKylerPaid,
       mark_isaiah_paid: markIsaiahPaid,
     } = body;
 
-    const { data: existing } = await supabaseServer
-      .from("the_social_finances")
-      .select(SELECT_COLS)
-      .eq("event_id", eventId)
-      .maybeSingle();
+    const { data: existing } = await fetchSocialFinancesByEventId(eventId);
 
     const parseRatio = (v: unknown, fallback: number): number => {
       if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
@@ -104,20 +95,53 @@ export async function PATCH(req: NextRequest) {
       return round2(v);
     };
 
+    const shouldRecalcIsaiahCcs =
+      "venue_cost" in body ||
+      "other_expense" in body ||
+      "brandon_split_ratio" in body ||
+      "kyler_split_ratio" in body ||
+      "isaiah_split_ratio" in body ||
+      "brandon_profit" in body ||
+      "kyler_profit" in body;
+
     if (existing) {
       const updates: Record<string, unknown> = { updated_at: now };
 
       if (typeof venueCost === "number" && venueCost >= 0) {
         updates.venue_cost = round2(venueCost);
       }
+      if ("other_expense" in body) {
+        const p = parseMoney(otherExpense);
+        if (p !== undefined) updates.other_expense = p;
+      }
+      if ("other_expense_comment" in body) {
+        updates.other_expense_comment =
+          typeof otherExpenseComment === "string"
+            ? otherExpenseComment.trim() || null
+            : otherExpenseComment === null
+              ? null
+              : undefined;
+        if (updates.other_expense_comment === undefined) {
+          delete updates.other_expense_comment;
+        }
+      }
       if ("brandon_split_ratio" in body) {
-        updates.brandon_split_ratio = parseRatio(brandonSplitRatio, Number(existing.brandon_split_ratio) || 0.2);
+        updates.brandon_split_ratio = parseRatio(
+          brandonSplitRatio,
+          Number(existing.brandon_split_ratio) || 0.2
+        );
       }
       if ("kyler_split_ratio" in body) {
-        updates.kyler_split_ratio = parseRatio(kylerSplitRatio, Number(existing.kyler_split_ratio) || 0.3);
+        updates.kyler_split_ratio = parseRatio(
+          kylerSplitRatio,
+          Number(existing.kyler_split_ratio) || 0.3
+        );
       }
       if ("isaiah_split_ratio" in body) {
-        updates.isaiah_split_ratio = parseRatio(isaiahSplitRatio, Number(existing.isaiah_split_ratio) || 0.5);
+        updates.isaiah_split_ratio = parseRatio(
+          isaiahSplitRatio,
+          Number(existing.isaiah_split_ratio) || 0.5
+        );
       }
       if ("brandon_profit" in body) {
         const p = parseMoney(brandonProfit);
@@ -127,9 +151,9 @@ export async function PATCH(req: NextRequest) {
         const p = parseMoney(kylerProfit);
         if (p !== undefined) updates.kyler_profit = p;
       }
-      if ("isaiah_profit" in body) {
-        const p = parseMoney(isaiahProfit);
-        if (p !== undefined) updates.isaiah_profit = p;
+      if ("ccs_profit" in body && !shouldRecalcIsaiahCcs) {
+        const p = parseMoney(ccsProfit);
+        if (p !== undefined) updates.ccs_profit = p;
       }
       if (markBrandonPaid === true) {
         updates.brandon_paid_at = now;
@@ -141,73 +165,149 @@ export async function PATCH(req: NextRequest) {
         updates.isaiah_paid_at = now;
       }
 
-      const { data, error } = await supabaseServer
-        .from("the_social_finances")
-        .update(updates)
-        .eq("event_id", eventId)
-        .select(SELECT_COLS)
-        .single();
+      if (shouldRecalcIsaiahCcs) {
+        const metrics = await loadEventFinanceMetrics(eventId);
+        const totalRevenue = totalRevenueFromMetricsRow(metrics);
+        const cashTotal = Number(metrics?.cash_total ?? 0);
+        const venue = Number(updates.venue_cost ?? existing.venue_cost) || 0;
+        const otherExp = Number(updates.other_expense ?? existing.other_expense) || 0;
+        const brandonRatio = Number(
+          updates.brandon_split_ratio ?? existing.brandon_split_ratio
+        );
+        const kylerRatio = Number(updates.kyler_split_ratio ?? existing.kyler_split_ratio);
+        const isaiahRatio = Number(
+          updates.isaiah_split_ratio ?? existing.isaiah_split_ratio
+        );
+        const brandonOverride =
+          updates.brandon_profit !== undefined
+            ? Number(updates.brandon_profit)
+            : undefined;
+        const kylerOverride =
+          updates.kyler_profit !== undefined ? Number(updates.kyler_profit) : undefined;
 
-      if (error) {
-        console.error("the-social-finances PATCH update:", error);
+        const split = computeSocialSplit({
+          totalRevenue,
+          cashTotal,
+          venueCost: venue,
+          otherExpense: otherExp,
+          brandonRatio,
+          kylerRatio,
+          isaiahRatio,
+          brandonProfitOverride: brandonOverride,
+          kylerProfitOverride: kylerOverride,
+        });
+
+        if (brandonOverride === undefined) {
+          updates.brandon_profit = split.brandon_profit;
+        }
+        if (kylerOverride === undefined) {
+          updates.kyler_profit = split.kyler_profit;
+        }
+        updates.isaiah_profit = split.isaiah_profit;
+        updates.ccs_profit = split.ccs_profit;
+        updates.ccs_cash_profit = split.ccs_cash_profit;
+      }
+
+      const write = await writeSocialFinancesUpdate(eventId, updates);
+
+      if (write.error) {
+        console.error("the-social-finances PATCH update:", write.error);
+        const hint =
+          isMissingCcsProfitColumn(write.error) ||
+          isMissingSocialFinanceColumn(write.error, "other_expense") ||
+          isMissingSocialFinanceColumn(write.error, "other_expense_comment")
+            ? ` ${SOCIAL_FINANCES_MIGRATION_HINT}`
+            : "";
         return NextResponse.json(
-          { error: "Failed to update social finances" },
+          { error: `Failed to update social finances.${hint}` },
           { status: 500 }
         );
       }
-      return NextResponse.json({ data });
+
+      const refreshed = await selectSocialFinancesAfterWrite(eventId);
+      if (refreshed.error) {
+        return NextResponse.json(
+          { error: "Failed to fetch social finances after update" },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ data: refreshed.data });
     }
 
-    // Insert: seed from metrics + defaults (Brandon 20%, Kyler 30%, Isaiah 50%).
-    const totalRev = await totalRevenueFromMetrics(eventId);
+    const metrics = await loadEventFinanceMetrics(eventId);
+    const totalRev = totalRevenueFromMetricsRow(metrics);
+    const cashTotal = Number(metrics?.cash_total ?? 0);
     const venue =
-      typeof venueCost === "number" && venueCost >= 0 ? round2(venueCost) : 0;
+      typeof venueCost === "number" && venueCost >= 0
+        ? round2(venueCost)
+        : DEFAULT_SOCIAL_VENUE_COST;
     const br = "brandon_split_ratio" in body ? parseRatio(brandonSplitRatio, 0.2) : 0.2;
     const ky = "kyler_split_ratio" in body ? parseRatio(kylerSplitRatio, 0.3) : 0.3;
     const isa = "isaiah_split_ratio" in body ? parseRatio(isaiahSplitRatio, 0.5) : 0.5;
-    const distributable = Math.max(0, round2(totalRev - venue));
 
-    const defaultBrandon = round2(distributable * br);
-    const defaultKyler = round2(distributable * ky);
-    const defaultIsaiah = round2(distributable * isa);
+    const bp = parseMoney(brandonProfit);
+    const kp = parseMoney(kylerProfit);
 
-    const bp =
-      parseMoney(brandonProfit) ??
-      defaultBrandon;
-    const kp =
-      parseMoney(kylerProfit) ??
-      defaultKyler;
-    const ip =
-      parseMoney(isaiahProfit) ??
-      defaultIsaiah;
+    const otherExp =
+      "other_expense" in body && typeof otherExpense === "number" && otherExpense >= 0
+        ? round2(otherExpense)
+        : 0;
+    const comment =
+      "other_expense_comment" in body
+        ? typeof otherExpenseComment === "string"
+          ? otherExpenseComment.trim() || null
+          : null
+        : null;
 
-    const { data, error } = await supabaseServer
-      .from("the_social_finances")
-      .insert({
-        event_id: eventId,
-        venue_cost: venue,
-        brandon_split_ratio: br,
-        kyler_split_ratio: ky,
-        isaiah_split_ratio: isa,
-        brandon_profit: bp,
-        kyler_profit: kp,
-        isaiah_profit: ip,
-        brandon_paid_at: markBrandonPaid === true ? now : null,
-        kyler_paid_at: markKylerPaid === true ? now : null,
-        isaiah_paid_at: markIsaiahPaid === true ? now : null,
-        updated_at: now,
-      })
-      .select(SELECT_COLS)
-      .single();
+    const split = computeSocialSplit({
+      totalRevenue: totalRev,
+      cashTotal,
+      venueCost: venue,
+      otherExpense: otherExp,
+      brandonRatio: br,
+      kylerRatio: ky,
+      isaiahRatio: isa,
+      brandonProfitOverride: bp,
+      kylerProfitOverride: kp,
+    });
 
-    if (error) {
-      console.error("the-social-finances PATCH insert:", error);
+    const insertPayload = {
+      event_id: eventId,
+      venue_cost: venue,
+      other_expense: otherExp,
+      other_expense_comment: comment,
+      brandon_split_ratio: br,
+      kyler_split_ratio: ky,
+      isaiah_split_ratio: isa,
+      brandon_profit: split.brandon_profit,
+      kyler_profit: split.kyler_profit,
+      isaiah_profit: split.isaiah_profit,
+      ccs_profit: split.ccs_profit,
+      ccs_cash_profit: split.ccs_cash_profit,
+      brandon_paid_at: markBrandonPaid === true ? now : null,
+      kyler_paid_at: markKylerPaid === true ? now : null,
+      isaiah_paid_at: markIsaiahPaid === true ? now : null,
+      updated_at: now,
+    };
+
+    const insert = await writeSocialFinancesInsert(insertPayload);
+
+    if (insert.error) {
+      console.error("the-social-finances PATCH insert:", insert.error);
+      const hint =
+        isMissingCcsProfitColumn(insert.error) ||
+        isMissingSocialFinanceColumn(insert.error, "other_expense") ||
+        isMissingSocialFinanceColumn(insert.error, "other_expense_comment")
+          ? ` ${SOCIAL_FINANCES_MIGRATION_HINT}`
+          : "";
       return NextResponse.json(
-        { error: "Failed to create social finances" },
+        { error: `Failed to create social finances.${hint}` },
         { status: 500 }
       );
     }
-    return NextResponse.json({ data });
+
+    const refreshed = await selectSocialFinancesAfterWrite(eventId);
+    return NextResponse.json({ data: refreshed.data });
   } catch (e) {
     console.error("the-social-finances PATCH:", e);
     return NextResponse.json(

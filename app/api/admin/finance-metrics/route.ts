@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { assertSocialEvent, requireFinanceAuth } from "@/lib/financeAuth";
+import { isSocialEventType } from "@/lib/socialScheduleSlots";
+import { syncSocialFinancesFromMetrics } from "@/lib/socialFinances";
 
 interface SignupRow {
   payment_method: string | null;
@@ -242,20 +244,16 @@ export async function GET(req: NextRequest) {
     const eventIdsRaw = searchParams.get("event_ids");
 
     if (auth.access.level === "social_viewer") {
-      if (eventIdsRaw) {
-        return NextResponse.json(
-          { error: "Forbidden: Bulk finance metrics not allowed" },
-          { status: 403 }
-        );
-      }
-      if (!eventId) {
+      if (!eventId && !eventIdsRaw) {
         return NextResponse.json(
           { error: "Missing event_id parameter" },
           { status: 400 }
         );
       }
-      const socialErr = await assertSocialEvent(eventId);
-      if (socialErr) return socialErr;
+      if (eventId) {
+        const socialErr = await assertSocialEvent(eventId);
+        if (socialErr) return socialErr;
+      }
     }
 
     const selectCols =
@@ -286,6 +284,30 @@ export async function GET(req: NextRequest) {
 
       if (eventIds.length === 0) {
         return NextResponse.json({ data: [] });
+      }
+
+      if (auth.access.level === "social_viewer") {
+        const { data: eventRows, error: eventsError } = await supabaseServer
+          .from("events")
+          .select("id,type")
+          .in("id", eventIds);
+
+        if (eventsError) {
+          return NextResponse.json(
+            { error: "Failed to verify events" },
+            { status: 500 }
+          );
+        }
+        const rowById = new Map((eventRows ?? []).map((r) => [r.id, r]));
+        for (const id of eventIds) {
+          const row = rowById.get(id);
+          if (!row || !isSocialEventType(row.type)) {
+            return NextResponse.json(
+              { error: "Forbidden: Social event access only" },
+              { status: 403 }
+            );
+          }
+        }
       }
 
       const { data, error } = await supabaseServer
@@ -399,6 +421,17 @@ export async function PATCH(req: NextRequest) {
     }
 
     const data = await computeAndPersistMetrics(eventId);
+
+    const { data: eventRow } = await supabaseServer
+      .from("events")
+      .select("type")
+      .eq("id", eventId)
+      .maybeSingle();
+
+    if (isSocialEventType(eventRow?.type)) {
+      await syncSocialFinancesFromMetrics(eventId);
+    }
+
     return NextResponse.json({ data });
   } catch (e) {
     console.error("finance-metrics PATCH error:", e);

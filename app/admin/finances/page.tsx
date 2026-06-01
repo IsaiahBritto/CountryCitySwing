@@ -5,6 +5,10 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
 import Link from "next/link";
 import { isCcsInstructorRole } from "@/lib/instructorProfiles";
+import {
+  DEFAULT_SOCIAL_VENUE_COST,
+  computeSocialSplit,
+} from "@/lib/socialFinancesConstants";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { computeNashvillePayouts } from "@/lib/utils/nashvillePayouts";
 
@@ -65,12 +69,16 @@ interface TheSocialFinances {
   id: string;
   event_id: string;
   venue_cost: number;
+  other_expense: number;
+  other_expense_comment: string | null;
   brandon_split_ratio: number;
   kyler_split_ratio: number;
   isaiah_split_ratio: number;
   brandon_profit: number;
   kyler_profit: number;
   isaiah_profit: number;
+  ccs_profit: number;
+  ccs_cash_profit: number;
   brandon_paid_at: string | null;
   kyler_paid_at: string | null;
   isaiah_paid_at: string | null;
@@ -114,7 +122,7 @@ interface ScheduleSlotLite {
   } | null;
 }
 
-type EventsView = "upcoming" | "past" | "overview";
+type EventsView = "upcoming" | "past" | "overview" | "social_overview";
 
 interface Event {
   id: string;
@@ -377,12 +385,38 @@ export default function AdminFinancesPage() {
     totalStripeTaxesFeesFromMerch: number;
     totalSocialAllocatedProfits: number;
   } | null>(null);
+  const [socialOverviewStats, setSocialOverviewStats] = useState<{
+    totalSignups: number;
+    checkedIn: number;
+    cashTotal: number;
+    stripeTotal: number;
+    otherTotal: number;
+    ccsTeamCashTotal: number;
+    ccsTeamStripeTotal: number;
+    ccsTeamTotal: number;
+    stripeTaxesFees: number;
+    freeViaPromoCount: number;
+    revenueFromCoupons: number;
+  } | null>(null);
+  const [socialOverviewFinances, setSocialOverviewFinances] = useState<{
+    totalVenueCost: number;
+    totalOtherExpense: number;
+    totalBrandon: number;
+    totalKyler: number;
+    totalIsaiah: number;
+    totalCcs: number;
+    totalCcsCash: number;
+    totalSocialAllocatedProfits: number;
+  } | null>(null);
+  const [loadingSocialOverview, setLoadingSocialOverview] = useState(false);
+  const [socialOverviewError, setSocialOverviewError] = useState<string | null>(null);
   const [financeAccess, setFinanceAccess] = useState<FinanceAccessLevel | null>(null);
   const [checkingAccess, setCheckingAccess] = useState(true);
   const canAccessFinances =
     financeAccess === "admin" || financeAccess === "social_viewer";
   const isFullAdmin = financeAccess === "admin";
   const isSocialViewer = financeAccess === "social_viewer";
+  const canAccessSocialOverview = isFullAdmin || isSocialViewer;
   const readOnlyFinance = isSocialViewer;
   const [error, setError] = useState<string | null>(null);
   const [signupsError, setSignupsError] = useState<string | null>(null);
@@ -468,6 +502,40 @@ export default function AdminFinancesPage() {
       });
   }, [events, selectedYear]);
 
+  const socialYears = useMemo(() => {
+    const set = new Set<number>();
+    for (const e of events) {
+      if (isSocialEventType(e.type)) {
+        set.add(dayjs(e.starts_at).year());
+      }
+    }
+    return Array.from(set).sort((a, b) => b - a);
+  }, [events]);
+
+  const socialEventCountByYear = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const e of events) {
+      if (!isSocialEventType(e.type)) continue;
+      const y = dayjs(e.starts_at).year();
+      map.set(y, (map.get(y) ?? 0) + 1);
+    }
+    return map;
+  }, [events]);
+
+  const eventsInSelectedSocialYear = useMemo(() => {
+    if (selectedYear == null) return [];
+    return events
+      .filter(
+        (e) =>
+          isSocialEventType(e.type) && dayjs(e.starts_at).year() === selectedYear
+      )
+      .sort((a, b) => {
+        const da = dayjs(a.starts_at);
+        const db = dayjs(b.starts_at);
+        return da.isBefore(db) ? -1 : da.isAfter(db) ? 1 : 0;
+      });
+  }, [events, selectedYear]);
+
   useEffect(() => {
     const checkAccess = async () => {
       setCheckingAccess(true);
@@ -538,13 +606,14 @@ export default function AdminFinancesPage() {
   }, [isSocialViewer, eventsView]);
 
   useEffect(() => {
-    if (eventsView === "overview") {
-      if (!years.length) {
+    if (eventsView === "overview" || eventsView === "social_overview") {
+      const yearList = eventsView === "social_overview" ? socialYears : years;
+      if (!yearList.length) {
         setSelectedYear(null);
         return;
       }
-      const ok = selectedYear != null && years.includes(selectedYear);
-      if (!ok) setSelectedYear(years[0]);
+      const ok = selectedYear != null && yearList.includes(selectedYear);
+      if (!ok) setSelectedYear(yearList[0]);
       return;
     }
     if (!filteredEvents.length) {
@@ -553,10 +622,15 @@ export default function AdminFinancesPage() {
     }
     const stillInList = selectedEvent && filteredEvents.some((e) => e.id === selectedEvent.id);
     if (!stillInList) setSelectedEvent(filteredEvents[0]);
-  }, [eventsView, filteredEvents, years, selectedYear, selectedEvent?.id]);
+  }, [eventsView, filteredEvents, years, socialYears, selectedYear, selectedEvent?.id]);
 
   useEffect(() => {
-    if (!canAccessFinances || eventsView === "overview" || !selectedEvent) {
+    if (
+      !canAccessFinances ||
+      eventsView === "overview" ||
+      eventsView === "social_overview" ||
+      !selectedEvent
+    ) {
       setSignups([]);
       setCompSignups([]);
       setIsCompEvent(false);
@@ -637,6 +711,16 @@ export default function AdminFinancesPage() {
       setEventMetrics(metrics);
       if (metrics) {
         setIsCompEvent(!!metrics.is_comp_event);
+      }
+      if (isSocialEventType(selectedEvent.type)) {
+        const sr = await fetch(
+          `/api/admin/the-social-finances?event_id=${encodeURIComponent(selectedEvent.id)}`,
+          { headers: { Authorization: `Bearer ${authToken}` } }
+        );
+        if (sr.ok) {
+          const socialJson = await sr.json();
+          setSocialFinances((socialJson.data ?? null) as TheSocialFinances | null);
+        }
       }
     } catch (e) {
       setSignupsError(e instanceof Error ? e.message : "Failed to refresh finance metrics");
@@ -852,7 +936,8 @@ export default function AdminFinancesPage() {
           }
           if (r.socialFinancesOverview) {
             const sf = r.socialFinancesOverview;
-            totalStudioRentals += Number(sf.venue_cost) || 0;
+            totalStudioRentals +=
+              (Number(sf.venue_cost) || 0) + (Number(sf.other_expense) || 0);
             totalSocialAllocatedProfits +=
               (Number(sf.brandon_profit) || 0) +
               (Number(sf.kyler_profit) || 0) +
@@ -907,7 +992,135 @@ export default function AdminFinancesPage() {
     };
 
     loadOverview();
-  }, [isFullAdmin, eventsView, selectedYear, eventsInSelectedYear]);
+  }, [isFullAdmin, eventsView, selectedYear, eventsInSelectedYear, authToken]);
+
+  useEffect(() => {
+    if (
+      !canAccessSocialOverview ||
+      eventsView !== "social_overview" ||
+      selectedYear == null ||
+      !eventsInSelectedSocialYear.length
+    ) {
+      setSocialOverviewStats(null);
+      setSocialOverviewFinances(null);
+      setSocialOverviewError(null);
+      return;
+    }
+
+    const loadSocialOverview = async () => {
+      setLoadingSocialOverview(true);
+      setSocialOverviewError(null);
+      try {
+        if (!authToken) {
+          setSocialOverviewError("Session expired. Please sign in again.");
+          setSocialOverviewStats(null);
+          setSocialOverviewFinances(null);
+          setLoadingSocialOverview(false);
+          return;
+        }
+
+        const eventIds = eventsInSelectedSocialYear.map((ev) => ev.id);
+        const metricsRes = await fetch(
+          `/api/admin/finance-metrics?event_ids=${encodeURIComponent(eventIds.join(","))}`,
+          { headers: { Authorization: `Bearer ${authToken}` } }
+        );
+        if (!metricsRes.ok) {
+          const body = await metricsRes.json().catch(() => ({}));
+          throw new Error(
+            (body as { error?: string })?.error || "Failed to load finance metrics"
+          );
+        }
+        const metricsJson = await metricsRes.json();
+        const metricsRows: EventFinanceMetrics[] = Array.isArray(metricsJson.data)
+          ? (metricsJson.data as EventFinanceMetrics[])
+          : [];
+        const metricsByEventId = new Map<string, EventFinanceMetrics>(
+          metricsRows.map((m) => [m.event_id, m])
+        );
+
+        const results = await Promise.all(
+          eventsInSelectedSocialYear.map(async (ev) => {
+            const m = metricsByEventId.get(ev.id);
+            const stats = {
+              totalSignups: Number(m?.total_signups ?? 0),
+              checkedIn: Number(m?.checked_in_count ?? 0),
+              cashTotal: Number(m?.cash_total ?? 0),
+              stripeTotal: Number(m?.stripe_total ?? 0),
+              otherTotal: Number(m?.other_total ?? 0),
+              ccsTeamCashTotal: Number(m?.ccs_team_cash_total ?? 0),
+              ccsTeamStripeTotal: Number(m?.ccs_team_stripe_total ?? 0),
+              ccsTeamTotal: Number(m?.ccs_team_total ?? 0),
+              stripeTaxesFees: Number(m?.stripe_taxes_fees_total ?? 0),
+              freeViaPromoCount: Number(m?.free_via_promo_count ?? 0),
+              revenueFromCoupons: Number(m?.revenue_from_coupons ?? 0),
+            };
+
+            let socialFinancesOverview: TheSocialFinances | null = null;
+            const sr = await fetch(`/api/admin/the-social-finances?event_id=${ev.id}`, {
+              headers: { Authorization: `Bearer ${authToken}` },
+            });
+            if (sr.ok) {
+              const { data } = await sr.json();
+              socialFinancesOverview = data ?? null;
+            }
+
+            return { stats, socialFinancesOverview };
+          })
+        );
+
+        setSocialOverviewStats(aggregateStats(results.map((r) => r.stats)));
+
+        let totalVenueCost = 0;
+        let totalOtherExpense = 0;
+        let totalBrandon = 0;
+        let totalKyler = 0;
+        let totalIsaiah = 0;
+        let totalCcs = 0;
+        let totalCcsCash = 0;
+
+        for (const r of results) {
+          if (!r.socialFinancesOverview) continue;
+          const sf = r.socialFinancesOverview;
+          totalVenueCost += Number(sf.venue_cost) || 0;
+          totalOtherExpense += Number(sf.other_expense) || 0;
+          totalBrandon += Number(sf.brandon_profit) || 0;
+          totalKyler += Number(sf.kyler_profit) || 0;
+          totalIsaiah += Number(sf.isaiah_profit) || 0;
+          totalCcs += Number(sf.ccs_profit) || 0;
+          totalCcsCash += Number(sf.ccs_cash_profit) || 0;
+        }
+
+        const totalSocialAllocatedProfits = totalBrandon + totalKyler + totalIsaiah;
+
+        setSocialOverviewFinances({
+          totalVenueCost: Math.round(totalVenueCost * 100) / 100,
+          totalOtherExpense: Math.round(totalOtherExpense * 100) / 100,
+          totalBrandon: Math.round(totalBrandon * 100) / 100,
+          totalKyler: Math.round(totalKyler * 100) / 100,
+          totalIsaiah: Math.round(totalIsaiah * 100) / 100,
+          totalCcs: Math.round(totalCcs * 100) / 100,
+          totalCcsCash: Math.round(totalCcsCash * 100) / 100,
+          totalSocialAllocatedProfits: Math.round(totalSocialAllocatedProfits * 100) / 100,
+        });
+      } catch (e) {
+        setSocialOverviewError(
+          e instanceof Error ? e.message : "Connection failed. Check your network and try again."
+        );
+        setSocialOverviewStats(null);
+        setSocialOverviewFinances(null);
+      } finally {
+        setLoadingSocialOverview(false);
+      }
+    };
+
+    loadSocialOverview();
+  }, [
+    canAccessSocialOverview,
+    eventsView,
+    selectedYear,
+    eventsInSelectedSocialYear,
+    authToken,
+  ]);
 
   const isNashvilleEvent = isNashvilleNightTitle(selectedEvent?.title);
   const selectedType = (selectedEvent?.type ?? "").trim().toLowerCase();
@@ -921,6 +1134,7 @@ export default function AdminFinancesPage() {
     if (
       !isFullAdmin ||
       eventsView === "overview" ||
+      eventsView === "social_overview" ||
       !selectedEvent ||
       !usesNashvilleFinanceRecord
     ) {
@@ -973,7 +1187,13 @@ export default function AdminFinancesPage() {
   ]);
 
   useEffect(() => {
-    if (!isFullAdmin || eventsView === "overview" || !selectedEvent || !isClassEvent) {
+    if (
+      !isFullAdmin ||
+      eventsView === "overview" ||
+      eventsView === "social_overview" ||
+      !selectedEvent ||
+      !isClassEvent
+    ) {
       setFinanceInstructors([]);
       setClassBeginnerLeadDefault("Beginner Teacher 1");
       setClassBeginnerFollowDefault("Beginner Teacher 2");
@@ -1038,6 +1258,7 @@ export default function AdminFinancesPage() {
     if (
       !isFullAdmin ||
       eventsView === "overview" ||
+      eventsView === "social_overview" ||
       !selectedEvent ||
       !usesWorkshopFinancesBreakdown ||
       isNashvilleEvent
@@ -1091,7 +1312,13 @@ export default function AdminFinancesPage() {
   ]);
 
   useEffect(() => {
-    if (!canAccessFinances || eventsView === "overview" || !selectedEvent || !isSocialEvent) {
+    if (
+      !canAccessFinances ||
+      eventsView === "overview" ||
+      eventsView === "social_overview" ||
+      !selectedEvent ||
+      !isSocialEvent
+    ) {
       setSocialFinances(null);
       setSocialError(null);
       return;
@@ -1138,6 +1365,7 @@ export default function AdminFinancesPage() {
     if (
       !isFullAdmin ||
       eventsView === "overview" ||
+      eventsView === "social_overview" ||
       !selectedEvent ||
       !isCompEvent
     ) {
@@ -1255,12 +1483,13 @@ export default function AdminFinancesPage() {
   const patchSocial = useCallback(
     async (updates: {
       venue_cost?: number;
+      other_expense?: number;
+      other_expense_comment?: string | null;
       brandon_split_ratio?: number;
       kyler_split_ratio?: number;
       isaiah_split_ratio?: number;
       brandon_profit?: number;
       kyler_profit?: number;
-      isaiah_profit?: number;
       mark_brandon_paid?: boolean;
       mark_kyler_paid?: boolean;
       mark_isaiah_paid?: boolean;
@@ -1349,6 +1578,8 @@ export default function AdminFinancesPage() {
   const stats =
     eventsView === "overview" && overviewStats
       ? overviewStats
+      : eventsView === "social_overview" && socialOverviewStats
+      ? socialOverviewStats
       : eventMetrics
         ? {
             totalSignups: eventMetrics.total_signups,
@@ -1518,12 +1749,14 @@ export default function AdminFinancesPage() {
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
           <div className="rounded-xl border border-neutral-700 bg-neutral-800/30 p-2">
             <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-neutral-500">
-              {eventsView === "overview" ? "Year" : "Events"}
+              {eventsView === "overview" || eventsView === "social_overview"
+                ? "Year"
+                : "Events"}
             </p>
             <div
               role="group"
-              aria-label="Upcoming, past, or overview by year"
-              className="mb-3 flex rounded-lg border border-primary/40 bg-neutral-900/80 p-0.5 ring-1 ring-primary/20"
+              aria-label="Upcoming, past, overview, or social overview by year"
+              className="mb-3 flex flex-wrap rounded-lg border border-primary/40 bg-neutral-900/80 p-0.5 ring-1 ring-primary/20"
             >
               <button
                 type="button"
@@ -1560,6 +1793,19 @@ export default function AdminFinancesPage() {
                   Overview
                 </button>
               )}
+              {canAccessSocialOverview && (
+                <button
+                  type="button"
+                  onClick={() => setEventsView("social_overview")}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
+                    eventsView === "social_overview"
+                      ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
+                      : "text-primary/70 hover:bg-primary/15 hover:text-primary"
+                  }`}
+                >
+                  Social
+                </button>
+              )}
             </div>
             {eventsView === "overview" && isFullAdmin ? (
               !years.length ? (
@@ -1582,6 +1828,32 @@ export default function AdminFinancesPage() {
                       <div className="mt-0.5 text-xs text-neutral-500">
                         {eventCountByYear.get(y) ?? 0} event
                         {(eventCountByYear.get(y) ?? 0) === 1 ? "" : "s"}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : eventsView === "social_overview" && canAccessSocialOverview ? (
+              !socialYears.length ? (
+                <p className="px-2 py-4 text-center text-sm text-neutral-500">
+                  No years with social events
+                </p>
+              ) : (
+                <div className="max-h-[380px] space-y-0.5 overflow-y-auto">
+                  {socialYears.map((y) => (
+                    <button
+                      key={y}
+                      onClick={() => setSelectedYear(y)}
+                      className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition ${
+                        selectedYear === y
+                          ? "bg-neutral-700 text-primary"
+                          : "text-neutral-300 hover:bg-neutral-700/50 hover:text-white"
+                      }`}
+                    >
+                      <div className="font-medium">{y}</div>
+                      <div className="mt-0.5 text-xs text-neutral-500">
+                        {socialEventCountByYear.get(y) ?? 0} social event
+                        {(socialEventCountByYear.get(y) ?? 0) === 1 ? "" : "s"}
                       </div>
                     </button>
                   ))}
@@ -1900,7 +2172,7 @@ export default function AdminFinancesPage() {
                                   ${overviewFinances.totalSocialAllocatedProfits.toFixed(2)}
                                 </p>
                                 <p className="mt-0.5 text-xs text-neutral-500">
-                                  Sum of Brandon + Kyler + Isaiah allocations from Social events
+                                  Sum of Brandon + Kyler + Isaiah from Social events
                                 </p>
                               </div>
                             )}
@@ -2054,6 +2326,257 @@ export default function AdminFinancesPage() {
                         </>
                       )}
                     </>
+                  ) : null}
+                </>
+              )
+            ) : eventsView === "social_overview" ? (
+              selectedYear == null ? (
+                <p className="text-neutral-400">Select a year.</p>
+              ) : (
+                <>
+                  <div className="mb-6">
+                    <h2 className="text-lg font-semibold text-white">
+                      {selectedYear} social overview
+                    </h2>
+                    <p className="text-sm text-neutral-500">
+                      Totals across {eventsInSelectedSocialYear.length} social event
+                      {eventsInSelectedSocialYear.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+
+                  {loadingSocialOverview ? (
+                    <div className="flex min-h-[180px] items-center justify-center text-neutral-400">
+                      Loading…
+                    </div>
+                  ) : socialOverviewError ? (
+                    <div className="rounded-lg border border-primary/50 bg-primary/10 px-4 py-4 text-primary">
+                      <p className="font-medium">{socialOverviewError}</p>
+                    </div>
+                  ) : socialOverviewStats && socialOverviewFinances ? (
+                    <>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Signed up
+                          </p>
+                          <p className="mt-1 text-2xl font-bold text-white">
+                            {socialOverviewStats.totalSignups}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Checked in
+                          </p>
+                          <p className="mt-1 text-2xl font-bold text-white">
+                            {socialOverviewStats.checkedIn}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Cash
+                          </p>
+                          <p className="mt-1 text-2xl font-bold text-white">
+                            ${socialOverviewStats.cashTotal.toFixed(2)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Stripe
+                          </p>
+                          <p className="mt-1 text-2xl font-bold text-white">
+                            ${socialOverviewStats.stripeTotal.toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-6 flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/30 px-4 py-3">
+                        <span className="text-sm font-medium text-neutral-300">
+                          Gross income (Cash + Stripe + Other + CCS TEAM)
+                        </span>
+                        <span className="text-lg font-bold text-primary">
+                          $
+                          {(
+                            socialOverviewStats.cashTotal +
+                            socialOverviewStats.stripeTotal +
+                            (socialOverviewStats.otherTotal ?? 0) +
+                            (socialOverviewStats.ccsTeamTotal ?? 0)
+                          ).toFixed(2)}
+                        </span>
+                      </div>
+
+                      {socialOverviewStats.stripeTaxesFees > 0 && (
+                        <div className="mt-6 rounded-lg border border-accent/30 bg-neutral-800/40 px-4 py-4">
+                          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-accent">
+                            Stripe taxes &amp; fees ({selectedYear})
+                          </h3>
+                          <p className="text-lg font-bold text-white">
+                            ${socialOverviewStats.stripeTaxesFees.toFixed(2)}
+                          </p>
+                        </div>
+                      )}
+
+                      <h3 className="mt-8 mb-3 text-base font-semibold text-white">
+                        Social payouts &amp; expenses ({selectedYear})
+                      </h3>
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Total venue cost
+                          </p>
+                          <p className="mt-1 text-xl font-bold text-neutral-300">
+                            ${socialOverviewFinances.totalVenueCost.toFixed(2)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Brandon (planned)
+                          </p>
+                          <p className="mt-1 text-xl font-bold text-primary">
+                            ${socialOverviewFinances.totalBrandon.toFixed(2)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Kyler (planned)
+                          </p>
+                          <p className="mt-1 text-xl font-bold text-primary">
+                            ${socialOverviewFinances.totalKyler.toFixed(2)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Isaiah (cash, capped at %)
+                          </p>
+                          <p className="mt-1 text-xl font-bold text-primary">
+                            ${socialOverviewFinances.totalIsaiah.toFixed(2)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            CCS (Isaiah % remainder)
+                          </p>
+                          <p className="mt-1 text-xl font-bold text-yellow-400">
+                            ${socialOverviewFinances.totalCcs.toFixed(2)}
+                          </p>
+                          <p className="mt-1 text-xs text-neutral-500">
+                            Non-cash portion of Isaiah&apos;s share — not in money out
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            CCS-Cash (records)
+                          </p>
+                          <p className="mt-1 text-xl font-bold text-yellow-400">
+                            ${socialOverviewFinances.totalCcsCash.toFixed(2)}
+                          </p>
+                          <p className="mt-1 text-xs text-neutral-500">
+                            Cash to CCS — not added to money out (already in splits above)
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-8 rounded-xl border border-primary/30 bg-neutral-800/50 p-6 ring-1 ring-primary/20">
+                        <h3 className="mb-4 text-base font-semibold text-primary">
+                          {selectedYear} social year summary
+                        </h3>
+                        <div className="space-y-4 text-sm">
+                          <div>
+                            <p className="mb-2 font-medium uppercase tracking-wider text-neutral-500">
+                              Money in
+                            </p>
+                            <div className="rounded-lg border border-neutral-700 bg-neutral-900/40 p-4">
+                              <div className="flex items-center justify-between text-neutral-300">
+                                <span>Social event revenue</span>
+                                <span className="font-semibold text-white">
+                                  $
+                                  {(
+                                    socialOverviewStats.cashTotal +
+                                    socialOverviewStats.stripeTotal +
+                                    (socialOverviewStats.otherTotal ?? 0) +
+                                    (socialOverviewStats.ccsTeamTotal ?? 0)
+                                  ).toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="mb-2 font-medium uppercase tracking-wider text-neutral-500">
+                              Money out
+                            </p>
+                            <div className="space-y-1.5 rounded-lg border border-neutral-700 bg-neutral-900/40 p-4">
+                              <div className="flex items-center justify-between text-neutral-300">
+                                <span>Venue cost</span>
+                                <span className="font-semibold text-white">
+                                  −${socialOverviewFinances.totalVenueCost.toFixed(2)}
+                                </span>
+                              </div>
+                              {socialOverviewFinances.totalOtherExpense > 0 && (
+                                <div className="flex items-center justify-between text-neutral-300">
+                                  <span>Other expenses</span>
+                                  <span className="font-semibold text-white">
+                                    −${socialOverviewFinances.totalOtherExpense.toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
+                              <div className="flex items-center justify-between text-neutral-300">
+                                <span>Brandon</span>
+                                <span className="font-semibold text-white">
+                                  −${socialOverviewFinances.totalBrandon.toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-neutral-300">
+                                <span>Kyler</span>
+                                <span className="font-semibold text-white">
+                                  −${socialOverviewFinances.totalKyler.toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-neutral-300">
+                                <span>Isaiah (cash)</span>
+                                <span className="font-semibold text-white">
+                                  −${socialOverviewFinances.totalIsaiah.toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="my-2 border-t border-neutral-700" />
+                              <div className="flex items-center justify-between font-medium text-white">
+                                <span>Total money out</span>
+                                <span>
+                                  −$
+                                  {(
+                                    socialOverviewFinances.totalVenueCost +
+                                    socialOverviewFinances.totalOtherExpense +
+                                    socialOverviewFinances.totalSocialAllocatedProfits
+                                  ).toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="rounded-lg border-2 border-primary/50 bg-primary/10 px-4 py-4">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold text-primary">
+                                Net after social payouts
+                              </span>
+                              <span className="text-xl font-bold text-primary">
+                                $
+                                {(
+                                  socialOverviewStats.cashTotal +
+                                  socialOverviewStats.stripeTotal +
+                                  (socialOverviewStats.otherTotal ?? 0) +
+                                  (socialOverviewStats.ccsTeamTotal ?? 0) -
+                                  socialOverviewFinances.totalVenueCost -
+                                  socialOverviewFinances.totalOtherExpense -
+                                  socialOverviewFinances.totalSocialAllocatedProfits
+                                ).toFixed(2)}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-neutral-500">
+                              Money in − venue − other expenses − Brandon / Kyler / Isaiah
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  ) : eventsInSelectedSocialYear.length === 0 ? (
+                    <p className="text-neutral-400">No social events in this year.</p>
                   ) : null}
                 </>
               )
@@ -2407,6 +2930,11 @@ export default function AdminFinancesPage() {
                           (stats.otherTotal ?? 0) +
                           (stats.ccsTeamTotal ?? 0)
                         }
+                        cashTotal={stats.cashTotal}
+                        stripeTotal={stats.stripeTotal}
+                        otherTotal={stats.otherTotal ?? 0}
+                        ccsTeamTotal={stats.ccsTeamTotal ?? 0}
+                        stripeTaxesFees={stats.stripeTaxesFees ?? 0}
                         social={socialFinances}
                         loading={loadingSocial}
                         error={socialError}
@@ -2432,6 +2960,11 @@ function roundMoney(n: number): number {
 
 function SocialBreakdown({
   computedTotalRevenue,
+  cashTotal,
+  stripeTotal,
+  otherTotal,
+  ccsTeamTotal,
+  stripeTaxesFees = 0,
   social,
   loading,
   error,
@@ -2440,6 +2973,11 @@ function SocialBreakdown({
   onPatch,
 }: {
   computedTotalRevenue: number;
+  cashTotal: number;
+  stripeTotal: number;
+  otherTotal: number;
+  ccsTeamTotal: number;
+  stripeTaxesFees?: number;
   social: TheSocialFinances | null;
   loading: boolean;
   error: string | null;
@@ -2447,56 +2985,143 @@ function SocialBreakdown({
   readOnly?: boolean;
   onPatch: (u: {
     venue_cost?: number;
+    other_expense?: number;
+    other_expense_comment?: string | null;
     brandon_split_ratio?: number;
     kyler_split_ratio?: number;
     isaiah_split_ratio?: number;
     brandon_profit?: number;
     kyler_profit?: number;
-    isaiah_profit?: number;
     mark_brandon_paid?: boolean;
     mark_kyler_paid?: boolean;
     mark_isaiah_paid?: boolean;
   }) => Promise<void>;
 }) {
   const [venueInput, setVenueInput] = useState("0");
+  const [otherExpenseInput, setOtherExpenseInput] = useState("0");
+  const [otherExpenseCommentInput, setOtherExpenseCommentInput] = useState("");
   const [brandonPct, setBrandonPct] = useState("20");
   const [kylerPct, setKylerPct] = useState("30");
   const [isaiahPct, setIsaiahPct] = useState("50");
   const [brandonProfitIn, setBrandonProfitIn] = useState("0");
   const [kylerProfitIn, setKylerProfitIn] = useState("0");
-  const [isaiahProfitIn, setIsaiahProfitIn] = useState("0");
 
   useEffect(() => {
     if (social) {
       setVenueInput(String(Number(social.venue_cost)));
+      setOtherExpenseInput(String(Number(social.other_expense ?? 0)));
+      setOtherExpenseCommentInput(social.other_expense_comment ?? "");
       setBrandonPct(String(Math.round(Number(social.brandon_split_ratio) * 100)));
       setKylerPct(String(Math.round(Number(social.kyler_split_ratio) * 100)));
       setIsaiahPct(String(Math.round(Number(social.isaiah_split_ratio) * 100)));
       setBrandonProfitIn(String(Number(social.brandon_profit)));
       setKylerProfitIn(String(Number(social.kyler_profit)));
-      setIsaiahProfitIn(String(Number(social.isaiah_profit)));
       return;
     }
-    setVenueInput("0");
+    setVenueInput(String(DEFAULT_SOCIAL_VENUE_COST));
+    setOtherExpenseInput("0");
+    setOtherExpenseCommentInput("");
     setBrandonPct("20");
     setKylerPct("30");
     setIsaiahPct("50");
-    const rem = Math.max(0, computedTotalRevenue);
-    setBrandonProfitIn(String(roundMoney(rem * 0.2)));
-    setKylerProfitIn(String(roundMoney(rem * 0.3)));
-    setIsaiahProfitIn(String(roundMoney(rem * 0.5)));
-  }, [social, computedTotalRevenue]);
+    const split = computeSocialSplit({
+      totalRevenue: computedTotalRevenue,
+      cashTotal,
+      venueCost: DEFAULT_SOCIAL_VENUE_COST,
+      otherExpense: 0,
+      brandonRatio: 0.2,
+      kylerRatio: 0.3,
+      isaiahRatio: 0.5,
+    });
+    setBrandonProfitIn(String(split.brandon_profit));
+    setKylerProfitIn(String(split.kyler_profit));
+  }, [social, computedTotalRevenue, cashTotal]);
 
   const venueNum = Math.max(0, parseFloat(venueInput) || 0);
-  const remaining = Math.max(0, roundMoney(computedTotalRevenue - venueNum));
+  const otherExpenseNum = Math.max(0, parseFloat(otherExpenseInput) || 0);
+  const remaining = Math.max(
+    0,
+    roundMoney(computedTotalRevenue - venueNum - otherExpenseNum)
+  );
   const sumSplitPct =
     (parseFloat(brandonPct) || 0) + (parseFloat(kylerPct) || 0) + (parseFloat(isaiahPct) || 0);
   const splitWarning = Math.abs(sumSplitPct - 100) > 0.05;
+
+  const bProf = parseFloat(brandonProfitIn) || 0;
+  const kProf = parseFloat(kylerProfitIn) || 0;
+  const splitPreview = useMemo(
+    () =>
+      computeSocialSplit({
+        totalRevenue: computedTotalRevenue,
+        cashTotal,
+        venueCost: venueNum,
+        otherExpense: otherExpenseNum,
+        brandonRatio: (parseFloat(brandonPct) || 0) / 100,
+        kylerRatio: (parseFloat(kylerPct) || 0) / 100,
+        isaiahRatio: (parseFloat(isaiahPct) || 0) / 100,
+        brandonProfitOverride: bProf,
+        kylerProfitOverride: kProf,
+      }),
+    [
+      computedTotalRevenue,
+      cashTotal,
+      venueNum,
+      otherExpenseNum,
+      brandonPct,
+      kylerPct,
+      isaiahPct,
+      bProf,
+      kProf,
+    ]
+  );
+  const iProf = splitPreview.isaiah_profit;
+  const ccsProf = splitPreview.ccs_profit;
+  const ccsCashProf = splitPreview.ccs_cash_profit;
+  const isaiahNominal = splitPreview.isaiah_nominal;
+  const cashPayoutSum = roundMoney(bProf + kProf + iProf + ccsCashProf);
+  const cashReconciliation = roundMoney(cashTotal - cashPayoutSum);
+  const totalExpenses = roundMoney(venueNum + otherExpenseNum);
+  const totalPayouts = roundMoney(bProf + kProf + iProf + ccsProf);
+  const reconciliationDiff = roundMoney(computedTotalRevenue - totalExpenses - totalPayouts);
+
+  const expenseLines = useMemo(() => {
+    const lines: { label: string; value: number }[] = [
+      { label: "Venue cost", value: venueNum },
+    ];
+    if (otherExpenseNum > 0) {
+      const comment = otherExpenseCommentInput.trim();
+      lines.push({
+        label: comment ? `Other expense (${comment})` : "Other expense",
+        value: otherExpenseNum,
+      });
+    }
+    return lines;
+  }, [venueNum, otherExpenseNum, otherExpenseCommentInput]);
+
+  const payoutLines = useMemo(
+    () => [
+      { label: "Brandon", value: bProf },
+      { label: "Kyler", value: kProf },
+      { label: "Isaiah (cash)", value: iProf },
+      { label: "CCS (Isaiah % remainder)", value: ccsProf },
+    ],
+    [bProf, kProf, iProf, ccsProf]
+  );
 
   const saveVenue = useCallback(() => {
     const v = parseFloat(venueInput);
     if (!Number.isNaN(v) && v >= 0) onPatch({ venue_cost: roundMoney(v) });
   }, [venueInput, onPatch]);
+
+  const saveOtherExpense = useCallback(() => {
+    const trimmed = otherExpenseInput.trim();
+    const v = trimmed === "" ? 0 : parseFloat(trimmed);
+    if (!Number.isNaN(v) && v >= 0) onPatch({ other_expense: roundMoney(v) });
+  }, [otherExpenseInput, onPatch]);
+
+  const saveOtherExpenseComment = useCallback(() => {
+    onPatch({ other_expense_comment: otherExpenseCommentInput.trim() || null });
+  }, [otherExpenseCommentInput, onPatch]);
 
   const saveSplits = useCallback(() => {
     const b = (parseFloat(brandonPct) || 0) / 100;
@@ -2518,15 +3143,6 @@ function SocialBreakdown({
     const v = parseFloat(kylerProfitIn);
     if (!Number.isNaN(v) && v >= 0) onPatch({ kyler_profit: roundMoney(v) });
   }, [kylerProfitIn, onPatch]);
-  const saveIsaiahProfit = useCallback(() => {
-    const v = parseFloat(isaiahProfitIn);
-    if (!Number.isNaN(v) && v >= 0) onPatch({ isaiah_profit: roundMoney(v) });
-  }, [isaiahProfitIn, onPatch]);
-
-  const bProf = parseFloat(brandonProfitIn) || 0;
-  const kProf = parseFloat(kylerProfitIn) || 0;
-  const iProf = parseFloat(isaiahProfitIn) || 0;
-  const reconciliation = roundMoney(remaining - bProf - kProf - iProf);
 
   if (loading) {
     return (
@@ -2570,10 +3186,57 @@ function SocialBreakdown({
           )}
         </div>
 
+        <div className="space-y-3 rounded-lg border border-neutral-700/80 bg-neutral-800/40 p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-sm font-medium text-neutral-300">Other expense</label>
+            {readOnly ? (
+              <span className="text-lg font-bold text-white">${otherExpenseNum.toFixed(2)}</span>
+            ) : (
+              <div className="flex items-baseline gap-1">
+                <span className="text-neutral-500">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={otherExpenseInput}
+                  onChange={(e) => setOtherExpenseInput(e.target.value)}
+                  onBlur={saveOtherExpense}
+                  disabled={saving}
+                  className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                />
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-neutral-400">
+              Comment (what was this expense for?)
+            </label>
+            {readOnly ? (
+              <p className="text-sm text-neutral-300 whitespace-pre-wrap">
+                {otherExpenseCommentInput.trim()
+                  ? otherExpenseCommentInput
+                  : "—"}
+              </p>
+            ) : (
+              <textarea
+                rows={2}
+                value={otherExpenseCommentInput}
+                onChange={(e) => setOtherExpenseCommentInput(e.target.value)}
+                onBlur={saveOtherExpenseComment}
+                disabled={saving}
+                placeholder="e.g. Supplies, DJ fee, etc."
+                className="w-full max-w-xl rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+              />
+            )}
+          </div>
+        </div>
+
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium text-neutral-300">Distributable</span>
           <span className="text-lg font-bold text-white">${remaining.toFixed(2)}</span>
-          <span className="text-xs text-neutral-500">(Combined revenue − Venue cost)</span>
+          <span className="text-xs text-neutral-500">
+            (Combined revenue − Venue cost − Other expense)
+          </span>
         </div>
 
         {splitWarning && (
@@ -2664,22 +3327,171 @@ function SocialBreakdown({
         />
         <SocialPersonRow
           label="Isaiah"
-          profitInput={isaiahProfitIn}
-          onProfitChange={setIsaiahProfitIn}
-          onProfitBlur={saveIsaiahProfit}
+          profitInput={String(iProf)}
+          onProfitChange={() => {}}
+          onProfitBlur={() => {}}
           paidAt={social?.isaiah_paid_at ?? null}
           onMarkPaid={() => onPatch({ mark_isaiah_paid: true })}
           saving={saving}
+          amountReadOnly
           readOnly={readOnly}
+          subtitle={`Cash toward Isaiah (max ${isaiahNominal.toFixed(2)} at ${isaiahPct}% of distributable)`}
         />
+        <div className="flex flex-wrap items-center gap-4 rounded-lg border border-yellow-500/30 bg-neutral-800/50 p-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium uppercase tracking-wider text-yellow-500/90">CCS</p>
+            <p className="mt-1 text-xl font-semibold text-yellow-400">${ccsProf.toFixed(2)}</p>
+            <p className="mt-1 text-xs text-neutral-500">
+              Non-cash portion of Isaiah&apos;s share (nominal ${isaiahNominal.toFixed(2)} − cash to Isaiah)
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-4 rounded-lg border border-yellow-500/30 bg-neutral-800/50 p-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium uppercase tracking-wider text-yellow-500/90">CCS-Cash</p>
+            <p className="mt-1 text-xl font-semibold text-yellow-400">${ccsCashProf.toFixed(2)}</p>
+            <p className="mt-1 text-xs text-neutral-500">
+              Cash left after Brandon, Kyler, and Isaiah are paid
+            </p>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-6 rounded-lg border border-neutral-700 bg-neutral-900/40 px-4 py-3 text-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-neutral-400">Reconciliation (distributable − splits)</span>
-          <span className={`font-semibold ${Math.abs(reconciliation) < 0.02 ? "text-emerald-400" : "text-amber-300"}`}>
-            ${reconciliation.toFixed(2)}
-          </span>
+      <div className="mt-6 rounded-lg border border-neutral-700 bg-neutral-900/40 p-4">
+        <p className="mb-3 text-sm font-medium uppercase tracking-wider text-neutral-500">
+          Itemized reconciliation
+        </p>
+        <div className="space-y-4 text-sm">
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-neutral-500">
+              Total income
+            </p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-neutral-300">
+                <span>Cash</span>
+                <span className="font-semibold text-white">${cashTotal.toFixed(2)}</span>
+              </div>
+              <div className="flex items-center justify-between text-neutral-300">
+                <span>Stripe</span>
+                <span className="font-semibold text-white">${stripeTotal.toFixed(2)}</span>
+              </div>
+              {otherTotal > 0 && (
+                <div className="flex items-center justify-between text-neutral-300">
+                  <span>Other</span>
+                  <span className="font-semibold text-white">${otherTotal.toFixed(2)}</span>
+                </div>
+              )}
+              {ccsTeamTotal > 0 && (
+                <div className="flex items-center justify-between text-neutral-300">
+                  <span>CCS TEAM</span>
+                  <span className="font-semibold text-white">${ccsTeamTotal.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="my-2 border-t border-neutral-800" />
+              <div className="flex items-center justify-between font-medium text-white">
+                <span>Total income</span>
+                <span>${computedTotalRevenue.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-neutral-500">
+              Expenses
+            </p>
+            <div className="space-y-2">
+              {expenseLines.map((line) => (
+                <div
+                  key={line.label}
+                  className="flex items-center justify-between text-neutral-300"
+                >
+                  <span>{line.label}</span>
+                  <span className="font-semibold text-white">−${line.value.toFixed(2)}</span>
+                </div>
+              ))}
+              <div className="my-2 border-t border-neutral-800" />
+              <div className="flex items-center justify-between font-medium text-white">
+                <span>Total expenses</span>
+                <span>−${totalExpenses.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border border-neutral-700/80 bg-neutral-800/40 px-3 py-2 text-neutral-300">
+            <span>Distributable (income − expenses)</span>
+            <span className="font-semibold text-white">${remaining.toFixed(2)}</span>
+          </div>
+
+          <div>
+            <p className="mb-2 text-xs font-medium uppercase tracking-wider text-neutral-500">
+              Payouts
+            </p>
+            <div className="space-y-2">
+              {payoutLines.map((line) => (
+                <div
+                  key={line.label}
+                  className="flex items-center justify-between text-neutral-300"
+                >
+                  <span>{line.label}</span>
+                  <span
+                    className={`font-semibold ${
+                      line.label.startsWith("CCS") ? "text-yellow-400" : "text-primary"
+                    }`}
+                  >
+                    ${line.value.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+              <div className="my-2 border-t border-neutral-800" />
+              <div className="flex items-center justify-between font-medium text-white">
+                <span>Total payouts</span>
+                <span>${totalPayouts.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="my-2 border-t border-neutral-800" />
+          <div className="flex items-center justify-between">
+            <span className="text-neutral-300">Income − expenses − payouts</span>
+            <span
+              className={`font-semibold ${
+                Math.abs(reconciliationDiff) < 0.02 ? "text-emerald-400" : "text-amber-300"
+              }`}
+            >
+              ${reconciliationDiff.toFixed(2)}
+            </span>
+          </div>
+
+          <div className="rounded-lg border border-neutral-700/80 bg-neutral-800/30 p-3 space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+              Cash only
+            </p>
+            <div className="flex items-center justify-between text-neutral-300">
+              <span>Cash collected</span>
+              <span className="font-semibold text-white">${cashTotal.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between text-neutral-300">
+              <span>Cash payouts (Brandon + Kyler + Isaiah + CCS-Cash)</span>
+              <span className="font-semibold text-white">${cashPayoutSum.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-neutral-400">Cash remaining</span>
+              <span
+                className={`font-semibold ${
+                  Math.abs(cashReconciliation) < 0.02 ? "text-emerald-400" : "text-amber-300"
+                }`}
+              >
+                ${cashReconciliation.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {stripeTaxesFees > 0 && (
+            <div className="flex items-center justify-between text-neutral-300">
+              <span>Taxes/Fees (to remain in bank)</span>
+              <span className="font-semibold text-accent">${stripeTaxesFees.toFixed(2)}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -2695,6 +3507,8 @@ function SocialPersonRow({
   onMarkPaid,
   saving,
   readOnly = false,
+  amountReadOnly = false,
+  subtitle,
 }: {
   label: string;
   profitInput: string;
@@ -2703,13 +3517,17 @@ function SocialPersonRow({
   paidAt: string | null;
   onMarkPaid: () => void;
   saving: boolean;
+  /** Disables Mark paid (e.g. social_viewer). */
   readOnly?: boolean;
+  /** Shows amount as text only (e.g. computed Isaiah payout). */
+  amountReadOnly?: boolean;
+  subtitle?: string;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">{label}</p>
-        {readOnly ? (
+        {amountReadOnly ? (
           <p className="mt-1 text-xl font-semibold text-white">
             ${(parseFloat(profitInput) || 0).toFixed(2)}
           </p>
@@ -2729,7 +3547,8 @@ function SocialPersonRow({
           </div>
         )}
         <p className="mt-1 text-xs text-neutral-500">
-          {readOnly ? "Profit allocation" : "Profit allocation (editable)"}
+          {subtitle ??
+            (amountReadOnly ? "Profit allocation" : "Profit allocation (editable)")}
         </p>
       </div>
       <div className="shrink-0">

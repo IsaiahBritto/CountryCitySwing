@@ -16,7 +16,7 @@ import {
   type MarkPaidRoute,
   type PaymentDueRow,
   type PaymentsDueByEvent,
-} from "@/lib/financePaymentsDue";
+} from "@/lib/financePaymentsDueTypes";
 
 type FinanceAccessLevel = "admin" | "social_viewer";
 

@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseServer
       .from("workshop_finances")
-      .select("id,event_id,studio_cost,total_override,guest_instructor_amount,ccs_amount,updated_at")
+      .select("id,event_id,studio_cost,total_override,guest_instructor_amount,ccs_amount,guest_instructor_paid_at,updated_at")
       .eq("event_id", eventId)
       .maybeSingle();
 
@@ -52,6 +52,7 @@ export async function PATCH(req: NextRequest) {
       total_override: totalOverride,
       guest_instructor_amount: guestInstructorAmount,
       ccs_amount: ccsAmount,
+      mark_guest_instructor_paid: markGuestInstructorPaid,
     } = body;
 
     if (!eventId) {
@@ -85,6 +86,9 @@ export async function PATCH(req: NextRequest) {
     if ("total_override" in body) updates.total_override = typeof totalOverride === "number" ? totalOverride : null;
     if ("guest_instructor_amount" in body) updates.guest_instructor_amount = typeof guestInstructorAmount === "number" ? guestInstructorAmount : null;
     if ("ccs_amount" in body) updates.ccs_amount = typeof ccsAmount === "number" ? ccsAmount : null;
+    if (markGuestInstructorPaid === true) {
+      updates.guest_instructor_paid_at = now;
+    }
 
     // If guest_instructor_amount or ccs_amount are still unset, compute 90/10 from (total - studio) when we have both values
     const effectiveTotal = (updates.total_override as number | null | undefined) ?? existing?.total_override ?? null;

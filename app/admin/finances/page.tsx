@@ -11,6 +11,12 @@ import {
 } from "@/lib/socialFinancesConstants";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { computeNashvillePayouts } from "@/lib/utils/nashvillePayouts";
+import {
+  guestInstructorNameFromEventTitle,
+  type MarkPaidRoute,
+  type PaymentDueRow,
+  type PaymentsDueByEvent,
+} from "@/lib/financePaymentsDue";
 
 type FinanceAccessLevel = "admin" | "social_viewer";
 
@@ -62,6 +68,7 @@ interface WorkshopFinances {
   total_override: number | null;
   guest_instructor_amount: number | null;
   ccs_amount: number | null;
+  guest_instructor_paid_at: string | null;
   updated_at: string;
 }
 
@@ -122,7 +129,27 @@ interface ScheduleSlotLite {
   } | null;
 }
 
-type EventsView = "upcoming" | "past" | "overview" | "social_overview";
+type EventsView =
+  | "upcoming"
+  | "past"
+  | "overview"
+  | "social_overview"
+  | "payments_due";
+
+function isYearOrAggregateView(view: EventsView): boolean {
+  return view === "overview" || view === "social_overview";
+}
+
+function skipsEventDetailView(view: EventsView): boolean {
+  return isYearOrAggregateView(view) || view === "payments_due";
+}
+
+const MARK_PAID_API_BASE: Record<MarkPaidRoute, string> = {
+  "nashville-night-finances": "/api/admin/nashville-night-finances",
+  "the-social-finances": "/api/admin/the-social-finances",
+  "workshop-finances": "/api/admin/workshop-finances",
+  "comp-finances": "/api/admin/comp-finances",
+};
 
 interface Event {
   id: string;
@@ -349,6 +376,13 @@ function aggregateStats(
 export default function AdminFinancesPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [eventsView, setEventsView] = useState<EventsView>("upcoming");
+  const [paymentsDueEvents, setPaymentsDueEvents] = useState<PaymentsDueByEvent[] | null>(
+    null
+  );
+  const [paymentsDueTotal, setPaymentsDueTotal] = useState(0);
+  const [loadingPaymentsDue, setLoadingPaymentsDue] = useState(false);
+  const [paymentsDueError, setPaymentsDueError] = useState<string | null>(null);
+  const [markingPaymentDueId, setMarkingPaymentDueId] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [signups, setSignups] = useState<Signup[]>([]);
@@ -606,7 +640,7 @@ export default function AdminFinancesPage() {
   }, [isSocialViewer, eventsView]);
 
   useEffect(() => {
-    if (eventsView === "overview" || eventsView === "social_overview") {
+    if (isYearOrAggregateView(eventsView)) {
       const yearList = eventsView === "social_overview" ? socialYears : years;
       if (!yearList.length) {
         setSelectedYear(null);
@@ -625,12 +659,7 @@ export default function AdminFinancesPage() {
   }, [eventsView, filteredEvents, years, socialYears, selectedYear, selectedEvent?.id]);
 
   useEffect(() => {
-    if (
-      !canAccessFinances ||
-      eventsView === "overview" ||
-      eventsView === "social_overview" ||
-      !selectedEvent
-    ) {
+    if (!canAccessFinances || skipsEventDetailView(eventsView) || !selectedEvent) {
       setSignups([]);
       setCompSignups([]);
       setIsCompEvent(false);
@@ -995,6 +1024,109 @@ export default function AdminFinancesPage() {
   }, [isFullAdmin, eventsView, selectedYear, eventsInSelectedYear, authToken]);
 
   useEffect(() => {
+    if (!isFullAdmin || eventsView !== "payments_due") {
+      setPaymentsDueEvents(null);
+      setPaymentsDueTotal(0);
+      setPaymentsDueError(null);
+      setLoadingPaymentsDue(false);
+      return;
+    }
+
+    const loadPaymentsDue = async () => {
+      setLoadingPaymentsDue(true);
+      setPaymentsDueError(null);
+      try {
+        if (!authToken) {
+          setPaymentsDueEvents(null);
+          setPaymentsDueTotal(0);
+          setPaymentsDueError("Session expired. Please sign in again.");
+          return;
+        }
+        const res = await fetch("/api/admin/payments-due", {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(
+            (body as { error?: string })?.error || "Failed to load payments due"
+          );
+        }
+        const json = (await res.json()) as {
+          events?: PaymentsDueByEvent[];
+          totalOutstanding?: number;
+        };
+        setPaymentsDueEvents(Array.isArray(json.events) ? json.events : []);
+        setPaymentsDueTotal(Number(json.totalOutstanding) || 0);
+      } catch (e) {
+        setPaymentsDueEvents(null);
+        setPaymentsDueTotal(0);
+        setPaymentsDueError(
+          e instanceof Error ? e.message : "Failed to load payments due"
+        );
+      } finally {
+        setLoadingPaymentsDue(false);
+      }
+    };
+
+    loadPaymentsDue();
+  }, [isFullAdmin, eventsView, authToken]);
+
+  const markPaymentDuePaid = useCallback(
+    async (row: PaymentDueRow) => {
+      if (!authToken) return;
+      setMarkingPaymentDueId(row.id);
+      setPaymentsDueError(null);
+      try {
+        const url = MARK_PAID_API_BASE[row.markPaid.route];
+        const res = await fetch(url, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify(row.markPaid.body),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string })?.error || "Failed to mark as paid");
+        }
+        setPaymentsDueEvents((prev) => {
+          if (!prev) return prev;
+          const next = prev
+            .map((ev) => ({
+              ...ev,
+              rows: ev.rows.filter((r) => r.id !== row.id),
+            }))
+            .filter((ev) => ev.rows.length > 0);
+          return next;
+        });
+        setPaymentsDueTotal((prev) =>
+          Math.max(0, Math.round((prev - row.amount) * 100) / 100)
+        );
+      } catch (e) {
+        setPaymentsDueError(
+          e instanceof Error ? e.message : "Failed to mark as paid"
+        );
+      } finally {
+        setMarkingPaymentDueId(null);
+      }
+    },
+    [authToken]
+  );
+
+  const openEventFinances = useCallback(
+    (eventId: string, eventStart: string | null) => {
+      const ev = events.find((e) => e.id === eventId);
+      if (!ev) return;
+      const now = dayjs();
+      const isPast = eventStart ? dayjs(eventStart).isBefore(now, "day") : true;
+      setEventsView(isPast ? "past" : "upcoming");
+      setSelectedEvent(ev);
+    },
+    [events]
+  );
+
+  useEffect(() => {
     if (
       !canAccessSocialOverview ||
       eventsView !== "social_overview" ||
@@ -1133,8 +1265,7 @@ export default function AdminFinancesPage() {
   useEffect(() => {
     if (
       !isFullAdmin ||
-      eventsView === "overview" ||
-      eventsView === "social_overview" ||
+      skipsEventDetailView(eventsView) ||
       !selectedEvent ||
       !usesNashvilleFinanceRecord
     ) {
@@ -1189,8 +1320,7 @@ export default function AdminFinancesPage() {
   useEffect(() => {
     if (
       !isFullAdmin ||
-      eventsView === "overview" ||
-      eventsView === "social_overview" ||
+      skipsEventDetailView(eventsView) ||
       !selectedEvent ||
       !isClassEvent
     ) {
@@ -1257,8 +1387,7 @@ export default function AdminFinancesPage() {
   useEffect(() => {
     if (
       !isFullAdmin ||
-      eventsView === "overview" ||
-      eventsView === "social_overview" ||
+      skipsEventDetailView(eventsView) ||
       !selectedEvent ||
       !usesWorkshopFinancesBreakdown ||
       isNashvilleEvent
@@ -1314,8 +1443,7 @@ export default function AdminFinancesPage() {
   useEffect(() => {
     if (
       !canAccessFinances ||
-      eventsView === "overview" ||
-      eventsView === "social_overview" ||
+      skipsEventDetailView(eventsView) ||
       !selectedEvent ||
       !isSocialEvent
     ) {
@@ -1364,8 +1492,7 @@ export default function AdminFinancesPage() {
   useEffect(() => {
     if (
       !isFullAdmin ||
-      eventsView === "overview" ||
-      eventsView === "social_overview" ||
+      skipsEventDetailView(eventsView) ||
       !selectedEvent ||
       !isCompEvent
     ) {
@@ -1449,6 +1576,7 @@ export default function AdminFinancesPage() {
       total_override?: number | null;
       guest_instructor_amount?: number | null;
       ccs_amount?: number | null;
+      mark_guest_instructor_paid?: boolean;
     }) => {
       if (!selectedEvent || !usesWorkshopFinancesBreakdown || !authToken) return;
       setWorkshopSaving(true);
@@ -1749,9 +1877,11 @@ export default function AdminFinancesPage() {
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
           <div className="rounded-xl border border-neutral-700 bg-neutral-800/30 p-2">
             <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-neutral-500">
-              {eventsView === "overview" || eventsView === "social_overview"
+              {isYearOrAggregateView(eventsView)
                 ? "Year"
-                : "Events"}
+                : eventsView === "payments_due"
+                  ? "Payments"
+                  : "Events"}
             </p>
             <div
               role="group"
@@ -1806,8 +1936,26 @@ export default function AdminFinancesPage() {
                   Social
                 </button>
               )}
+              {isFullAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setEventsView("payments_due")}
+                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
+                    eventsView === "payments_due"
+                      ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
+                      : "text-primary/70 hover:bg-primary/15 hover:text-primary"
+                  }`}
+                >
+                  Due
+                </button>
+              )}
             </div>
-            {eventsView === "overview" && isFullAdmin ? (
+            {eventsView === "payments_due" && isFullAdmin ? (
+              <p className="px-2 py-4 text-sm text-neutral-400">
+                Unpaid instructors, social splits, workshop guests, and comp judges across all
+                events.
+              </p>
+            ) : eventsView === "overview" && isFullAdmin ? (
               !years.length ? (
                 <p className="px-2 py-4 text-center text-sm text-neutral-500">
                   No years with events
@@ -1889,7 +2037,17 @@ export default function AdminFinancesPage() {
           </div>
 
           <div className="rounded-xl border border-neutral-700 bg-neutral-800/30 p-6">
-            {eventsView === "overview" ? (
+            {eventsView === "payments_due" ? (
+              <PaymentsDuePanel
+                events={paymentsDueEvents}
+                totalOutstanding={paymentsDueTotal}
+                loading={loadingPaymentsDue}
+                error={paymentsDueError}
+                markingId={markingPaymentDueId}
+                onMarkPaid={markPaymentDuePaid}
+                onOpenEvent={openEventFinances}
+              />
+            ) : eventsView === "overview" ? (
               selectedYear == null ? (
                 <p className="text-neutral-400">Select a year.</p>
               ) : (
@@ -2903,6 +3061,7 @@ export default function AdminFinancesPage() {
                       <WorkshopBreakdown
                         computedTotalRevenue={stats.cashTotal + stats.stripeTotal + (stats.otherTotal ?? 0) + (stats.ccsTeamTotal ?? 0)}
                         workshop={workshopFinances}
+                        eventTitle={selectedEvent.title}
                         defaultStudioCost={isClassEvent ? 400 : 0}
                         loading={loadingWorkshop}
                         error={workshopError}
@@ -3579,6 +3738,7 @@ function SocialPersonRow({
 function WorkshopBreakdown({
   computedTotalRevenue,
   workshop,
+  eventTitle,
   defaultStudioCost,
   loading,
   error,
@@ -3587,6 +3747,7 @@ function WorkshopBreakdown({
 }: {
   computedTotalRevenue: number;
   workshop: WorkshopFinances | null;
+  eventTitle: string;
   defaultStudioCost: number;
   loading: boolean;
   error: string | null;
@@ -3596,6 +3757,7 @@ function WorkshopBreakdown({
     total_override?: number | null;
     guest_instructor_amount?: number | null;
     ccs_amount?: number | null;
+    mark_guest_instructor_paid?: boolean;
   }) => Promise<void>;
 }) {
   const effectiveTotalRevenue =
@@ -3751,6 +3913,16 @@ function WorkshopBreakdown({
             <span className="text-xs text-neutral-500">Auto (10%)</span>
           )}
         </div>
+        {guestInstructorAmount > 0.01 && (
+          <PayableRow
+            payeeName={guestInstructorNameFromEventTitle(eventTitle)}
+            roleLabel="Guest instructor"
+            amount={guestInstructorAmount}
+            paidAt={workshop?.guest_instructor_paid_at ?? null}
+            onMarkPaid={() => onPatch({ mark_guest_instructor_paid: true })}
+            saving={saving}
+          />
+        )}
       </div>
 
       <div className="mt-6 rounded-lg border border-neutral-700 bg-neutral-900/40 p-4">
@@ -4930,5 +5102,153 @@ function TeacherRow({
         )}
       </div>
     </div>
+  );
+}
+
+function PayableRow({
+  payeeName,
+  roleLabel,
+  amount,
+  paidAt,
+  onMarkPaid,
+  saving,
+}: {
+  payeeName: string;
+  roleLabel?: string;
+  amount: number;
+  paidAt: string | null;
+  onMarkPaid: () => void;
+  saving: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+          {roleLabel ?? "Payee"}
+        </p>
+        <p className="mt-1 text-lg font-semibold text-white">{payeeName}</p>
+        <p className="mt-1 text-xl font-bold text-primary">${amount.toFixed(2)}</p>
+      </div>
+      <div className="shrink-0">
+        {paidAt ? (
+          <div className="rounded-lg border border-primary/50 bg-primary/10 px-3 py-2 text-center">
+            <p className="text-xs font-medium text-primary">Paid</p>
+            <p className="text-xs text-neutral-400">{dayjs(paidAt).format("MMM D, YYYY")}</p>
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onMarkPaid}
+            className="rounded-lg border border-primary/60 bg-primary/15 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/25 disabled:opacity-60"
+          >
+            Mark paid
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PaymentsDuePanel({
+  events,
+  totalOutstanding,
+  loading,
+  error,
+  markingId,
+  onMarkPaid,
+  onOpenEvent,
+}: {
+  events: PaymentsDueByEvent[] | null;
+  totalOutstanding: number;
+  loading: boolean;
+  error: string | null;
+  markingId: string | null;
+  onMarkPaid: (row: PaymentDueRow) => void;
+  onOpenEvent: (eventId: string, eventStart: string | null) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="flex min-h-[200px] items-center justify-center text-neutral-400">
+        Loading payments due…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-primary/50 bg-primary/10 px-4 py-4 text-primary">
+        {error}
+      </div>
+    );
+  }
+
+  const eventList = events ?? [];
+  const hasRows = eventList.some((ev) => ev.rows.length > 0);
+
+  return (
+    <>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Payments due</h2>
+          <p className="text-sm text-neutral-500">
+            Unpaid instructors, social splits, workshop guests, and comp judges
+          </p>
+        </div>
+        <div className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-2 text-right">
+          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+            Total outstanding
+          </p>
+          <p className="text-2xl font-bold text-primary">${totalOutstanding.toFixed(2)}</p>
+        </div>
+      </div>
+
+      {!hasRows ? (
+        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 px-6 py-12 text-center">
+          <p className="text-lg font-medium text-white">All caught up</p>
+          <p className="mt-2 text-sm text-neutral-400">No outstanding payments.</p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {eventList.map((ev) => (
+            <section
+              key={ev.eventId}
+              className="rounded-lg border border-neutral-700 bg-neutral-800/40 p-4"
+            >
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-white">{ev.eventTitle}</h3>
+                  {ev.eventStart && (
+                    <p className="mt-0.5 text-sm text-neutral-500">
+                      {dayjs(ev.eventStart).format("MMM D, YYYY")}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenEvent(ev.eventId, ev.eventStart)}
+                  className="text-sm text-primary hover:underline"
+                >
+                  Open event finances
+                </button>
+              </div>
+              <div className="space-y-3">
+                {ev.rows.map((row) => (
+                  <PayableRow
+                    key={row.id}
+                    payeeName={row.payeeName}
+                    roleLabel={row.roleLabel}
+                    amount={row.amount}
+                    paidAt={null}
+                    onMarkPaid={() => onMarkPaid(row)}
+                    saving={markingId === row.id}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

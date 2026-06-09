@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (registrationAccess === "admin") {
+    if (registrationAccess === "admin" || registrationAccess === "social_viewer") {
       showRegistration = true;
     }
 

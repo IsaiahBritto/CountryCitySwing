@@ -12,6 +12,7 @@ import {
   getEventDateString,
 } from "@/lib/utils/dateHelpers";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
+import { canMutateRegistrationEvent } from "@/lib/registrationAuthPolicy";
 import {
   type CheckInArrivalBuckets,
   EMPTY_CHECK_IN_ARRIVAL_BUCKETS,
@@ -174,29 +175,27 @@ export default function RegistrationPage() {
         const allEvents = (data || []) as Event[];
         let list: Event[];
 
-        if (isAdmin && eventsView === "past") {
+        if ((isAdmin || isSocialViewer) && eventsView === "past") {
           const monthStartStr = pastEventsMonth + "-01";
           const monthEndStr = dayjs(pastEventsMonth + "-01").add(1, "month").format("YYYY-MM-DD");
-          list = allEvents.filter(
-            (e) => {
-              const tz = e.time_zone || DEFAULT_TIME_ZONE;
-              const eventDate = getEventDateString(e.starts_at, tz);
-              return eventDate >= monthStartStr && eventDate < monthEndStr;
-            }
-          );
-        } else if ((isInstructor || isSocialViewer) && !isAdmin) {
           list = allEvents.filter((e) => {
             const tz = e.time_zone || DEFAULT_TIME_ZONE;
-            if (
-              !isRegistrationWindowOpen(e.starts_at, e.ends_at ?? undefined, tz)
-            ) {
-              return false;
-            }
-            if (isSocialViewer) {
-              return isSocialEventType(e.type);
-            }
+            const eventDate = getEventDateString(e.starts_at, tz);
+            if (eventDate < monthStartStr || eventDate >= monthEndStr) return false;
+            if (isSocialViewer && !isAdmin) return isSocialEventType(e.type);
             return true;
           });
+        } else if (isInstructor && !isAdmin && !isSocialViewer) {
+          list = allEvents.filter((e) => {
+            const tz = e.time_zone || DEFAULT_TIME_ZONE;
+            return isRegistrationWindowOpen(e.starts_at, e.ends_at ?? undefined, tz);
+          });
+        } else if (isSocialViewer && !isAdmin) {
+          list = allEvents.filter(
+            (e) =>
+              isSocialEventType(e.type) &&
+              !isEventPast(e.starts_at, e.ends_at ?? undefined, e.time_zone || DEFAULT_TIME_ZONE)
+          );
         } else {
           list = allEvents.filter((e) =>
             !isEventPast(e.starts_at, e.ends_at ?? undefined, e.time_zone || DEFAULT_TIME_ZONE)
@@ -518,18 +517,29 @@ export default function RegistrationPage() {
     );
   }
 
-  const isViewingPastMonth = isAdmin && eventsView === "past";
+  const isViewingPastMonth = (isAdmin || isSocialViewer) && eventsView === "past";
   const pastMonthStart = dayjs(pastEventsMonth + "-01");
   const canGoForward =
     isViewingPastMonth &&
     pastMonthStart.isBefore(dayjs().startOf("month"));
+  const readOnlyRegistration =
+    isSocialViewer &&
+    (eventsView === "past" ||
+      (selectedEvent != null &&
+        registrationAccess != null &&
+        !canMutateRegistrationEvent(registrationAccess, {
+          type: selectedEvent.type,
+          starts_at: selectedEvent.starts_at,
+          ends_at: selectedEvent.ends_at ?? null,
+          time_zone: selectedEvent.time_zone,
+        })));
 
   return (
     <div className="max-w-6xl mx-auto mt-4 md:mt-10 px-4 pb-6">
       <h1 className="text-2xl md:text-3xl font-bold text-primary mb-4 md:mb-6">Event Registration</h1>
 
-      {/* Admin only: Current vs Past Events toggle and month navigation */}
-      {isAdmin && (
+      {/* Current vs Past Events toggle and month navigation */}
+      {(isAdmin || isSocialViewer) && (
         <div className="bg-neutral-800 rounded-lg p-4 md:p-6 mb-4 md:mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <span className="text-gray-400 text-sm font-medium">View:</span>
@@ -595,9 +605,9 @@ export default function RegistrationPage() {
       <div className="bg-neutral-800 rounded-lg p-4 md:p-6 mb-4 md:mb-6">
         <h2 className="text-lg md:text-xl font-semibold text-white mb-3 md:mb-4">
           {isViewingPastMonth
-            ? `Past Events — ${pastMonthStart.format("MMMM YYYY")}`
-            : isSocialViewer
-              ? "Today's Social Events"
+            ? `Past Events — ${pastMonthStart.format("MMMM YYYY")}${isSocialViewer && !isAdmin ? " (Social)" : ""}`
+            : isSocialViewer && !isAdmin
+              ? "Upcoming Social Events"
               : isInstructor && !isAdmin
                 ? "Today's Events"
                 : "Upcoming Events"}
@@ -605,9 +615,11 @@ export default function RegistrationPage() {
         {events.length === 0 ? (
           <p className="text-gray-400">
             {isViewingPastMonth
-              ? "No events in this month"
-              : isSocialViewer
-                ? "No Social events in the registration window"
+              ? isSocialViewer && !isAdmin
+                ? "No Social events in this month"
+                : "No events in this month"
+              : isSocialViewer && !isAdmin
+                ? "No upcoming Social events"
                 : isInstructor && !isAdmin
                   ? "No events in the registration window"
                   : "No upcoming events"}
@@ -651,6 +663,11 @@ export default function RegistrationPage() {
       {/* Signups List */}
       {selectedEvent && (
         <div className="bg-neutral-800 rounded-lg p-4 md:p-6">
+          {readOnlyRegistration && (
+            <p className="mb-4 rounded-lg border border-neutral-600 bg-neutral-900/50 px-4 py-3 text-sm text-neutral-300">
+              View only — check-in opens on event day.
+            </p>
+          )}
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
             <h2 className="text-lg md:text-xl font-semibold text-white">
               <span className="hidden sm:inline">Signups: </span>
@@ -690,7 +707,8 @@ export default function RegistrationPage() {
               <button
                 type="button"
                 onClick={() => setScanQROpen(true)}
-                className="p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50"
+                disabled={readOnlyRegistration}
+                className="p-3 md:p-4 rounded-lg border-2 transition-colors text-sm md:text-base font-medium bg-neutral-700 border-neutral-600 text-gray-300 hover:border-primary/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-neutral-600"
               >
                 Scan QR
               </button>
@@ -787,7 +805,7 @@ export default function RegistrationPage() {
                       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                         <button
                           onClick={() => updateCompSignupPaid(c.id, !c.paid)}
-                          disabled={updating === c.id || !!c.checked_in}
+                          disabled={readOnlyRegistration || updating === c.id || !!c.checked_in}
                           className={`px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap ${
                             c.paid
                               ? "bg-yellow-500 text-black hover:bg-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.5)]"
@@ -800,7 +818,7 @@ export default function RegistrationPage() {
                           onClick={() =>
                             updateSignupStatus(c.id, "checked_in", !c.checked_in, true)
                           }
-                          disabled={updating === c.id}
+                          disabled={readOnlyRegistration || updating === c.id}
                           className={`px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap ${
                             c.checked_in
                               ? "bg-green-600 text-white hover:bg-green-500 shadow-[0_0_10px_rgba(22,163,74,0.5)]"
@@ -845,7 +863,7 @@ export default function RegistrationPage() {
                         onClick={() =>
                           updateSignupStatus(signup.id, "paid", !signup.paid)
                         }
-                        disabled={updating === signup.id || signup.checked_in}
+                        disabled={readOnlyRegistration || updating === signup.id || signup.checked_in}
                         className={`px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap ${
                           signup.paid
                             ? "bg-yellow-500 text-black hover:bg-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.5)]"
@@ -862,7 +880,7 @@ export default function RegistrationPage() {
                             !signup.checked_in
                           )
                         }
-                        disabled={updating === signup.id}
+                        disabled={readOnlyRegistration || updating === signup.id}
                         className={`px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap ${
                           signup.checked_in
                             ? "bg-green-600 text-white hover:bg-green-500 shadow-[0_0_10px_rgba(22,163,74,0.5)]"

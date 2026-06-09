@@ -1,26 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { isSocialRegistrationViewer } from "@/lib/socialRegistrationAccess";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import {
-  DEFAULT_TIME_ZONE,
-  isRegistrationWindowOpen,
-} from "@/lib/utils/dateHelpers";
+  canMutateRegistrationEvent,
+  canViewRegistrationEvent,
+  resolveRegistrationAccess,
+  showRegistrationForEvents,
+  type RegistrationAccess,
+  type RegistrationAccessLevel,
+  type RegistrationEventRow,
+} from "@/lib/registrationAuthPolicy";
 
-export type RegistrationAccessLevel = "admin" | "instructor" | "social_viewer";
+export type {
+  RegistrationAccess,
+  RegistrationAccessLevel,
+  RegistrationEventRow,
+} from "@/lib/registrationAuthPolicy";
 
-export type RegistrationAccess = {
-  userId: string;
-  level: RegistrationAccessLevel;
-};
-
-export type RegistrationEventRow = {
-  type?: string | null;
-  starts_at: string;
-  ends_at?: string | null;
-  time_zone?: string | null;
-};
+export {
+  canMutateRegistrationEvent,
+  canViewRegistrationEvent,
+  isRegistrationOpenForEvent,
+  resolveRegistrationAccess,
+  showRegistrationForEvents,
+} from "@/lib/registrationAuthPolicy";
 
 export type RegistrationAccessResult =
   | { ok: true; access: RegistrationAccess; token: string }
@@ -47,62 +51,36 @@ async function getUserFromToken(accessToken: string) {
   return { user, error };
 }
 
-export function resolveRegistrationAccess(
-  userId: string,
-  role: string | null | undefined
-): RegistrationAccessLevel | null {
-  const roleLower = (role || "").toLowerCase();
-  if (roleLower === "admin") return "admin";
-  if (roleLower === "instructor") return "instructor";
-  if (isSocialRegistrationViewer(userId)) return "social_viewer";
-  return null;
+export function assertRegistrationEventViewAccess(
+  access: RegistrationAccessLevel,
+  event: RegistrationEventRow
+): NextResponse | null {
+  if (canViewRegistrationEvent(access, event)) return null;
+  if (access === "social_viewer") {
+    return forbidden("Forbidden: Social event registration only");
+  }
+  return forbidden("Forbidden: Registration not available for this event at this time");
 }
 
-export function isRegistrationOpenForEvent(
+export function assertRegistrationEventMutateAccess(
   access: RegistrationAccessLevel,
   event: RegistrationEventRow,
   now: Date = new Date()
-): boolean {
-  if (access === "admin") return true;
-  const tz = event.time_zone || DEFAULT_TIME_ZONE;
-  if (
-    !isRegistrationWindowOpen(event.starts_at, event.ends_at, tz, now)
-  ) {
-    return false;
+): NextResponse | null {
+  if (canMutateRegistrationEvent(access, event, now)) return null;
+  if (access === "social_viewer" && !isSocialEventType(event.type)) {
+    return forbidden("Forbidden: Social event registration only");
   }
-  if (access === "social_viewer") {
-    return isSocialEventType(event.type);
-  }
-  return true;
+  return forbidden("Forbidden: Registration not available for this event at this time");
 }
 
-export function showRegistrationForEvents(
-  access: RegistrationAccessLevel | null,
-  events: RegistrationEventRow[],
-  now: Date = new Date()
-): boolean {
-  if (!access) return false;
-  if (access === "admin") return true;
-  return events.some((event) => isRegistrationOpenForEvent(access, event, now));
-}
-
+/** @deprecated Use assertRegistrationEventViewAccess or assertRegistrationEventMutateAccess */
 export function assertRegistrationEventAccess(
   access: RegistrationAccessLevel,
   event: RegistrationEventRow,
   now: Date = new Date()
 ): NextResponse | null {
-  if (access === "admin") return null;
-
-  const tz = event.time_zone || DEFAULT_TIME_ZONE;
-  if (!isRegistrationWindowOpen(event.starts_at, event.ends_at, tz, now)) {
-    return forbidden("Forbidden: Registration not available for this event at this time");
-  }
-
-  if (access === "social_viewer" && !isSocialEventType(event.type)) {
-    return forbidden("Forbidden: Social event registration only");
-  }
-
-  return null;
+  return assertRegistrationEventMutateAccess(access, event, now);
 }
 
 export async function getRegistrationAccess(

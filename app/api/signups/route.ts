@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { computeCheckInArrivalBuckets } from "@/lib/utils/checkInArrivalBuckets";
 import {
-  assertRegistrationEventAccess,
+  assertRegistrationEventMutateAccess,
+  assertRegistrationEventViewAccess,
   loadRegistrationEvent,
   requireRegistrationAuth,
   type RegistrationEventRow,
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    const accessErr = assertRegistrationEventAccess(auth.access.level, eventMeta);
+    const accessErr = assertRegistrationEventViewAccess(auth.access.level, eventMeta);
     if (accessErr) return accessErr;
 
     const eventStartsAt = eventMeta.starts_at;
@@ -208,7 +209,7 @@ export async function PATCH(req: NextRequest) {
       if (!eventMeta) {
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
       }
-      const accessErr = assertRegistrationEventAccess(auth.access.level, eventMeta);
+      const accessErr = assertRegistrationEventMutateAccess(auth.access.level, eventMeta);
       if (accessErr) return accessErr;
 
       const updatePayload: {
@@ -269,7 +270,7 @@ export async function PATCH(req: NextRequest) {
     if (!eventMeta) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-    const accessErr = assertRegistrationEventAccess(auth.access.level, eventMeta);
+    const accessErr = assertRegistrationEventMutateAccess(auth.access.level, eventMeta);
     if (accessErr) return accessErr;
 
     const updateData: Record<string, unknown> = { [field]: value };

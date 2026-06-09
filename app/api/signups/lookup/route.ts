@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { parseCheckInToken } from "@/lib/utils/qrCheckIn";
 import {
-  assertRegistrationEventAccess,
+  assertRegistrationEventViewAccess,
   loadRegistrationEvent,
   requireRegistrationAuth,
 } from "@/lib/registrationAuth";
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       if (!event) {
         return NextResponse.json({ error: "Event not found" }, { status: 404 });
       }
-      const accessErr = assertRegistrationEventAccess(auth.access.level, event);
+      const accessErr = assertRegistrationEventViewAccess(auth.access.level, event);
       if (accessErr) return accessErr;
 
       return NextResponse.json({ signup: data, isComp: false });
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     if (!event) {
       return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
-    const accessErr = assertRegistrationEventAccess(auth.access.level, event);
+    const accessErr = assertRegistrationEventViewAccess(auth.access.level, event);
     if (accessErr) return accessErr;
 
     return NextResponse.json({ signup: data, isComp: true });

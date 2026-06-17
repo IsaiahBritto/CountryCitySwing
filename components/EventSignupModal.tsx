@@ -624,14 +624,14 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               <p>
                 <strong>Liability Release and Assumption of Risk:</strong> I, the undersigned
                 participant, understand and voluntarily accept the risks associated with participating
-                in dance classes provided by Country City Swing at Clearbrook Hospitality, LLC dba Events
-                at 1900. I acknowledge that dance activities involve physical exertion and may pose
+                in dance classes provided by Country City Swing at Dance Nashville, 630 Rundle Ave. I 
+                acknowledge that dance activities involve physical exertion and may pose
                 inherent risks, including but not limited to falls, collisions, and other unforeseen
                 accidents. In consideration for being allowed to participate in the dance class, I hereby
-                release and discharge Clearbrook Hospitality, LLC dba Events at 1900 and Country City Swing,
+                release and discharge Dance Nashville and Country City Swing,
                 its instructors, employees, and any affiliated individuals from any and all claims,
                 liabilities, demands, actions, or causes of action that may arise out of, or in connection with,
-                my participation in the dance class.
+                my participation in the event.
                 <strong> Medical Information: </strong>
                 I certify that I am physically fit to participate in the dance class. In case of injury or medical
                 emergency, I authorize Country City Swing and its members to obtain necessary medical treatment for me.

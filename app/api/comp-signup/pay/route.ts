@@ -14,6 +14,57 @@ function getBaseUrl(request: NextRequest): string {
   return `${proto}://${host}`;
 }
 
+const COMP_SIGNUP_SELECT = "id,event_title,payment_method,amount_owed,paid";
+
+export async function GET(req: NextRequest) {
+  try {
+    const compSignupId = req.nextUrl.searchParams.get("compSignupId");
+    if (!compSignupId) {
+      return NextResponse.json(
+        { error: "Comp signup ID is required" },
+        { status: 400 }
+      );
+    }
+
+    const { data: signup, error: fetchError } = await supabaseServer
+      .from("comp_signups")
+      .select(COMP_SIGNUP_SELECT)
+      .eq("id", compSignupId)
+      .single();
+
+    if (fetchError || !signup) {
+      return NextResponse.json({ error: "Comp signup not found" }, { status: 404 });
+    }
+
+    if (signup.paid) {
+      return NextResponse.json(
+        { error: "This comp signup has already been paid." },
+        { status: 400 }
+      );
+    }
+
+    if (signup.payment_method !== "Cash") {
+      return NextResponse.json(
+        {
+          error: `This page is for cash signups. Your payment method is ${signup.payment_method || "—"}.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({ signup });
+  } catch (error: unknown) {
+    console.error("Comp signup pay GET error:", error);
+    return NextResponse.json(
+      {
+        error: "Failed to load signup",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { compSignupId } = await req.json();

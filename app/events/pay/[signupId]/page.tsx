@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabaseBrowser } from "@/lib/supabaseBrowser";
-import eventsData from "@/lib/events.json";
 
 export default function EventPaymentPage() {
   const params = useParams();
@@ -22,59 +20,19 @@ export default function EventPaymentPage() {
   useEffect(() => {
     async function loadSignup() {
       try {
-        const { data, error: fetchError } = await supabaseBrowser
-          .from("signups")
-          .select("id,event_id,event_title,first_name,last_name,email,payment_method,amount_owed,paid")
-          .eq("id", signupId)
-          .single();
+        const res = await fetch(
+          `/api/event-signup/pay?signupId=${encodeURIComponent(signupId)}`
+        );
+        const data = await res.json();
 
-        if (fetchError || !data) {
-          setError("Signup not found");
+        if (!res.ok) {
+          setError(data.error || "Signup not found");
           setLoading(false);
           return;
         }
 
-        // Check if already paid
-        if (data.paid) {
-          setError("This event has already been paid for.");
-          setLoading(false);
-          return;
-        }
-
-        // Pay page is for Cash or Class Voucher signups (complete payment / apply voucher)
-        if (data.payment_method !== "Cash" && data.payment_method !== "Class Voucher") {
-          setError("This signup is not eligible for this payment page.");
-          setLoading(false);
-          return;
-        }
-
-        setSignup(data);
-
-        // Use stored amount_owed (after discount) when present; otherwise fetch event price
-        const storedAmountOwed = data.amount_owed != null ? Number(data.amount_owed) : null;
-        if (storedAmountOwed !== null && storedAmountOwed >= 0) {
-          setEventPrice(storedAmountOwed);
-          return;
-        }
-        let price = 0;
-        if (data.event_id) {
-          try {
-            const { data: eventData } = await supabaseBrowser
-              .from("events")
-              .select("price")
-              .eq("id", data.event_id)
-              .single();
-            if (eventData?.price) {
-              price = Number(eventData.price);
-            }
-          } catch (e) {
-            const event = (eventsData as any[]).find((e: any) => e.id === data.event_id);
-            if (event?.price) {
-              price = Number(event.price);
-            }
-          }
-        }
-        setEventPrice(price);
+        setSignup(data.signup);
+        setEventPrice(data.eventPrice ?? 0);
       } catch (err) {
         console.error("Error loading signup:", err);
         setError("Failed to load signup information");

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getStripe } from "@/lib/stripe";
 
+const SIGNUP_SELECT =
+  "id,event_id,event_title,first_name,last_name,email,payment_method,paid";
+
 export async function GET(req: NextRequest) {
   try {
     const searchParams = req.nextUrl.searchParams;
@@ -14,7 +17,6 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Retrieve the Stripe session to get metadata
     const session = await getStripe().checkout.sessions.retrieve(sessionId);
 
     if (!session.metadata) {
@@ -25,6 +27,33 @@ export async function GET(req: NextRequest) {
     }
 
     const metadata = session.metadata;
+    const paymentType = metadata.payment_type;
+
+    if (paymentType === "cash_to_stripe") {
+      const signupId = metadata.signup_id || session.client_reference_id;
+      if (!signupId) {
+        return NextResponse.json(
+          { error: "Signup ID not found in session" },
+          { status: 400 }
+        );
+      }
+
+      const { data: signup, error: fetchError } = await supabaseServer
+        .from("signups")
+        .select(SIGNUP_SELECT)
+        .eq("id", signupId)
+        .single();
+
+      if (fetchError || !signup) {
+        return NextResponse.json(
+          { error: "Signup not found", pending: true },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({ signup });
+    }
+
     const email = metadata.email;
     const eventId = metadata.event_id;
 
@@ -35,11 +64,9 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Look up the signup by email, event_id, and payment_method
-    // Order by created_at desc to get the most recent one
     const { data: signup, error: fetchError } = await supabaseServer
       .from("signups")
-      .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid")
+      .select(SIGNUP_SELECT)
       .eq("email", email)
       .eq("event_id", eventId)
       .eq("payment_method", "Stripe")
@@ -49,7 +76,6 @@ export async function GET(req: NextRequest) {
       .single();
 
     if (fetchError || !signup) {
-      // Signup not found yet - webhook might still be processing
       return NextResponse.json(
         { error: "Signup not found", pending: true },
         { status: 404 }
@@ -57,10 +83,13 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json({ signup });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error looking up signup confirmation:", error);
     return NextResponse.json(
-      { error: "Failed to look up signup", details: error.message },
+      {
+        error: "Failed to look up signup",
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }

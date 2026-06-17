@@ -19,6 +19,87 @@ function getBaseUrl(request: NextRequest): string {
   return `${proto}://${host}`;
 }
 
+const SIGNUP_SELECT =
+  "id,event_id,event_title,first_name,last_name,email,payment_method,amount_owed,paid";
+
+async function resolveBasePriceForSignup(signup: {
+  event_id?: string | null;
+  amount_owed?: number | null;
+}): Promise<number> {
+  const hasStoredAmountOwed = signup.amount_owed != null && Number(signup.amount_owed) >= 0;
+  let basePrice = hasStoredAmountOwed ? Number(signup.amount_owed) : null;
+
+  if (basePrice === null && signup.event_id) {
+    try {
+      const { data: eventData } = await supabaseServer
+        .from("events")
+        .select("price")
+        .eq("id", signup.event_id)
+        .single();
+      if (eventData?.price) {
+        basePrice = Number(eventData.price);
+      }
+    } catch {
+      const event = (eventsData as { id: string | number; price?: number }[]).find(
+        (e) => String(e.id) === String(signup.event_id)
+      );
+      if (event?.price) {
+        basePrice = Number(event.price);
+      }
+    }
+  }
+
+  if (basePrice === null || basePrice < 0) {
+    return 0;
+  }
+  return basePrice;
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const signupId = req.nextUrl.searchParams.get("signupId");
+    if (!signupId) {
+      return NextResponse.json({ error: "Signup ID is required" }, { status: 400 });
+    }
+
+    const { data: signup, error: fetchError } = await supabaseServer
+      .from("signups")
+      .select(SIGNUP_SELECT)
+      .eq("id", signupId)
+      .single();
+
+    if (fetchError || !signup) {
+      return NextResponse.json({ error: "Signup not found" }, { status: 404 });
+    }
+
+    if (signup.paid) {
+      return NextResponse.json(
+        { error: "This event has already been paid for." },
+        { status: 400 }
+      );
+    }
+
+    if (signup.payment_method !== "Cash" && signup.payment_method !== "Class Voucher") {
+      return NextResponse.json(
+        { error: "This signup is not eligible for this payment page." },
+        { status: 400 }
+      );
+    }
+
+    const eventPrice = await resolveBasePriceForSignup(signup);
+    return NextResponse.json({ signup, eventPrice });
+  } catch (error: unknown) {
+    console.error("Event signup pay GET error:", error);
+    return NextResponse.json(
+      {
+        error: "Failed to load signup",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { signupId, promotionCodeId, discountedSubtotal: clientDiscountedSubtotal } = await req.json();
@@ -33,7 +114,7 @@ export async function POST(req: NextRequest) {
     // Fetch signup
     const { data: signup, error: fetchError } = await supabaseServer
       .from("signups")
-      .select("id,event_id,event_title,first_name,last_name,email,payment_method,amount_owed,paid")
+      .select(SIGNUP_SELECT)
       .eq("id", signupId)
       .single();
 
@@ -60,31 +141,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Resolve base event price (stored amount_owed or event price)
     const hasStoredAmountOwed = signup.amount_owed != null && Number(signup.amount_owed) >= 0;
-    let basePrice = hasStoredAmountOwed ? Number(signup.amount_owed) : null;
-
-    if (basePrice === null && signup.event_id) {
-      try {
-        const { data: eventData } = await supabaseServer
-          .from("events")
-          .select("price")
-          .eq("id", signup.event_id)
-          .single();
-        if (eventData?.price) {
-          basePrice = Number(eventData.price);
-        }
-      } catch (e) {
-        const event = (eventsData as any[]).find((e: any) => e.id === signup.event_id);
-        if (event?.price) {
-          basePrice = Number(event.price);
-        }
-      }
-    }
-
-    if (basePrice === null || basePrice < 0) {
-      basePrice = 0;
-    }
+    const basePrice = await resolveBasePriceForSignup(signup);
 
     // When a promo is applied, compute discounted amount (client value or Stripe)
     let amountDue: number = basePrice;
@@ -319,7 +377,7 @@ export async function POST(req: NextRequest) {
         processing_fee: String(processingFee),
         used_promotion_code: promotionCodeId ? "true" : "false",
       },
-      success_url: `${base}/events/confirmation/${signupId}`,
+      success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/events/pay/${signupId}`,
     };
     

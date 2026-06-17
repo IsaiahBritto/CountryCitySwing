@@ -14,6 +14,53 @@ function getBaseUrl(request: NextRequest): string {
   return `${proto}://${host}`;
 }
 
+const MERCH_ORDER_SELECT =
+  "id,first_name,last_name,email,delivery_method,items,subtotal,shipping,total,paid,payment_method";
+
+export async function GET(req: NextRequest) {
+  try {
+    const orderId = req.nextUrl.searchParams.get("orderId");
+    if (!orderId) {
+      return NextResponse.json({ error: "Order ID is required" }, { status: 400 });
+    }
+
+    const { data: order, error: fetchError } = await supabaseServer
+      .from("merch_orders")
+      .select(MERCH_ORDER_SELECT)
+      .eq("id", orderId)
+      .single();
+
+    if (fetchError || !order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    if (order.paid) {
+      return NextResponse.json(
+        { error: "This order has already been paid for." },
+        { status: 400 }
+      );
+    }
+
+    if (order.payment_method !== "cash") {
+      return NextResponse.json(
+        { error: "This order is not eligible for cash payment conversion." },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({ order });
+  } catch (error: unknown) {
+    console.error("Merch order pay GET error:", error);
+    return NextResponse.json(
+      {
+        error: "Failed to load order",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { orderId, promotionCodeId } = await req.json();

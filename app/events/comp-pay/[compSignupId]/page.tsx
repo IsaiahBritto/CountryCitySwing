@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 export default function CompPaymentPage() {
   const params = useParams();
@@ -16,28 +15,18 @@ export default function CompPaymentPage() {
   useEffect(() => {
     async function loadSignup() {
       try {
-        const { data, error: fetchError } = await supabaseBrowser
-          .from("comp_signups")
-          .select("id,event_title,payment_method,amount_owed,paid")
-          .eq("id", compSignupId)
-          .single();
+        const res = await fetch(
+          `/api/comp-signup/pay?compSignupId=${encodeURIComponent(compSignupId)}`
+        );
+        const data = await res.json();
 
-        if (fetchError || !data) {
-          setError("Comp signup not found");
+        if (!res.ok) {
+          setError(data.error || "Comp signup not found");
           setLoading(false);
           return;
         }
-        if (data.paid) {
-          setError("This comp signup has already been paid.");
-          setLoading(false);
-          return;
-        }
-        if (data.payment_method !== "Cash") {
-          setError("This page is for cash signups. Your payment method is " + (data.payment_method || "—") + ".");
-          setLoading(false);
-          return;
-        }
-        setSignup(data);
+
+        setSignup(data.signup);
       } catch (err) {
         console.error("Error loading comp signup:", err);
         setError("Failed to load signup information");

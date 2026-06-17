@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 export default function MerchOrderPaymentPage() {
   const params = useParams();
@@ -20,33 +19,18 @@ export default function MerchOrderPaymentPage() {
   useEffect(() => {
     async function loadOrder() {
       try {
-        const { data, error: fetchError } = await supabaseBrowser
-          .from("merch_orders")
-          .select("id,first_name,last_name,email,delivery_method,items,subtotal,shipping,total,paid,payment_method")
-          .eq("id", orderId)
-          .single();
+        const res = await fetch(
+          `/api/merch-order/pay?orderId=${encodeURIComponent(orderId)}`
+        );
+        const data = await res.json();
 
-        if (fetchError || !data) {
-          setError("Order not found");
+        if (!res.ok) {
+          setError(data.error || "Order not found");
           setLoading(false);
           return;
         }
 
-        // Check if already paid
-        if (data.paid) {
-          setError("This order has already been paid for.");
-          setLoading(false);
-          return;
-        }
-
-        // Check if payment method is cash
-        if (data.payment_method !== "cash") {
-          setError("This order is not eligible for cash payment conversion.");
-          setLoading(false);
-          return;
-        }
-
-        setOrder(data);
+        setOrder(data.order);
       } catch (err) {
         console.error("Error loading order:", err);
         setError("Failed to load order information");

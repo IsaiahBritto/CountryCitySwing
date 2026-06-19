@@ -24,7 +24,7 @@ export interface ExternalPlaylistLink {
   href: string;
 }
 
-export const theSocialPlaylistLinks: ExternalPlaylistLink[] = [
+export const DEFAULT_THE_SOCIAL_PLAYLIST_LINKS: ExternalPlaylistLink[] = [
   {
     id: "country-swing-playlist",
     label: "Country Swing Playlist",

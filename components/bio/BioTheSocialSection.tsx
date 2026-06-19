@@ -1,10 +1,14 @@
 import {
   THE_SOCIAL_SECTION_TITLE,
-  theSocialPlaylistLinks,
   withBioExternalUtm,
+  type ExternalPlaylistLink,
 } from "@/lib/bioLinks";
 
-export default function BioTheSocialSection() {
+interface BioTheSocialSectionProps {
+  links: ExternalPlaylistLink[];
+}
+
+export default function BioTheSocialSection({ links }: BioTheSocialSectionProps) {
   return (
     <section className="mt-14 bg-transparent border-0 shadow-none p-0">
       <h2 className="link-tree-section-title silver-wave text-lg sm:text-xl font-extrabold uppercase tracking-widest text-center pb-0">
@@ -19,7 +23,7 @@ export default function BioTheSocialSection() {
         aria-label="The Social playlist links"
         className="space-y-5 bg-transparent border-0 shadow-none p-0 m-0"
       >
-        {theSocialPlaylistLinks.map((link) => (
+        {links.map((link) => (
           <a
             key={link.id}
             href={withBioExternalUtm(link.href, link.id)}

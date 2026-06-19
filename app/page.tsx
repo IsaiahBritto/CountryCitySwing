@@ -11,6 +11,7 @@ import EventCarousel from "@/components/EventCarousel";
 import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
 import EventFormModal from "@/components/EventFormModal";
+import TheSocialLinksEditorModal from "@/components/TheSocialLinksEditorModal";
 import EventsListSkeleton from "@/components/EventsListSkeleton";
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 import {
@@ -37,6 +38,7 @@ export default function Home() {
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
   const [showSignup, setShowSignup] = useState(false);
   const [showEventForm, setShowEventForm] = useState(false);
+  const [showLinkTreeEditor, setShowLinkTreeEditor] = useState(false);
   const [eventToEdit, setEventToEdit] = useState<any | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isInstructor, setIsInstructor] = useState(false);
@@ -364,6 +366,18 @@ export default function Home() {
           </div>
         )}
 
+        {isAdmin && (
+          <div className="mt-10 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setShowLinkTreeEditor(true)}
+              className="btn-signup text-sm px-4 py-2 rounded-md"
+            >
+              Edit Link Tree
+            </button>
+          </div>
+        )}
+
         {/* --- Event Signup Modal (non-Comp; Convention with signup link opens link, no modal) --- */}
         {selectedEvent && selectedEvent.type !== "Comp" && !(selectedEvent.type === "Convention" && (selectedEvent.signupLink || selectedEvent.signup_link)) && (
           <EventSignupModal
@@ -391,6 +405,11 @@ export default function Home() {
           }}
           event={eventToEdit}
           onSuccess={handleEventSaved}
+        />
+
+        <TheSocialLinksEditorModal
+          open={showLinkTreeEditor}
+          onClose={() => setShowLinkTreeEditor(false)}
         />
       </section>
     </>

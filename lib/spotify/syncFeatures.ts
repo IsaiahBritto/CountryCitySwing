@@ -25,7 +25,10 @@ async function syncOnePlaylist(
   label: string | null
 ): Promise<SyncPlaylistResult> {
   const tracks = await fetchPlaylistTracks(accessToken, playlistId);
-  const resolved = await resolveTrackFeatures(tracks);
+  const resolved = await resolveTrackFeatures(tracks, {
+    lookup: true,
+    retryMode: "all_flags",
+  });
   return {
     playlistId,
     label,

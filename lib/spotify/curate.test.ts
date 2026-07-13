@@ -7,6 +7,7 @@ import {
   type CurateTrack,
 } from "@/lib/spotify/curate";
 import {
+  needsBpmOrEnergyLookup,
   needsFeatureLookup,
   selectTracksNeedingLookup,
   type TrackFeaturesRow,
@@ -157,6 +158,89 @@ describe("needsFeatureLookup / selectTracksNeedingLookup", () => {
     ]);
     const needing = selectTracksNeedingLookup(tracks, cached);
     expect(needing.map((t) => t.id)).toEqual(["b"]);
+  });
+});
+
+describe("needsBpmOrEnergyLookup", () => {
+  const baseRow = (overrides: Partial<TrackFeaturesRow> = {}): TrackFeaturesRow => ({
+    spotify_track_id: "t1",
+    isrc: null,
+    name: "Song",
+    primary_artist: "Artist",
+    itunes_track_id: null,
+    bpm: 100,
+    true_bpm: true,
+    bpm_alt: null,
+    energy: 0.5,
+    true_energy: true,
+    danceability: 0.5,
+    true_danceability: true,
+    valence: 0.5,
+    true_valence: true,
+    mood: "neutral",
+    true_mood: true,
+    camelot: "8A",
+    true_camelot: true,
+    last_lookup_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...overrides,
+  });
+
+  it("needs lookup when row is missing", () => {
+    expect(needsBpmOrEnergyLookup(null)).toBe(true);
+  });
+
+  it("skips when true_bpm and true_energy are true", () => {
+    expect(needsBpmOrEnergyLookup(baseRow())).toBe(false);
+  });
+
+  it("retries when energy is missing", () => {
+    expect(needsBpmOrEnergyLookup(baseRow({ true_energy: false }))).toBe(true);
+  });
+
+  it("does not retry when only camelot is false", () => {
+    expect(needsBpmOrEnergyLookup(baseRow({ true_camelot: false }))).toBe(false);
+  });
+
+  it("selects bpm/energy gaps only in bpm_energy mode", () => {
+    const tracks: SpotifyTrack[] = [
+      {
+        id: "a",
+        uri: "spotify:track:a",
+        name: "A",
+        durationMs: 1000,
+        primaryArtist: "X",
+        isrc: null,
+      },
+      {
+        id: "b",
+        uri: "spotify:track:b",
+        name: "B",
+        durationMs: 1000,
+        primaryArtist: "Y",
+        isrc: null,
+      },
+      {
+        id: "c",
+        uri: "spotify:track:c",
+        name: "C",
+        durationMs: 1000,
+        primaryArtist: "Z",
+        isrc: null,
+      },
+    ];
+    const cached = new Map<string, TrackFeaturesRow>([
+      ["a", baseRow({ spotify_track_id: "a" })],
+      ["b", baseRow({ spotify_track_id: "b", true_camelot: false })],
+      ["c", baseRow({ spotify_track_id: "c", true_bpm: false })],
+    ]);
+    expect(
+      selectTracksNeedingLookup(tracks, cached, "bpm_energy").map((t) => t.id)
+    ).toEqual(["c"]);
+    // Sync still uses all_flags and would include camelot-only gaps
+    expect(
+      selectTracksNeedingLookup(tracks, cached, "all_flags").map((t) => t.id)
+    ).toEqual(["b", "c"]);
   });
 });
 

@@ -9,7 +9,10 @@ export async function POST(req: NextRequest) {
     const auth = await requireAdminAuth(req);
     if (!auth.ok) return auth.response;
 
-    const body = (await req.json().catch(() => ({}))) as { name?: string };
+    const body = (await req.json().catch(() => ({}))) as {
+      name?: string;
+      lookupFeatures?: boolean;
+    };
     if (typeof body.name !== "string") {
       return NextResponse.json(
         { error: "name is required" },
@@ -17,7 +20,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await generateSocialPlaylist(body.name);
+    const result = await generateSocialPlaylist(body.name, {
+      lookupFeatures: body.lookupFeatures === true,
+    });
     return NextResponse.json(result);
   } catch (error: unknown) {
     console.error("Spotify generate error:", error);

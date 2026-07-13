@@ -23,7 +23,8 @@ export type GenerateSocialResult = {
 };
 
 export async function generateSocialPlaylist(
-  name: string
+  name: string,
+  options?: { lookupFeatures?: boolean }
 ): Promise<GenerateSocialResult> {
   const trimmed = name.trim();
   if (!trimmed) {
@@ -32,6 +33,8 @@ export async function generateSocialPlaylist(
   if (trimmed.length > 100) {
     throw new Error("Playlist name must be 100 characters or fewer");
   }
+
+  const lookupFeatures = options?.lookupFeatures === true;
 
   const { accessToken } = await getValidAccessToken();
   const masters = await getMasterPlaylistRefs();
@@ -59,7 +62,10 @@ export async function generateSocialPlaylist(
     }
   }
 
-  const resolved = await resolveTrackFeatures(allTracks);
+  const resolved = await resolveTrackFeatures(allTracks, {
+    lookup: lookupFeatures,
+    retryMode: "bpm_energy",
+  });
 
   const addedToPool = new Set<string>();
   for (const track of allTracks) {

@@ -2,19 +2,30 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import type { SpotifyTrack } from "@/lib/spotify/client";
 import {
   FEATURE_DEFAULTS,
+  needsBpmOrEnergyLookup,
   needsFeatureLookup,
   selectTracksNeedingLookup,
+  type FeatureRetryMode,
   type TrackFeaturesRow,
 } from "@/lib/spotify/featureFlags";
 import type { ResolvedTrackFeatures } from "@/lib/spotify/curate";
 
 export {
   FEATURE_DEFAULTS,
+  needsBpmOrEnergyLookup,
   needsFeatureLookup,
   selectTracksNeedingLookup,
+  type FeatureRetryMode,
   type TrackFeaturesRow,
 };
 export type { ResolvedTrackFeatures };
+
+export type ResolveTrackFeaturesOptions = {
+  /** When false, skip FreqBlog and do not write default rows to Supabase. */
+  lookup?: boolean;
+  /** Which incomplete flags trigger a FreqBlog retry when lookup is true. */
+  retryMode?: FeatureRetryMode;
+};
 
 const FREQBLOG_BASE = "https://api.freqblog.com";
 const BULK_CHUNK = 50;
@@ -211,54 +222,63 @@ export type ResolveFeaturesResult = {
 };
 
 /**
- * Load cache, lookup gaps via FreqBlog, upsert, return resolved features for all tracks.
+ * Load cache, optionally lookup gaps via FreqBlog, return resolved features for all tracks.
  */
 export async function resolveTrackFeatures(
-  tracks: SpotifyTrack[]
+  tracks: SpotifyTrack[],
+  options?: ResolveTrackFeaturesOptions
 ): Promise<ResolveFeaturesResult> {
+  const lookup = options?.lookup !== false;
+  const retryMode: FeatureRetryMode = options?.retryMode ?? "all_flags";
+
   const unique = new Map<string, SpotifyTrack>();
   for (const t of tracks) unique.set(t.id, t);
   const list = [...unique.values()];
 
   const cached = await loadCachedFeatures(list.map((t) => t.id));
-  const needing = selectTracksNeedingLookup(list, cached);
 
   let lookedUp = 0;
-  if (needing.length > 0) {
-    const lookups = await bulkLookupFreqBlog(needing);
-    const upserts: TrackFeaturesRow[] = [];
-    for (const track of needing) {
-      const lookup = lookups.get(track.id) ?? null;
-      const row = buildUpsertFromLookup(track, lookup);
-      upserts.push(row);
-      cached.set(track.id, row);
-      lookedUp += 1;
+  if (lookup) {
+    const needing = selectTracksNeedingLookup(list, cached, retryMode);
+    if (needing.length > 0) {
+      const lookups = await bulkLookupFreqBlog(needing);
+      const upserts: TrackFeaturesRow[] = [];
+      for (const track of needing) {
+        const freqResult = lookups.get(track.id) ?? null;
+        const row = buildUpsertFromLookup(track, freqResult);
+        upserts.push(row);
+        cached.set(track.id, row);
+        lookedUp += 1;
+      }
+      await upsertFeatureRows(upserts);
     }
-    await upsertFeatureRows(upserts);
   }
 
-  // Ensure every track has a row (even if already complete in cache)
   const featuresById = new Map<string, ResolvedTrackFeatures>();
   let stillUnknown = 0;
   for (const track of list) {
     let row = cached.get(track.id);
     if (!row) {
       row = buildUpsertFromLookup(track, null);
-      await upsertFeatureRows([row]);
+      // Only persist miss rows when actively looking up (Sync / generate+lookup).
+      if (lookup) {
+        await upsertFeatureRows([row]);
+      }
       cached.set(track.id, row);
     }
     const resolved = rowToResolved(row);
     featuresById.set(track.id, resolved);
-    if (
-      !resolved.trueBpm ||
-      !resolved.trueEnergy ||
-      !resolved.trueDanceability ||
-      !resolved.trueValence ||
-      !resolved.trueMood ||
-      !resolved.trueCamelot
-    ) {
-      stillUnknown += 1;
-    }
+
+    const unknown =
+      retryMode === "bpm_energy"
+        ? !resolved.trueBpm || !resolved.trueEnergy
+        : !resolved.trueBpm ||
+          !resolved.trueEnergy ||
+          !resolved.trueDanceability ||
+          !resolved.trueValence ||
+          !resolved.trueMood ||
+          !resolved.trueCamelot;
+    if (unknown) stillUnknown += 1;
   }
 
   return {

@@ -51,6 +51,7 @@ export default function SpotifyPageClient() {
   const [masters, setMasters] = useState<MasterInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [playlistName, setPlaylistName] = useState("");
+  const [lookupFeatures, setLookupFeatures] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -123,13 +124,26 @@ export default function SpotifyPageClient() {
     init();
   }, [loadStatus]);
 
+  const getFreshAdminToken = useCallback(async (): Promise<string> => {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabaseBrowser.auth.getSession();
+    if (sessionError || !session?.access_token) {
+      setAuthToken(null);
+      throw new Error("Session expired. Please sign in again.");
+    }
+    setAuthToken(session.access_token);
+    return session.access_token;
+  }, []);
+
   const connectSpotify = async () => {
-    if (!authToken) return;
     setConnecting(true);
     setError(null);
     try {
+      const token = await getFreshAdminToken();
       const res = await fetch("/api/spotify/auth", {
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -147,16 +161,16 @@ export default function SpotifyPageClient() {
   };
 
   const runSync = async (playlistId?: string) => {
-    if (!authToken) return;
     setError(null);
     setSyncResult(null);
     if (playlistId) setSyncingId(playlistId);
     else setSyncingAll(true);
     try {
+      const token = await getFreshAdminToken();
       const res = await fetch("/api/spotify/sync-features", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(playlistId ? { playlistId } : {}),
@@ -177,18 +191,21 @@ export default function SpotifyPageClient() {
   };
 
   const runGenerate = async () => {
-    if (!authToken) return;
     setError(null);
     setGenerateResult(null);
     setGenerating(true);
     try {
+      const token = await getFreshAdminToken();
       const res = await fetch("/api/spotify/generate", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ name: playlistName }),
+        body: JSON.stringify({
+          name: playlistName,
+          lookupFeatures,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -333,6 +350,23 @@ export default function SpotifyPageClient() {
                 disabled={busy}
               />
             </label>
+            <label className="flex items-start gap-2 text-sm text-gray-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={lookupFeatures}
+                onChange={(e) => setLookupFeatures(e.target.checked)}
+                disabled={busy}
+                className="mt-1"
+              />
+              <span>
+                Lookup missing BPM/energy on FreqBlog
+                <span className="block text-xs text-gray-500 mt-0.5">
+                  Leave off to generate from the synced cache only (faster, no
+                  FreqBlog quota). Sync first for best results. When on, only
+                  tracks missing true BPM or energy are looked up.
+                </span>
+              </span>
+            </label>
             <button
               type="button"
               onClick={runGenerate}
@@ -340,7 +374,9 @@ export default function SpotifyPageClient() {
               className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-sm font-medium"
             >
               {generating
-                ? "Generating… (this can take a few minutes)"
+                ? lookupFeatures
+                  ? "Generating… (this can take a few minutes)"
+                  : "Generating…"
                 : "Generate playlist"}
             </button>
             {generateResult && (

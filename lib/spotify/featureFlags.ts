@@ -32,6 +32,9 @@ export const FEATURE_DEFAULTS = {
   camelot: null as string | null,
 } as const;
 
+export type FeatureRetryMode = "all_flags" | "bpm_energy";
+
+/** Sync path: retry if any feature flag is incomplete. */
 export function needsFeatureLookup(
   row: TrackFeaturesRow | null | undefined
 ): boolean {
@@ -46,9 +49,20 @@ export function needsFeatureLookup(
   );
 }
 
+/** Generate path: only retry when BPM or energy is missing. */
+export function needsBpmOrEnergyLookup(
+  row: TrackFeaturesRow | null | undefined
+): boolean {
+  if (!row) return true;
+  return !row.true_bpm || !row.true_energy;
+}
+
 export function selectTracksNeedingLookup(
   tracks: SpotifyTrack[],
-  cached: Map<string, TrackFeaturesRow>
+  cached: Map<string, TrackFeaturesRow>,
+  retryMode: FeatureRetryMode = "all_flags"
 ): SpotifyTrack[] {
-  return tracks.filter((t) => needsFeatureLookup(cached.get(t.id)));
+  const needs =
+    retryMode === "bpm_energy" ? needsBpmOrEnergyLookup : needsFeatureLookup;
+  return tracks.filter((t) => needs(cached.get(t.id)));
 }

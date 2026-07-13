@@ -1,0 +1,369 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
+
+type MasterInfo = {
+  linkId: string;
+  label: string;
+  spotifyPlaylistId: string;
+  genre: string;
+};
+
+type SyncResult = {
+  scanned: number;
+  lookedUp: number;
+  stillUnknown: number;
+  playlists?: Array<{
+    playlistId: string;
+    label: string | null;
+    scanned: number;
+    lookedUp: number;
+    stillUnknown: number;
+  }>;
+};
+
+type GenerateResult = {
+  id: string;
+  url: string;
+  durationMs: number;
+  trackCount: number;
+  lookedUp: number;
+  stillUnknown: number;
+};
+
+function formatDuration(ms: number): string {
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes} min`;
+  return `${hours}h ${minutes}m`;
+}
+
+export default function SpotifyPageClient() {
+  const searchParams = useSearchParams();
+  const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [masters, setMasters] = useState<MasterInfo[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [playlistName, setPlaylistName] = useState("");
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [generateResult, setGenerateResult] = useState<GenerateResult | null>(
+    null
+  );
+
+  const loadStatus = useCallback(async (token: string) => {
+    const res = await fetch("/api/spotify/status", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(
+        (body as { error?: string }).error ?? "Failed to load Spotify status"
+      );
+    }
+    const data = await res.json();
+    setConnected(Boolean(data.connected));
+    setMasters((data.masters as MasterInfo[]) ?? []);
+  }, []);
+
+  useEffect(() => {
+    const oauthError = searchParams.get("error");
+    if (oauthError) {
+      setError(`Spotify connection failed: ${oauthError}`);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const init = async () => {
+      setLoading(true);
+      const {
+        data: { session },
+      } = await supabaseBrowser.auth.getSession();
+      if (!session?.user) {
+        setIsAdmin(false);
+        setAuthToken(null);
+        setLoading(false);
+        return;
+      }
+      const meRes = await fetch("/api/me", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (!meRes.ok) {
+        setIsAdmin(false);
+        setAuthToken(null);
+        setLoading(false);
+        return;
+      }
+      const me = await meRes.json();
+      const roleLower = (me.profile?.role || "").toLowerCase();
+      const admin = roleLower === "admin";
+      setIsAdmin(admin);
+      if (!admin) {
+        setAuthToken(null);
+        setLoading(false);
+        return;
+      }
+      setAuthToken(session.access_token);
+      try {
+        await loadStatus(session.access_token);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load status");
+      }
+      setLoading(false);
+    };
+    init();
+  }, [loadStatus]);
+
+  const connectSpotify = async () => {
+    if (!authToken) return;
+    setConnecting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/spotify/auth", {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error ?? "Failed to start Spotify auth"
+        );
+      }
+      const url = (data as { url?: string }).url;
+      if (!url) throw new Error("Missing Spotify authorize URL");
+      window.location.href = url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect Spotify");
+      setConnecting(false);
+    }
+  };
+
+  const runSync = async (playlistId?: string) => {
+    if (!authToken) return;
+    setError(null);
+    setSyncResult(null);
+    if (playlistId) setSyncingId(playlistId);
+    else setSyncingAll(true);
+    try {
+      const res = await fetch("/api/spotify/sync-features", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(playlistId ? { playlistId } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error ?? "Failed to sync features"
+        );
+      }
+      setSyncResult(data as SyncResult);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to sync features");
+    } finally {
+      setSyncingId(null);
+      setSyncingAll(false);
+    }
+  };
+
+  const runGenerate = async () => {
+    if (!authToken) return;
+    setError(null);
+    setGenerateResult(null);
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/spotify/generate", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name: playlistName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error ?? "Failed to generate playlist"
+        );
+      }
+      setGenerateResult(data as GenerateResult);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to generate playlist"
+      );
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <section className="max-w-xl mx-auto text-center">
+        <p className="text-gray-400">Loading…</p>
+      </section>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <section className="max-w-xl mx-auto text-center space-y-4">
+        <h1 className="gold-wave text-4xl font-extrabold pb-2">Spotify Social</h1>
+        <p className="text-gray-300">
+          Admin access required.{" "}
+          <Link href="/auth" className="text-amber-400 underline">
+            Sign in
+          </Link>{" "}
+          with an admin account.
+        </p>
+      </section>
+    );
+  }
+
+  const busy = syncingAll || Boolean(syncingId) || generating || connecting;
+
+  return (
+    <section className="max-w-2xl mx-auto space-y-10">
+      <header className="text-center space-y-2">
+        <h1 className="gold-wave text-4xl font-extrabold pb-2">Spotify Social</h1>
+        <p className="text-gray-300 text-sm">
+          Sync master playlist features, then generate a private ~5.5h Social mix
+          (2 Country / 2 West Coast / 2 Line Dance).
+        </p>
+      </header>
+
+      {error && (
+        <p className="text-red-400 text-sm text-center" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="space-y-3 border border-neutral-700 rounded-lg p-5">
+        <h2 className="text-lg font-semibold text-amber-200">Spotify account</h2>
+        {connected ? (
+          <p className="text-sm text-gray-300">Connected. Ready to sync and generate.</p>
+        ) : (
+          <p className="text-sm text-gray-400">
+            Connect the Spotify account that owns the master playlists.
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={connectSpotify}
+          disabled={busy}
+          className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-sm font-medium"
+        >
+          {connecting
+            ? "Redirecting…"
+            : connected
+              ? "Reconnect Spotify"
+              : "Connect Spotify"}
+        </button>
+      </div>
+
+      {connected && (
+        <>
+          <div className="space-y-4 border border-neutral-700 rounded-lg p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-amber-200">
+                Sync features
+              </h2>
+              <button
+                type="button"
+                onClick={() => runSync()}
+                disabled={busy || masters.length === 0}
+                className="px-3 py-1.5 rounded border border-amber-600/60 text-amber-200 hover:bg-amber-900/30 disabled:opacity-50 text-sm"
+              >
+                {syncingAll ? "Syncing all…" : "Sync all"}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500">
+              Pulls tracks from Spotify and fills BPM/energy cache via FreqBlog
+              (only missing or incomplete rows). Run this before generate to save
+              quota.
+            </p>
+            <ul className="space-y-2">
+              {masters.map((m) => (
+                <li
+                  key={m.linkId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded bg-neutral-800/60 px-3 py-2"
+                >
+                  <span className="text-sm text-gray-200">{m.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => runSync(m.spotifyPlaylistId)}
+                    disabled={busy}
+                    className="px-3 py-1 rounded text-xs border border-neutral-600 hover:border-amber-600/50 disabled:opacity-50"
+                  >
+                    {syncingId === m.spotifyPlaylistId ? "Syncing…" : "Sync"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {syncResult && (
+              <p className="text-sm text-gray-400">
+                Last sync: scanned {syncResult.scanned}, looked up{" "}
+                {syncResult.lookedUp}, still unknown {syncResult.stillUnknown}
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-4 border border-neutral-700 rounded-lg p-5">
+            <h2 className="text-lg font-semibold text-amber-200">
+              Generate Social
+            </h2>
+            <label className="block space-y-1">
+              <span className="text-sm text-gray-400">Playlist name</span>
+              <input
+                type="text"
+                value={playlistName}
+                onChange={(e) => setPlaylistName(e.target.value)}
+                placeholder="CCS Social — Jul 12"
+                maxLength={100}
+                className="w-full rounded bg-neutral-900 border border-neutral-600 px-3 py-2 text-sm"
+                disabled={busy}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={runGenerate}
+              disabled={busy || !playlistName.trim()}
+              className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-sm font-medium"
+            >
+              {generating
+                ? "Generating… (this can take a few minutes)"
+                : "Generate playlist"}
+            </button>
+            {generateResult && (
+              <div className="text-sm text-gray-300 space-y-1">
+                <p>
+                  Created {generateResult.trackCount} tracks (
+                  {formatDuration(generateResult.durationMs)}). Gap-fill looked
+                  up {generateResult.lookedUp}; still unknown{" "}
+                  {generateResult.stillUnknown}.
+                </p>
+                <a
+                  href={generateResult.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber-400 underline"
+                >
+                  Open playlist in Spotify
+                </a>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}

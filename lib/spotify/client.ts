@@ -260,18 +260,25 @@ export async function addTracksToPlaylist(
     if (options?.position != null && i === 0) {
       body.position = options.position;
     }
-    try {
-      await spotifyFetch(accessToken, `/playlists/${playlistId}/items`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    } catch {
-      await spotifyFetch(accessToken, `/playlists/${playlistId}/tracks`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    }
+    // Feb 2026: /tracks write endpoints are removed (403). Use /items only.
+    await spotifyFetch(accessToken, `/playlists/${playlistId}/items`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   }
+}
+
+async function fetchPlaylistSnapshotId(
+  accessToken: string,
+  playlistId: string
+): Promise<string | null> {
+  const data = await spotifyFetch<{ snapshot_id?: string }>(
+    accessToken,
+    `/playlists/${playlistId}`
+  );
+  return typeof data.snapshot_id === "string" && data.snapshot_id
+    ? data.snapshot_id
+    : null;
 }
 
 /** Remove a single playlist item at a specific position. */
@@ -281,20 +288,20 @@ export async function removePlaylistItemAtPosition(
   trackUri: string,
   position: number
 ): Promise<void> {
-  const body = {
-    tracks: [{ uri: trackUri, positions: [position] }],
+  const snapshotId = await fetchPlaylistSnapshotId(accessToken, playlistId);
+  // Feb 2026: body field is `items` (not `tracks`); /tracks DELETE returns 403.
+  const body: {
+    items: Array<{ uri: string; positions: number[] }>;
+    snapshot_id?: string;
+  } = {
+    items: [{ uri: trackUri, positions: [position] }],
   };
-  try {
-    await spotifyFetch(accessToken, `/playlists/${playlistId}/items`, {
-      method: "DELETE",
-      body: JSON.stringify(body),
-    });
-  } catch {
-    await spotifyFetch(accessToken, `/playlists/${playlistId}/tracks`, {
-      method: "DELETE",
-      body: JSON.stringify(body),
-    });
-  }
+  if (snapshotId) body.snapshot_id = snapshotId;
+
+  await spotifyFetch(accessToken, `/playlists/${playlistId}/items`, {
+    method: "DELETE",
+    body: JSON.stringify(body),
+  });
 }
 
 /** Replace the track at `position` with `newUri`. */

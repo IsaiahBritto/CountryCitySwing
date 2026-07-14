@@ -43,6 +43,14 @@ type ActivePlaylistStatus = {
   trackCount: number;
 };
 
+type OwnedPlaylist = {
+  id: string;
+  name: string;
+  url: string;
+  trackCount: number | null;
+  public: boolean | null;
+};
+
 function formatDuration(ms: number): string {
   const totalMinutes = Math.round(ms / 60000);
   const hours = Math.floor(totalMinutes / 60);
@@ -71,7 +79,9 @@ export default function SpotifyPageClient() {
   );
   const [activePlaylist, setActivePlaylist] =
     useState<ActivePlaylistStatus | null>(null);
-  const [activateUrl, setActivateUrl] = useState("");
+  const [ownedPlaylists, setOwnedPlaylists] = useState<OwnedPlaylist[]>([]);
+  const [selectedOwnedId, setSelectedOwnedId] = useState("");
+  const [loadingOwned, setLoadingOwned] = useState(false);
   const [activating, setActivating] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
 
@@ -89,6 +99,30 @@ export default function SpotifyPageClient() {
     setActivePlaylist(data);
   }, []);
 
+  const loadOwnedPlaylists = useCallback(async (token: string) => {
+    setLoadingOwned(true);
+    try {
+      const res = await fetch("/api/spotify/playlists", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (body as { error?: string }).error ?? "Failed to list owned playlists"
+        );
+      }
+      const list = ((body as { playlists?: OwnedPlaylist[] }).playlists ??
+        []) as OwnedPlaylist[];
+      setOwnedPlaylists(list);
+      setSelectedOwnedId((prev) => {
+        if (prev && list.some((p) => p.id === prev)) return prev;
+        return list[0]?.id ?? "";
+      });
+    } finally {
+      setLoadingOwned(false);
+    }
+  }, []);
+
   const loadStatus = useCallback(
     async (token: string) => {
       const res = await fetch("/api/spotify/status", {
@@ -104,8 +138,19 @@ export default function SpotifyPageClient() {
       setConnected(Boolean(data.connected));
       setMasters((data.masters as MasterInfo[]) ?? []);
       await loadActivePlaylist(token);
+      if (data.connected) {
+        try {
+          await loadOwnedPlaylists(token);
+        } catch (err) {
+          console.error(err);
+          setOwnedPlaylists([]);
+        }
+      } else {
+        setOwnedPlaylists([]);
+        setSelectedOwnedId("");
+      }
     },
-    [loadActivePlaylist]
+    [loadActivePlaylist, loadOwnedPlaylists]
   );
 
   useEffect(() => {
@@ -246,7 +291,13 @@ export default function SpotifyPageClient() {
         );
       }
       setGenerateResult(data as GenerateResult);
-      setActivateUrl((data as GenerateResult).url);
+      setSelectedOwnedId((data as GenerateResult).id);
+      try {
+        await loadOwnedPlaylists(token);
+        setSelectedOwnedId((data as GenerateResult).id);
+      } catch {
+        // list refresh is best-effort; selection still set to new id
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to generate playlist"
@@ -516,8 +567,10 @@ export default function SpotifyPageClient() {
               <Link href="/social" className="text-amber-400 underline">
                 /social
               </Link>{" "}
-              link can request songs into this playlist. After adding playback
-              scopes, reconnect Spotify once.
+              link can request songs into this playlist. Only playlists{" "}
+              <span className="text-gray-300">owned</span> by the connected
+              Spotify account are listed (those are editable for requests).
+              After adding playback scopes, reconnect Spotify once.
             </p>
             {activePlaylist?.isActive ? (
               <div className="text-sm text-gray-300 space-y-2">
@@ -550,26 +603,60 @@ export default function SpotifyPageClient() {
             ) : (
               <p className="text-sm text-gray-400">No playlist is active for requests.</p>
             )}
-            <label className="block space-y-1">
-              <span className="text-sm text-gray-400">
-                Activate playlist URL or id
-              </span>
-              <input
-                type="text"
-                value={activateUrl}
-                onChange={(e) => setActivateUrl(e.target.value)}
-                placeholder="https://open.spotify.com/playlist/…"
-                className="w-full rounded bg-neutral-900 border border-neutral-600 px-3 py-2 text-sm"
-                disabled={busy}
-              />
-            </label>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block space-y-1 flex-1 min-w-[14rem]">
+                <span className="text-sm text-gray-400">
+                  Your owned playlists
+                </span>
+                <select
+                  value={selectedOwnedId}
+                  onChange={(e) => setSelectedOwnedId(e.target.value)}
+                  disabled={busy || loadingOwned || ownedPlaylists.length === 0}
+                  className="w-full rounded bg-neutral-900 border border-neutral-600 px-3 py-2 text-sm"
+                >
+                  {ownedPlaylists.length === 0 ? (
+                    <option value="">
+                      {loadingOwned
+                        ? "Loading playlists…"
+                        : "No owned playlists found"}
+                    </option>
+                  ) : (
+                    ownedPlaylists.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                        {p.trackCount != null ? ` (${p.trackCount})` : ""}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const token = await getFreshAdminToken();
+                    await loadOwnedPlaylists(token);
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Failed to refresh playlists"
+                    );
+                  }
+                }}
+                disabled={busy || loadingOwned}
+                className="px-3 py-2 rounded border border-neutral-600 text-sm text-gray-300 hover:border-amber-600/50 disabled:opacity-50"
+              >
+                {loadingOwned ? "Refreshing…" : "Refresh list"}
+              </button>
+            </div>
             <button
               type="button"
-              onClick={() => runActivate(activateUrl)}
-              disabled={busy || !activateUrl.trim()}
+              onClick={() => runActivate(selectedOwnedId)}
+              disabled={busy || !selectedOwnedId.trim()}
               className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-sm font-medium"
             >
-              {activating ? "Activating…" : "Activate playlist"}
+              {activating ? "Activating…" : "Activate selected playlist"}
             </button>
           </div>
         </>

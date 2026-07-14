@@ -155,8 +155,13 @@ export async function activateSocialPlaylist(input: {
     throw new Error("Could not parse Spotify playlist id");
   }
 
-  const { accessToken } = await getValidAccessToken();
+  const { accessToken, spotifyUserId } = await getValidAccessToken();
   const meta = await fetchPlaylistMeta(accessToken, playlistId);
+  if (meta.ownerId && meta.ownerId !== spotifyUserId) {
+    throw new Error(
+      "That playlist is not owned by the connected Spotify account, so song requests cannot edit it. Pick one from your owned playlists list."
+    );
+  }
   const tracks = await fetchPlaylistTracks(accessToken, playlistId, {
     dedupe: false,
   });

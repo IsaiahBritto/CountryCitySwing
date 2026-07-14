@@ -373,11 +373,12 @@ export async function getCurrentlyPlaying(
 export async function fetchPlaylistMeta(
   accessToken: string,
   playlistId: string
-): Promise<{ id: string; name: string; url: string }> {
+): Promise<{ id: string; name: string; url: string; ownerId: string | null }> {
   const data = await spotifyFetch<{
     id: string;
     name?: string;
     external_urls?: { spotify?: string };
+    owner?: { id?: string };
   }>(accessToken, `/playlists/${playlistId}`);
   return {
     id: data.id,
@@ -385,5 +386,75 @@ export async function fetchPlaylistMeta(
     url:
       data.external_urls?.spotify ??
       `https://open.spotify.com/playlist/${playlistId}`,
+    ownerId: typeof data.owner?.id === "string" ? data.owner.id : null,
   };
+}
+
+export type OwnedPlaylistSummary = {
+  id: string;
+  name: string;
+  url: string;
+  trackCount: number | null;
+  public: boolean | null;
+};
+
+/**
+ * List playlists owned by the authenticated Spotify user (editable).
+ * Followed/collaborative playlists owned by others are excluded.
+ */
+export async function listOwnedPlaylists(
+  accessToken: string,
+  ownerUserId: string,
+  options?: { limit?: number }
+): Promise<OwnedPlaylistSummary[]> {
+  type PlaylistPage = {
+    items?: Array<{
+      id?: string;
+      name?: string;
+      external_urls?: { spotify?: string };
+      tracks?: { total?: number };
+      public?: boolean | null;
+      owner?: { id?: string };
+    }>;
+    next?: string | null;
+  };
+
+  const max = Math.min(Math.max(options?.limit ?? 100, 1), 200);
+  const out: OwnedPlaylistSummary[] = [];
+  let nextPath: string | null = `/me/playlists?limit=50`;
+
+  while (nextPath && out.length < max) {
+    const page: PlaylistPage = await spotifyFetch<PlaylistPage>(
+      accessToken,
+      nextPath
+    );
+
+    for (const item of page.items ?? []) {
+      if (!item?.id || typeof item.id !== "string") continue;
+      if (item.owner?.id !== ownerUserId) continue;
+      out.push({
+        id: item.id,
+        name: item.name?.trim() || "Untitled playlist",
+        url:
+          item.external_urls?.spotify ??
+          `https://open.spotify.com/playlist/${item.id}`,
+        trackCount:
+          typeof item.tracks?.total === "number" ? item.tracks.total : null,
+        public: typeof item.public === "boolean" ? item.public : null,
+      });
+      if (out.length >= max) break;
+    }
+
+    if (!page.next || out.length >= max) {
+      nextPath = null;
+    } else {
+      const nextUrl = new URL(page.next);
+      nextPath = `${nextUrl.pathname.replace(/^\/v1/, "")}${nextUrl.search}`;
+    }
+  }
+
+  out.sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+  );
+  return out;
 }

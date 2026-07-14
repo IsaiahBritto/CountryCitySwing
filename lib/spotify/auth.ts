@@ -7,6 +7,7 @@ const OAUTH_SCOPES = [
   "playlist-modify-private",
   "playlist-modify-public",
   "user-read-private",
+  "user-read-playback-state",
 ].join(" ");
 
 const STATE_COOKIE = "spotify_oauth_state";

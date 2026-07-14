@@ -34,6 +34,15 @@ type GenerateResult = {
   stillUnknown: number;
 };
 
+type ActivePlaylistStatus = {
+  isActive: boolean;
+  spotifyPlaylistId: string | null;
+  playlistUrl: string | null;
+  name: string | null;
+  activatedAt: string | null;
+  trackCount: number;
+};
+
 function formatDuration(ms: number): string {
   const totalMinutes = Math.round(ms / 60000);
   const hours = Math.floor(totalMinutes / 60);
@@ -60,21 +69,44 @@ export default function SpotifyPageClient() {
   const [generateResult, setGenerateResult] = useState<GenerateResult | null>(
     null
   );
+  const [activePlaylist, setActivePlaylist] =
+    useState<ActivePlaylistStatus | null>(null);
+  const [activateUrl, setActivateUrl] = useState("");
+  const [activating, setActivating] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
 
-  const loadStatus = useCallback(async (token: string) => {
-    const res = await fetch("/api/spotify/status", {
+  const loadActivePlaylist = useCallback(async (token: string) => {
+    const res = await fetch("/api/spotify/active-playlist", {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(
-        (body as { error?: string }).error ?? "Failed to load Spotify status"
+        (body as { error?: string }).error ?? "Failed to load active playlist"
       );
     }
-    const data = await res.json();
-    setConnected(Boolean(data.connected));
-    setMasters((data.masters as MasterInfo[]) ?? []);
+    const data = (await res.json()) as ActivePlaylistStatus;
+    setActivePlaylist(data);
   }, []);
+
+  const loadStatus = useCallback(
+    async (token: string) => {
+      const res = await fetch("/api/spotify/status", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string }).error ?? "Failed to load Spotify status"
+        );
+      }
+      const data = await res.json();
+      setConnected(Boolean(data.connected));
+      setMasters((data.masters as MasterInfo[]) ?? []);
+      await loadActivePlaylist(token);
+    },
+    [loadActivePlaylist]
+  );
 
   useEffect(() => {
     const oauthError = searchParams.get("error");
@@ -214,12 +246,72 @@ export default function SpotifyPageClient() {
         );
       }
       setGenerateResult(data as GenerateResult);
+      setActivateUrl((data as GenerateResult).url);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to generate playlist"
       );
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const runActivate = async (playlistIdOrUrl: string) => {
+    setError(null);
+    setActivating(true);
+    try {
+      const token = await getFreshAdminToken();
+      const res = await fetch("/api/spotify/active-playlist", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "activate",
+          playlistIdOrUrl,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error ?? "Failed to activate playlist"
+        );
+      }
+      setActivePlaylist(data as ActivePlaylistStatus);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to activate playlist"
+      );
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  const runDeactivate = async () => {
+    setError(null);
+    setDeactivating(true);
+    try {
+      const token = await getFreshAdminToken();
+      const res = await fetch("/api/spotify/active-playlist", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "deactivate" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error ?? "Failed to deactivate"
+        );
+      }
+      setActivePlaylist(data as ActivePlaylistStatus);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to deactivate");
+    } finally {
+      setDeactivating(false);
     }
   };
 
@@ -246,7 +338,13 @@ export default function SpotifyPageClient() {
     );
   }
 
-  const busy = syncingAll || Boolean(syncingId) || generating || connecting;
+  const busy =
+    syncingAll ||
+    Boolean(syncingId) ||
+    generating ||
+    connecting ||
+    activating ||
+    deactivating;
 
   return (
     <section className="max-w-2xl mx-auto space-y-10">
@@ -380,7 +478,7 @@ export default function SpotifyPageClient() {
                 : "Generate playlist"}
             </button>
             {generateResult && (
-              <div className="text-sm text-gray-300 space-y-1">
+              <div className="text-sm text-gray-300 space-y-2">
                 <p>
                   Created {generateResult.trackCount} tracks (
                   {formatDuration(generateResult.durationMs)}). Gap-fill looked
@@ -395,8 +493,84 @@ export default function SpotifyPageClient() {
                 >
                   Open playlist in Spotify
                 </a>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => runActivate(generateResult.url)}
+                    disabled={busy}
+                    className="mt-2 px-3 py-1.5 rounded border border-amber-600/60 text-amber-200 hover:bg-amber-900/30 disabled:opacity-50 text-sm"
+                  >
+                    {activating ? "Activating…" : "Activate for /social requests"}
+                  </button>
+                </div>
               </div>
             )}
+          </div>
+
+          <div className="space-y-4 border border-neutral-700 rounded-lg p-5">
+            <h2 className="text-lg font-semibold text-amber-200">
+              Active Social for requests
+            </h2>
+            <p className="text-xs text-gray-500">
+              When active, anyone with the unlisted{" "}
+              <Link href="/social" className="text-amber-400 underline">
+                /social
+              </Link>{" "}
+              link can request songs into this playlist. After adding playback
+              scopes, reconnect Spotify once.
+            </p>
+            {activePlaylist?.isActive ? (
+              <div className="text-sm text-gray-300 space-y-2">
+                <p>
+                  <span className="text-green-400">Active:</span>{" "}
+                  {activePlaylist.name || "Untitled"} (
+                  {activePlaylist.trackCount} tracks)
+                </p>
+                {activePlaylist.playlistUrl && (
+                  <a
+                    href={activePlaylist.playlistUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-amber-400 underline"
+                  >
+                    Open in Spotify
+                  </a>
+                )}
+                <div>
+                  <button
+                    type="button"
+                    onClick={runDeactivate}
+                    disabled={busy}
+                    className="px-3 py-1.5 rounded border border-red-700/60 text-red-300 hover:bg-red-950/40 disabled:opacity-50 text-sm"
+                  >
+                    {deactivating ? "Deactivating…" : "Deactivate requests"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">No playlist is active for requests.</p>
+            )}
+            <label className="block space-y-1">
+              <span className="text-sm text-gray-400">
+                Activate playlist URL or id
+              </span>
+              <input
+                type="text"
+                value={activateUrl}
+                onChange={(e) => setActivateUrl(e.target.value)}
+                placeholder="https://open.spotify.com/playlist/…"
+                className="w-full rounded bg-neutral-900 border border-neutral-600 px-3 py-2 text-sm"
+                disabled={busy}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => runActivate(activateUrl)}
+              disabled={busy || !activateUrl.trim()}
+              className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-sm font-medium"
+            >
+              {activating ? "Activating…" : "Activate playlist"}
+            </button>
           </div>
         </>
       )}

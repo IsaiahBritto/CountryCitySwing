@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  LINE_DANCE_LEVELS,
+  LINE_DANCE_LEVEL_LABELS,
+  type LineDanceLevel,
+} from "@/lib/spotify/lineDanceLevels";
 
 type SocialStatus = {
   isActive: boolean;
@@ -39,6 +44,8 @@ export default function SocialRequestPageClient() {
   const [genre, setGenre] = useState<Genre | "">("");
   const [genreFromMaster, setGenreFromMaster] = useState(false);
   const [lookingUpGenre, setLookingUpGenre] = useState(false);
+  const [lineDanceName, setLineDanceName] = useState("");
+  const [lineDanceLevel, setLineDanceLevel] = useState<LineDanceLevel | "">("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -156,6 +163,8 @@ export default function SocialRequestPageClient() {
     setQuery("");
     setGenre("");
     setGenreFromMaster(false);
+    setLineDanceName("");
+    setLineDanceLevel("");
     setSuggestions([]);
     setFormError(null);
     setSuccess(null);
@@ -184,6 +193,12 @@ export default function SocialRequestPageClient() {
           name: selected.name,
           primaryArtist: selected.primaryArtist,
           genre,
+          lineDanceName:
+            genre === "ld" && lineDanceName.trim()
+              ? lineDanceName.trim()
+              : undefined,
+          lineDanceLevel:
+            genre === "ld" && lineDanceLevel ? lineDanceLevel : undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -208,6 +223,8 @@ export default function SocialRequestPageClient() {
       setQuery("");
       setGenre("");
       setGenreFromMaster(false);
+      setLineDanceName("");
+      setLineDanceLevel("");
       setSuggestions([]);
       setFormError(null);
       setSuccess(`“${result.trackName}” ${placed}.${masterNote}`);
@@ -345,7 +362,14 @@ export default function SocialRequestPageClient() {
           <span className="text-sm text-gray-400">Category</span>
           <select
             value={genre}
-            onChange={(e) => setGenre(e.target.value as Genre | "")}
+            onChange={(e) => {
+              const next = e.target.value as Genre | "";
+              setGenre(next);
+              if (next !== "ld") {
+                setLineDanceName("");
+                setLineDanceLevel("");
+              }
+            }}
             disabled={submitting || lookingUpGenre || !selected}
             className="w-full rounded bg-neutral-900 border border-neutral-600 px-3 py-2.5 text-sm"
           >
@@ -373,6 +397,44 @@ export default function SocialRequestPageClient() {
             </span>
           )}
         </label>
+
+        {genre === "ld" && (
+          <div className="space-y-3 rounded border border-neutral-700/80 bg-neutral-900/40 p-3">
+            <p className="text-xs text-gray-500">
+              Optional — help us match the line dance if you know it. Your
+              answers are provisional until an admin confirms.
+            </p>
+            <label className="block space-y-1">
+              <span className="text-sm text-gray-400">Line dance name</span>
+              <input
+                type="text"
+                value={lineDanceName}
+                onChange={(e) => setLineDanceName(e.target.value)}
+                placeholder="e.g. Watermelon Crawl"
+                disabled={submitting}
+                className="w-full rounded bg-neutral-900 border border-neutral-600 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-sm text-gray-400">Difficulty</span>
+              <select
+                value={lineDanceLevel}
+                onChange={(e) =>
+                  setLineDanceLevel(e.target.value as LineDanceLevel | "")
+                }
+                disabled={submitting}
+                className="w-full rounded bg-neutral-900 border border-neutral-600 px-3 py-2.5 text-sm"
+              >
+                <option value="">Unknown / skip</option>
+                {LINE_DANCE_LEVELS.map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    {LINE_DANCE_LEVEL_LABELS[lvl]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
 
         {formError && (
           <p className="text-sm text-red-400" role="alert">

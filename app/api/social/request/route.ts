@@ -35,6 +35,8 @@ export async function POST(req: NextRequest) {
       name?: string;
       primaryArtist?: string;
       genre?: string;
+      lineDanceName?: string;
+      lineDanceLevel?: string;
     };
 
     if (
@@ -67,6 +69,10 @@ export async function POST(req: NextRequest) {
       name: body.name.trim(),
       primaryArtist: body.primaryArtist.trim(),
       genre,
+      lineDanceName:
+        typeof body.lineDanceName === "string" ? body.lineDanceName : null,
+      lineDanceLevel:
+        typeof body.lineDanceLevel === "string" ? body.lineDanceLevel : null,
     });
 
     return NextResponse.json(result);

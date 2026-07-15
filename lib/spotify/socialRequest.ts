@@ -11,6 +11,9 @@ import {
   replacePlaylistItemAtPosition,
   type SpotifySearchTrack,
 } from "@/lib/spotify/client";
+import {
+  applyUserProvisional,
+} from "@/lib/spotify/lineDanceMeta";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import {
   findRequestInsertTarget,
@@ -19,6 +22,7 @@ import {
   type SnapshotTrack,
 } from "@/lib/spotify/requestInsert";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { isLineDanceLevel } from "@/lib/spotify/lineDanceLevels";
 
 const ACTIVE_ID = "default";
 
@@ -40,6 +44,8 @@ export type SocialRequestInput = {
   name: string;
   primaryArtist: string;
   genre: GenrePool;
+  lineDanceName?: string | null;
+  lineDanceLevel?: string | null;
 };
 
 export type SocialRequestResult = {
@@ -140,6 +146,25 @@ async function submitSocialSongRequestUnlocked(
     track: { id: input.trackId, uri: input.uri },
     genre,
   });
+
+  if (genre === "ld") {
+    try {
+      const level =
+        typeof input.lineDanceLevel === "string" &&
+        isLineDanceLevel(input.lineDanceLevel.trim())
+          ? input.lineDanceLevel.trim()
+          : null;
+      await applyUserProvisional({
+        trackId: input.trackId,
+        trackName: input.name,
+        primaryArtist: input.primaryArtist,
+        lineDanceName: input.lineDanceName,
+        level,
+      });
+    } catch (err) {
+      console.warn("Line dance metadata save failed:", err);
+    }
+  }
 
   let playing = null;
   try {

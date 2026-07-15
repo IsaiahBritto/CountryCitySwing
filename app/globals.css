@@ -459,3 +459,132 @@ img {
     animation: none;
   }
 }
+
+/* -------------------------------------------------------
+   Unified events page test (/test/event-page)
+------------------------------------------------------- */
+.event-page-test {
+  --ep-accent: #f2c94c;
+  --ep-accent-rgb: 242, 201, 76;
+  isolation: isolate;
+}
+
+.event-page-test-glow {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(
+      ellipse 80% 50% at 50% 0%,
+      rgba(var(--ep-accent-rgb), 0.18),
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 60% 40% at 80% 40%,
+      rgba(var(--ep-accent-rgb), 0.08),
+      transparent 55%
+    );
+  transition: background 80ms linear;
+}
+
+.event-page-test > *:not(.event-page-test-glow) {
+  position: relative;
+  z-index: 1;
+}
+
+.event-page-brand-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .event-page-brand-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    align-items: stretch;
+  }
+}
+
+.event-page-brand-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  text-align: center;
+  min-height: 7.5rem;
+  padding: 1.25rem 1rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition:
+    transform 220ms ease,
+    filter 220ms ease,
+    opacity 220ms ease;
+  opacity: 0.88;
+}
+
+.event-page-brand-card:hover {
+  opacity: 1;
+  transform: translateY(-3px);
+}
+
+.event-page-brand-card.is-active {
+  opacity: 1;
+  filter: drop-shadow(0 0 14px rgba(var(--ep-accent-rgb), 0.35));
+}
+
+.event-page-brand-card-dna:hover,
+.event-page-brand-card-dna.is-active {
+  filter: drop-shadow(0 0 16px rgba(43, 201, 41, 0.45));
+}
+
+.event-page-brand-card-ncsn:hover,
+.event-page-brand-card-ncsn.is-active {
+  filter: drop-shadow(0 0 16px rgba(65, 105, 225, 0.45));
+}
+
+.event-page-brand-card-social:hover,
+.event-page-brand-card-social.is-active {
+  filter: drop-shadow(0 0 16px rgba(212, 212, 212, 0.4));
+}
+
+.event-page-brand-hint {
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.event-page-brand-rule {
+  height: 1px;
+  width: min(100%, 28rem);
+  margin-inline: auto;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(var(--ep-accent-rgb), 0.55),
+    transparent
+  );
+}
+
+.royal-blue-wave {
+  background-image: linear-gradient(
+    270deg,
+    #4169e1,
+    #6b8cff,
+    #dce4ff,
+    #6b8cff,
+    #4169e1
+  );
+  background-size: 300% 300%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: goldWave 8s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(65, 105, 225, 0.4));
+  line-height: 1.2;
+}

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { updateClassEventDescriptionFromSchedule } from "@/lib/classDescriptionSync";
 import { syncClassFinanceTeachersFromSchedule } from "@/lib/classFinanceSync";
+import { syncSocialDoorPayoutsFromSchedule } from "@/lib/socialDoorFinanceSync";
 import { isEventPastInChicago } from "@/lib/utils/dateHelpers";
 
 async function getAuthUser(req: NextRequest) {
@@ -137,6 +138,11 @@ export async function POST(
       await syncClassFinanceTeachersFromSchedule(String(slot.event_id));
     } catch (syncErr) {
       console.error("Class finance sync after cancel:", syncErr);
+    }
+    try {
+      await syncSocialDoorPayoutsFromSchedule(String(slot.event_id));
+    } catch (syncErr) {
+      console.error("Social door finance sync after cancel:", syncErr);
     }
 
     // Fetch assignee name (and email if column exists) for confirmation email

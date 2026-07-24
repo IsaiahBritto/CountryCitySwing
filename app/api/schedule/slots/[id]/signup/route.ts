@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { updateClassEventDescriptionFromSchedule } from "@/lib/classDescriptionSync";
 import { syncClassFinanceTeachersFromSchedule } from "@/lib/classFinanceSync";
+import { syncSocialDoorPayoutsFromSchedule } from "@/lib/socialDoorFinanceSync";
 import { isEventPastInChicago } from "@/lib/utils/dateHelpers";
 
 async function getAuthUser(req: NextRequest) {
@@ -140,6 +141,11 @@ export async function POST(
       await syncClassFinanceTeachersFromSchedule(String(updated.event_id));
     } catch (syncErr) {
       console.error("Class finance sync after signup:", syncErr);
+    }
+    try {
+      await syncSocialDoorPayoutsFromSchedule(String(updated.event_id));
+    } catch (syncErr) {
+      console.error("Social door finance sync after signup:", syncErr);
     }
 
     // Send confirmation email (assignee + admins)

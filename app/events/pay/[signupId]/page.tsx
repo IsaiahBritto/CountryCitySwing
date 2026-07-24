@@ -12,6 +12,7 @@ export default function EventPaymentPage() {
   const [error, setError] = useState("");
   const [processing, setProcessing] = useState(false);
   const [eventPrice, setEventPrice] = useState(0);
+  const [registeredAt, setRegisteredAt] = useState<number | null>(null);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string; discountedSubtotal?: number } | null>(null);
   const [promoError, setPromoError] = useState("");
@@ -32,7 +33,14 @@ export default function EventPaymentPage() {
         }
 
         setSignup(data.signup);
-        setEventPrice(data.eventPrice ?? 0);
+        setEventPrice(data.eventPrice ?? data.dueNow ?? 0);
+        setRegisteredAt(
+          data.registeredAt != null
+            ? Number(data.registeredAt)
+            : data.signup?.amount_owed != null
+              ? Number(data.signup.amount_owed)
+              : null
+        );
       } catch (err) {
         console.error("Error loading signup:", err);
         setError("Failed to load signup information");
@@ -190,12 +198,22 @@ export default function EventPaymentPage() {
             <strong>Email:</strong> {signup.email}
           </p>
           {(eventPrice > 0 || amountDue <= 0.5 || (signup.amount_owed != null && Number(signup.amount_owed) === 0)) && (
-            <p className="text-gray-300 mb-4">
-              <strong>Amount due:</strong> ${Math.max(0, amountDue).toFixed(2)}
-              {(appliedPromo?.discountedSubtotal != null || signup.amount_owed != null) && (
-                <span className="text-green-400 text-sm ml-1">(after discount)</span>
+            <div className="text-gray-300 mb-4 space-y-1">
+              {registeredAt != null && (
+                <p>
+                  <strong>Registered at:</strong> ${Number(registeredAt).toFixed(2)}
+                </p>
               )}
-            </p>
+              <p>
+                <strong>Due now:</strong> ${Math.max(0, amountDue).toFixed(2)}
+                {appliedPromo?.discountedSubtotal != null && (
+                  <span className="text-green-400 text-sm ml-1">(after discount)</span>
+                )}
+              </p>
+              <p className="text-sm text-gray-400">
+                Online payment uses the current event price (not the price when you registered).
+              </p>
+            </div>
           )}
         </div>
 

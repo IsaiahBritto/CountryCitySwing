@@ -115,8 +115,8 @@ export default function Navbar() {
   ];
 
   const navClassName = isDnaPage
-    ? "nav-dna w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md"
-    : "w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md";
+    ? "nav-dna sticky top-0 z-50 w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md"
+    : "sticky top-0 z-50 w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md";
 
   const linkClass = isDnaPage
     ? "text-[#2BC929] hover:text-[#32e032] transition-colors"

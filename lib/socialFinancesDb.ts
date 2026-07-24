@@ -1,16 +1,22 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   computeSocialSplit,
+  normalizeDoorPayouts,
   totalRevenueFromMetricsRow,
   type MetricsRevenueInput,
+  type SocialDoorPayoutRow,
 } from "@/lib/socialFinancesConstants";
 
 /** All optional migration columns present. */
 export const SOCIAL_FINANCE_SELECT_FULL =
-  "id,event_id,venue_cost,other_expense,other_expense_comment,brandon_split_ratio,kyler_split_ratio,isaiah_split_ratio,brandon_profit,kyler_profit,isaiah_profit,ccs_profit,ccs_cash_profit,brandon_paid_at,kyler_paid_at,isaiah_paid_at,updated_at";
+  "id,event_id,venue_cost,other_expense,other_expense_comment,door_payouts,brandon_split_ratio,kyler_split_ratio,isaiah_split_ratio,brandon_profit,kyler_profit,isaiah_profit,ccs_profit,ccs_cash_profit,brandon_paid_at,kyler_paid_at,isaiah_paid_at,updated_at";
 
 /** @deprecated Use SOCIAL_FINANCE_SELECT_FULL */
 export const SOCIAL_FINANCE_SELECT_WITH_CCS = SOCIAL_FINANCE_SELECT_FULL;
+
+/** Missing door_payouts only. */
+export const SOCIAL_FINANCE_SELECT_NO_DOOR =
+  "id,event_id,venue_cost,other_expense,other_expense_comment,brandon_split_ratio,kyler_split_ratio,isaiah_split_ratio,brandon_profit,kyler_profit,isaiah_profit,ccs_profit,ccs_cash_profit,brandon_paid_at,kyler_paid_at,isaiah_paid_at,updated_at";
 
 /** Missing ccs_cash_profit only — keeps other_expense columns. */
 export const SOCIAL_FINANCE_SELECT_NO_CCS_CASH =
@@ -33,6 +39,7 @@ export const SOCIAL_FINANCE_SELECT_LEGACY =
 
 const SOCIAL_FINANCE_SELECT_FALLBACKS: string[] = [
   SOCIAL_FINANCE_SELECT_FULL,
+  SOCIAL_FINANCE_SELECT_NO_DOOR,
   SOCIAL_FINANCE_SELECT_NO_CCS_CASH,
   SOCIAL_FINANCE_SELECT_NO_OTHER_COMMENT,
   SOCIAL_FINANCE_SELECT_NO_CCS,
@@ -45,7 +52,8 @@ function isRecoverableSocialFinanceSelectError(error: unknown): boolean {
     isMissingCcsProfitColumn(error) ||
     isMissingCcsCashProfitColumn(error) ||
     isMissingSocialFinanceColumn(error, "other_expense") ||
-    isMissingSocialFinanceColumn(error, "other_expense_comment")
+    isMissingSocialFinanceColumn(error, "other_expense_comment") ||
+    isMissingSocialFinanceColumn(error, "door_payouts")
   );
 }
 
@@ -59,6 +67,7 @@ export type SocialFinancesRow = {
   venue_cost: number;
   other_expense: number;
   other_expense_comment: string | null;
+  door_payouts: SocialDoorPayoutRow[];
   brandon_split_ratio: number;
   kyler_split_ratio: number;
   isaiah_split_ratio: number;
@@ -91,6 +100,7 @@ type SocialFinanceRowRaw = Partial<SocialFinancesRow> & {
   ccs_cash_profit?: number | null;
   other_expense?: number | null;
   other_expense_comment?: string | null;
+  door_payouts?: unknown;
 };
 
 async function querySocialFinanceRowByEventId(
@@ -128,7 +138,7 @@ export function isMissingSocialFinanceColumn(error: unknown, column: string): bo
 }
 
 export const SOCIAL_FINANCES_MIGRATION_HINT =
-  "Apply pending Supabase migrations for the_social_finances (ccs_profit, ccs_cash_profit, other_expense, other_expense_comment).";
+  "Apply pending Supabase migrations for the_social_finances (ccs_profit, ccs_cash_profit, other_expense, other_expense_comment, door_payouts).";
 
 export function normalizeSocialFinanceRow(raw: SocialFinanceRowRaw): SocialFinancesRow {
   const comment = raw.other_expense_comment;
@@ -138,6 +148,7 @@ export function normalizeSocialFinanceRow(raw: SocialFinanceRowRaw): SocialFinan
     venue_cost: Number(raw.venue_cost) || 0,
     other_expense: Number(raw.other_expense ?? 0) || 0,
     other_expense_comment: typeof comment === "string" ? comment : null,
+    door_payouts: normalizeDoorPayouts(raw.door_payouts),
     brandon_split_ratio: Number(raw.brandon_split_ratio) || 0.2,
     kyler_split_ratio: Number(raw.kyler_split_ratio) || 0.3,
     isaiah_split_ratio: Number(raw.isaiah_split_ratio) || 0.5,
@@ -257,6 +268,7 @@ export function omitOptionalSocialColumns(
     ccsCash?: boolean;
     otherExpense?: boolean;
     otherExpenseComment?: boolean;
+    doorPayouts?: boolean;
   }
 ): Record<string, unknown> {
   const next = { ...payload };
@@ -267,6 +279,7 @@ export function omitOptionalSocialColumns(
     delete next.other_expense_comment;
   }
   if (omit.otherExpenseComment) delete next.other_expense_comment;
+  if (omit.doorPayouts) delete next.door_payouts;
   return next;
 }
 
@@ -283,8 +296,9 @@ export async function writeSocialFinancesUpdate(
   let omittedCcs = false;
   let omittedCcsCash = false;
   let omittedOtherComment = false;
+  let omittedDoor = false;
 
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     const write = await supabaseServer
       .from("the_social_finances")
       .update(payload)
@@ -297,6 +311,13 @@ export async function writeSocialFinancesUpdate(
     if (
       isMissingSocialFinanceColumn(write.error, "other_expense") &&
       payloadTouchesOtherExpense(payload)
+    ) {
+      return { error: write.error };
+    }
+
+    if (
+      isMissingSocialFinanceColumn(write.error, "door_payouts") &&
+      "door_payouts" in payload
     ) {
       return { error: write.error };
     }
@@ -323,6 +344,14 @@ export async function writeSocialFinancesUpdate(
       !payloadTouchesOtherExpense(payload)
     ) {
       payload = omitOptionalSocialColumns(payload, { otherExpense: true });
+      stripped = true;
+    } else if (
+      isMissingSocialFinanceColumn(write.error, "door_payouts") &&
+      !("door_payouts" in payload) &&
+      !omittedDoor
+    ) {
+      omittedDoor = true;
+      payload = omitOptionalSocialColumns(payload, { doorPayouts: true });
       stripped = true;
     }
 

@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       const { data, error } = await supabaseServer
         .from("signups")
         .select(
-          "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at"
+          "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,amount_owed,amount_due,amount_paid,is_ccs_team"
         )
         .eq("id", parsed.id)
         .single();
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseServer
       .from("comp_signups")
       .select(
-        "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_follow_first_name,strictly_follow_last_name,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,payment_method,amount_owed,paid,checked_in,checked_in_at"
+        "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_follow_first_name,strictly_follow_last_name,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at"
       )
       .eq("id", parsed.id)
       .single();

@@ -15,6 +15,7 @@ import {
   formatEventScheduleSubtitle,
   eventSpansDateInTimeZone,
 } from "@/lib/utils/dateHelpers";
+import { resolveSignupListPrice, type PriceChange } from "@/lib/utils/workshopPricing";
 
 dayjs.extend(weekday);
 dayjs.extend(isoWeek);
@@ -31,8 +32,8 @@ interface CalendarEvent {
   time_zone?: string | null;
   description: string;
   price?: number | null;
-  day_of_price?: number | null;
-  team_day_of_price?: number | null;
+  price_changes?: PriceChange[] | null;
+  ccs_team_price_changes?: PriceChange[] | null;
   strictly_price?: number | null;
   jnj_price?: number | null;
   ccs_team_price?: number | null;
@@ -49,18 +50,8 @@ interface CalendarProps {
 const today = dayjs().format("YYYY-MM-DD");
 
 function eventDisplayPrice(event: CalendarEvent, isInstructor: boolean): number | null | undefined {
-  const tz = event.time_zone || DEFAULT_TIME_ZONE;
-  const todayInTz = getDateStringInTimeZone(new Date().toISOString(), tz);
-  const isEventToday =
-    event.starts_at && getEventDateString(event.starts_at, tz) === todayInTz;
-  if (isInstructor) {
-    if (isEventToday && event.team_day_of_price != null && Number.isFinite(Number(event.team_day_of_price)))
-      return Number(event.team_day_of_price);
-    return event.ccs_team_price != null ? event.ccs_team_price : event.price;
-  }
-  if (isEventToday && event.day_of_price != null && Number.isFinite(Number(event.day_of_price)))
-    return Number(event.day_of_price);
-  return event.price;
+  if (event.price == null && event.ccs_team_price == null) return event.price;
+  return resolveSignupListPrice(event, { isCcsTeam: isInstructor });
 }
 
 export default function Calendar({ events = [], isAdmin = false, isInstructor = false, onEditEvent }: CalendarProps) {

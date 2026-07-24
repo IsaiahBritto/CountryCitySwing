@@ -6,7 +6,12 @@ import { getDiscountedAmountForPromotion } from "@/lib/stripePromo";
 import { randomUUID } from "crypto";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
-import { formatEventDateInChicago, getEventDateStringInChicago, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
+import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
+import {
+  formatPriceChangeDateLabel,
+  resolveNextPriceChangeDate,
+  resolveSignupListPrice,
+} from "@/lib/utils/workshopPricing";
 import { eventSignupToken } from "@/lib/utils/qrCheckIn";
 import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
 import { CanonicalEventError, resolveCanonicalEventById } from "@/lib/utils/canonicalEvent";
@@ -80,31 +85,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  let eventPrice = canonicalEvent.price;
-
-  // Workshop day-of price (never used for instructors; instructors use team_day_of_price)
-  const eventType = canonicalEvent.type.trim().toLowerCase();
-  const isWorkshop = eventType === "workshop";
-  const eventStartsAt = canonicalEvent.starts_at;
-  const isEventToday =
-    isWorkshop &&
-    typeof eventStartsAt === "string" &&
-    getEventDateStringInChicago(eventStartsAt) === getTodayStringInChicago();
-
-  if (isCcsTeam) {
-    // Instructor/team: use team_day_of_price on event day, else ccs_team_price (never day_of_price)
-    const teamPrice = canonicalEvent.ccs_team_price;
-    const teamDayPrice = canonicalEvent.team_day_of_price;
-    if (isEventToday && teamDayPrice != null && Number.isFinite(teamDayPrice) && teamDayPrice >= 0) {
-      eventPrice = teamDayPrice;
-    } else if (teamPrice != null && Number.isFinite(teamPrice) && teamPrice >= 0) {
-      eventPrice = teamPrice;
-    }
-  } else if (isEventToday) {
-    // Non-instructor: use day_of_price on event day when set
-    const dayPrice = canonicalEvent.day_of_price;
-    if (dayPrice != null && Number.isFinite(dayPrice) && dayPrice >= 0) eventPrice = dayPrice;
-  }
+  let eventPrice = resolveSignupListPrice(canonicalEvent, { isCcsTeam });
 
   // Accept promo from body (camelCase or snake_case)
   const promotionCodeId =
@@ -273,6 +254,7 @@ export async function POST(req: NextRequest) {
         accept_payment: acceptPayment,
         paid,
         amount_owed: roundCurrency(amountOwed),
+        amount_paid: paid ? roundCurrency(amountOwed) : null,
         is_ccs_team: isCcsTeam,
         ...(freeViaPromo ? { free_via_promotion_code: true } : {}),
         ...(usedPromo ? { used_promotion_code: true } : {}),
@@ -298,6 +280,17 @@ export async function POST(req: NextRequest) {
   const base = getBaseUrl(req);
   const paymentLink = `${base}/events/pay/${signupId}`;
   
+  const nextPriceChangeDate = resolveNextPriceChangeDate(canonicalEvent, { isCcsTeam });
+  const nextPriceChangeLabel = nextPriceChangeDate
+    ? formatPriceChangeDateLabel(nextPriceChangeDate)
+    : null;
+  const cashPriceChangeNotice =
+    effectivePaymentMethod === "Cash" && eventPrice > 0 && !paid
+      ? nextPriceChangeLabel
+        ? `<p style="margin: 10px 0 0 0;">If you wait to pay, the amount due may change. The next price change is on <strong>${nextPriceChangeLabel}</strong>.</p>`
+        : `<p style="margin: 10px 0 0 0;">If you wait to pay, the amount due may change to the current event price at the time you settle.</p>`
+      : "";
+
   const paymentSection =
     effectivePaymentMethod === "Cash" && eventPrice > 0
       ? paid
@@ -310,8 +303,9 @@ export async function POST(req: NextRequest) {
         : `
       <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
         <p style="margin: 0;"><strong>Payment:</strong> Cash payment selected.</p>
-        <p style="margin: 10px 0 0 0;"><strong>${usedPromo ? "Amount Due (After Discount):" : "Amount Due:"}</strong> $${amountOwed.toFixed(2)}</p>
-        <p style="margin: 10px 0 0 0;">You can pay with cash at the door, or click the link below to pay online via Stripe:</p>
+        <p style="margin: 10px 0 0 0;"><strong>${usedPromo ? "Registered at (After Discount):" : "Registered at:"}</strong> $${amountOwed.toFixed(2)}</p>
+        ${cashPriceChangeNotice}
+        <p style="margin: 10px 0 0 0;">You can pay with cash at the door, or click the link below to pay online via Stripe (you will be charged the current event price at checkout):</p>
         <p style="margin: 10px 0 0 0;">
           <a href="${paymentLink}" style="display: inline-block; background-color: #F2C94C; color: #000; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; margin-top: 10px;">
             Pay Online via Stripe

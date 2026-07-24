@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
-import { SOCIAL_FINANCE_VIEWER_IDS } from "@/lib/socialFinanceAccess";
+import { SOCIAL_FINANCE_VIEWER_IDS, isSocialFinanceViewer } from "@/lib/socialFinanceAccess";
 import {
   canMutateRegistrationEvent,
   canViewRegistrationEvent,
@@ -16,20 +16,23 @@ dayjs.extend(timezone);
 const TZ = "America/Chicago";
 const BRANDON_ID = "1f87df67-d95d-4550-a974-43e6710fea5b";
 const KYLER_ID = "f742f43a-c267-4148-8075-03c774b81641";
+const MEMBER_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
 const socialStart = dayjs.tz("2026-05-29 20:00", TZ).toISOString();
 const socialEnd = dayjs.tz("2026-05-30 02:00", TZ).toISOString();
 
 describe("resolveRegistrationAccess", () => {
-  it("grants social_viewer to both finance viewer IDs", () => {
-    expect(resolveRegistrationAccess(BRANDON_ID, "member")).toBe("social_viewer");
-    expect(resolveRegistrationAccess(KYLER_ID, "member")).toBe("social_viewer");
-    expect(SOCIAL_FINANCE_VIEWER_IDS.has(BRANDON_ID)).toBe(true);
-    expect(SOCIAL_FINANCE_VIEWER_IDS.has(KYLER_ID)).toBe(true);
+  it("does not grant social_viewer via former Brandon/Kyler UUID allowlist", () => {
+    expect(SOCIAL_FINANCE_VIEWER_IDS.size).toBe(0);
+    expect(isSocialFinanceViewer(BRANDON_ID)).toBe(false);
+    expect(isSocialFinanceViewer(KYLER_ID)).toBe(false);
+    expect(resolveRegistrationAccess(BRANDON_ID, "member")).toBeNull();
+    expect(resolveRegistrationAccess(KYLER_ID, "member")).toBeNull();
   });
 
-  it("prefers admin over social_viewer", () => {
-    expect(resolveRegistrationAccess(BRANDON_ID, "admin")).toBe("admin");
+  it("grants admin and instructor by role", () => {
+    expect(resolveRegistrationAccess(MEMBER_ID, "admin")).toBe("admin");
+    expect(resolveRegistrationAccess(MEMBER_ID, "instructor")).toBe("instructor");
   });
 });
 
@@ -41,19 +44,8 @@ describe("canViewRegistrationEvent", () => {
     time_zone: TZ,
   };
 
-  it("allows social_viewer to view before event day", () => {
-    const now = dayjs.tz("2026-05-28 12:00", TZ).toDate();
+  it("allows social_viewer to view Social events (legacy level still supported)", () => {
     expect(canViewRegistrationEvent("social_viewer", socialEvent)).toBe(true);
-    expect(canMutateRegistrationEvent("social_viewer", socialEvent, now)).toBe(false);
-  });
-
-  it("allows social_viewer to view after event ended", () => {
-    const now = dayjs.tz("2026-06-01 12:00", TZ).toDate();
-    expect(canViewRegistrationEvent("social_viewer", socialEvent)).toBe(true);
-    expect(canMutateRegistrationEvent("social_viewer", socialEvent, now)).toBe(false);
-  });
-
-  it("denies social_viewer for non-social events", () => {
     expect(
       canViewRegistrationEvent("social_viewer", {
         ...socialEvent,

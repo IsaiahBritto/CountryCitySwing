@@ -60,7 +60,7 @@ export default function TestEventsSection() {
     const { data, error } = await supabase
       .from("events")
       .select(
-        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,day_of_price,team_day_of_price,ccs_team_price,strictly_price,jnj_price,type"
+        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,type"
       )
       .order("starts_at", { ascending: true });
 

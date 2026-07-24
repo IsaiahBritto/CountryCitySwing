@@ -20,10 +20,11 @@ const canonicalEvent = {
   type: "Workshop",
   starts_at: "2026-04-20T19:00:00.000Z",
   location: "Main Hall",
+  time_zone: "America/Chicago",
   price: 25,
-  day_of_price: null,
+  price_changes: [],
   ccs_team_price: null,
-  team_day_of_price: null,
+  ccs_team_price_changes: [],
 };
 
 let insertedSignupRows: Record<string, unknown>[] = [];

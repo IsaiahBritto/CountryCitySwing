@@ -6,7 +6,11 @@ import {
   type PaymentsDueResult,
 } from "@/lib/financePaymentsDueTypes";
 import {
+  computeSocialDoorPayouts,
   computeSocialSplit,
+  effectiveDoorAmount,
+  isSocialDoorPayoutModel,
+  normalizeDoorPayouts,
   totalRevenueFromMetricsRow,
   type MetricsRevenueInput,
 } from "@/lib/socialFinancesConstants";
@@ -74,7 +78,13 @@ function computeWorkshopGuestAmount(
   return round2(Math.max(0, remaining * 0.9));
 }
 
-type EventMeta = { id: string; title: string; starts_at: string | null; type?: string | null };
+type EventMeta = {
+  id: string;
+  title: string;
+  starts_at: string | null;
+  type?: string | null;
+  time_zone?: string | null;
+};
 
 export function buildPaymentsDueRows(
   eventMeta: Map<string, EventMeta>,
@@ -184,7 +194,41 @@ export function buildPaymentsDueRows(
   for (const sf of socialRows) {
     const eventId = String(sf.event_id ?? "");
     if (!eventId) continue;
+    const meta = eventMeta.get(eventId);
     const metrics = metricsByEvent.get(eventId) ?? null;
+    const useDoorModel = isSocialDoorPayoutModel(meta?.starts_at, meta?.time_zone);
+
+    if (useDoorModel) {
+      const doorRows = normalizeDoorPayouts(sf.door_payouts);
+      const payouts = computeSocialDoorPayouts({
+        cashTotal: Number(metrics?.cash_total ?? 0),
+        stripeTotal: Number(metrics?.stripe_total ?? 0),
+        venueCost: Number(sf.venue_cost) || 0,
+        otherExpense: Number(sf.other_expense) || 0,
+        doorRows,
+      });
+      doorRows.forEach((door, index) => {
+        if (door.paid_at != null) return;
+        const amount = payouts.doorAmounts[index] ?? effectiveDoorAmount(door);
+        if (!isMeaningfulAmount(amount)) return;
+        rows.push({
+          id: `social:${eventId}:door:${door.slot_id ?? index}`,
+          eventId,
+          payeeName: door.name || `Doorman ${index + 1}`,
+          amount: round2(amount),
+          roleLabel: "Doorman",
+          markPaid: {
+            route: "the-social-finances",
+            body: {
+              event_id: eventId,
+              mark_door_paid_index: index,
+            },
+          },
+        });
+      });
+      continue;
+    }
+
     const totalRevenue = totalRevenueFromMetricsRow(metrics);
     const cashTotal = Number(metrics?.cash_total ?? 0);
     const split = computeSocialSplit({
@@ -350,7 +394,7 @@ export async function fetchPaymentsDue(): Promise<PaymentsDueResult> {
     supabaseServer
       .from("the_social_finances")
       .select(
-        "event_id,venue_cost,other_expense,brandon_split_ratio,kyler_split_ratio,isaiah_split_ratio,brandon_profit,kyler_profit,brandon_paid_at,kyler_paid_at,isaiah_paid_at"
+        "event_id,venue_cost,other_expense,door_payouts,brandon_split_ratio,kyler_split_ratio,isaiah_split_ratio,brandon_profit,kyler_profit,brandon_paid_at,kyler_paid_at,isaiah_paid_at"
       ),
     supabaseServer
       .from("workshop_finances")
@@ -364,7 +408,7 @@ export async function fetchPaymentsDue(): Promise<PaymentsDueResult> {
     supabaseServer
       .from("event_finance_metrics")
       .select("event_id,cash_total,stripe_total,other_total,ccs_team_total"),
-    supabaseServer.from("events").select("id,title,starts_at,type"),
+    supabaseServer.from("events").select("id,title,starts_at,type,time_zone"),
   ]);
 
   if (nashvilleRes.error) throw nashvilleRes.error;
@@ -381,6 +425,7 @@ export async function fetchPaymentsDue(): Promise<PaymentsDueResult> {
       title: e.title ?? "Event",
       starts_at: e.starts_at ?? null,
       type: e.type ?? null,
+      time_zone: e.time_zone ?? null,
     });
   }
 

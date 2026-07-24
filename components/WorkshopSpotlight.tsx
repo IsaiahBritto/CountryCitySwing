@@ -6,28 +6,17 @@ import isSameOrAfter from "dayjs/plugin/isSameOrAfter";
 import {
   DEFAULT_TIME_ZONE,
   formatEventScheduleSubtitle,
-  getEventDateString,
-  getDateStringInTimeZone,
   isEventPast,
 } from "@/lib/utils/dateHelpers";
+import { resolveSignupListPrice } from "@/lib/utils/workshopPricing";
 import EventSignupModal from "@/components/EventSignupModal";
 import { CarouselEvent } from "./EventCarousel";
 
 dayjs.extend(isSameOrAfter);
 
 function eventDisplayPrice(event: CarouselEvent, isInstructor: boolean): number | null | undefined {
-  const tz = event.time_zone || DEFAULT_TIME_ZONE;
-  const todayInTz = getDateStringInTimeZone(new Date().toISOString(), tz);
-  const isEventToday =
-    event.starts_at && getEventDateString(event.starts_at, tz) === todayInTz;
-  if (isInstructor) {
-    if (isEventToday && event.team_day_of_price != null && Number.isFinite(Number(event.team_day_of_price)))
-      return Number(event.team_day_of_price);
-    return event.ccs_team_price != null ? event.ccs_team_price : event.price;
-  }
-  if (isEventToday && event.day_of_price != null && Number.isFinite(Number(event.day_of_price)))
-    return Number(event.day_of_price);
-  return event.price;
+  if (event.price == null && event.ccs_team_price == null) return event.price;
+  return resolveSignupListPrice(event, { isCcsTeam: isInstructor });
 }
 
 interface WorkshopSpotlightProps {

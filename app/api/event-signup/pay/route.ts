@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getStripe } from "@/lib/stripe";
 import { sendHtmlEmail } from "@/lib/mailer";
-import eventsData from "@/lib/events.json";
 import { calculateProcessingFee, getDiscountedSubtotalFromCoupon, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 import { eventSignupToken } from "@/lib/utils/qrCheckIn";
 import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
+import { resolveDueNowForSignup, normalizePriceChanges } from "@/lib/utils/workshopPricing";
+import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -20,39 +21,38 @@ function getBaseUrl(request: NextRequest): string {
 }
 
 const SIGNUP_SELECT =
-  "id,event_id,event_title,first_name,last_name,email,payment_method,amount_owed,paid";
+  "id,event_id,event_title,first_name,last_name,email,payment_method,amount_owed,amount_due,paid,is_ccs_team";
 
-async function resolveBasePriceForSignup(signup: {
+/** Current effective list price for cash→Stripe (desk override or schedule; not frozen amount_owed). */
+async function resolveCurrentPriceForSignup(signup: {
   event_id?: string | null;
+  is_ccs_team?: boolean | null;
+  amount_due?: number | null;
   amount_owed?: number | null;
+  payment_method?: string | null;
 }): Promise<number> {
-  const hasStoredAmountOwed = signup.amount_owed != null && Number(signup.amount_owed) >= 0;
-  let basePrice = hasStoredAmountOwed ? Number(signup.amount_owed) : null;
+  if (!signup.event_id) return 0;
+  const { data: eventData } = await supabaseServer
+    .from("events")
+    .select("price,price_changes,ccs_team_price,ccs_team_price_changes,time_zone,type")
+    .eq("id", signup.event_id)
+    .single();
 
-  if (basePrice === null && signup.event_id) {
-    try {
-      const { data: eventData } = await supabaseServer
-        .from("events")
-        .select("price")
-        .eq("id", signup.event_id)
-        .single();
-      if (eventData?.price) {
-        basePrice = Number(eventData.price);
-      }
-    } catch {
-      const event = (eventsData as { id: string | number; price?: number }[]).find(
-        (e) => String(e.id) === String(signup.event_id)
-      );
-      if (event?.price) {
-        basePrice = Number(event.price);
-      }
-    }
+  if (!eventData) {
+    return resolveDueNowForSignup(null, signup);
   }
 
-  if (basePrice === null || basePrice < 0) {
-    return 0;
-  }
-  return basePrice;
+  return resolveDueNowForSignup(
+    {
+      price: eventData.price != null ? Number(eventData.price) : 0,
+      price_changes: normalizePriceChanges(eventData.price_changes),
+      ccs_team_price: eventData.ccs_team_price != null ? Number(eventData.ccs_team_price) : null,
+      ccs_team_price_changes: normalizePriceChanges(eventData.ccs_team_price_changes),
+      time_zone: eventData.time_zone || DEFAULT_TIME_ZONE,
+      type: eventData.type,
+    },
+    signup
+  );
 }
 
 export async function GET(req: NextRequest) {
@@ -86,8 +86,17 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const eventPrice = await resolveBasePriceForSignup(signup);
-    return NextResponse.json({ signup, eventPrice });
+    const eventPrice = await resolveCurrentPriceForSignup(signup);
+    const registeredAt =
+      signup.amount_owed != null && Number(signup.amount_owed) >= 0
+        ? Number(signup.amount_owed)
+        : eventPrice;
+    return NextResponse.json({
+      signup,
+      eventPrice,
+      registeredAt,
+      dueNow: eventPrice,
+    });
   } catch (error: unknown) {
     console.error("Event signup pay GET error:", error);
     return NextResponse.json(
@@ -111,7 +120,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fetch signup
     const { data: signup, error: fetchError } = await supabaseServer
       .from("signups")
       .select(SIGNUP_SELECT)
@@ -125,7 +133,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if already paid
     if (signup.paid) {
       return NextResponse.json(
         { error: "This event has already been paid for" },
@@ -133,7 +140,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Check if payment method is Cash
     if (signup.payment_method !== "Cash") {
       return NextResponse.json(
         { error: "This signup is not eligible for cash payment conversion" },
@@ -141,8 +147,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const hasStoredAmountOwed = signup.amount_owed != null && Number(signup.amount_owed) >= 0;
-    const basePrice = await resolveBasePriceForSignup(signup);
+    const basePrice = await resolveCurrentPriceForSignup(signup);
 
     // When a promo is applied, compute discounted amount (client value or Stripe)
     let amountDue: number = basePrice;
@@ -175,13 +180,13 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Promo brings total to zero: mark paid and send confirmation email; record free-via-promo and used_promotion_code for finances
+      // Promo brings total to zero: mark paid; keep amount_owed; set amount_paid = 0
       if (amountDue <= 0.5) {
         const { error: updateError } = await supabaseServer
           .from("signups")
           .update({
             paid: true,
-            amount_owed: 0,
+            amount_paid: 0,
             free_via_promotion_code: true,
             used_promotion_code: true,
             updated_at: new Date().toISOString(),
@@ -196,7 +201,6 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Fetch event for email
         let eventDate = "";
         let eventLocation = "";
         if (signup.event_id) {
@@ -228,7 +232,6 @@ export async function POST(req: NextRequest) {
                 .detail-row:last-child { border-bottom: none; }
                 .detail-label { font-weight: bold; color: #666; font-size: 0.9em; margin-bottom: 5px; }
                 .detail-value { font-size: 1.1em; color: #333; }
-                .payment-box { background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0; }
                 .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
               </style>
             </head>
@@ -294,14 +297,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Already paid (amount_owed was 0)
-    if (hasStoredAmountOwed && Number(signup.amount_owed) === 0) {
-      return NextResponse.json(
-        { error: "No payment required. Your promotion code already covered the full cost." },
-        { status: 400 }
-      );
-    }
-
     if (amountDue <= 0) {
       return NextResponse.json(
         { error: "Event price not found or event is free. Please contact support." },
@@ -309,88 +304,66 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Optionally persist discounted amount so pay page shows correct amount if they return
-    if (promotionCodeId && amountDue !== basePrice) {
-      await supabaseServer
-        .from("signups")
-        .update({ amount_owed: roundCurrency(amountDue), updated_at: new Date().toISOString() })
-        .eq("id", signupId);
-    }
+    // Do not overwrite amount_owed (signup-time history). Charge current effective (± promo).
 
-    const eventPrice = amountDue;
+    const processingFee = calculateProcessingFee(amountDue);
+    const amountDueCents = Math.round(amountDue * 100);
+    const processingFeeCents = Math.round(processingFee * 100);
 
-    // Calculate processing fee on the amount we're charging (discounted amount when applicable)
-    const processingFee = roundCurrency(calculateProcessingFee(eventPrice));
+    const stripe = getStripe();
+    const base = getBaseUrl(req);
 
-    const lineItems: any[] = [
-      {
-        price_data: {
-          currency: "usd",
-          product_data: {
-            name: signup.event_title || "Event Registration",
-            description: `Payment for event registration`,
-            tax_code: getEventTaxCode(),
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      customer_email: signup.email,
+      client_reference_id: String(signupId),
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            unit_amount: amountDueCents,
+            product_data: {
+              name: signup.event_title || "Event Registration",
+              tax_code: getEventTaxCode(),
+            },
           },
-          unit_amount: Math.round(eventPrice * 100),
+          quantity: 1,
         },
-        quantity: 1,
-      },
-    ];
-
-    // Add processing fee
-    if (processingFee > 0) {
-      lineItems.push({
-        price_data: {
-          currency: "usd",
+        {
+          price_data: {
+            currency: "usd",
+            unit_amount: processingFeeCents,
             product_data: {
               name: "Processing Fee",
-              description: "Payment processing fee",
-              tax_code: getProcessingFeeTaxCode(), // General - Tangible Goods (processing fees are typically tax-exempt)
+              tax_code: getProcessingFeeTaxCode(),
             },
-          unit_amount: Math.round(processingFee * 100),
+          },
+          quantity: 1,
         },
-        quantity: 1,
-      });
-    }
-
-    // Create Stripe checkout session
-    const base = getBaseUrl(req);
-    const sessionParams: any = {
-      mode: "payment",
-      payment_method_types: ["card"],
-      line_items: lineItems,
-      automatic_tax: {
-        enabled: true, // Enable Stripe Tax for automatic sales tax calculation
-      },
+      ],
+      automatic_tax: { enabled: true },
       ...(promotionCodeId
         ? { discounts: [{ promotion_code: promotionCodeId }] }
         : { allow_promotion_codes: true }),
-      customer_email: signup.email,
-      billing_address_collection: "auto", // Optional - allows customer to fill in if needed
-      client_reference_id: signupId,
       metadata: {
-        signup_id: signupId,
-        event_id: signup.event_id,
-        event_title: signup.event_title,
         payment_type: "cash_to_stripe",
-        subtotal: String(eventPrice),
+        signup_id: String(signupId),
+        subtotal: String(amountDue),
         processing_fee: String(processingFee),
         used_promotion_code: promotionCodeId ? "true" : "false",
       },
       success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/events/pay/${signupId}`,
-    };
-    
-    const session = await getStripe().checkout.sessions.create(sessionParams);
-
-    return NextResponse.json({
-      success: true,
-      redirect: session.url!,
     });
-  } catch (error: any) {
-    console.error("Payment creation error:", error);
+
+    return NextResponse.json({ url: session.url });
+  } catch (error: unknown) {
+    console.error("Event signup pay POST error:", error);
     return NextResponse.json(
-      { error: "Failed to create payment session", details: error.message },
+      {
+        error: "Failed to create payment session",
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }

@@ -1,8 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { formatEventDateInChicago, formatEventTimeInChicago } from "@/lib/utils/dateHelpers";
+import {
+  DEFAULT_TIME_ZONE,
+  formatEventDateInChicago,
+  formatEventTimeInChicago,
+} from "@/lib/utils/dateHelpers";
 import { createScheduleConfirmationEmailHtml } from "@/lib/email/scheduleConfirmationEmail";
+import { formatDoormanTimeRange } from "@/lib/socialScheduleSlots";
+
+async function resolveEventTime(
+  eventId: string,
+  slotId: string | null | undefined,
+  eventStartsAt: string | null | undefined,
+  timeZone: string | null | undefined
+): Promise<string> {
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  if (slotId) {
+    const { data: slot } = await supabaseServer
+      .from("team_slots")
+      .select("slot_starts_at, slot_ends_at")
+      .eq("id", slotId)
+      .maybeSingle();
+    if (slot?.slot_starts_at && slot?.slot_ends_at) {
+      return formatDoormanTimeRange(slot.slot_starts_at, slot.slot_ends_at, tz);
+    }
+  }
+  return eventStartsAt ? formatEventTimeInChicago(eventStartsAt) : "";
+}
 
 /**
  * POST - Send confirmation email to assignee and all admins when someone signs up for a schedule slot.
@@ -13,7 +38,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       slotId,
-      assigneeId,
       assigneeEmail,
       assigneeName,
       position,
@@ -29,12 +53,17 @@ export async function POST(req: NextRequest) {
 
     const { data: event } = await supabaseServer
       .from("events")
-      .select("id, title, starts_at, location")
+      .select("id, title, starts_at, location, time_zone")
       .eq("id", eventId)
       .single();
 
     const eventDate = event?.starts_at ? formatEventDateInChicago(event.starts_at) : "—";
-    const eventTime = event?.starts_at ? formatEventTimeInChicago(event.starts_at) : "";
+    const eventTime = await resolveEventTime(
+      eventId,
+      slotId,
+      event?.starts_at,
+      event?.time_zone
+    );
     const eventTitle = event?.title || "Event";
     const eventLocation = event?.location || "";
 
@@ -79,10 +108,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    console.error("Signup confirmation email error:", err);
+  } catch (e) {
+    console.error("signup-confirmation:", e);
     return NextResponse.json(
-      { error: err.message || "Failed to send confirmation email" },
+      { error: (e as Error).message || "Internal server error" },
       { status: 500 }
     );
   }

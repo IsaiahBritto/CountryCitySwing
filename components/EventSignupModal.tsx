@@ -8,9 +8,12 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import {
   DEFAULT_TIME_ZONE,
   formatEventScheduleSubtitle,
-  getEventDateString,
-  getDateStringInTimeZone,
 } from "@/lib/utils/dateHelpers";
+import {
+  formatPriceChangeDateLabel,
+  resolveNextPriceChangeDate,
+  resolveSignupListPrice,
+} from "@/lib/utils/workshopPricing";
 import SignupModalShell from "@/components/SignupModalShell";
 
 /* ---------- Validation Schema ---------- */
@@ -41,6 +44,7 @@ const baseSchema = z.object({
         "You must acknowledge payment confirmation requirement",
     }),
   }),
+  cashPriceAck: z.boolean().optional(),
 });
 
 // ✅ superRefine for cross-field validation
@@ -49,6 +53,13 @@ const schema = baseSchema.superRefine((data, ctx) => {
     ctx.addIssue({
       path: ["heardAboutUs"],
       message: "Please tell us how you heard about us.",
+      code: z.ZodIssueCode.custom,
+    });
+  }
+  if (data.paymentMethod === "Cash" && data.cashPriceAck !== true) {
+    ctx.addIssue({
+      path: ["cashPriceAck"],
+      message: "You must acknowledge the cash payment price notice",
       code: z.ZodIssueCode.custom,
     });
   }
@@ -87,27 +98,18 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   // Use isInstructor from parent when provided (reliable); otherwise from profile fetch in modal
   const isInstructorFromRole = (userRole ?? "").toLowerCase().trim() === "instructor";
   const isInstructor = isInstructorProp ?? isInstructorFromRole;
-  // Workshop day-of price: instructors use team_day_of_price on event day (never day_of_price)
-  const isWorkshop = (event?.type ?? "").trim().toLowerCase() === "workshop";
-  const eventTz = (event as any)?.time_zone || DEFAULT_TIME_ZONE;
-  const eventDateStr = event?.starts_at ? getEventDateString(event.starts_at, eventTz) : "";
-  const todayInTz = getDateStringInTimeZone(new Date().toISOString(), eventTz);
-  const isEventToday = isWorkshop && !!eventDateStr && eventDateStr === todayInTz;
-  const dayOfPrice = event?.day_of_price != null ? Number(event.day_of_price) : undefined;
-  const teamDayOfPrice = event?.team_day_of_price != null ? Number(event.team_day_of_price) : undefined;
-  const basePrice = event?.price != null ? Number(event.price) : undefined;
+  // Workshop schedule pricing (public vs CCS team)
   const effectivePrice =
     event != null
-      ? isInstructor
-        ? (isEventToday && teamDayOfPrice != null && Number.isFinite(teamDayOfPrice)
-            ? teamDayOfPrice
-            : event.ccs_team_price != null
-              ? Number(event.ccs_team_price)
-              : basePrice)
-      : (isEventToday && dayOfPrice != null && Number.isFinite(dayOfPrice)
-          ? dayOfPrice
-          : basePrice)
+      ? resolveSignupListPrice(event, { isCcsTeam: !!isInstructor })
       : undefined;
+  const nextPriceChangeDate =
+    event != null
+      ? resolveNextPriceChangeDate(event, { isCcsTeam: !!isInstructor })
+      : null;
+  const nextPriceChangeLabel = nextPriceChangeDate
+    ? formatPriceChangeDateLabel(nextPriceChangeDate)
+    : null;
 
   // Price shown next to Payment Method: updates live when the code is validated (Apply), not on form submit
   const amountDue =
@@ -143,8 +145,8 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             const roleLower = (profile?.role ?? "").toLowerCase().trim();
             if (roleLower === "instructor") {
               defaultValues.beenBefore = "I've been before!";
-              const teamPrice = event?.ccs_team_price != null ? Number(event.ccs_team_price) : undefined;
-              if (teamPrice === 0) defaultValues.paymentMethod = "CCS TEAM";
+              const teamEffective = resolveSignupListPrice(event ?? {}, { isCcsTeam: true });
+              if (teamEffective === 0) defaultValues.paymentMethod = "CCS TEAM";
             }
 
             // Use reset to set all values at once - this properly updates the form (include instructor defaults so reset doesn't clear them)
@@ -197,8 +199,24 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   useEffect(() => {
     if (amountDueIsZero) {
       setValue("paymentMethod", "Cash", { shouldValidate: false });
+      setValue("cashPriceAck", true, { shouldValidate: false });
     }
   }, [amountDueIsZero, setValue]);
+
+  // Cash price ack: required only when the yellow box is shown (Cash + positive price).
+  // Otherwise auto-acknowledge so validation passes without showing the box.
+  useEffect(() => {
+    const needsAck =
+      paymentMethod === "Cash" &&
+      !amountDueIsZero &&
+      effectivePrice != null &&
+      effectivePrice > 0;
+    if (!needsAck) {
+      setValue("cashPriceAck", true, { shouldValidate: false });
+    } else {
+      setValue("cashPriceAck", false, { shouldValidate: false });
+    }
+  }, [paymentMethod, amountDueIsZero, effectivePrice, setValue]);
 
   // Instructor: keep hidden fields filled so validation passes (beenBefore + paymentMethod when $0)
   useEffect(() => {
@@ -611,6 +629,30 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                     {label}
                   </label>
                 ))}
+                {paymentMethod === "Stripe" && effectivePrice != null && effectivePrice > 0 && (
+                  <p className="text-sm text-gray-300 mt-2">
+                    With Stripe, the amount charged is fixed at checkout and will not change if the event price changes later.
+                  </p>
+                )}
+                {paymentMethod === "Cash" && effectivePrice != null && effectivePrice > 0 && (
+                  <div className="mt-3 rounded border border-yellow-500/60 bg-yellow-500/15 p-3 text-sm text-yellow-100">
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        {...register("cashPriceAck")}
+                        className="mt-1"
+                      />
+                      <span>
+                        {nextPriceChangeLabel
+                          ? `Cash must be paid before the next price change on ${nextPriceChangeLabel}, or the amount owed will change regardless of when you registered. Contact CCS with any questions.`
+                          : "Cash is settled at the current event price when you pay (at the door or via the email payment link), which may differ from the price shown at registration. Contact CCS with any questions."}
+                      </span>
+                    </label>
+                    {errors.cashPriceAck && (
+                      <p className="text-red-400 text-sm mt-1">{errors.cashPriceAck.message}</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

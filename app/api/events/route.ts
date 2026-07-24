@@ -8,7 +8,7 @@ export async function GET() {
     const { data, error } = await supabaseServer
       .from("events")
       .select(
-        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,day_of_price,team_day_of_price,ccs_team_price,strictly_price,jnj_price,type"
+        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,type"
       )
       .order("starts_at", { ascending: true });
 
@@ -54,8 +54,10 @@ export async function POST(req: NextRequest) {
     if (eventData.description !== undefined) insertData.description = eventData.description || null;
     if (eventData.signupLink !== undefined) insertData.signup_link = eventData.signupLink || null;
     if (eventData.price !== undefined) insertData.price = eventData.price ?? null;
-    if (eventData.day_of_price !== undefined) insertData.day_of_price = eventData.day_of_price ?? null;
-    if (eventData.team_day_of_price !== undefined) insertData.team_day_of_price = eventData.team_day_of_price ?? null;
+    if (eventData.price_changes !== undefined) insertData.price_changes = eventData.price_changes ?? [];
+    if (eventData.ccs_team_price_changes !== undefined) {
+      insertData.ccs_team_price_changes = eventData.ccs_team_price_changes ?? [];
+    }
     if (eventData.strictly_price !== undefined) insertData.strictly_price = eventData.strictly_price ?? null;
     if (eventData.jnj_price !== undefined) insertData.jnj_price = eventData.jnj_price ?? null;
     if (eventData.ccs_team_price !== undefined) insertData.ccs_team_price = eventData.ccs_team_price ?? null;

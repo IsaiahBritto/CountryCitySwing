@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { assertSocialEvent, requireFinanceAuth } from "@/lib/financeAuth";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { syncSocialFinancesFromMetrics } from "@/lib/socialFinances";
+import { resolveCollectedTicketAmount } from "@/lib/utils/signupCollectedAmount";
 
 interface SignupRow {
   payment_method: string | null;
@@ -10,6 +11,7 @@ interface SignupRow {
   checked_in: boolean | null;
   is_ccs_team: boolean | null;
   amount_owed: number | null;
+  amount_paid: number | null;
   stripe_tax_amount: number | null;
   stripe_processing_fee: number | null;
   free_via_promotion_code: boolean | null;
@@ -48,10 +50,9 @@ function round2(v: number): number {
 function computeStats(
   signups: SignupRow[],
   eventPrice: number | null,
-  eventCcsTeamPrice: number | null | undefined
+  _eventCcsTeamPrice: number | null | undefined
 ): Metrics {
   const price = eventPrice ?? 0;
-  const ccsTeamPrice = eventCcsTeamPrice != null ? Number(eventCcsTeamPrice) : 0;
   let cashTotal = 0;
   let stripeTotal = 0;
   let otherTotal = 0;
@@ -71,22 +72,21 @@ function computeStats(
 
     if (freeViaPromo) freeViaPromoCount += 1;
 
+    // A1: prefer amount_paid, else amount_owed, else event price
+    const amount = resolveCollectedTicketAmount(s, price);
+
     if (isCcsTeam) {
-      const amount = ccsTeamPrice;
-      if (pm === "cash" && checkedIn) {
+      // B: cash/team cash on Paid (not only check-in)
+      if ((pm === "cash" || pm === "ccs team") && paid) {
         ccsTeamCashTotal += amount;
         if (usedPromo) revenueFromCoupons += amount;
       } else if (pm === "stripe" && paid) {
         ccsTeamStripeTotal += amount;
         if (usedPromo) revenueFromCoupons += amount;
-      } else if (pm === "ccs team" && checkedIn) {
-        ccsTeamCashTotal += amount;
-        if (usedPromo) revenueFromCoupons += amount;
       }
     } else {
       if (freeViaPromo) continue;
-      const amount = s.amount_owed != null ? Number(s.amount_owed) : price;
-      if (pm === "cash" && checkedIn) {
+      if (pm === "cash" && paid) {
         cashTotal += amount;
         if (usedPromo) revenueFromCoupons += amount;
       } else if (pm === "stripe" && paid) {
@@ -94,7 +94,7 @@ function computeStats(
         stripeTaxesFees +=
           (s.stripe_tax_amount ?? 0) + (s.stripe_processing_fee ?? 0);
         if (usedPromo) revenueFromCoupons += amount;
-      } else if (checkedIn) {
+      } else if (checkedIn && paid) {
         otherTotal += amount;
         if (usedPromo) revenueFromCoupons += amount;
       }
@@ -182,7 +182,7 @@ async function computeAndPersistMetrics(eventId: string) {
     const { data, error } = await supabaseServer
       .from("comp_signups")
       .select(
-        "payment_method,paid,checked_in,is_ccs_team,amount_owed,stripe_tax_amount,stripe_processing_fee"
+        "payment_method,paid,checked_in,is_ccs_team,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee"
       )
       .eq("event_id", eventId);
     if (error) throw new Error("Failed to load comp signups");
@@ -191,7 +191,7 @@ async function computeAndPersistMetrics(eventId: string) {
     const { data, error } = await supabaseServer
       .from("signups")
       .select(
-        "payment_method,paid,checked_in,is_ccs_team,amount_owed,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code"
+        "payment_method,paid,checked_in,is_ccs_team,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code"
       )
       .eq("event_id", eventId);
     if (error) throw new Error("Failed to load signups");

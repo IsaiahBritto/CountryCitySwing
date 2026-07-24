@@ -443,6 +443,7 @@ export async function POST(request: NextRequest) {
               paid: true,
               payment_method: "Stripe",
               amount_owed: eventAmountAfterDiscount,
+              amount_paid: eventAmountAfterDiscount,
               stripe_tax_amount: taxAmount,
               stripe_processing_fee: processingFee,
               stripe_total_paid: actualTotal,
@@ -481,6 +482,7 @@ export async function POST(request: NextRequest) {
                 accept_payment: metadata.accept_payment === "true",
                 paid: true,
                 amount_owed: eventAmountAfterDiscount,
+                amount_paid: eventAmountAfterDiscount,
                 stripe_tax_amount: taxAmount,
                 stripe_processing_fee: processingFee,
                 stripe_total_paid: actualTotal,
@@ -842,7 +844,8 @@ export async function POST(request: NextRequest) {
           .update({
             paid: true,
             payment_method: "Stripe", // Update payment method to Stripe
-            amount_owed: eventAmountAfterDiscountCtS,
+            // Keep amount_owed as signup-time history; record what was collected now
+            amount_paid: eventAmountAfterDiscountCtS,
             stripe_tax_amount: taxAmount,
             stripe_processing_fee: processingFee,
             stripe_total_paid: actualTotal,

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { updateClassEventDescriptionFromSchedule } from "@/lib/classDescriptionSync";
 import { syncClassFinanceTeachersFromSchedule } from "@/lib/classFinanceSync";
+import { syncSocialDoorPayoutsFromSchedule } from "@/lib/socialDoorFinanceSync";
 
 async function getAuthUser(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -140,6 +141,11 @@ export async function PUT(
     } catch (syncErr) {
       console.error("Class finance sync after assign:", syncErr);
     }
+    try {
+      await syncSocialDoorPayoutsFromSchedule(String(slot.event_id));
+    } catch (syncErr) {
+      console.error("Social door finance sync after assign:", syncErr);
+    }
 
     // When admin assigns a user to the slot, send confirmation email to assignee and admins
     if (slot.assignee_id) {
@@ -237,6 +243,11 @@ export async function DELETE(
         await syncClassFinanceTeachersFromSchedule(String(slotBeforeDelete.event_id));
       } catch (syncErr) {
         console.error("Class finance sync after slot delete:", syncErr);
+      }
+      try {
+        await syncSocialDoorPayoutsFromSchedule(String(slotBeforeDelete.event_id));
+      } catch (syncErr) {
+        console.error("Social door finance sync after slot delete:", syncErr);
       }
     }
 

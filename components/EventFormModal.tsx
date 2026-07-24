@@ -8,6 +8,12 @@ import {
   toDateTimeLocalInTimeZone,
   fromDateTimeLocalInTimeZone,
 } from "@/lib/utils/dateHelpers";
+import {
+  hasDuplicatePriceChangeDates,
+  isPriceChangeLocked,
+  normalizePriceChanges,
+  type PriceChange,
+} from "@/lib/utils/workshopPricing";
 
 const CLASS_INTRO = "This is your one stop shop for weekly country swing fun! ";
 const DEFAULT_UPPER_LEVEL_NAMES = "Malissa and Isaiah";
@@ -69,8 +75,8 @@ interface Event {
   signup_link?: string; // Database column name
   time_zone?: string | null;
   price?: number | null;
-  day_of_price?: number | null;
-  team_day_of_price?: number | null;
+  price_changes?: PriceChange[];
+  ccs_team_price_changes?: PriceChange[];
   strictly_price?: number | null;
   jnj_price?: number | null;
   ccs_team_price?: number | null;
@@ -99,8 +105,8 @@ export default function EventFormModal({
     signupLink: "",
     time_zone: DEFAULT_TIME_ZONE,
     price: undefined,
-    day_of_price: undefined,
-    team_day_of_price: undefined,
+    price_changes: [],
+    ccs_team_price_changes: [],
     strictly_price: undefined,
     jnj_price: undefined,
     ccs_team_price: undefined,
@@ -165,8 +171,8 @@ export default function EventFormModal({
           signupLink: event.signupLink || event.signup_link || "",
           time_zone: tz,
           price: event.price ?? undefined,
-          day_of_price: event.day_of_price ?? undefined,
-          team_day_of_price: event.team_day_of_price ?? undefined,
+          price_changes: normalizePriceChanges(event.price_changes),
+          ccs_team_price_changes: normalizePriceChanges(event.ccs_team_price_changes),
           strictly_price: event.strictly_price ?? undefined,
           jnj_price: event.jnj_price ?? undefined,
           ccs_team_price: event.ccs_team_price ?? undefined,
@@ -185,8 +191,8 @@ export default function EventFormModal({
           signupLink: "",
           time_zone: DEFAULT_TIME_ZONE,
           price: undefined,
-          day_of_price: undefined,
-          team_day_of_price: undefined,
+          price_changes: [],
+          ccs_team_price_changes: [],
           strictly_price: undefined,
           jnj_price: undefined,
           ccs_team_price: undefined,
@@ -314,8 +320,15 @@ export default function EventFormModal({
       }
       if (formData.signupLink !== undefined) submitData.signupLink = formData.signupLink || "";
       if (formData.price !== undefined) submitData.price = formData.price != null ? Number(formData.price) : null;
-      if (formData.day_of_price !== undefined) submitData.day_of_price = formData.day_of_price != null ? Number(formData.day_of_price) : null;
-      if (formData.team_day_of_price !== undefined) submitData.team_day_of_price = formData.team_day_of_price != null ? Number(formData.team_day_of_price) : null;
+      const publicChanges = normalizePriceChanges(formData.price_changes);
+      const teamChanges = normalizePriceChanges(formData.ccs_team_price_changes);
+      if (hasDuplicatePriceChangeDates(publicChanges) || hasDuplicatePriceChangeDates(teamChanges)) {
+        setError("Each price change date must be unique.");
+        setLoading(false);
+        return;
+      }
+      submitData.price_changes = publicChanges;
+      submitData.ccs_team_price_changes = teamChanges;
       if (formData.strictly_price !== undefined) submitData.strictly_price = formData.strictly_price != null ? Number(formData.strictly_price) : null;
       if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null ? Number(formData.jnj_price) : null;
       if (formData.ccs_team_price !== undefined) submitData.ccs_team_price = formData.ccs_team_price != null ? Number(formData.ccs_team_price) : null;
@@ -701,43 +714,160 @@ export default function EventFormModal({
                 </div>
                 {(formData.type || "").trim().toLowerCase() === "workshop" && (
                   <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Day Of Price ($) — optional, used for signups on the event date (not for instructors)
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={formData.day_of_price ?? ""}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            day_of_price: e.target.value ? parseFloat(e.target.value) : undefined,
-                          })
-                        }
-                        placeholder="Leave blank to use regular price"
-                        className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                      />
+                    <div className="sm:col-span-2">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <label className="block text-sm font-medium text-gray-300">
+                          Public price changes — optional (takes effect at midnight in event time zone)
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormData({
+                              ...formData,
+                              price_changes: [
+                                ...(formData.price_changes || []),
+                                { effective_date: "", price: formData.price ?? 0 },
+                              ],
+                            })
+                          }
+                          className="text-sm text-primary hover:underline"
+                        >
+                          + Add change
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {(formData.price_changes || []).map((row, idx) => {
+                          const locked = isPriceChangeLocked(
+                            row.effective_date,
+                            formData.time_zone
+                          );
+                          return (
+                            <div key={`pub-${idx}`} className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="date"
+                                value={row.effective_date}
+                                disabled={locked}
+                                onChange={(e) => {
+                                  const next = [...(formData.price_changes || [])];
+                                  next[idx] = { ...next[idx], effective_date: e.target.value };
+                                  setFormData({ ...formData, price_changes: next });
+                                }}
+                                className="px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+                              />
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={row.price}
+                                disabled={locked}
+                                onChange={(e) => {
+                                  const next = [...(formData.price_changes || [])];
+                                  next[idx] = {
+                                    ...next[idx],
+                                    price: e.target.value ? parseFloat(e.target.value) : 0,
+                                  };
+                                  setFormData({ ...formData, price_changes: next });
+                                }}
+                                className="w-28 px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+                              />
+                              {locked ? (
+                                <span className="text-xs text-gray-400">Locked (in effect)</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = (formData.price_changes || []).filter((_, i) => i !== idx);
+                                    setFormData({ ...formData, price_changes: next });
+                                  }}
+                                  className="text-sm text-red-300 hover:underline"
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
-                        Team Day Of Price ($) — optional, for instructors on the event date
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={formData.team_day_of_price ?? ""}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            team_day_of_price: e.target.value ? parseFloat(e.target.value) : undefined,
-                          })
-                        }
-                        placeholder="Leave blank to use CCS Team Price"
-                        className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                      />
+                    <div className="sm:col-span-2">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <label className="block text-sm font-medium text-gray-300">
+                          CCS Team price changes — optional
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setFormData({
+                              ...formData,
+                              ccs_team_price_changes: [
+                                ...(formData.ccs_team_price_changes || []),
+                                {
+                                  effective_date: "",
+                                  price: formData.ccs_team_price ?? formData.price ?? 0,
+                                },
+                              ],
+                            })
+                          }
+                          className="text-sm text-primary hover:underline"
+                        >
+                          + Add change
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {(formData.ccs_team_price_changes || []).map((row, idx) => {
+                          const locked = isPriceChangeLocked(
+                            row.effective_date,
+                            formData.time_zone
+                          );
+                          return (
+                            <div key={`team-${idx}`} className="flex flex-wrap items-center gap-2">
+                              <input
+                                type="date"
+                                value={row.effective_date}
+                                disabled={locked}
+                                onChange={(e) => {
+                                  const next = [...(formData.ccs_team_price_changes || [])];
+                                  next[idx] = { ...next[idx], effective_date: e.target.value };
+                                  setFormData({ ...formData, ccs_team_price_changes: next });
+                                }}
+                                className="px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+                              />
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={row.price}
+                                disabled={locked}
+                                onChange={(e) => {
+                                  const next = [...(formData.ccs_team_price_changes || [])];
+                                  next[idx] = {
+                                    ...next[idx],
+                                    price: e.target.value ? parseFloat(e.target.value) : 0,
+                                  };
+                                  setFormData({ ...formData, ccs_team_price_changes: next });
+                                }}
+                                className="w-28 px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-60"
+                              />
+                              {locked ? (
+                                <span className="text-xs text-gray-400">Locked (in effect)</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = (formData.ccs_team_price_changes || []).filter(
+                                      (_, i) => i !== idx
+                                    );
+                                    setFormData({ ...formData, ccs_team_price_changes: next });
+                                  }}
+                                  className="text-sm text-red-300 hover:underline"
+                                >
+                                  Remove
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </>
                 )}

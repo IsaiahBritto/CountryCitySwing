@@ -8,12 +8,22 @@ import {
   requireRegistrationAuth,
   type RegistrationEventRow,
 } from "@/lib/registrationAuth";
+import {
+  normalizePriceChanges,
+  resolveDueNowForSignup,
+  resolvePaidAmountOptions,
+} from "@/lib/utils/workshopPricing";
+import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
+import { roundCurrency } from "@/lib/utils/paymentHelpers";
 
 const COMP_SIGNUPS_SELECT =
   "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee";
 
 const SIGNUPS_SELECT =
-  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code";
+  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code";
+
+const EVENT_PRICING_SELECT =
+  "id,type,starts_at,ends_at,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes";
 
 const EVENT_META_CACHE_TTL_MS = 60_000; // 60 seconds
 const eventMetaCache = new Map<
@@ -159,6 +169,7 @@ export async function GET(req: NextRequest) {
       total,
       checked_in,
       check_in_arrival_buckets,
+      eventPricing: await loadEventPricing(eventId),
     });
   } catch (error: any) {
     console.error("Error:", error);
@@ -167,6 +178,26 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+async function loadEventPricing(eventId: string) {
+  const { data } = await supabaseServer
+    .from("events")
+    .select(EVENT_PRICING_SELECT)
+    .eq("id", eventId)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    id: String(data.id),
+    type: data.type,
+    starts_at: data.starts_at,
+    ends_at: data.ends_at,
+    time_zone: data.time_zone || DEFAULT_TIME_ZONE,
+    price: data.price != null ? Number(data.price) : 0,
+    price_changes: normalizePriceChanges(data.price_changes),
+    ccs_team_price: data.ccs_team_price != null ? Number(data.ccs_team_price) : null,
+    ccs_team_price_changes: normalizePriceChanges(data.ccs_team_price_changes),
+  };
 }
 
 // PATCH - Update signup status (admin and instructor only)
@@ -247,16 +278,18 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ success: true, signup: data });
     }
 
-    if (!["paid", "checked_in"].includes(field)) {
+    if (!["paid", "checked_in", "amount_due"].includes(field)) {
       return NextResponse.json(
-        { error: "Invalid field. Must be 'paid' or 'checked_in'" },
+        { error: "Invalid field. Must be 'paid', 'checked_in', or 'amount_due'" },
         { status: 400 }
       );
     }
 
     const { data: existingSignup, error: existingSignupError } = await supabaseServer
       .from("signups")
-      .select("event_id")
+      .select(
+        "id,event_id,payment_method,paid,checked_in,amount_owed,amount_due,amount_paid,is_ccs_team"
+      )
       .eq("id", signupId)
       .single();
     if (existingSignupError || !existingSignup?.event_id) {
@@ -273,20 +306,89 @@ export async function PATCH(req: NextRequest) {
     const accessErr = assertRegistrationEventMutateAccess(auth.access.level, eventMeta);
     if (accessErr) return accessErr;
 
-    const updateData: Record<string, unknown> = { [field]: value };
-    if (field === "checked_in" && value === true) {
-      updateData.paid = true;
-      updateData.checked_in_at = new Date().toISOString();
+    const pm = String(existingSignup.payment_method || "").trim().toLowerCase();
+    const isStripe = pm === "stripe";
+    const isCcsTeamFree = pm === "ccs team";
+    const alreadyPaid = existingSignup.paid === true;
+
+    // Stripe Paid is locked — cannot uncheck
+    if (field === "paid" && value === false && isStripe && alreadyPaid) {
+      return NextResponse.json(
+        { error: "Stripe payments cannot be unmarked as unpaid." },
+        { status: 400 }
+      );
     }
-    if (field === "checked_in" && value === false) {
-      updateData.checked_in_at = null;
+
+    const pricing = await loadEventPricing(String(existingSignup.event_id));
+    const isCcsTeam = existingSignup.is_ccs_team === true || isCcsTeamFree;
+    const currentPrice = resolveDueNowForSignup(pricing, existingSignup);
+
+    const updateData: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (field === "amount_due") {
+      if (alreadyPaid) {
+        return NextResponse.json(
+          { error: "Cannot edit Due now after the signup is marked paid." },
+          { status: 400 }
+        );
+      }
+      if (value === null || value === "") {
+        updateData.amount_due = null;
+      } else if (Number.isFinite(Number(value)) && Number(value) >= 0) {
+        updateData.amount_due = roundCurrency(Number(value));
+      } else {
+        return NextResponse.json(
+          { error: "amount_due must be a non-negative number or null" },
+          { status: 400 }
+        );
+      }
+    } else if (field === "paid") {
+      if (value === true) {
+        updateData.paid = true;
+        if (isCcsTeamFree) {
+          updateData.amount_paid = 0;
+        } else if (body.amount_paid != null && Number.isFinite(Number(body.amount_paid))) {
+          updateData.amount_paid = roundCurrency(Number(body.amount_paid));
+        } else if (existingSignup.amount_paid == null) {
+          updateData.amount_paid = roundCurrency(currentPrice);
+        }
+      } else {
+        updateData.paid = false;
+        if (!isStripe) {
+          updateData.amount_paid = null;
+        }
+      }
+    } else if (field === "checked_in") {
+      if (value === true) {
+        updateData.checked_in = true;
+        updateData.checked_in_at = new Date().toISOString();
+        if (!alreadyPaid) {
+          updateData.paid = true;
+          if (isCcsTeamFree) {
+            updateData.amount_paid = 0;
+          } else if (existingSignup.amount_paid == null) {
+            updateData.amount_paid = roundCurrency(currentPrice);
+          }
+        }
+        // Already paid: attendance only — do not change amounts
+      } else {
+        updateData.checked_in = false;
+        updateData.checked_in_at = null;
+        // Un-check-in clears amount_paid unless Stripe (accident recovery)
+        if (!isStripe) {
+          updateData.paid = false;
+          updateData.amount_paid = null;
+        }
+      }
     }
 
     const { data, error } = await supabaseServer
       .from("signups")
       .update(updateData)
       .eq("id", signupId)
-      .select()
+      .select(SIGNUPS_SELECT)
       .single();
 
     if (error) {
@@ -297,7 +399,23 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true, signup: data });
+    const dueNow = resolveDueNowForSignup(pricing, {
+      ...existingSignup,
+      amount_due:
+        field === "amount_due"
+          ? (updateData.amount_due as number | null)
+          : existingSignup.amount_due,
+    });
+    const paidOptions = pricing
+      ? resolvePaidAmountOptions(pricing, { isCcsTeam })
+      : [];
+
+    return NextResponse.json({
+      success: true,
+      signup: data,
+      dueNow,
+      paidAmountOptions: paidOptions,
+    });
   } catch (error: any) {
     console.error("Error:", error);
     return NextResponse.json(

@@ -1,4 +1,9 @@
 import { supabaseServer } from "@/lib/supabaseServer";
+import {
+  normalizePriceChanges,
+  type PriceChange,
+} from "@/lib/utils/workshopPricing";
+import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
 
 export type CanonicalEvent = {
   id: string;
@@ -6,10 +11,11 @@ export type CanonicalEvent = {
   type: string;
   starts_at: string | null;
   location: string | null;
+  time_zone: string;
   price: number;
-  day_of_price: number | null;
+  price_changes: PriceChange[];
   ccs_team_price: number | null;
-  team_day_of_price: number | null;
+  ccs_team_price_changes: PriceChange[];
 };
 
 export class CanonicalEventError extends Error {
@@ -35,7 +41,9 @@ export async function resolveCanonicalEventById(eventId: unknown): Promise<Canon
 
   const { data, error } = await supabaseServer
     .from("events")
-    .select("id,title,type,starts_at,location,price,day_of_price,ccs_team_price,team_day_of_price")
+    .select(
+      "id,title,type,starts_at,location,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes"
+    )
     .eq("id", id)
     .single();
 
@@ -52,9 +60,13 @@ export async function resolveCanonicalEventById(eventId: unknown): Promise<Canon
     type: data.type ? String(data.type) : "",
     starts_at: data.starts_at ? String(data.starts_at) : null,
     location: data.location ? String(data.location) : null,
+    time_zone:
+      data.time_zone && String(data.time_zone).trim()
+        ? String(data.time_zone).trim()
+        : DEFAULT_TIME_ZONE,
     price: parseMoney(data.price) ?? 0,
-    day_of_price: parseMoney(data.day_of_price),
+    price_changes: normalizePriceChanges(data.price_changes),
     ccs_team_price: parseMoney(data.ccs_team_price),
-    team_day_of_price: parseMoney(data.team_day_of_price),
+    ccs_team_price_changes: normalizePriceChanges(data.ccs_team_price_changes),
   };
 }

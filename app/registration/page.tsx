@@ -9,6 +9,8 @@ import {
   isEventPast,
   isRegistrationWindowOpen,
   formatEventScheduleSubtitle,
+  formatDateInTimeZone,
+  formatTimeInTimeZone,
   getEventDateString,
 } from "@/lib/utils/dateHelpers";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
@@ -18,6 +20,12 @@ import {
   EMPTY_CHECK_IN_ARRIVAL_BUCKETS,
 } from "@/lib/utils/checkInArrivalBuckets";
 import QRCheckInScanner from "@/components/QRCheckInScanner";
+import {
+  resolveDueNowForSignup,
+  resolvePaidAmountOptions,
+  resolveSignupListPrice,
+  type PriceChange,
+} from "@/lib/utils/workshopPricing";
 
 type RegistrationAccessLevel = "admin" | "instructor" | "social_viewer";
 
@@ -29,6 +37,17 @@ interface Event {
   location: string;
   type?: string;
   time_zone?: string | null;
+}
+
+interface EventPricing {
+  id: string;
+  type?: string | null;
+  starts_at?: string | null;
+  time_zone?: string | null;
+  price: number;
+  price_changes: PriceChange[];
+  ccs_team_price: number | null;
+  ccs_team_price_changes: PriceChange[];
 }
 
 interface Signup {
@@ -43,6 +62,10 @@ interface Signup {
   checked_in: boolean;
   checked_in_at?: string | null;
   created_at: string;
+  amount_owed?: number | null;
+  amount_due?: number | null;
+  amount_paid?: number | null;
+  is_ccs_team?: boolean | null;
 }
 
 interface CompSignup {
@@ -109,6 +132,14 @@ export default function RegistrationPage() {
   const [arrivalBuckets, setArrivalBuckets] = useState<CheckInArrivalBuckets>(
     EMPTY_CHECK_IN_ARRIVAL_BUCKETS
   );
+  const [eventPricing, setEventPricing] = useState<EventPricing | null>(null);
+  const [paidModalSignup, setPaidModalSignup] = useState<Signup | null>(null);
+  const [paidModalAmount, setPaidModalAmount] = useState<number | null>(null);
+  const [paidModalOther, setPaidModalOther] = useState(false);
+  const [paidModalOtherValue, setPaidModalOtherValue] = useState("");
+  const [dueEditSignup, setDueEditSignup] = useState<Signup | null>(null);
+  const [dueEditValue, setDueEditValue] = useState("");
+  const [dueEditSaving, setDueEditSaving] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -224,47 +255,49 @@ export default function RegistrationPage() {
 
   // Set up real-time subscription for signups or comp_signups changes
   useEffect(() => {
-    if (!selectedEvent) return;
+    if (!selectedEvent || !sessionToken) return;
 
     const isComp = (selectedEvent.type || "").toLowerCase() === "comp";
     const table = isComp ? "comp_signups" : "signups";
     const channelName = `${table}_changes_${selectedEvent.id}`;
-    const channel = supabaseBrowser.channel(channelName);
+    const eventId = selectedEvent.id;
+    let cancelled = false;
 
-    channel
+    const channel = supabaseBrowser
+      .channel(channelName)
       .on(
         "postgres_changes",
         {
           event: "*",
           schema: "public",
           table,
-          filter: `event_id=eq.${selectedEvent.id}`,
+          filter: `event_id=eq.${eventId}`,
         },
-        (payload) => {
-          console.log("Realtime update -", table, payload);
-          loadSignups(selectedEvent.id);
+        () => {
+          if (!cancelled) loadSignups(eventId);
         }
       )
       .subscribe((status) => {
+        if (cancelled) return;
         if (status === "SUBSCRIBED") {
-          console.log("✅ Realtime subscription active for signups", channelName);
-        } else if (status === "CHANNEL_ERROR") {
-          console.error("❌ Realtime subscription error for signups", channelName, status);
-        } else if (status === "TIMED_OUT") {
-          console.warn("⏱️ Realtime subscription timed out for signups", channelName);
-        } else if (status === "CLOSED") {
-          console.log("🔒 Realtime subscription closed for signups", channelName);
-        } else {
-          console.log("Realtime subscription status:", status, channelName);
+          console.log("Realtime subscription active for signups", channelName);
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          // Non-fatal: 60s poll + local actions still keep the list current.
+          console.warn(
+            "Realtime unavailable for signups; using poll fallback",
+            channelName,
+            status
+          );
         }
       });
 
-    // Cleanup subscription on unmount or when selectedEvent or filter changes
     return () => {
-      console.log("Cleaning up realtime subscription for signups", channelName);
+      cancelled = true;
       supabaseBrowser.removeChannel(channel);
     };
-  }, [selectedEvent, filter, sessionToken]);
+    // Intentionally omit `filter` — filter only affects fetch, not the channel.
+    // Resubscribing on filter toggles often triggers CHANNEL_ERROR.
+  }, [selectedEvent?.id, selectedEvent?.type, sessionToken]);
 
   // Polling fallback: refresh signups every 60 seconds as backup
   useEffect(() => {
@@ -329,6 +362,11 @@ export default function RegistrationPage() {
       const data = await response.json();
       const isComp = !!data.isComp;
       setIsCompEvent(isComp);
+      if (data.eventPricing) {
+        setEventPricing(data.eventPricing as EventPricing);
+      } else if (!isComp) {
+        setEventPricing(null);
+      }
 
       if (isComp) {
         const list = data.compSignups || [];
@@ -369,7 +407,8 @@ export default function RegistrationPage() {
     signupId: string,
     field: "paid" | "checked_in",
     value: boolean,
-    isCompSignup = false
+    isCompSignup = false,
+    amountPaid?: number | null
   ): Promise<{ success: boolean; signup?: Signup | CompSignup }> => {
     setUpdating(signupId);
     try {
@@ -389,6 +428,7 @@ export default function RegistrationPage() {
           field,
           value,
           ...(isCompSignup ? { isComp: true } : {}),
+          ...(amountPaid != null ? { amount_paid: amountPaid } : {}),
         }),
       });
 
@@ -399,7 +439,7 @@ export default function RegistrationPage() {
           statusText: response.statusText,
           error: errorData.error,
         });
-        alert("Failed to update signup status");
+        alert(errorData.error || "Failed to update signup status");
         return { success: false };
       }
 
@@ -433,7 +473,15 @@ export default function RegistrationPage() {
         } else {
           setSignups((prev) =>
             prev.map((s) =>
-              s.id === signupId ? { ...s, checked_in: true, paid: true, checked_in_at: at } : s
+              s.id === signupId
+                ? {
+                    ...s,
+                    ...(updatedSignup as Signup),
+                    checked_in: true,
+                    paid: true,
+                    checked_in_at: at,
+                  }
+                : s
             )
           );
           setTimeout(() => {
@@ -446,6 +494,20 @@ export default function RegistrationPage() {
           }, 2000);
         }
       } else {
+        // Immediately merge server signup so Cash Paid shows Paid/$ amount without waiting on reload
+        if (!isCompSignup && updatedSignup) {
+          setSignups((prev) =>
+            prev.map((s) =>
+              s.id === signupId ? { ...s, ...(updatedSignup as Signup) } : s
+            )
+          );
+        } else if (isCompSignup && updatedSignup) {
+          setCompSignups((prev) =>
+            prev.map((c) =>
+              c.id === signupId ? { ...c, ...(updatedSignup as CompSignup) } : c
+            )
+          );
+        }
         if (selectedEvent) loadSignups(selectedEvent.id);
       }
 
@@ -457,6 +519,191 @@ export default function RegistrationPage() {
     } finally {
       setUpdating(null);
     }
+  };
+
+  const isViewingPastMonth = (isAdmin || isSocialViewer) && eventsView === "past";
+  const pastMonthStart = dayjs(pastEventsMonth + "-01");
+  const canGoForward =
+    isViewingPastMonth &&
+    pastMonthStart.isBefore(dayjs().startOf("month"));
+  const readOnlyRegistration =
+    isSocialViewer &&
+    (eventsView === "past" ||
+      (selectedEvent != null &&
+        registrationAccess != null &&
+        !canMutateRegistrationEvent(registrationAccess, {
+          type: selectedEvent.type,
+          starts_at: selectedEvent.starts_at,
+          ends_at: selectedEvent.ends_at ?? null,
+          time_zone: selectedEvent.time_zone,
+        })));
+
+  const scheduleDueForSignup = (signup: Signup): number => {
+    if (!eventPricing) return Number(signup.amount_owed) || 0;
+    return resolveSignupListPrice(eventPricing, {
+      isCcsTeam: signup.is_ccs_team === true || signup.payment_method?.toLowerCase() === "ccs team",
+    });
+  };
+
+  const dueNowForSignup = (signup: Signup): number => {
+    return resolveDueNowForSignup(eventPricing, signup);
+  };
+
+  const paidOptionsForSignup = (signup: Signup): number[] => {
+    if (!eventPricing) {
+      const owed = Number(signup.amount_owed);
+      return Number.isFinite(owed) ? [owed] : [];
+    }
+    return resolvePaidAmountOptions(eventPricing, {
+      isCcsTeam: signup.is_ccs_team === true || signup.payment_method?.toLowerCase() === "ccs team",
+    });
+  };
+
+  const paidDisplayAmount = (signup: Signup): number => {
+    if (signup.amount_paid != null && Number.isFinite(Number(signup.amount_paid))) {
+      return Number(signup.amount_paid);
+    }
+    return Number(signup.amount_owed ?? 0);
+  };
+
+  const openDueEditModal = (signup: Signup) => {
+    if (signup.paid || readOnlyRegistration) return;
+    setDueEditSignup(signup);
+    setDueEditValue(dueNowForSignup(signup).toFixed(2));
+  };
+
+  const saveDueEdit = async (amountDue: number | null) => {
+    if (!dueEditSignup || !sessionToken) return;
+    setDueEditSaving(true);
+    try {
+      const response = await fetch("/api/signups", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({
+          signupId: dueEditSignup.id,
+          field: "amount_due",
+          value: amountDue,
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        alert(errorData.error || "Failed to update Due now");
+        return;
+      }
+      const result = await response.json();
+      const updated = result.signup as Signup | undefined;
+      if (updated) {
+        setSignups((prev) =>
+          prev.map((s) => (s.id === dueEditSignup.id ? { ...s, ...updated } : s))
+        );
+        if (scannedResult?.signup?.id === dueEditSignup.id) {
+          setScannedResult((prev) => (prev ? { ...prev, signup: updated } : null));
+        }
+      }
+      setDueEditSignup(null);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update Due now");
+    } finally {
+      setDueEditSaving(false);
+    }
+  };
+
+  const confirmDueEdit = async () => {
+    const parsed = parseFloat(dueEditValue);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      alert("Enter a valid amount");
+      return;
+    }
+    await saveDueEdit(parsed);
+  };
+
+  const renderSignupAmountLine = (signup: Signup, className = "text-xs md:text-sm") => (
+    <p className={`${className} text-gray-400`}>
+      Registered at: ${Number(signup.amount_owed ?? 0).toFixed(2)}
+      {signup.paid ? (
+        <>
+          {" · "}
+          <span className="text-green-400 font-medium">
+            Paid: ${paidDisplayAmount(signup).toFixed(2)}
+          </span>
+        </>
+      ) : (
+        <>
+          {" · "}
+          {readOnlyRegistration ? (
+            <span className="text-red-400 font-medium">
+              Due now: ${dueNowForSignup(signup).toFixed(2)}
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => openDueEditModal(signup)}
+              title="Edit Due now"
+              className="text-red-400 font-medium underline decoration-red-400/50 underline-offset-2 hover:text-red-300 hover:decoration-red-300"
+            >
+              Due now: ${dueNowForSignup(signup).toFixed(2)}
+            </button>
+          )}
+        </>
+      )}
+    </p>
+  );
+
+  const needsCashPaidModal = (signup: Signup) => {
+    const pm = (signup.payment_method || "").toLowerCase().trim();
+    if (pm === "stripe") return false;
+    if (pm === "ccs team") return false;
+    return true;
+  };
+
+  const openPaidModal = (signup: Signup) => {
+    const due = dueNowForSignup(signup);
+    const options = paidOptionsForSignup(signup);
+    setPaidModalSignup(signup);
+    setPaidModalOther(false);
+    setPaidModalOtherValue("");
+    setPaidModalAmount(options.includes(due) ? due : options[options.length - 1] ?? due);
+  };
+
+  const confirmPaidModal = async () => {
+    if (!paidModalSignup) return;
+    let amount = paidModalAmount;
+    if (paidModalOther) {
+      const parsed = parseFloat(paidModalOtherValue);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        alert("Enter a valid amount");
+        return;
+      }
+      amount = parsed;
+    }
+    if (amount == null || !Number.isFinite(amount)) {
+      alert("Select an amount");
+      return;
+    }
+    const signupId = paidModalSignup.id;
+    setPaidModalSignup(null);
+    const res = await updateSignupStatus(signupId, "paid", true, false, amount);
+    if (res.success && res.signup && scannedResult?.signup?.id === signupId) {
+      setScannedResult((prev) => (prev ? { ...prev, signup: res.signup! } : null));
+    }
+  };
+
+  const handlePaidClick = (signup: Signup) => {
+    if (signup.paid) {
+      const pm = (signup.payment_method || "").toLowerCase().trim();
+      if (pm === "stripe") return;
+      updateSignupStatus(signup.id, "paid", false);
+      return;
+    }
+    if (needsCashPaidModal(signup)) {
+      openPaidModal(signup);
+      return;
+    }
+    updateSignupStatus(signup.id, "paid", true, false, 0);
   };
 
   const updateCompSignupPaid = async (compSignupId: string, paid: boolean) => {
@@ -476,6 +723,18 @@ export default function RegistrationPage() {
     if (c.checked_in) return "bg-green-900/30 border-green-600";
     if (c.paid) return "bg-yellow-900/30 border-yellow-600";
     return "bg-neutral-800 border-neutral-700";
+  };
+
+  const formatSignupCreatedAt = (createdAt: string) => {
+    const tz = selectedEvent?.time_zone || DEFAULT_TIME_ZONE;
+    const datePart = formatDateInTimeZone(createdAt, tz, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    const timePart = formatTimeInTimeZone(createdAt, tz);
+    if (!datePart || !timePart) return "";
+    return `${datePart}, ${timePart}`;
   };
 
   const isSignedUpOnEventDay = (createdAt: string) => {
@@ -516,23 +775,6 @@ export default function RegistrationPage() {
       </div>
     );
   }
-
-  const isViewingPastMonth = (isAdmin || isSocialViewer) && eventsView === "past";
-  const pastMonthStart = dayjs(pastEventsMonth + "-01");
-  const canGoForward =
-    isViewingPastMonth &&
-    pastMonthStart.isBefore(dayjs().startOf("month"));
-  const readOnlyRegistration =
-    isSocialViewer &&
-    (eventsView === "past" ||
-      (selectedEvent != null &&
-        registrationAccess != null &&
-        !canMutateRegistrationEvent(registrationAccess, {
-          type: selectedEvent.type,
-          starts_at: selectedEvent.starts_at,
-          ends_at: selectedEvent.ends_at ?? null,
-          time_zone: selectedEvent.time_zone,
-        })));
 
   return (
     <div className="max-w-6xl mx-auto mt-4 md:mt-10 px-4 pb-6">
@@ -799,7 +1041,7 @@ export default function RegistrationPage() {
                           Payment: {c.payment_method} · ${Number(c.amount_owed).toFixed(2)} · {c.paid ? "Paid" : "Unpaid"}
                         </p>
                         <p className="text-gray-500 text-xs">
-                          {new Date(c.created_at).toLocaleString()}
+                          Date: {formatSignupCreatedAt(c.created_at)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -853,6 +1095,10 @@ export default function RegistrationPage() {
                       <p className="text-xs md:text-sm text-gray-400">
                         Payment: {signup.payment_method}
                       </p>
+                      {renderSignupAmountLine(signup)}
+                      <p className="text-gray-500 text-xs md:text-sm">
+                        Date: {formatSignupCreatedAt(signup.created_at)}
+                      </p>
                       {selectedEvent?.type?.toLowerCase() === "workshop" &&
                         isSignedUpOnEventDay(signup.created_at) && (
                           <p className="text-red-500 font-medium text-sm">Signed Up Today</p>
@@ -860,10 +1106,14 @@ export default function RegistrationPage() {
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                       <button
-                        onClick={() =>
-                          updateSignupStatus(signup.id, "paid", !signup.paid)
+                        onClick={() => handlePaidClick(signup)}
+                        disabled={
+                          readOnlyRegistration ||
+                          updating === signup.id ||
+                          signup.checked_in ||
+                          (signup.paid &&
+                            (signup.payment_method || "").toLowerCase().trim() === "stripe")
                         }
-                        disabled={readOnlyRegistration || updating === signup.id || signup.checked_in}
                         className={`px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap ${
                           signup.paid
                             ? "bg-yellow-500 text-black hover:bg-yellow-400 shadow-[0_0_10px_rgba(234,179,8,0.5)]"
@@ -949,6 +1199,9 @@ export default function RegistrationPage() {
                     <p className="text-gray-400">
                       {(scannedResult.signup as CompSignup).event_title} · Payment: {(scannedResult.signup as CompSignup).payment_method} · ${Number((scannedResult.signup as CompSignup).amount_owed ?? 0).toFixed(2)} · {(scannedResult.signup as CompSignup).paid ? "Paid" : "Unpaid"}
                     </p>
+                    <p className="text-gray-500 text-xs">
+                      Date: {formatSignupCreatedAt((scannedResult.signup as CompSignup).created_at)}
+                    </p>
                   </>
                 ) : (
                   <>
@@ -957,7 +1210,13 @@ export default function RegistrationPage() {
                     </h3>
                     <p className="text-gray-400 truncate">{(scannedResult.signup as Signup).email}</p>
                     <p className="text-gray-400">
-                      {(scannedResult.signup as Signup).event_title} · {(scannedResult.signup as Signup).payment_method} · {(scannedResult.signup as Signup).paid ? "Paid" : "Unpaid"}
+                      {(scannedResult.signup as Signup).event_title} · {(scannedResult.signup as Signup).payment_method}
+                      {" · "}
+                      {(scannedResult.signup as Signup).paid ? "Paid" : "Unpaid"}
+                    </p>
+                    {renderSignupAmountLine(scannedResult.signup as Signup, "text-sm")}
+                    <p className="text-gray-500 text-xs">
+                      Date: {formatSignupCreatedAt((scannedResult.signup as Signup).created_at)}
                     </p>
                   </>
                 )}
@@ -1009,12 +1268,32 @@ export default function RegistrationPage() {
                     <>
                       <button
                         onClick={async () => {
-                          const res = await updateSignupStatus(scannedResult.signup.id, "paid", !(scannedResult.signup as Signup).paid);
+                          const s = scannedResult.signup as Signup;
+                          if (s.paid) {
+                            if ((s.payment_method || "").toLowerCase().trim() === "stripe") return;
+                            const res = await updateSignupStatus(s.id, "paid", false);
+                            if (res.success && res.signup) {
+                              setScannedResult((prev) => (prev ? { ...prev, signup: res.signup! } : null));
+                            }
+                            return;
+                          }
+                          if (needsCashPaidModal(s)) {
+                            openPaidModal(s);
+                            return;
+                          }
+                          const res = await updateSignupStatus(s.id, "paid", true, false, 0);
                           if (res.success && res.signup) {
                             setScannedResult((prev) => (prev ? { ...prev, signup: res.signup! } : null));
                           }
                         }}
-                        disabled={updating === scannedResult.signup.id || (scannedResult.signup as Signup).checked_in}
+                        disabled={
+                          updating === scannedResult.signup.id ||
+                          (scannedResult.signup as Signup).checked_in ||
+                          ((scannedResult.signup as Signup).paid &&
+                            ((scannedResult.signup as Signup).payment_method || "")
+                              .toLowerCase()
+                              .trim() === "stripe")
+                        }
                         className="px-4 py-2 rounded-md text-sm font-medium bg-neutral-700 text-gray-300 hover:bg-neutral-600 disabled:opacity-50"
                       >
                         {(scannedResult.signup as Signup).paid ? "✓ Paid" : "Paid"}
@@ -1048,6 +1327,138 @@ export default function RegistrationPage() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Cash Paid amount modal */}
+      {paidModalSignup && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-md rounded-xl border border-neutral-600 bg-neutral-800 p-5">
+            <h3 className="text-lg font-semibold text-white mb-1">Confirm cash amount</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              {paidModalSignup.first_name} {paidModalSignup.last_name} · Due now $
+              {dueNowForSignup(paidModalSignup).toFixed(2)}
+            </p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {paidOptionsForSignup(paidModalSignup).map((amt) => (
+                <button
+                  key={amt}
+                  type="button"
+                  onClick={() => {
+                    setPaidModalOther(false);
+                    setPaidModalAmount(amt);
+                  }}
+                  className={`px-3 py-2 rounded-md text-sm font-medium ${
+                    !paidModalOther && paidModalAmount === amt
+                      ? "bg-yellow-500 text-black"
+                      : "bg-neutral-700 text-gray-200 hover:bg-neutral-600"
+                  }`}
+                >
+                  ${amt.toFixed(2)}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setPaidModalOther(true);
+                  setPaidModalAmount(null);
+                }}
+                className={`px-3 py-2 rounded-md text-sm font-medium ${
+                  paidModalOther
+                    ? "bg-yellow-500 text-black"
+                    : "bg-neutral-700 text-gray-200 hover:bg-neutral-600"
+                }`}
+              >
+                Other
+              </button>
+            </div>
+            {paidModalOther && (
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={paidModalOtherValue}
+                onChange={(e) => setPaidModalOtherValue(e.target.value)}
+                placeholder="Enter amount"
+                className="w-full mb-4 px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white"
+              />
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setPaidModalSignup(null)}
+                className="px-4 py-2 rounded-md text-sm bg-neutral-700 text-gray-200 hover:bg-neutral-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmPaidModal}
+                className="px-4 py-2 rounded-md text-sm font-medium bg-yellow-500 text-black hover:bg-yellow-400"
+              >
+                Confirm Paid
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Edit Due now modal */}
+      {dueEditSignup && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-md rounded-xl border border-neutral-600 bg-neutral-800 p-5">
+            <h3 className="text-lg font-semibold text-white mb-1">Edit Due now</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              {dueEditSignup.first_name} {dueEditSignup.last_name} · Registered at $
+              {Number(dueEditSignup.amount_owed ?? 0).toFixed(2)} · Schedule $
+              {scheduleDueForSignup(dueEditSignup).toFixed(2)}
+            </p>
+            <label className="block text-sm text-gray-300 mb-1" htmlFor="due-edit-amount">
+              Due now ($)
+            </label>
+            <input
+              id="due-edit-amount"
+              type="number"
+              step="0.01"
+              min="0"
+              autoFocus
+              value={dueEditValue}
+              onChange={(e) => setDueEditValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void confirmDueEdit();
+                }
+              }}
+              className="w-full mb-4 px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white"
+            />
+            <div className="flex flex-wrap gap-2 justify-between">
+              <button
+                type="button"
+                disabled={dueEditSaving}
+                onClick={() => void saveDueEdit(null)}
+                className="px-4 py-2 rounded-md text-sm bg-neutral-700 text-gray-200 hover:bg-neutral-600 disabled:opacity-50"
+              >
+                Reset to schedule
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={dueEditSaving}
+                  onClick={() => setDueEditSignup(null)}
+                  className="px-4 py-2 rounded-md text-sm bg-neutral-700 text-gray-200 hover:bg-neutral-600 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={dueEditSaving}
+                  onClick={() => void confirmDueEdit()}
+                  className="px-4 py-2 rounded-md text-sm font-medium bg-primary text-black hover:bg-primary/90 disabled:opacity-50"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
         </div>

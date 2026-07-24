@@ -11,6 +11,7 @@ const unpaidCashSignup = {
   payment_method: "Cash",
   amount_owed: 20,
   paid: false,
+  is_ccs_team: false,
 };
 
 let signupRow: typeof unpaidCashSignup | null = unpaidCashSignup;
@@ -52,7 +53,17 @@ vi.mock("@/lib/supabaseServer", () => {
         return {
           select: () => ({
             eq: () => ({
-              single: async () => ({ data: { price: 25 }, error: null }),
+              single: async () => ({
+                data: {
+                  price: 25,
+                  price_changes: [{ effective_date: "2020-01-01", price: 30 }],
+                  ccs_team_price: null,
+                  ccs_team_price_changes: [],
+                  time_zone: "America/Chicago",
+                  type: "Workshop",
+                },
+                error: null,
+              }),
             }),
           }),
         };
@@ -72,7 +83,7 @@ describe("GET /api/event-signup/pay", () => {
     signupRow = { ...unpaidCashSignup };
   });
 
-  it("returns signup and eventPrice for valid unpaid Cash signup", async () => {
+  it("returns signup and current effective eventPrice (not frozen amount_owed)", async () => {
     const req = new NextRequest(
       "http://localhost:3000/api/event-signup/pay?signupId=signup-001"
     );
@@ -81,7 +92,9 @@ describe("GET /api/event-signup/pay", () => {
 
     expect(res.status).toBe(200);
     expect(data.signup.id).toBe("signup-001");
-    expect(data.eventPrice).toBe(20);
+    expect(data.eventPrice).toBe(30);
+    expect(data.dueNow).toBe(30);
+    expect(data.registeredAt).toBe(20);
   });
 
   it("returns 404 when signup is missing", async () => {

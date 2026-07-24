@@ -6,10 +6,16 @@ import dayjs from "dayjs";
 import Link from "next/link";
 import { isCcsInstructorRole } from "@/lib/instructorProfiles";
 import {
+  DEFAULT_SOCIAL_DOOR_PAYOUT,
   DEFAULT_SOCIAL_VENUE_COST,
+  computeSocialDoorPayouts,
   computeSocialSplit,
+  effectiveDoorAmount,
+  isSocialDoorPayoutModel,
+  normalizeDoorPayouts,
+  type SocialDoorPayoutRow,
 } from "@/lib/socialFinancesConstants";
-import { isSocialEventType } from "@/lib/socialScheduleSlots";
+import { isSocialEventType, isDoormanPosition } from "@/lib/socialScheduleSlots";
 import { computeNashvillePayouts } from "@/lib/utils/nashvillePayouts";
 import {
   guestInstructorNameFromEventTitle,
@@ -17,6 +23,7 @@ import {
   type PaymentDueRow,
   type PaymentsDueByEvent,
 } from "@/lib/financePaymentsDueTypes";
+import { resolveCollectedTicketAmount } from "@/lib/utils/signupCollectedAmount";
 
 type FinanceAccessLevel = "admin" | "social_viewer";
 
@@ -78,6 +85,7 @@ interface TheSocialFinances {
   venue_cost: number;
   other_expense: number;
   other_expense_comment: string | null;
+  door_payouts?: SocialDoorPayoutRow[];
   brandon_split_ratio: number;
   kyler_split_ratio: number;
   isaiah_split_ratio: number;
@@ -123,6 +131,7 @@ interface InstructorOption {
 interface ScheduleSlotLite {
   id: string;
   position: string;
+  slot_starts_at?: string | null;
   assignee?: {
     first_name?: string;
     last_name?: string;
@@ -159,6 +168,7 @@ interface Event {
   price: number | null;
   ccs_team_price?: number | null;
   type?: string;
+  time_zone?: string | null;
 }
 
 interface Signup {
@@ -169,6 +179,7 @@ interface Signup {
   checked_in: boolean;
   is_ccs_team?: boolean;
   amount_owed?: number | null;
+  amount_paid?: number | null;
   stripe_tax_amount?: number | null;
   stripe_processing_fee?: number | null;
   free_via_promotion_code?: boolean;
@@ -207,7 +218,7 @@ interface EventFinanceMetrics {
 function computeStats(
   signups: Signup[],
   eventPrice: number | null,
-  eventCcsTeamPrice: number | null | undefined
+  _eventCcsTeamPrice: number | null | undefined
 ): {
   totalSignups: number;
   checkedIn: number;
@@ -222,7 +233,6 @@ function computeStats(
   revenueFromCoupons: number;
 } {
   const price = eventPrice ?? 0;
-  const ccsTeamPrice = eventCcsTeamPrice != null ? Number(eventCcsTeamPrice) : 0;
   let cashTotal = 0;
   let stripeTotal = 0;
   let otherTotal = 0;
@@ -237,35 +247,30 @@ function computeStats(
     const isCcsTeam = s.is_ccs_team === true || pm === "ccs team";
     const freeViaPromo = s.free_via_promotion_code === true;
     const usedPromo = s.used_promotion_code === true;
+    const paid = s.paid === true;
 
     if (freeViaPromo) freeViaPromoCount += 1;
 
+    const amount = resolveCollectedTicketAmount(s, price);
+
     if (isCcsTeam) {
-      // CCS TEAM: always use event ccs_team_price; split by payment method (Cash vs Stripe)
-      const amount = ccsTeamPrice;
-      if (pm === "cash" && s.checked_in) {
+      if ((pm === "cash" || pm === "ccs team") && paid) {
         ccsTeamCashTotal += amount;
         if (usedPromo) revenueFromCoupons += amount;
-      } else if (pm === "stripe" && s.paid) {
+      } else if (pm === "stripe" && paid) {
         ccsTeamStripeTotal += amount;
-        if (usedPromo) revenueFromCoupons += amount;
-      } else if (pm === "ccs team" && s.checked_in) {
-        ccsTeamCashTotal += amount;
         if (usedPromo) revenueFromCoupons += amount;
       }
     } else {
-      // Free-via-promo: attendance only, no revenue
       if (freeViaPromo) continue;
-      // Per-signup amount (e.g. discount); fallback to event price
-      const amount = s.amount_owed != null ? Number(s.amount_owed) : price;
-      if (pm === "cash" && s.checked_in) {
+      if (pm === "cash" && paid) {
         cashTotal += amount;
         if (usedPromo) revenueFromCoupons += amount;
-      } else if (pm === "stripe" && s.paid) {
+      } else if (pm === "stripe" && paid) {
         stripeTotal += amount;
         stripeTaxesFees += (s.stripe_tax_amount ?? 0) + (s.stripe_processing_fee ?? 0);
         if (usedPromo) revenueFromCoupons += amount;
-      } else if (s.checked_in) {
+      } else if (s.checked_in && paid) {
         otherTotal += amount;
         if (usedPromo) revenueFromCoupons += amount;
       }
@@ -435,6 +440,7 @@ export default function AdminFinancesPage() {
   const [socialOverviewFinances, setSocialOverviewFinances] = useState<{
     totalVenueCost: number;
     totalOtherExpense: number;
+    totalDoor: number;
     totalBrandon: number;
     totalKyler: number;
     totalIsaiah: number;
@@ -613,7 +619,7 @@ export default function AdminFinancesPage() {
       setError(null);
       const { data, error: e } = await supabaseBrowser
         .from("events")
-        .select("id, title, starts_at, location, price, ccs_team_price, type")
+        .select("id, title, starts_at, location, price, ccs_team_price, type, time_zone")
         .order("starts_at", { ascending: false });
 
       if (e) {
@@ -1204,6 +1210,7 @@ export default function AdminFinancesPage() {
 
         let totalVenueCost = 0;
         let totalOtherExpense = 0;
+        let totalDoor = 0;
         let totalBrandon = 0;
         let totalKyler = 0;
         let totalIsaiah = 0;
@@ -1215,6 +1222,10 @@ export default function AdminFinancesPage() {
           const sf = r.socialFinancesOverview;
           totalVenueCost += Number(sf.venue_cost) || 0;
           totalOtherExpense += Number(sf.other_expense) || 0;
+          const doors = normalizeDoorPayouts(sf.door_payouts);
+          for (const d of doors) {
+            totalDoor += effectiveDoorAmount(d);
+          }
           totalBrandon += Number(sf.brandon_profit) || 0;
           totalKyler += Number(sf.kyler_profit) || 0;
           totalIsaiah += Number(sf.isaiah_profit) || 0;
@@ -1222,11 +1233,13 @@ export default function AdminFinancesPage() {
           totalCcsCash += Number(sf.ccs_cash_profit) || 0;
         }
 
-        const totalSocialAllocatedProfits = totalBrandon + totalKyler + totalIsaiah;
+        const totalSocialAllocatedProfits =
+          totalBrandon + totalKyler + totalIsaiah + totalDoor;
 
         setSocialOverviewFinances({
           totalVenueCost: Math.round(totalVenueCost * 100) / 100,
           totalOtherExpense: Math.round(totalOtherExpense * 100) / 100,
+          totalDoor: Math.round(totalDoor * 100) / 100,
           totalBrandon: Math.round(totalBrandon * 100) / 100,
           totalKyler: Math.round(totalKyler * 100) / 100,
           totalIsaiah: Math.round(totalIsaiah * 100) / 100,
@@ -1463,9 +1476,17 @@ export default function AdminFinancesPage() {
           return;
         }
         const params = new URLSearchParams({ event_id: selectedEvent.id });
-        const res = await fetch(`/api/admin/the-social-finances?${params}`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        });
+        const [res, slotsRes] = await Promise.all([
+          fetch(`/api/admin/the-social-finances?${params}`, {
+            headers: { Authorization: `Bearer ${authToken}` },
+          }),
+          isSocialDoorPayoutModel(selectedEvent.starts_at, selectedEvent.time_zone)
+            ? fetch(
+                `/api/schedule/slots?event_id=${encodeURIComponent(selectedEvent.id)}`,
+                { headers: { Authorization: `Bearer ${authToken}` } }
+              )
+            : Promise.resolve(null),
+        ]);
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           setSocialError(
@@ -1474,7 +1495,62 @@ export default function AdminFinancesPage() {
           setSocialFinances(null);
         } else {
           const { data } = await res.json();
-          setSocialFinances(data ?? null);
+          let social = (data ?? null) as TheSocialFinances | null;
+          const existingDoors = normalizeDoorPayouts(social?.door_payouts);
+          if (
+            existingDoors.length === 0 &&
+            slotsRes &&
+            slotsRes.ok &&
+            isSocialDoorPayoutModel(selectedEvent.starts_at, selectedEvent.time_zone)
+          ) {
+            const slotsJson = await slotsRes.json().catch(() => ({}));
+            const slots = ((slotsJson?.slots ?? []) as ScheduleSlotLite[])
+              .filter((s) => isDoormanPosition(s.position) && s.assignee)
+              .sort((a, b) =>
+                (a.slot_starts_at || "").localeCompare(b.slot_starts_at || "")
+              );
+            if (slots.length > 0) {
+              const door_payouts = slots.map((s, index) => {
+                const name =
+                  [s.assignee?.first_name, s.assignee?.last_name]
+                    .filter(Boolean)
+                    .join(" ")
+                    .trim() || `Doorman ${index + 1}`;
+                return {
+                  slot_id: s.id,
+                  name,
+                  amount: DEFAULT_SOCIAL_DOOR_PAYOUT,
+                  amount_override: null as number | null,
+                  paid_at: null as string | null,
+                };
+              });
+              if (social) {
+                social = { ...social, door_payouts };
+              } else {
+                social = {
+                  id: "pending",
+                  event_id: selectedEvent.id,
+                  venue_cost: DEFAULT_SOCIAL_VENUE_COST,
+                  other_expense: 0,
+                  other_expense_comment: null,
+                  door_payouts,
+                  brandon_split_ratio: 0,
+                  kyler_split_ratio: 0,
+                  isaiah_split_ratio: 1,
+                  brandon_profit: 0,
+                  kyler_profit: 0,
+                  isaiah_profit: 0,
+                  ccs_profit: 0,
+                  ccs_cash_profit: 0,
+                  brandon_paid_at: null,
+                  kyler_paid_at: null,
+                  isaiah_paid_at: null,
+                  updated_at: new Date().toISOString(),
+                };
+              }
+            }
+          }
+          setSocialFinances(social);
         }
       } catch (e) {
         setSocialError(
@@ -1487,7 +1563,7 @@ export default function AdminFinancesPage() {
     };
 
     load();
-  }, [canAccessFinances, eventsView, selectedEvent?.id, isSocialEvent, authToken]);
+  }, [canAccessFinances, eventsView, selectedEvent?.id, selectedEvent?.starts_at, selectedEvent?.time_zone, isSocialEvent, authToken]);
 
   useEffect(() => {
     if (
@@ -1621,6 +1697,8 @@ export default function AdminFinancesPage() {
       mark_brandon_paid?: boolean;
       mark_kyler_paid?: boolean;
       mark_isaiah_paid?: boolean;
+      door_payouts?: SocialDoorPayoutRow[];
+      mark_door_paid_index?: number;
     }) => {
       if (!selectedEvent || !isSocialEvent || !authToken) return;
       setSocialSaving(true);
@@ -2587,6 +2665,14 @@ export default function AdminFinancesPage() {
                         </div>
                         <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
                           <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Door positions
+                          </p>
+                          <p className="mt-1 text-xl font-bold text-neutral-300">
+                            ${socialOverviewFinances.totalDoor.toFixed(2)}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
                             Brandon (planned)
                           </p>
                           <p className="mt-1 text-xl font-bold text-primary">
@@ -2673,6 +2759,14 @@ export default function AdminFinancesPage() {
                                   <span>Other expenses</span>
                                   <span className="font-semibold text-white">
                                     −${socialOverviewFinances.totalOtherExpense.toFixed(2)}
+                                  </span>
+                                </div>
+                              )}
+                              {socialOverviewFinances.totalDoor > 0 && (
+                                <div className="flex items-center justify-between text-neutral-300">
+                                  <span>Door positions</span>
+                                  <span className="font-semibold text-white">
+                                    −${socialOverviewFinances.totalDoor.toFixed(2)}
                                   </span>
                                 </div>
                               )}
@@ -3095,6 +3189,10 @@ export default function AdminFinancesPage() {
                         ccsTeamTotal={stats.ccsTeamTotal ?? 0}
                         stripeTaxesFees={stats.stripeTaxesFees ?? 0}
                         social={socialFinances}
+                        doorModel={isSocialDoorPayoutModel(
+                          selectedEvent?.starts_at,
+                          selectedEvent?.time_zone
+                        )}
                         loading={loadingSocial}
                         error={socialError}
                         saving={socialSaving}
@@ -3125,6 +3223,7 @@ function SocialBreakdown({
   ccsTeamTotal,
   stripeTaxesFees = 0,
   social,
+  doorModel = false,
   loading,
   error,
   saving,
@@ -3138,6 +3237,7 @@ function SocialBreakdown({
   ccsTeamTotal: number;
   stripeTaxesFees?: number;
   social: TheSocialFinances | null;
+  doorModel?: boolean;
   loading: boolean;
   error: string | null;
   saving: boolean;
@@ -3154,6 +3254,8 @@ function SocialBreakdown({
     mark_brandon_paid?: boolean;
     mark_kyler_paid?: boolean;
     mark_isaiah_paid?: boolean;
+    door_payouts?: SocialDoorPayoutRow[];
+    mark_door_paid_index?: number;
   }) => Promise<void>;
 }) {
   const [venueInput, setVenueInput] = useState("0");
@@ -3164,6 +3266,7 @@ function SocialBreakdown({
   const [isaiahPct, setIsaiahPct] = useState("50");
   const [brandonProfitIn, setBrandonProfitIn] = useState("0");
   const [kylerProfitIn, setKylerProfitIn] = useState("0");
+  const [doorAmountInputs, setDoorAmountInputs] = useState<string[]>([]);
 
   useEffect(() => {
     if (social) {
@@ -3175,6 +3278,14 @@ function SocialBreakdown({
       setIsaiahPct(String(Math.round(Number(social.isaiah_split_ratio) * 100)));
       setBrandonProfitIn(String(Number(social.brandon_profit)));
       setKylerProfitIn(String(Number(social.kyler_profit)));
+      const doors = normalizeDoorPayouts(social.door_payouts);
+      setDoorAmountInputs(
+        doors.map((d) =>
+          String(
+            d.amount_override != null ? d.amount_override : d.amount ?? DEFAULT_SOCIAL_DOOR_PAYOUT
+          )
+        )
+      );
       return;
     }
     setVenueInput(String(DEFAULT_SOCIAL_VENUE_COST));
@@ -3183,6 +3294,7 @@ function SocialBreakdown({
     setBrandonPct("20");
     setKylerPct("30");
     setIsaiahPct("50");
+    setDoorAmountInputs([]);
     const split = computeSocialSplit({
       totalRevenue: computedTotalRevenue,
       cashTotal,
@@ -3315,6 +3427,163 @@ function SocialBreakdown({
     return (
       <div className="mt-8 rounded-lg border border-primary/50 bg-primary/10 px-4 py-4 text-primary">
         <p className="font-medium">{error}</p>
+      </div>
+    );
+  }
+
+  if (doorModel) {
+    const doorRows = normalizeDoorPayouts(social?.door_payouts);
+    const doorRowsForCalc = doorRows.map((d, i) => {
+      const parsed = parseFloat(doorAmountInputs[i] ?? "");
+      return {
+        ...d,
+        amount_override: Number.isFinite(parsed) ? parsed : d.amount_override,
+      };
+    });
+    const doorPayouts = computeSocialDoorPayouts({
+      cashTotal,
+      stripeTotal,
+      venueCost: venueNum,
+      otherExpense: otherExpenseNum,
+      doorRows: doorRowsForCalc,
+    });
+    const ccsTotal = roundMoney(doorPayouts.isaiahCash + doorPayouts.ccsElectronic);
+
+    return (
+      <div className="mt-8 rounded-xl border border-primary/40 bg-neutral-800/30 p-6 ring-1 ring-primary/20">
+        <h3 className="mb-4 text-base font-semibold text-primary">
+          Social — Payout breakdown
+        </h3>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-sm font-medium text-neutral-300">Venue cost</label>
+            {readOnly ? (
+              <span className="text-lg font-bold text-white">${venueNum.toFixed(2)}</span>
+            ) : (
+              <div className="flex items-baseline gap-1">
+                <span className="text-neutral-500">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={venueInput}
+                  onChange={(e) => setVenueInput(e.target.value)}
+                  onBlur={saveVenue}
+                  disabled={saving}
+                  className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3 rounded-lg border border-neutral-700/80 bg-neutral-800/40 p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-sm font-medium text-neutral-300">Other expense</label>
+              {readOnly ? (
+                <span className="text-lg font-bold text-white">${otherExpenseNum.toFixed(2)}</span>
+              ) : (
+                <div className="flex items-baseline gap-1">
+                  <span className="text-neutral-500">$</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={otherExpenseInput}
+                    onChange={(e) => setOtherExpenseInput(e.target.value)}
+                    onBlur={saveOtherExpense}
+                    disabled={saving}
+                    className="w-28 rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1.5 text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                  />
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-neutral-400">
+                Comment (what was this expense for?)
+              </label>
+              {readOnly ? (
+                <p className="text-sm text-neutral-300 whitespace-pre-wrap">
+                  {otherExpenseCommentInput.trim() ? otherExpenseCommentInput : "—"}
+                </p>
+              ) : (
+                <textarea
+                  rows={2}
+                  value={otherExpenseCommentInput}
+                  onChange={(e) => setOtherExpenseCommentInput(e.target.value)}
+                  onBlur={saveOtherExpenseComment}
+                  disabled={saving}
+                  className="w-full rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
+                />
+              )}
+            </div>
+          </div>
+
+          <p className="text-sm text-neutral-400">
+            Profit after venue &amp; other:{" "}
+            <span className="font-semibold text-white">${doorPayouts.profit.toFixed(2)}</span>
+          </p>
+
+          <h4 className="pt-2 text-sm font-semibold uppercase tracking-wider text-neutral-400">
+            Door positions
+          </h4>
+          {doorRows.length === 0 ? (
+            <p className="text-sm text-neutral-500">
+              No filled Doorman slots on the schedule yet. Names auto-fill when someone
+              signs up. If slots are already filled, apply the{" "}
+              <code className="text-neutral-400">door_payouts</code> migration and refresh.
+            </p>
+          ) : (
+            doorRows.map((door, index) => (
+              <SocialPersonRow
+                key={door.slot_id ?? index}
+                label={door.name || `Doorman ${index + 1}`}
+                profitInput={doorAmountInputs[index] ?? String(DEFAULT_SOCIAL_DOOR_PAYOUT)}
+                onProfitChange={(s) => {
+                  setDoorAmountInputs((prev) => {
+                    const next = [...prev];
+                    next[index] = s;
+                    return next;
+                  });
+                }}
+                onProfitBlur={() => {
+                  const parsed = parseFloat(doorAmountInputs[index] ?? "");
+                  const patched = doorRows.map((d, i) => {
+                    if (i !== index) return d;
+                    return {
+                      ...d,
+                      amount: DEFAULT_SOCIAL_DOOR_PAYOUT,
+                      amount_override: Number.isFinite(parsed) ? roundMoney(parsed) : null,
+                    };
+                  });
+                  onPatch({ door_payouts: patched });
+                }}
+                paidAt={door.paid_at ?? null}
+                onMarkPaid={() => onPatch({ mark_door_paid_index: index })}
+                saving={saving}
+                readOnly={readOnly}
+                subtitle={`Door payout (default $${DEFAULT_SOCIAL_DOOR_PAYOUT})`}
+              />
+            ))
+          )}
+
+          <div className="rounded-lg border border-primary/40 bg-primary/10 p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-primary">CCS total</p>
+            <p className="mt-1 text-2xl font-bold text-white">${ccsTotal.toFixed(2)}</p>
+            <p className="mt-2 text-sm text-neutral-300">
+              Cash → Isaiah: ${doorPayouts.isaiahCash.toFixed(2)}
+            </p>
+            <p className="text-sm text-neutral-300">
+              Electronic → CCS: ${doorPayouts.ccsElectronic.toFixed(2)}
+            </p>
+          </div>
+
+          {stripeTaxesFees > 0 && (
+            <div className="flex items-center justify-between text-neutral-300">
+              <span>Taxes/Fees (to remain in bank)</span>
+              <span className="font-semibold text-accent">${stripeTaxesFees.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
       </div>
     );
   }

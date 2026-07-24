@@ -9,7 +9,7 @@ export type PriceChange = {
 };
 
 export type WorkshopPricingInput = {
-  price: number | null | undefined;
+  price?: number | null;
   price_changes?: PriceChange[] | null;
   ccs_team_price?: number | null;
   ccs_team_price_changes?: PriceChange[] | null;

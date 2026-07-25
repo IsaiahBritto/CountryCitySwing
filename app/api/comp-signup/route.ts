@@ -30,6 +30,10 @@ export async function POST(req: NextRequest) {
   const amountOwed = roundCurrency(Number(data.amount_owed) || 0);
   const acceptLiability = !!data.accept_liability;
   const acceptPayment = !!data.accept_payment;
+  const acceptRefund =
+    data.accept_refund === true ||
+    data.accept_refund === "true" ||
+    data.acceptRefund === true;
 
   if (!eventId || !eventTitle) {
     return NextResponse.json(
@@ -46,6 +50,29 @@ export async function POST(req: NextRequest) {
   if (!acceptLiability || !acceptPayment) {
     return NextResponse.json(
       { error: "You must accept the liability release and payment acknowledgment" },
+      { status: 400 }
+    );
+  }
+
+  const { data: eventRow, error: eventLookupError } = await supabaseServer
+    .from("events")
+    .select("refund_statement")
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (eventLookupError) {
+    console.error("[comp-signup] event lookup failed", eventLookupError);
+    return NextResponse.json({ error: "Failed to load event." }, { status: 500 });
+  }
+
+  const refundStatement =
+    eventRow?.refund_statement && String(eventRow.refund_statement).trim()
+      ? String(eventRow.refund_statement).trim()
+      : null;
+
+  if (refundStatement && !acceptRefund) {
+    return NextResponse.json(
+      { error: "You must acknowledge the refund policy for this event." },
       { status: 400 }
     );
   }

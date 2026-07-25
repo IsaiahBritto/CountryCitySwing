@@ -45,6 +45,19 @@ export async function PUT(
     if (eventData.type !== undefined) updateData.type = eventData.type || null;
     if (eventData.ends_at !== undefined) updateData.ends_at = eventData.ends_at ?? null;
     if (eventData.time_zone !== undefined) updateData.time_zone = eventData.time_zone || null;
+    if (eventData.refundStatement !== undefined) {
+      const text =
+        typeof eventData.refundStatement === "string"
+          ? eventData.refundStatement.trim()
+          : "";
+      updateData.refund_statement = text || null;
+    } else if (eventData.refund_statement !== undefined) {
+      const text =
+        typeof eventData.refund_statement === "string"
+          ? eventData.refund_statement.trim()
+          : "";
+      updateData.refund_statement = text || null;
+    }
 
     const { data, error } = await supabaseServer
       .from("events")

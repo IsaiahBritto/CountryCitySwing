@@ -3,7 +3,7 @@
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import {
   DEFAULT_TIME_ZONE,
@@ -45,25 +45,34 @@ const baseSchema = z.object({
     }),
   }),
   cashPriceAck: z.boolean().optional(),
+  acceptRefund: z.boolean().optional(),
 });
 
-// ✅ superRefine for cross-field validation
-const schema = baseSchema.superRefine((data, ctx) => {
-  if (data.beenBefore === "First time EVER!" && !data.heardAboutUs) {
-    ctx.addIssue({
-      path: ["heardAboutUs"],
-      message: "Please tell us how you heard about us.",
-      code: z.ZodIssueCode.custom,
-    });
-  }
-  if (data.paymentMethod === "Cash" && data.cashPriceAck !== true) {
-    ctx.addIssue({
-      path: ["cashPriceAck"],
-      message: "You must acknowledge the cash payment price notice",
-      code: z.ZodIssueCode.custom,
-    });
-  }
-});
+function buildSignupSchema(requireRefundAck: boolean) {
+  return baseSchema.superRefine((data, ctx) => {
+    if (data.beenBefore === "First time EVER!" && !data.heardAboutUs) {
+      ctx.addIssue({
+        path: ["heardAboutUs"],
+        message: "Please tell us how you heard about us.",
+        code: z.ZodIssueCode.custom,
+      });
+    }
+    if (data.paymentMethod === "Cash" && data.cashPriceAck !== true) {
+      ctx.addIssue({
+        path: ["cashPriceAck"],
+        message: "You must acknowledge the cash payment price notice",
+        code: z.ZodIssueCode.custom,
+      });
+    }
+    if (requireRefundAck && data.acceptRefund !== true) {
+      ctx.addIssue({
+        path: ["acceptRefund"],
+        message: "You must acknowledge the refund policy",
+        code: z.ZodIssueCode.custom,
+      });
+    }
+  });
+}
 
 /* ---------- Component ---------- */
 export default function EventSignupModal({ event, open, onClose, isInstructor: isInstructorProp }: {
@@ -73,6 +82,16 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   /** When true, hide "Been before?" and use CCS TEAM when price is $0. Pass from parent when available. */
   isInstructor?: boolean;
 }) {
+  const refundStatement =
+    (typeof event?.refund_statement === "string" && event.refund_statement.trim()) ||
+    (typeof event?.refundStatement === "string" && event.refundStatement.trim()) ||
+    "";
+  const hasRefundStatement = Boolean(refundStatement);
+  const schema = useMemo(
+    () => buildSignupSchema(hasRefundStatement),
+    [hasRefundStatement]
+  );
+
   const {
     register,
     watch,
@@ -702,6 +721,31 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               />
               I understand that I will need to complete payment (via Stripe or cash at the door) and show confirmation of form completion.
             </label>
+
+            {hasRefundStatement && (
+              <div className="mt-3 rounded-lg border border-red-500/50 bg-gradient-to-b from-red-500/10 to-transparent p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-red-400 mb-2">
+                  Refund policy
+                </p>
+                <div className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto pr-1">
+                  {refundStatement}
+                </div>
+                <label className="flex items-start gap-3 mt-4 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    {...register("acceptRefund")}
+                    className="mt-0.5 w-4 h-4 shrink-0 accent-red-500"
+                  />
+                  <span className="text-sm text-gray-300">
+                    I have read and agree to the refund policy.{" "}
+                    <span className="text-red-400">*</span>
+                  </span>
+                </label>
+                {errors.acceptRefund && (
+                  <p className="text-red-400 text-sm mt-1">{errors.acceptRefund.message}</p>
+                )}
+              </div>
+            )}
 
             {Object.values(errors).length > 0 && (
               <p className="text-red-400 text-sm">

@@ -14,6 +14,8 @@ type CompEvent = {
   signup_link?: string;
   strictly_price?: number | null;
   jnj_price?: number | null;
+  refund_statement?: string | null;
+  refundStatement?: string | null;
 };
 
 type PaymentMethod = "Stripe" | "Cash";
@@ -36,6 +38,11 @@ export default function CompSignupModal({
   const hasStrictly = event && event.strictly_price != null && Number(event.strictly_price) >= 0;
   const hasJnJ = event && event.jnj_price != null && Number(event.jnj_price) >= 0;
   const howsMyDancingUrl = event?.signupLink || event?.signup_link || "";
+  const refundStatement =
+    (typeof event?.refund_statement === "string" && event.refund_statement.trim()) ||
+    (typeof event?.refundStatement === "string" && event.refundStatement.trim()) ||
+    "";
+  const hasRefundStatement = Boolean(refundStatement);
 
   const [strictlySelected, setStrictlySelected] = useState(false);
   const [jnjSelected, setJnJSelected] = useState(false);
@@ -61,6 +68,7 @@ export default function CompSignupModal({
 
   const [acceptLiability, setAcceptLiability] = useState(false);
   const [acceptPayment, setAcceptPayment] = useState(false);
+  const [acceptRefund, setAcceptRefund] = useState(false);
   const [loadingUser, setLoadingUser] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -147,6 +155,7 @@ export default function CompSignupModal({
       setJnJFollowEmail("");
       setAcceptLiability(false);
       setAcceptPayment(false);
+      setAcceptRefund(false);
       setSubmitError("");
       setSubmitSuccess("");
       setAlreadyRegistered(null);
@@ -185,6 +194,9 @@ export default function CompSignupModal({
     }
     if (!acceptLiability) return "You must accept the liability release.";
     if (!acceptPayment) return "You must acknowledge the payment confirmation requirement.";
+    if (hasRefundStatement && !acceptRefund) {
+      return "You must acknowledge the refund policy.";
+    }
     return null;
   };
 
@@ -265,6 +277,7 @@ export default function CompSignupModal({
         amount_owed: total,
         accept_liability: acceptLiability,
         accept_payment: acceptPayment,
+        accept_refund: hasRefundStatement ? acceptRefund : true,
       };
       const res = await fetch("/api/comp-signup", {
         method: "POST",
@@ -531,6 +544,29 @@ export default function CompSignupModal({
               <input type="checkbox" checked={acceptPayment} onChange={(e) => setAcceptPayment(e.target.checked)} className="mr-2" />
               I understand I will need to complete payment (Stripe or cash at the door) and show confirmation as required.
             </label>
+
+            {hasRefundStatement && (
+              <div className="rounded-lg border border-red-500/50 bg-gradient-to-b from-red-500/10 to-transparent p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-red-400 mb-2">
+                  Refund policy
+                </p>
+                <div className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto pr-1">
+                  {refundStatement}
+                </div>
+                <label className="flex items-start gap-3 mt-4 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={acceptRefund}
+                    onChange={(e) => setAcceptRefund(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 shrink-0 accent-red-500"
+                  />
+                  <span className="text-sm text-gray-300">
+                    I have read and agree to the refund policy.{" "}
+                    <span className="text-red-400">*</span>
+                  </span>
+                </label>
+              </div>
+            )}
 
             {alreadyRegistered && (
               <div

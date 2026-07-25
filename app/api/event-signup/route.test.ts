@@ -20,6 +20,7 @@ const canonicalEvent = {
   price_changes: [],
   ccs_team_price: null,
   ccs_team_price_changes: [],
+  refund_statement: null as string | null,
 };
 
 let insertedSignupRows: Record<string, unknown>[] = [];
@@ -149,5 +150,66 @@ describe("POST /api/event-signup canonical event hardening", () => {
     expect(String(html)).toContain(canonicalEvent.title);
     expect(String(html)).toContain(canonicalEvent.location);
     expect(String(html)).not.toContain("Wrong Location");
+  });
+
+  it("rejects signup when refund statement is set and acceptRefund is missing", async () => {
+    canonicalEvent.refund_statement = "No refunds within 7 days of the event.";
+
+    const payload = {
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      beenBefore: "I've been before!",
+      paymentMethod: "Cash",
+      acceptLiability: true,
+      acceptPayment: true,
+      event: { id: canonicalEvent.id },
+    };
+
+    const req = new NextRequest("http://localhost:3000/api/event-signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error).toMatch(/refund/i);
+    expect(insertedSignupRows).toHaveLength(0);
+
+    canonicalEvent.refund_statement = null;
+  });
+
+  it("allows signup when refund statement is set and acceptRefund is true", async () => {
+    canonicalEvent.refund_statement = "No refunds within 7 days of the event.";
+
+    const payload = {
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      beenBefore: "I've been before!",
+      paymentMethod: "Cash",
+      acceptLiability: true,
+      acceptPayment: true,
+      acceptRefund: true,
+      event: { id: canonicalEvent.id },
+    };
+
+    const req = new NextRequest("http://localhost:3000/api/event-signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(insertedSignupRows).toHaveLength(1);
+
+    canonicalEvent.refund_statement = null;
   });
 });

@@ -18,6 +18,8 @@ const DNA_GREEN = "#2BC929";
 export default function Navbar() {
   const pathname = usePathname();
   const isDnaPage = pathname === "/dna";
+  const isEventPageTest = pathname === "/test/event-page";
+  const useAccentNav = isDnaPage || isEventPageTest;
   const [user, setUser] = useState<UserMeta | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -114,22 +116,39 @@ export default function Navbar() {
     { name: "About", href: "/about" },
   ];
 
-  const navClassName = isDnaPage
-    ? "nav-dna sticky top-0 z-50 w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md"
-    : "sticky top-0 z-50 w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md";
+  const navClassName = [
+    "sticky top-0 z-50 w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md",
+    isDnaPage ? "nav-dna" : "",
+    isEventPageTest ? "nav-ep-accent" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
-  const linkClass = isDnaPage
-    ? "text-[#2BC929] hover:text-[#32e032] transition-colors"
+  const linkClass = useAccentNav
+    ? isEventPageTest
+      ? "nav-ep-accent-link transition-colors"
+      : "text-[#2BC929] hover:text-[#32e032] transition-colors"
     : "text-gray-300 hover:text-primary transition-colors";
-  const logoClass = isDnaPage
-    ? "text-2xl font-bold whitespace-nowrap transition-colors"
+  const logoClass = useAccentNav
+    ? isEventPageTest
+      ? "text-2xl font-bold whitespace-nowrap nav-ep-accent-logo"
+      : "text-2xl font-bold whitespace-nowrap transition-colors"
     : "text-2xl font-bold text-primary whitespace-nowrap";
   const signInClass = isDnaPage
     ? "btn-signup nav-dna-signup text-sm px-4 py-2 rounded-md"
-    : "btn-signup text-sm px-4 py-2 rounded-md";
+    : isEventPageTest
+      ? "btn-signup nav-ep-accent-signup text-sm px-4 py-2 rounded-md"
+      : "btn-signup text-sm px-4 py-2 rounded-md";
+
+  const dnaNavStyle = isDnaPage
+    ? {
+        boxShadow: "0 2px 8px rgba(43, 201, 41, 0.35)",
+        borderBottomColor: "rgba(43, 201, 41, 0.3)",
+      }
+    : undefined;
 
   return (
-    <nav className={navClassName} style={isDnaPage ? { boxShadow: "0 2px 8px rgba(43, 201, 41, 0.35)", borderBottomColor: "rgba(43, 201, 41, 0.3)" } : undefined}>
+    <nav className={navClassName} style={dnaNavStyle}>
       <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
         {/* Logo */}
         <Link
@@ -142,7 +161,13 @@ export default function Navbar() {
 
         {/* Hamburger (mobile) */}
         <button
-          className={isDnaPage ? "md:hidden text-gray-300 hover:text-[#2BC929] transition-colors" : "md:hidden text-gray-300 hover:text-primary transition-colors"}
+          className={
+            isEventPageTest
+              ? "md:hidden nav-ep-accent-link transition-colors"
+              : isDnaPage
+                ? "md:hidden text-gray-300 hover:text-[#2BC929] transition-colors"
+                : "md:hidden text-gray-300 hover:text-primary transition-colors"
+          }
           onClick={() => setMenuOpen(!menuOpen)}
           aria-label="Toggle menu"
         >

@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import InstagramEmbed from "@/components/InstagramEmbed";
 import TestEventsSection from "./TestEventsSection";
 import TestNcsnPlaceholder from "./TestNcsnPlaceholder";
 import TestSocialPlaceholder from "./TestSocialPlaceholder";
@@ -52,6 +53,20 @@ export default function EventPageTestClient() {
     const root = rootRef.current;
     if (!root) return;
 
+    const doc = document.documentElement;
+    doc.classList.add("event-page-accent-active");
+
+    const applyAccent = (rgb: readonly [number, number, number]) => {
+      const accent = `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})`;
+      const accentRgb = `${rgb[0]}, ${rgb[1]}, ${rgb[2]}`;
+      root.style.setProperty("--ep-accent", accent);
+      root.style.setProperty("--ep-accent-rgb", accentRgb);
+      doc.style.setProperty("--ep-accent", accent);
+      doc.style.setProperty("--ep-accent-rgb", accentRgb);
+    };
+
+    applyAccent(ACCENTS.events.rgb);
+
     const updateAccent = () => {
       const sections = SECTION_ORDER.map((key) => {
         const el = document.getElementById(key === "the-social" ? "the-social" : key);
@@ -91,8 +106,7 @@ export default function EventPageTestClient() {
         }
       }
 
-      root.style.setProperty("--ep-accent", `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]})`);
-      root.style.setProperty("--ep-accent-rgb", `${rgb[0]}, ${rgb[1]}, ${rgb[2]}`);
+      applyAccent(rgb);
       setActiveSection(active);
     };
 
@@ -102,6 +116,9 @@ export default function EventPageTestClient() {
     return () => {
       window.removeEventListener("scroll", updateAccent);
       window.removeEventListener("resize", updateAccent);
+      doc.classList.remove("event-page-accent-active");
+      doc.style.removeProperty("--ep-accent");
+      doc.style.removeProperty("--ep-accent-rgb");
     };
   }, []);
 
@@ -127,75 +144,65 @@ export default function EventPageTestClient() {
     >
       <div className="event-page-test-glow" aria-hidden />
 
-      <div className="event-page-brand-intro mx-auto max-w-4xl px-4 pt-10 pb-6 sm:pt-14 sm:pb-8">
-        <p className="text-center text-xs sm:text-sm uppercase tracking-[0.28em] text-neutral-500 mb-8">
-          Explore our nights
-        </p>
-        <nav
-          className="event-page-brand-grid"
-          aria-label="Brand sections"
+      <div
+        className="event-page-brand-grid mx-auto max-w-4xl px-6 pt-12 pb-10 sm:pt-16 sm:pb-12"
+        role="navigation"
+        aria-label="Brand sections"
+      >
+        <button
+          type="button"
+          onClick={() => scrollToSection("dna")}
+          className={`event-page-brand-link event-page-brand-link-dna ${
+            activeSection === "dna" ? "is-active" : ""
+          }`}
+          aria-label="Jump to DNA"
         >
-          <button
-            type="button"
-            onClick={() => scrollToSection("dna")}
-            className={`event-page-brand-card event-page-brand-card-dna ${
-              activeSection === "dna" ? "is-active" : ""
-            }`}
-            aria-label="Jump to DNA"
-          >
-            <Image
-              src="/media/dna-logo.png"
-              alt="DNA"
-              width={200}
-              height={80}
-              className="h-14 sm:h-16 w-auto object-contain mx-auto"
-              priority
-            />
-            <span className="event-page-brand-hint" style={{ color: ACCENTS.dna.hex }}>
-              DNA
-            </span>
-          </button>
+          <Image
+            src="/media/dna-logo.png"
+            alt="DNA"
+            width={200}
+            height={80}
+            className="h-14 sm:h-16 w-auto object-contain"
+            priority
+          />
+        </button>
 
-          <button
-            type="button"
-            onClick={() => scrollToSection("ncsn")}
-            className={`event-page-brand-card event-page-brand-card-ncsn ${
-              activeSection === "ncsn" ? "is-active" : ""
-            }`}
+        <button
+          type="button"
+          onClick={() => scrollToSection("ncsn")}
+          className={`event-page-brand-link event-page-brand-link-ncsn max-w-[11rem] ${
+            activeSection === "ncsn" ? "is-active" : ""
+          }`}
+        >
+          <span
+            className="font-bold uppercase leading-snug tracking-wide text-sm sm:text-base"
+            style={{ color: ACCENTS.ncsn.hex }}
           >
-            <span
-              className="font-bold uppercase leading-snug tracking-wide text-sm sm:text-base"
-              style={{ color: ACCENTS.ncsn.hex }}
-            >
-              Nashville Country Swing Nights
-            </span>
-            <span className="event-page-brand-hint" style={{ color: ACCENTS.ncsn.hex }}>
-              Weekly classes
-            </span>
-          </button>
+            Nashville Country Swing Nights
+          </span>
+        </button>
 
-          <button
-            type="button"
-            onClick={() => scrollToSection("the-social")}
-            className={`event-page-brand-card event-page-brand-card-social ${
-              activeSection === "the-social" ? "is-active" : ""
-            }`}
-          >
-            <span className="silver-wave text-xl sm:text-2xl font-extrabold uppercase tracking-widest">
-              The Social.
-            </span>
-            <span className="event-page-brand-hint text-neutral-400">
-              Playlist nights
-            </span>
-          </button>
-        </nav>
-        <div className="event-page-brand-rule mt-10" aria-hidden />
+        <button
+          type="button"
+          onClick={() => scrollToSection("the-social")}
+          className={`event-page-brand-link event-page-brand-link-social ${
+            activeSection === "the-social" ? "is-active" : ""
+          }`}
+        >
+          <span className="silver-wave text-xl sm:text-2xl font-extrabold uppercase tracking-widest">
+            The Social.
+          </span>
+        </button>
       </div>
 
       <TestEventsSection />
       <TestNcsnPlaceholder />
       <TestSocialPlaceholder />
       <TestDnaSection />
+
+      <section className="relative max-w-5xl mx-auto text-center px-4 pt-12 pb-20 border-t border-yellow-500/20">
+        <InstagramEmbed />
+      </section>
     </div>
   );
 }

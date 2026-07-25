@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
     paymentMethod,
     acceptLiability,
     acceptPayment,
+    acceptRefund,
     is_ccs_team: isCcsTeamFromBody,
     event: eventPayload,
     promotionCodeId: promotionCodeIdFromBody,
@@ -60,6 +61,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to resolve event." }, { status: 500 });
   }
   const eventId = canonicalEvent.id;
+
+  if (
+    canonicalEvent.refund_statement &&
+    !(acceptRefund === true || acceptRefund === "true" || data.accept_refund === true)
+  ) {
+    return NextResponse.json(
+      { error: "You must acknowledge the refund policy for this event." },
+      { status: 400 }
+    );
+  }
   const emailTrimmed = typeof email === "string" ? email.trim().toLowerCase() : "";
 
   // Sanity check: reject if already registered for this event (event_id + email)

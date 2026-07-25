@@ -30,6 +30,32 @@ const EVENT_TYPE_OPTIONS = [
   { value: "Convention", label: "Convention" },
 ] as const;
 
+const DEFAULT_REFUND_CLASS_SOCIAL =
+  "Refunds will be issued if notice is given prior to event start time. Otherwise, contact CCS.";
+
+const DEFAULT_REFUND_WORKSHOP =
+  "Refunds will be given in full up until one week prior to the event. During the week of the event, a 50% refund will be given. Day-of cancellations will not receive a refund. After two cancellations or no-show/no-payment for workshops, payment via Stripe will be required for future workshops. Contact CCS with any questions.";
+
+function defaultRefundStatementForType(type: string | undefined | null): string {
+  const t = (type || "").trim().toLowerCase();
+  if (t === "class" || t === "social") return DEFAULT_REFUND_CLASS_SOCIAL;
+  if (t === "workshop") return DEFAULT_REFUND_WORKSHOP;
+  return "";
+}
+
+/** Keep auto-filled defaults in sync when type changes; don't overwrite custom text. */
+function nextRefundStatementOnTypeChange(
+  prevStatement: string | undefined | null,
+  prevType: string | undefined | null,
+  nextType: string
+): string {
+  const current = (prevStatement || "").trim();
+  const prevDefault = defaultRefundStatementForType(prevType);
+  const nextDefault = defaultRefundStatementForType(nextType);
+  if (!current || current === prevDefault) return nextDefault;
+  return current;
+}
+
 /** Extract "A", "B", or "C" from slot position e.g. "Beginner Lead Teacher Week A". */
 function getWeekLetterFromPosition(position: string): string | null {
   const m = position.match(/Week ([ABC])/i);
@@ -81,6 +107,8 @@ interface Event {
   jnj_price?: number | null;
   ccs_team_price?: number | null;
   type?: string;
+  refund_statement?: string | null;
+  refundStatement?: string | null;
 }
 
 interface EventFormModalProps {
@@ -111,6 +139,7 @@ export default function EventFormModal({
     jnj_price: undefined,
     ccs_team_price: undefined,
     type: "",
+    refundStatement: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -177,6 +206,7 @@ export default function EventFormModal({
           jnj_price: event.jnj_price ?? undefined,
           ccs_team_price: event.ccs_team_price ?? undefined,
           type: event.type || "",
+          refundStatement: event.refundStatement || event.refund_statement || "",
         });
       } else {
         setClassUpperLevelNames(DEFAULT_UPPER_LEVEL_NAMES);
@@ -197,6 +227,7 @@ export default function EventFormModal({
           jnj_price: undefined,
           ccs_team_price: undefined,
           type: "",
+          refundStatement: "",
         });
       }
       setError("");
@@ -333,6 +364,10 @@ export default function EventFormModal({
       if (formData.jnj_price !== undefined) submitData.jnj_price = formData.jnj_price != null ? Number(formData.jnj_price) : null;
       if (formData.ccs_team_price !== undefined) submitData.ccs_team_price = formData.ccs_team_price != null ? Number(formData.ccs_team_price) : null;
       if (formData.type !== undefined) submitData.type = formData.type || "";
+      submitData.refundStatement =
+        typeof formData.refundStatement === "string"
+          ? formData.refundStatement.trim()
+          : "";
       submitData.ends_at = formData.ends_at
         ? endUnchanged
           ? event!.ends_at!
@@ -471,6 +506,11 @@ export default function EventFormModal({
                       type: newType,
                       description: buildClassDescription(classUpperLevelNames, classBeginnerPart),
                       title: NASHVILLE_CLASS_EVENT_TITLE,
+                      refundStatement: nextRefundStatementOnTypeChange(
+                        prev.refundStatement,
+                        prev.type,
+                        newType
+                      ),
                     };
                     if (wasConvention && !isNowConvention) next.ends_at = undefined;
                     return next;
@@ -483,7 +523,15 @@ export default function EventFormModal({
                 }
 
                 setFormData((prev) => {
-                  const next = { ...prev, type: newType };
+                  const next = {
+                    ...prev,
+                    type: newType,
+                    refundStatement: nextRefundStatementOnTypeChange(
+                      prev.refundStatement,
+                      prev.type,
+                      newType
+                    ),
+                  };
                   if (wasConvention && !isNowConvention) {
                     next.ends_at = undefined;
                   }
@@ -907,6 +955,41 @@ export default function EventFormModal({
               placeholder="https://..."
               className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Refund statement (optional)
+            </label>
+            <textarea
+              value={formData.refundStatement || ""}
+              onChange={(e) =>
+                setFormData({ ...formData, refundStatement: e.target.value })
+              }
+              rows={4}
+              placeholder="If set, signups must acknowledge this before submitting."
+              className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+            />
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <p className="text-xs text-gray-400">
+                If set, signups must acknowledge this before submitting. Class/Social and
+                Workshop types get a default when selected.
+              </p>
+              {defaultRefundStatementForType(formData.type) && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormData({
+                      ...formData,
+                      refundStatement: defaultRefundStatementForType(formData.type),
+                    })
+                  }
+                  className="text-xs text-primary hover:text-yellow-300 underline underline-offset-2"
+                >
+                  Use default for this type
+                </button>
+              )}
+            </div>
           </div>
 
           {error && (

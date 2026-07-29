@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import dayjs from "dayjs";
@@ -105,9 +105,14 @@ export default function RegistrationPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [checkedInCount, setCheckedInCount] = useState(0);
   const [filter, setFilter] = useState<FilterType>("all");
+  /** Keep realtime/poll reloads on the active filter (channel effect omits filter deps). */
+  const filterRef = useRef<FilterType>(filter);
+  filterRef.current = filter;
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [fadingOut, setFadingOut] = useState<Set<string>>(new Set());
+  const fadingOutRef = useRef<Set<string>>(fadingOut);
+  fadingOutRef.current = fadingOut;
   const [userEmail, setUserEmail] = useState<string>("");
   const [userRole, setUserRole] = useState<string>("");
   const [registrationAccess, setRegistrationAccess] =
@@ -322,9 +327,10 @@ export default function RegistrationPage() {
         return;
       }
 
+      const activeFilter = filterRef.current;
       const params = new URLSearchParams({
         event_id: eventId.toString(),
-        filter: filter,
+        filter: activeFilter,
       });
       const response = await fetch(`/api/signups?${params.toString()}`, {
         headers: {
@@ -370,13 +376,20 @@ export default function RegistrationPage() {
 
       if (isComp) {
         const list = data.compSignups || [];
-        setCompSignups(list);
-        setSignups([]);
         setTotalCount(typeof data.total === "number" ? data.total : list.length);
         setCheckedInCount(typeof data.checked_in === "number" ? data.checked_in : list.filter((c: CompSignup) => c.checked_in).length);
         setArrivalBuckets(
           data.check_in_arrival_buckets ?? { ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS }
         );
+        setSignups([]);
+        // Keep rows mid fade-out so realtime reload doesn't yank them mid-animation
+        setCompSignups((prev) => {
+          const fading = fadingOutRef.current;
+          if (activeFilter !== "not_checked_in" || fading.size === 0) return list;
+          const ids = new Set(list.map((c: CompSignup) => c.id));
+          const keep = prev.filter((c) => fading.has(c.id) && !ids.has(c.id));
+          return keep.length ? [...list, ...keep] : list;
+        });
         console.log("Comp signups loaded:", list.length, "for event", eventId);
       } else {
         const signupsList = data.signups || [];
@@ -389,7 +402,14 @@ export default function RegistrationPage() {
         const sorted = signupsList.sort((a: Signup, b: Signup) =>
           a.first_name.localeCompare(b.first_name, undefined, { sensitivity: "base" })
         );
-        setSignups(sorted);
+        // Keep rows mid fade-out so realtime reload doesn't yank them mid-animation
+        setSignups((prev) => {
+          const fading = fadingOutRef.current;
+          if (activeFilter !== "not_checked_in" || fading.size === 0) return sorted;
+          const ids = new Set(sorted.map((s: Signup) => s.id));
+          const keep = prev.filter((s) => fading.has(s.id) && !ids.has(s.id));
+          return keep.length ? [...sorted, ...keep] : sorted;
+        });
         console.log("Signups loaded successfully:", signupsList.length, "for event", eventId);
       }
     } catch (err) {
@@ -471,6 +491,7 @@ export default function RegistrationPage() {
             });
           }, 2000);
         } else {
+          setCheckedInCount((prev) => prev + 1);
           setSignups((prev) =>
             prev.map((s) =>
               s.id === signupId

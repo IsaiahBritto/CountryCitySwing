@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { ArrowLeftIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import { useCart } from "./CartContext";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import ChoiceCards from "@/components/ChoiceCards";
 
 interface CheckoutFormProps {
   onBack: () => void;
@@ -311,47 +312,33 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
         {/* Delivery Method */}
         <div className="border-t border-neutral-700 mt-4 pt-4 mb-4">
           <h4 className="text-sm font-medium text-gray-300 mb-3">Delivery Method</h4>
-          <div className="space-y-3">
-            <label className="flex items-center gap-3 cursor-pointer">
+          <ChoiceCards
+            name="delivery"
+            aria-label="Delivery Method"
+            value={deliveryMethod}
+            onChange={(next) => setDeliveryMethod(next as "pickup" | "ship")}
+            options={[
+              { value: "pickup", label: "Local Pickup" },
+              { value: "ship", label: "Ship it" },
+            ]}
+          />
+          {hasPreorderItems && deliveryMethod === "ship" && (
+            <label className="flex items-center gap-3 cursor-pointer mt-3">
               <input
-                type="radio"
-                name="delivery"
-                value="pickup"
-                checked={deliveryMethod === "pickup"}
-                onChange={(e) => setDeliveryMethod(e.target.value as "pickup")}
-                className="w-4 h-4 text-primary focus:ring-primary"
+                type="checkbox"
+                checked={canPickupFrom8CC}
+                onChange={(e) => {
+                  setCanPickupFrom8CC(e.target.checked);
+                  // Ensure "Ship it" remains selected
+                  if (e.target.checked) {
+                    setDeliveryMethod("ship");
+                  }
+                }}
+                className="w-4 h-4 text-primary focus:ring-primary border-neutral-600 bg-neutral-700 rounded"
               />
-              <span className="text-gray-300">Local Pickup</span>
+              <span className="text-gray-300">I can pick it up from 8 Count Country</span>
             </label>
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="delivery"
-                value="ship"
-                checked={deliveryMethod === "ship"}
-                onChange={(e) => setDeliveryMethod(e.target.value as "ship")}
-                className="w-4 h-4 text-primary focus:ring-primary"
-              />
-              <span className="text-gray-300">Ship it</span>
-            </label>
-            {hasPreorderItems && deliveryMethod === "ship" && (
-              <label className="flex items-center gap-3 cursor-pointer ml-6">
-                <input
-                  type="checkbox"
-                  checked={canPickupFrom8CC}
-                  onChange={(e) => {
-                    setCanPickupFrom8CC(e.target.checked);
-                    // Ensure "Ship it" remains selected
-                    if (e.target.checked) {
-                      setDeliveryMethod("ship");
-                    }
-                  }}
-                  className="w-4 h-4 text-primary focus:ring-primary border-neutral-600 bg-neutral-700 rounded"
-                />
-                <span className="text-gray-300">I can pick it up from 8 Count Country</span>
-              </label>
-            )}
-          </div>
+          )}
         </div>
 
         <div className="border-t border-neutral-700 pt-4 space-y-2">
@@ -557,36 +544,31 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
           {stripeDisabled && !amountDueIsZero && (
             <p className="text-yellow-400 text-sm mb-4">Pay with card is not available for orders under $1. Please pay with cash.</p>
           )}
-          <div className="space-y-3 mb-4">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="radio"
-                name="payment"
-                value="cash"
-                checked={paymentMethod === "cash" || stripeDisabled}
-                onChange={() => setPaymentMethod("cash")}
-                className="w-4 h-4 text-primary focus:ring-primary"
-              />
-              <span className="text-gray-300">Pay with cash</span>
-            </label>
-            <p className="text-sm text-gray-400 ml-7">
-              Pay cash in person. Please show your confirmation email at check-in.
-            </p>
-            <label className={`flex items-center gap-3 ${stripeDisabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}>
-              <input
-                type="radio"
-                name="payment"
-                value="stripe"
-                checked={paymentMethod === "stripe" && !stripeDisabled}
-                onChange={() => !stripeDisabled && setPaymentMethod("stripe")}
-                disabled={stripeDisabled}
-                className="w-4 h-4 text-primary focus:ring-primary"
-              />
-              <span className="text-gray-300">Pay with card</span>
-            </label>
-            <p className="text-sm text-gray-400 ml-7">
-              Secure checkout via Stripe. You’ll be redirected to complete payment.
-            </p>
+          <div className="mb-4">
+            <ChoiceCards
+              name="payment"
+              aria-label="Payment method"
+              value={paymentMethod === "cash" || stripeDisabled ? "cash" : paymentMethod}
+              onChange={(next) => {
+                if (next === "stripe" && stripeDisabled) return;
+                setPaymentMethod(next as "cash" | "stripe");
+              }}
+              options={[
+                {
+                  value: "cash",
+                  label: "Pay with cash",
+                  description:
+                    "Pay cash in person. Please show your confirmation email at check-in.",
+                },
+                {
+                  value: "stripe",
+                  label: "Pay with card",
+                  description:
+                    "Secure checkout via Stripe. You’ll be redirected to complete payment.",
+                  disabled: stripeDisabled,
+                },
+              ]}
+            />
           </div>
         </div>
 

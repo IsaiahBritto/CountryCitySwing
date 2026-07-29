@@ -15,59 +15,91 @@ import {
   resolveSignupListPrice,
 } from "@/lib/utils/workshopPricing";
 import SignupModalShell from "@/components/SignupModalShell";
+import ChoiceCards from "@/components/ChoiceCards";
+import {
+  PLANNED_CLASS_LEVELS,
+  PLANNED_CLASS_LEVEL_DESCRIPTIONS,
+  PLANNED_CLASS_LEVEL_LABELS,
+  PLANNED_CLASS_LEVEL_NOTE,
+} from "@/lib/classLevels";
 
 /* ---------- Validation Schema ---------- */
+const REQUIRED_FIELD = "The above is a required field.";
+
 const baseSchema = z.object({
-  firstName: z.string().min(1, "Required"),
-  lastName: z.string().min(1, "Required"),
-  email: z.string().email("Invalid email"),
-  beenBefore: z.enum(["First time EVER!", "I've been before!"]),
+  firstName: z.string().min(1, REQUIRED_FIELD),
+  lastName: z.string().min(1, REQUIRED_FIELD),
+  email: z
+    .string()
+    .min(1, REQUIRED_FIELD)
+    .email("Please enter a valid email address."),
+  beenBefore: z.enum(["First time EVER!", "I've been before!"], {
+    errorMap: () => ({ message: REQUIRED_FIELD }),
+  }),
   heardAboutUs: z
-    .enum([
-      "Nashville Palace",
-      "Social Media",
-      "A friend invited me",
-      "Church",
-    ])
+    .enum(
+      [
+        "Nashville Palace",
+        "Social Media",
+        "A friend invited me",
+        "Church",
+      ],
+      { errorMap: () => ({ message: REQUIRED_FIELD }) }
+    )
     .optional(),
-  paymentMethod: z.enum([
-    "Stripe",
-    "Cash",
-    "CCS TEAM",
-  ]),
+  paymentMethod: z.enum(["Stripe", "Cash", "CCS TEAM"], {
+    errorMap: () => ({ message: REQUIRED_FIELD }),
+  }),
   acceptLiability: z.literal(true, {
-    errorMap: () => ({ message: "You must accept the liability release" }),
+    errorMap: () => ({ message: REQUIRED_FIELD }),
   }),
   acceptPayment: z.literal(true, {
-    errorMap: () => ({
-      message:
-        "You must acknowledge payment confirmation requirement",
-    }),
+    errorMap: () => ({ message: REQUIRED_FIELD }),
   }),
   cashPriceAck: z.boolean().optional(),
   acceptRefund: z.boolean().optional(),
+  plannedClassLevel: z
+    .enum(PLANNED_CLASS_LEVELS, {
+      errorMap: () => ({ message: REQUIRED_FIELD }),
+    })
+    .optional(),
 });
 
-function buildSignupSchema(requireRefundAck: boolean) {
+function buildSignupSchema(
+  requireRefundAck: boolean,
+  requirePlannedClass: boolean,
+  requireCashPriceAck: boolean
+) {
   return baseSchema.superRefine((data, ctx) => {
     if (data.beenBefore === "First time EVER!" && !data.heardAboutUs) {
       ctx.addIssue({
         path: ["heardAboutUs"],
-        message: "Please tell us how you heard about us.",
+        message: REQUIRED_FIELD,
         code: z.ZodIssueCode.custom,
       });
     }
-    if (data.paymentMethod === "Cash" && data.cashPriceAck !== true) {
+    if (
+      requireCashPriceAck &&
+      data.paymentMethod === "Cash" &&
+      data.cashPriceAck !== true
+    ) {
       ctx.addIssue({
         path: ["cashPriceAck"],
-        message: "You must acknowledge the cash payment price notice",
+        message: REQUIRED_FIELD,
         code: z.ZodIssueCode.custom,
       });
     }
     if (requireRefundAck && data.acceptRefund !== true) {
       ctx.addIssue({
         path: ["acceptRefund"],
-        message: "You must acknowledge the refund policy",
+        message: REQUIRED_FIELD,
+        code: z.ZodIssueCode.custom,
+      });
+    }
+    if (requirePlannedClass && !data.plannedClassLevel) {
+      ctx.addIssue({
+        path: ["plannedClassLevel"],
+        message: REQUIRED_FIELD,
         code: z.ZodIssueCode.custom,
       });
     }
@@ -87,9 +119,20 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     (typeof event?.refundStatement === "string" && event.refundStatement.trim()) ||
     "";
   const hasRefundStatement = Boolean(refundStatement);
+  const requiresPlannedClass =
+    event?.all_three_classes === true ||
+    event?.allThreeClasses === true ||
+    event?.all_three_classes === "true";
+  const isWorkshopType =
+    (event?.type || "").toString().trim().toLowerCase() === "workshop";
   const schema = useMemo(
-    () => buildSignupSchema(hasRefundStatement),
-    [hasRefundStatement]
+    () =>
+      buildSignupSchema(
+        hasRefundStatement,
+        requiresPlannedClass,
+        isWorkshopType
+      ),
+    [hasRefundStatement, requiresPlannedClass, isWorkshopType]
   );
 
   const {
@@ -113,6 +156,15 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   const [promoLoading, setPromoLoading] = useState(false);
   const beenBefore = watch("beenBefore");
   const paymentMethod = watch("paymentMethod");
+  const plannedClassLevel = watch("plannedClassLevel");
+  const acceptLiability = watch("acceptLiability");
+  const acceptPayment = watch("acceptPayment");
+  const acceptRefund = watch("acceptRefund");
+
+  const fieldErrorClass = (hasError: boolean) =>
+    hasError
+      ? "border-red-500 ring-1 ring-red-500"
+      : "border-neutral-700";
 
   // Use isInstructor from parent when provided (reliable); otherwise from profile fetch in modal
   const isInstructorFromRole = (userRole ?? "").toLowerCase().trim() === "instructor";
@@ -222,10 +274,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     }
   }, [amountDueIsZero, setValue]);
 
-  // Cash price ack: required only when the yellow box is shown (Cash + positive price).
-  // Otherwise auto-acknowledge so validation passes without showing the box.
+  // Cash price ack: Workshop-only (price schedules). Auto-ack otherwise so validation passes.
   useEffect(() => {
     const needsAck =
+      isWorkshopType &&
       paymentMethod === "Cash" &&
       !amountDueIsZero &&
       effectivePrice != null &&
@@ -235,7 +287,7 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     } else {
       setValue("cashPriceAck", false, { shouldValidate: false });
     }
-  }, [paymentMethod, amountDueIsZero, effectivePrice, setValue]);
+  }, [isWorkshopType, paymentMethod, amountDueIsZero, effectivePrice, setValue]);
 
   // Instructor: keep hidden fields filled so validation passes (beenBefore + paymentMethod when $0)
   useEffect(() => {
@@ -486,12 +538,12 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               <input
                 {...register("firstName")}
                 placeholder="First Name"
-                className="w-1/2 px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
+                className={`w-1/2 px-3 py-2 rounded bg-neutral-800 border ${fieldErrorClass(!!errors.firstName)}`}
               />
               <input
                 {...register("lastName")}
                 placeholder="Last Name"
-                className="w-1/2 px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
+                className={`w-1/2 px-3 py-2 rounded bg-neutral-800 border ${fieldErrorClass(!!errors.lastName)}`}
               />
             </div>
 
@@ -500,8 +552,42 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               {...register("email")}
               type="email"
               placeholder="Email"
-              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
+              className={`w-full px-3 py-2 rounded bg-neutral-800 border ${fieldErrorClass(!!errors.email)}`}
             />
+
+            {requiresPlannedClass && (
+              <div>
+                <p className="font-medium mb-2">
+                  Which class do you plan on taking? <span className="text-red-400">*</span>
+                </p>
+                <ChoiceCards
+                  name="plannedClassLevel"
+                  aria-label="Which class do you plan on taking?"
+                  hasError={!!errors.plannedClassLevel}
+                  value={plannedClassLevel}
+                  onChange={(next) =>
+                    setValue("plannedClassLevel", next as typeof plannedClassLevel, {
+                      shouldValidate: true,
+                      shouldDirty: true,
+                    })
+                  }
+                  options={PLANNED_CLASS_LEVELS.map((level) => ({
+                    value: level,
+                    label: PLANNED_CLASS_LEVEL_LABELS[level],
+                    description: PLANNED_CLASS_LEVEL_DESCRIPTIONS[level],
+                  }))}
+                />
+                <input type="hidden" {...register("plannedClassLevel")} />
+                {errors.plannedClassLevel && (
+                  <p className="text-red-400 text-sm mt-2">
+                    {String(errors.plannedClassLevel.message)}
+                  </p>
+                )}
+                <p className="text-xs text-gray-400 mt-3 leading-relaxed">
+                  {PLANNED_CLASS_LEVEL_NOTE}
+                </p>
+              </div>
+            )}
 
             {hasLoggedInUser && !alreadySubscribedToNewsletter && (
               <label className="flex items-center gap-2 text-sm text-gray-300">
@@ -518,42 +604,56 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             {/* Been before — hidden for instructors (auto "I've been before!") */}
             {!isInstructor && (
               <div>
-                <p className="font-medium mb-1">
+                <p className="font-medium mb-2">
                   Have you been to a CCS event before?
                 </p>
-                {["First time EVER!", "I've been before!"].map((opt) => (
-                  <label key={opt} className="block text-sm">
-                    <input
-                      {...register("beenBefore")}
-                      type="radio"
-                      value={opt}
-                      className="mr-2"
-                    />
-                    {opt}
-                  </label>
-                ))}
+                <ChoiceCards
+                  name="beenBefore"
+                  aria-label="Have you been to a CCS event before?"
+                  hasError={!!errors.beenBefore}
+                  value={beenBefore}
+                  onChange={(next) =>
+                    setValue("beenBefore", next as typeof beenBefore, {
+                      shouldValidate: true,
+                      shouldDirty: true,
+                    })
+                  }
+                  options={[
+                    { value: "First time EVER!", label: "First time EVER!" },
+                    { value: "I've been before!", label: "I've been before!" },
+                  ]}
+                />
+                <input type="hidden" {...register("beenBefore")} />
+                {errors.beenBefore && (
+                  <p className="text-red-400 text-sm mt-2">
+                    {String(errors.beenBefore.message)}
+                  </p>
+                )}
 
                 {beenBefore === "First time EVER!" && (
-                  <div className="mt-3 ml-4 border-l-2 border-yellow-400 pl-3">
-                    <p className="text-sm mb-1 font-medium text-yellow-300">
+                  <div className="mt-3 ml-1 border-l-2 border-yellow-400 pl-3">
+                    <p className="text-sm mb-2 font-medium text-yellow-300">
                       How did you hear about us?
                     </p>
-                    {[
-                      "Nashville Palace",
-                      "Social Media",
-                      "A friend invited me",
-                      "Church",
-                    ].map((opt) => (
-                      <label key={opt} className="block text-sm">
-                        <input
-                          {...register("heardAboutUs")}
-                          type="radio"
-                          value={opt}
-                          className="mr-2"
-                        />
-                        {opt}
-                      </label>
-                    ))}
+                    <ChoiceCards
+                      name="heardAboutUs"
+                      aria-label="How did you hear about us?"
+                      hasError={!!errors.heardAboutUs}
+                      value={watch("heardAboutUs")}
+                      onChange={(next) =>
+                        setValue("heardAboutUs", next as any, {
+                          shouldValidate: true,
+                          shouldDirty: true,
+                        })
+                      }
+                      options={[
+                        { value: "Nashville Palace", label: "Nashville Palace" },
+                        { value: "Social Media", label: "Social Media" },
+                        { value: "A friend invited me", label: "A friend invited me" },
+                        { value: "Church", label: "Church" },
+                      ]}
+                    />
+                    <input type="hidden" {...register("heardAboutUs")} />
                     {errors.heardAboutUs && (
                       <p className="text-red-400 text-sm mt-1">
                         {String(errors.heardAboutUs.message)}
@@ -625,7 +725,7 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             {/* Payment Method — hidden for instructors when CCS team price is $0; hidden when promo brings total to $0 */}
             {!(isInstructor && effectivePrice === 0) && !(appliedPromo?.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5) && (
               <div>
-                <p className="font-medium mb-1">
+                <p className="font-medium mb-2">
                   Payment Method
                   {amountDue != null && effectivePrice != null && effectivePrice > 0 && (
                     <span key={`amount-${amountDue}-${appliedPromo?.discountedSubtotal ?? "full"}`}>
@@ -634,27 +734,44 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                     </span>
                   )}
                 </p>
-                {[
-                  { label: "Stripe (Credit/Debit Card)", value: "Stripe" },
-                  { label: "Cash", value: "Cash" },
-                ].map(({ label, value }) => (
-                  <label key={value} className="block text-sm">
-                    <input
-                      {...register("paymentMethod")}
-                      type="radio"
-                      value={value}
-                      className="mr-2"
-                    />
-                    {label}
-                  </label>
-                ))}
+                <ChoiceCards
+                  name="paymentMethod"
+                  aria-label="Payment Method"
+                  hasError={!!errors.paymentMethod}
+                  value={paymentMethod}
+                  onChange={(next) =>
+                    setValue("paymentMethod", next as typeof paymentMethod, {
+                      shouldValidate: true,
+                      shouldDirty: true,
+                    })
+                  }
+                  options={[
+                    { value: "Stripe", label: "Stripe (Credit/Debit Card)" },
+                    { value: "Cash", label: "Cash" },
+                  ]}
+                />
+                <input type="hidden" {...register("paymentMethod")} />
+                {errors.paymentMethod && (
+                  <p className="text-red-400 text-sm mt-2">
+                    {String(errors.paymentMethod.message)}
+                  </p>
+                )}
                 {paymentMethod === "Stripe" && effectivePrice != null && effectivePrice > 0 && (
                   <p className="text-sm text-gray-300 mt-2">
                     With Stripe, the amount charged is fixed at checkout and will not change if the event price changes later.
                   </p>
                 )}
-                {paymentMethod === "Cash" && effectivePrice != null && effectivePrice > 0 && (
-                  <div className="mt-3 rounded border border-yellow-500/60 bg-yellow-500/15 p-3 text-sm text-yellow-100">
+                {isWorkshopType &&
+                  paymentMethod === "Cash" &&
+                  effectivePrice != null &&
+                  effectivePrice > 0 && (
+                  <div
+                    className={`mt-3 rounded border p-3 text-sm text-yellow-100 ${
+                      errors.cashPriceAck
+                        ? "border-red-500 ring-1 ring-red-500 bg-red-500/10"
+                        : "border-yellow-500/60 bg-yellow-500/15"
+                    }`}
+                  >
                     <label className="flex items-start gap-2">
                       <input
                         type="checkbox"
@@ -681,7 +798,11 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             )}
 
             {/* Liability release */}
-            <div className="bg-neutral-800 p-3 rounded text-sm max-h-40 overflow-y-auto">
+            <div
+              className={`bg-neutral-800 p-3 rounded text-sm max-h-40 overflow-y-auto ${
+                errors.acceptLiability ? "ring-2 ring-red-500" : ""
+              }`}
+            >
               <p>
                 <strong>Liability Release and Assumption of Risk:</strong> I, the undersigned
                 participant, understand and voluntarily accept the risks associated with participating
@@ -704,43 +825,95 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               </p>
             </div>
 
-            <label className="block text-sm mt-2">
-              <input
-                type="checkbox"
-                {...register("acceptLiability")}
-                className="mr-2"
-              />
-              I accept
-            </label>
+            <button
+              type="button"
+              aria-pressed={acceptLiability === true}
+              onClick={() =>
+                setValue(
+                  "acceptLiability",
+                  acceptLiability === true ? (undefined as unknown as true) : true,
+                  { shouldValidate: true, shouldDirty: true }
+                )
+              }
+              className={`mt-2 w-full rounded-lg border px-4 py-3.5 text-left text-base font-semibold transition-colors ${
+                acceptLiability === true
+                  ? "border-green-500 bg-green-500/10 text-green-300 ring-1 ring-green-500"
+                  : "border-red-500 bg-red-500/10 text-red-200 ring-1 ring-red-500 hover:bg-red-500/15"
+              }`}
+            >
+              {acceptLiability === true ? "Agreed" : "I Agree"}
+            </button>
+            {errors.acceptLiability && (
+              <p className="text-red-400 text-sm mt-1">{String(errors.acceptLiability.message)}</p>
+            )}
 
-            <label className="block text-sm mt-2">
-              <input
-                type="checkbox"
-                {...register("acceptPayment")}
-                className="mr-2"
-              />
-              I understand that I will need to complete payment (via Stripe or cash at the door) and show confirmation of form completion.
-            </label>
+            <button
+              type="button"
+              aria-pressed={acceptPayment === true}
+              onClick={() =>
+                setValue(
+                  "acceptPayment",
+                  acceptPayment === true ? (undefined as unknown as true) : true,
+                  { shouldValidate: true, shouldDirty: true }
+                )
+              }
+              className={`mt-2 w-full rounded-lg border px-4 py-3.5 text-left text-base font-medium transition-colors ${
+                acceptPayment === true
+                  ? "border-green-500 bg-green-500/10 text-green-200 ring-1 ring-green-500"
+                  : "border-red-500 bg-red-500/10 text-red-100 ring-1 ring-red-500 hover:bg-red-500/15"
+              }`}
+            >
+              <span className="block">
+                I understand that I will need to complete payment (via Stripe or cash at the door) and show confirmation of form completion.
+              </span>
+              {acceptPayment === true && (
+                <span className="mt-2 block font-semibold text-green-300">
+                  Confirmed ✅
+                </span>
+              )}
+            </button>
+            {errors.acceptPayment && (
+              <p className="text-red-400 text-sm mt-1">{String(errors.acceptPayment.message)}</p>
+            )}
 
             {hasRefundStatement && (
-              <div className="mt-3 rounded-lg border border-red-500/50 bg-gradient-to-b from-red-500/10 to-transparent p-4">
+              <div
+                className={`mt-3 rounded-lg border bg-gradient-to-b from-red-500/10 to-transparent p-4 ${
+                  errors.acceptRefund
+                    ? "border-red-500 ring-2 ring-red-500"
+                    : "border-red-500/50"
+                }`}
+              >
                 <p className="text-xs font-semibold uppercase tracking-wide text-red-400 mb-2">
                   Refund policy
                 </p>
                 <div className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto pr-1">
                   {refundStatement}
                 </div>
-                <label className="flex items-start gap-3 mt-4 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    {...register("acceptRefund")}
-                    className="mt-0.5 w-4 h-4 shrink-0 accent-red-500"
-                  />
-                  <span className="text-sm text-gray-300">
-                    I have read and agree to the refund policy.{" "}
-                    <span className="text-red-400">*</span>
+                <button
+                  type="button"
+                  aria-pressed={acceptRefund === true}
+                  onClick={() =>
+                    setValue("acceptRefund", acceptRefund === true ? false : true, {
+                      shouldValidate: true,
+                      shouldDirty: true,
+                    })
+                  }
+                  className={`mt-4 w-full rounded-lg border px-4 py-3.5 text-left text-base font-medium transition-colors ${
+                    acceptRefund === true
+                      ? "border-green-500 bg-green-500/10 text-green-200 ring-1 ring-green-500"
+                      : "border-red-500 bg-red-500/10 text-red-100 ring-1 ring-red-500 hover:bg-red-500/15"
+                  }`}
+                >
+                  <span className="block">
+                    I have read and agree to the refund policy.
                   </span>
-                </label>
+                  {acceptRefund === true && (
+                    <span className="mt-2 block font-semibold text-green-300">
+                      Confirmed ✅
+                    </span>
+                  )}
+                </button>
                 {errors.acceptRefund && (
                   <p className="text-red-400 text-sm mt-1">{errors.acceptRefund.message}</p>
                 )}

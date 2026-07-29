@@ -59,6 +59,18 @@ export async function PUT(
       updateData.refund_statement = text || null;
     }
 
+    const typeNorm =
+      typeof (eventData.type ?? updateData.type) === "string"
+        ? String(eventData.type ?? updateData.type).trim().toLowerCase()
+        : "";
+    const requestedAllThree =
+      eventData.all_three_classes === true ||
+      eventData.allThreeClasses === true ||
+      eventData.all_three_classes === "true" ||
+      eventData.allThreeClasses === "true";
+    // Always persist: Class-only; force false for other types or when omitted.
+    updateData.all_three_classes = typeNorm === "class" && requestedAllThree;
+
     const { data, error } = await supabaseServer
       .from("events")
       .update(updateData)

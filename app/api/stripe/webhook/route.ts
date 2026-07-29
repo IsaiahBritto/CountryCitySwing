@@ -8,6 +8,7 @@ import { eventSignupToken } from "@/lib/utils/qrCheckIn";
 import { compSignupToken } from "@/lib/utils/qrCheckIn";
 import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
 import { CanonicalEventError, resolveCanonicalEventById } from "@/lib/utils/canonicalEvent";
+import { plannedClassLevelLabel } from "@/lib/classLevels";
 
 function getWebhookBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
@@ -466,6 +467,11 @@ export async function POST(request: NextRequest) {
           // Note: Don't specify 'id' - let database auto-generate it (it's a bigint, not UUID)
           // We'll use client_reference_id to look it up later if needed
           const usedPromoInsert = metadata.used_promotion_code === "true";
+          const plannedClassFromMeta =
+            typeof metadata.planned_class_level === "string"
+              ? metadata.planned_class_level
+              : null;
+          const plannedClassLabelInsert = plannedClassLevelLabel(plannedClassFromMeta);
           const { data: newSignup, error: insertError } = await supabaseServer
             .from("signups")
             .insert([
@@ -486,6 +492,9 @@ export async function POST(request: NextRequest) {
                 stripe_tax_amount: taxAmount,
                 stripe_processing_fee: processingFee,
                 stripe_total_paid: actualTotal,
+                ...(plannedClassFromMeta && plannedClassLabelInsert
+                  ? { planned_class_level: plannedClassFromMeta }
+                  : {}),
                 ...(usedPromoInsert ? { used_promotion_code: true } : {}),
               },
             ])
@@ -574,6 +583,12 @@ export async function POST(request: NextRequest) {
                         <div class="detail-value">${eventLocation}</div>
                       </div>
                       ` : ""}
+                      ${plannedClassLabelInsert ? `
+                      <div class="detail-row">
+                        <div class="detail-label">Planned Class</div>
+                        <div class="detail-value"><strong>${plannedClassLabelInsert}</strong></div>
+                      </div>
+                      ` : ""}
                       ${eventPrice != null ? `
                       <div class="detail-row">
                         <div class="detail-label">${eventAmountLabel}</div>
@@ -650,7 +665,7 @@ export async function POST(request: NextRequest) {
         // If we get here, the signup already existed - fetch it for email sending
         const { data: signup, error: fetchError } = await supabaseServer
           .from("signups")
-          .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid")
+          .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid,planned_class_level")
           .eq("id", signupId)
           .single();
 
@@ -669,6 +684,9 @@ export async function POST(request: NextRequest) {
         const eventLocation = canonicalEventForExisting?.location || "";
         const eventPrice = canonicalEventForExisting?.price ?? null;
         const canonicalEventTitle = canonicalEventForExisting?.title || signup.event_title;
+        const plannedClassLabelExisting =
+          plannedClassLevelLabel(signup.planned_class_level) ||
+          plannedClassLevelLabel(metadata.planned_class_level);
 
         const webhookQrPayload2 = eventSignupToken(String(signup.id));
         const {
@@ -728,6 +746,12 @@ export async function POST(request: NextRequest) {
                     <div class="detail-row">
                       <div class="detail-label">Location</div>
                       <div class="detail-value">${eventLocation}</div>
+                    </div>
+                    ` : ""}
+                    ${plannedClassLabelExisting ? `
+                    <div class="detail-row">
+                      <div class="detail-label">Planned Class</div>
+                      <div class="detail-value"><strong>${plannedClassLabelExisting}</strong></div>
                     </div>
                     ` : ""}
                     ${eventPrice != null ? `
@@ -805,7 +829,7 @@ export async function POST(request: NextRequest) {
       if (isCashToStripe) {
         const { data: signup, error: fetchError } = await supabaseServer
           .from("signups")
-          .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid")
+          .select("id,event_id,event_title,first_name,last_name,email,payment_method,paid,planned_class_level")
           .eq("id", signupId)
           .single();
 
@@ -869,6 +893,7 @@ export async function POST(request: NextRequest) {
         const eventLocation = canonicalEventForCashToStripe?.location || "";
         const eventPrice = canonicalEventForCashToStripe?.price ?? null;
         const canonicalEventTitle = canonicalEventForCashToStripe?.title || signup.event_title;
+        const plannedClassLabelCtS = plannedClassLevelLabel(signup.planned_class_level);
 
         const webhookQrPayload3 = eventSignupToken(String(signup.id));
         const { contentId: qrContentId3, attachments: qrAttachments3 } = await makeQrCodeInlineAttachment(webhookQrPayload3);
@@ -924,6 +949,12 @@ export async function POST(request: NextRequest) {
                     <div class="detail-row">
                       <div class="detail-label">Location</div>
                       <div class="detail-value">${eventLocation}</div>
+                    </div>
+                    ` : ""}
+                    ${plannedClassLabelCtS ? `
+                    <div class="detail-row">
+                      <div class="detail-label">Planned Class</div>
+                      <div class="detail-value"><strong>${plannedClassLabelCtS}</strong></div>
                     </div>
                     ` : ""}
                     ${eventPrice != null ? `

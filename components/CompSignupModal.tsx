@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { DEFAULT_TIME_ZONE, formatEventDate, formatEventTime, getTimeZoneAbbreviation } from "@/lib/utils/dateHelpers";
 import SignupModalShell from "@/components/SignupModalShell";
+import ChoiceCards from "@/components/ChoiceCards";
 
 type CompEvent = {
   id: string | number;
@@ -192,10 +193,10 @@ export default function CompSignupModal({
         if (!emailRe.test(jnjFollowEmail)) return "JnJ: please enter a valid email.";
       }
     }
-    if (!acceptLiability) return "You must accept the liability release.";
-    if (!acceptPayment) return "You must acknowledge the payment confirmation requirement.";
+    if (!acceptLiability) return "The above is a required field.";
+    if (!acceptPayment) return "The above is a required field.";
     if (hasRefundStatement && !acceptRefund) {
-      return "You must acknowledge the refund policy.";
+      return "The above is a required field.";
     }
     return null;
   };
@@ -509,22 +510,17 @@ export default function CompSignupModal({
 
             {/* Payment method */}
             <div>
-              <p className="font-medium mb-1">Payment method</p>
-              {[
-                { value: "Stripe" as PaymentMethod, label: "Stripe (Credit/Debit Card)" },
-                { value: "Cash" as PaymentMethod, label: "Cash" },
-              ].map(({ value, label }) => (
-                <label key={value} className="block text-sm">
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    checked={paymentMethod === value}
-                    onChange={() => setPaymentMethod(value)}
-                    className="mr-2"
-                  />
-                  {label}
-                </label>
-              ))}
+              <p className="font-medium mb-2">Payment method</p>
+              <ChoiceCards
+                name="paymentMethod"
+                aria-label="Payment method"
+                value={paymentMethod}
+                onChange={(next) => setPaymentMethod(next as PaymentMethod)}
+                options={[
+                  { value: "Stripe", label: "Stripe (Credit/Debit Card)" },
+                  { value: "Cash", label: "Cash" },
+                ]}
+              />
             </div>
 
             <div className="p-3 rounded-lg bg-neutral-800 border border-neutral-700">

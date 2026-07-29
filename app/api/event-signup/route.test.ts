@@ -21,6 +21,7 @@ const canonicalEvent = {
   ccs_team_price: null,
   ccs_team_price_changes: [],
   refund_statement: null as string | null,
+  all_three_classes: false as boolean,
 };
 
 let insertedSignupRows: Record<string, unknown>[] = [];
@@ -211,5 +212,140 @@ describe("POST /api/event-signup canonical event hardening", () => {
     expect(insertedSignupRows).toHaveLength(1);
 
     canonicalEvent.refund_statement = null;
+  });
+
+  it("allows signup without planned class when all_three_classes is off", async () => {
+    canonicalEvent.all_three_classes = false;
+
+    const payload = {
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      beenBefore: "I've been before!",
+      paymentMethod: "Cash",
+      acceptLiability: true,
+      acceptPayment: true,
+      event: { id: canonicalEvent.id },
+    };
+
+    const req = new NextRequest("http://localhost:3000/api/event-signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(insertedSignupRows).toHaveLength(1);
+    expect(insertedSignupRows[0]?.planned_class_level).toBeUndefined();
+  });
+
+  it("rejects signup when all_three_classes is on and plannedClassLevel is missing", async () => {
+    canonicalEvent.all_three_classes = true;
+    canonicalEvent.type = "Class";
+
+    const payload = {
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      beenBefore: "I've been before!",
+      paymentMethod: "Cash",
+      acceptLiability: true,
+      acceptPayment: true,
+      event: { id: canonicalEvent.id },
+    };
+
+    const req = new NextRequest("http://localhost:3000/api/event-signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error).toMatch(/class you plan on taking/i);
+    expect(insertedSignupRows).toHaveLength(0);
+
+    canonicalEvent.all_three_classes = false;
+    canonicalEvent.type = "Workshop";
+  });
+
+  it("rejects signup when all_three_classes is on and plannedClassLevel is invalid", async () => {
+    canonicalEvent.all_three_classes = true;
+    canonicalEvent.type = "Class";
+
+    const payload = {
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      beenBefore: "I've been before!",
+      paymentMethod: "Cash",
+      acceptLiability: true,
+      acceptPayment: true,
+      plannedClassLevel: "advanced",
+      event: { id: canonicalEvent.id },
+    };
+
+    const req = new NextRequest("http://localhost:3000/api/event-signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error).toMatch(/class you plan on taking/i);
+    expect(insertedSignupRows).toHaveLength(0);
+
+    canonicalEvent.all_three_classes = false;
+    canonicalEvent.type = "Workshop";
+  });
+
+  it("stores planned class and includes label in confirmation email", async () => {
+    canonicalEvent.all_three_classes = true;
+    canonicalEvent.type = "Class";
+    canonicalEvent.title = "Nashville Country Swing Nights!";
+
+    const payload = {
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      beenBefore: "I've been before!",
+      paymentMethod: "Cash",
+      acceptLiability: true,
+      acceptPayment: true,
+      plannedClassLevel: "lower_level",
+      event: { id: canonicalEvent.id },
+    };
+
+    const req = new NextRequest("http://localhost:3000/api/event-signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(insertedSignupRows).toHaveLength(1);
+    expect(insertedSignupRows[0]?.planned_class_level).toBe("lower_level");
+
+    expect(sendHtmlEmailMock).toHaveBeenCalledTimes(1);
+    const [, , html] = sendHtmlEmailMock.mock.calls[0];
+    expect(String(html)).toContain("Planned Class");
+    expect(String(html)).toContain("Lower Level");
+
+    canonicalEvent.all_three_classes = false;
+    canonicalEvent.type = "Workshop";
+    canonicalEvent.title = "Canonical Workshop Title";
   });
 });

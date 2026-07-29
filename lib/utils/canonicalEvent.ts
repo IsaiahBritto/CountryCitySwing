@@ -17,6 +17,7 @@ export type CanonicalEvent = {
   ccs_team_price: number | null;
   ccs_team_price_changes: PriceChange[];
   refund_statement: string | null;
+  all_three_classes: boolean;
 };
 
 export class CanonicalEventError extends Error {
@@ -43,7 +44,7 @@ export async function resolveCanonicalEventById(eventId: unknown): Promise<Canon
   const { data, error } = await supabaseServer
     .from("events")
     .select(
-      "id,title,type,starts_at,location,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,refund_statement"
+      "id,title,type,starts_at,location,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,refund_statement,all_three_classes"
     )
     .eq("id", id)
     .single();
@@ -73,5 +74,6 @@ export async function resolveCanonicalEventById(eventId: unknown): Promise<Canon
       data.refund_statement && String(data.refund_statement).trim()
         ? String(data.refund_statement).trim()
         : null,
+    all_three_classes: data.all_three_classes === true,
   };
 }

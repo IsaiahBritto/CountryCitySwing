@@ -27,8 +27,8 @@ describe("createPrivateLessonInstructorBookingEmailHtml", () => {
 
 describe("formatFromAddress", () => {
   it("uses Resend-safe unquoted display names", () => {
-    expect(formatFromAddress("Private Lessons", "confirmation@countrycityswing.dance")).toBe(
-      `Private Lessons <confirmation@countrycityswing.dance>`
-    );
+    expect(
+      formatFromAddress("Isaiah Britto Lessons", "confirmation@countrycityswing.dance")
+    ).toBe(`Isaiah Britto Lessons <confirmation@countrycityswing.dance>`);
   });
 });

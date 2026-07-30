@@ -102,33 +102,39 @@ async function loadMissingSignupCandidates(): Promise<{
   signupCount: number;
   compCount: number;
 }> {
-  const signupsResult = await fetchAllPages<SignupCandidateRow>((from, to) =>
-    supabaseServer
+  const signupsResult = await fetchAllPages<SignupCandidateRow>(async (from, to) => {
+    const { data, error } = await supabaseServer
       .from("signups")
       .select("id,event_id,email,created_at")
       .eq("paid", true)
       .ilike("payment_method", "stripe")
       .is("stripe_session_id", null)
       .order("id", { ascending: true })
-      .range(from, to)
-      .then((r) => ({ data: r.data as SignupCandidateRow[] | null, error: r.error }))
-  );
+      .range(from, to);
+    return {
+      data: (data as SignupCandidateRow[] | null) ?? null,
+      error: error ? { message: error.message } : null,
+    };
+  });
 
   if (signupsResult.error) {
     return { data: [], error: signupsResult.error, signupCount: 0, compCount: 0 };
   }
 
-  const compsResult = await fetchAllPages<CompCandidateRow>((from, to) =>
-    supabaseServer
+  const compsResult = await fetchAllPages<CompCandidateRow>(async (from, to) => {
+    const { data, error } = await supabaseServer
       .from("comp_signups")
       .select("id,event_id,created_at,strictly_lead_email,jnj_lead_email")
       .eq("paid", true)
       .ilike("payment_method", "stripe")
       .is("stripe_session_id", null)
       .order("id", { ascending: true })
-      .range(from, to)
-      .then((r) => ({ data: r.data as CompCandidateRow[] | null, error: r.error }))
-  );
+      .range(from, to);
+    return {
+      data: (data as CompCandidateRow[] | null) ?? null,
+      error: error ? { message: error.message } : null,
+    };
+  });
 
   if (compsResult.error) {
     return { data: [], error: compsResult.error, signupCount: 0, compCount: 0 };
@@ -167,28 +173,34 @@ async function loadClaimedStripeIds(): Promise<{
   const claimedSessions = new Set<string>();
   const claimedPis = new Set<string>();
 
-  const signupsResult = await fetchAllPages<ClaimedIdRow>((from, to) =>
-    supabaseServer
+  const signupsResult = await fetchAllPages<ClaimedIdRow>(async (from, to) => {
+    const { data, error } = await supabaseServer
       .from("signups")
       .select("stripe_session_id,stripe_payment_intent_id")
       .not("stripe_session_id", "is", null)
       .order("id", { ascending: true })
-      .range(from, to)
-      .then((r) => ({ data: r.data as ClaimedIdRow[] | null, error: r.error }))
-  );
+      .range(from, to);
+    return {
+      data: (data as ClaimedIdRow[] | null) ?? null,
+      error: error ? { message: error.message } : null,
+    };
+  });
   if (signupsResult.error) {
     return { sessions: claimedSessions, paymentIntents: claimedPis, error: signupsResult.error };
   }
 
-  const compsResult = await fetchAllPages<ClaimedIdRow>((from, to) =>
-    supabaseServer
+  const compsResult = await fetchAllPages<ClaimedIdRow>(async (from, to) => {
+    const { data, error } = await supabaseServer
       .from("comp_signups")
       .select("stripe_session_id,stripe_payment_intent_id")
       .not("stripe_session_id", "is", null)
       .order("id", { ascending: true })
-      .range(from, to)
-      .then((r) => ({ data: r.data as ClaimedIdRow[] | null, error: r.error }))
-  );
+      .range(from, to);
+    return {
+      data: (data as ClaimedIdRow[] | null) ?? null,
+      error: error ? { message: error.message } : null,
+    };
+  });
   if (compsResult.error) {
     return { sessions: claimedSessions, paymentIntents: claimedPis, error: compsResult.error };
   }

@@ -66,6 +66,10 @@ interface Signup {
   amount_owed?: number | null;
   amount_due?: number | null;
   amount_paid?: number | null;
+  /** Sum of principal from partial signup_refunds rows (API-enriched). */
+  principal_refunded_total?: number | null;
+  /** Collected ticket amount minus principal refunds (API-enriched). */
+  net_amount_paid?: number | null;
   is_ccs_team?: boolean | null;
   refunded_or_cancelled?: string | null;
   stripe_payment_intent_id?: string | null;
@@ -593,10 +597,15 @@ export default function RegistrationPage() {
   };
 
   const paidDisplayAmount = (signup: Signup): number => {
-    if (signup.amount_paid != null && Number.isFinite(Number(signup.amount_paid))) {
-      return Number(signup.amount_paid);
+    if (signup.net_amount_paid != null && Number.isFinite(Number(signup.net_amount_paid))) {
+      return Number(signup.net_amount_paid);
     }
-    return Number(signup.amount_owed ?? 0);
+    const collected =
+      signup.amount_paid != null && Number.isFinite(Number(signup.amount_paid))
+        ? Number(signup.amount_paid)
+        : Number(signup.amount_owed ?? 0);
+    const refunded = Number(signup.principal_refunded_total ?? 0);
+    return Math.max(0, collected - (Number.isFinite(refunded) ? refunded : 0));
   };
 
   const openDueEditModal = (signup: Signup) => {
@@ -1660,10 +1669,13 @@ export default function RegistrationPage() {
               // Refresh current event list
               void (async () => {
                 try {
-                  const res = await fetch(
-                    `/api/signups?eventId=${encodeURIComponent(selectedEvent.id)}&filter=${filterRef.current}`,
-                    { headers: { Authorization: `Bearer ${sessionToken}` } }
-                  );
+                  const params = new URLSearchParams({
+                    event_id: selectedEvent.id,
+                    filter: filterRef.current,
+                  });
+                  const res = await fetch(`/api/signups?${params.toString()}`, {
+                    headers: { Authorization: `Bearer ${sessionToken}` },
+                  });
                   if (!res.ok) return;
                   const data = await res.json();
                   if (data.isComp) {

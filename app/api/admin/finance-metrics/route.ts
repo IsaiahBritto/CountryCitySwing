@@ -207,24 +207,36 @@ async function computeAndPersistMetrics(eventId: string) {
   }
 
   // Subtract partial refunds only (cancelled rows already omitted from gross).
+  // Ticket totals use principal; Stripe fee/tax bucket uses fee+tax refunded.
+  // Do not subtract amount_refunded (principal+fee+tax) from ticket totals.
   const { data: partialRefunds } = await supabaseServer
     .from("signup_refunds")
-    .select("amount_refunded,payment_method")
+    .select("principal_refunded,fee_refunded,tax_refunded,payment_method")
     .eq("event_id", eventId)
     .eq("refunded_or_cancelled_result", "partial");
 
   let partialCash = 0;
   let partialStripe = 0;
+  let partialStripeFeesTaxes = 0;
   for (const ref of partialRefunds ?? []) {
-    const amt = Number(ref.amount_refunded) || 0;
+    const principal = Number(ref.principal_refunded) || 0;
+    const feeTax =
+      (Number(ref.fee_refunded) || 0) + (Number(ref.tax_refunded) || 0);
     const pm = (ref.payment_method || "").toLowerCase().trim();
-    if (pm === "stripe") partialStripe += amt;
-    else partialCash += amt;
+    if (pm === "stripe") {
+      partialStripe += principal;
+      partialStripeFeesTaxes += feeTax;
+    } else {
+      partialCash += principal;
+    }
   }
   metrics = {
     ...metrics,
     cash_total: round2(Math.max(0, metrics.cash_total - partialCash)),
     stripe_total: round2(Math.max(0, metrics.stripe_total - partialStripe)),
+    stripe_taxes_fees_total: round2(
+      Math.max(0, metrics.stripe_taxes_fees_total - partialStripeFeesTaxes)
+    ),
   };
 
   const payload = {

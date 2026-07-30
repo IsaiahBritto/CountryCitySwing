@@ -57,6 +57,56 @@ async function getEventMetaForAccess(
   return { event: loaded.event };
 }
 
+async function principalRefundedBySignupIds(
+  signupIds: string[],
+  isComp: boolean
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (signupIds.length === 0) return map;
+  const col = isComp ? "comp_signup_id" : "signup_id";
+  const { data, error } = await supabaseServer
+    .from("signup_refunds")
+    .select(`${col},principal_refunded`)
+    .in(col, signupIds)
+    .eq("refunded_or_cancelled_result", "partial");
+  if (error) {
+    console.error("signups: load principal refunds", error);
+    return map;
+  }
+  for (const row of data ?? []) {
+    const id = String((row as Record<string, unknown>)[col] ?? "");
+    if (!id) continue;
+    const amt = Number((row as { principal_refunded?: number }).principal_refunded) || 0;
+    map.set(id, (map.get(id) ?? 0) + amt);
+  }
+  return map;
+}
+
+function withNetPaidAmount<
+  T extends {
+    id: string | number;
+    amount_paid?: number | null;
+    amount_owed?: number | null;
+  },
+>(
+  rows: T[],
+  refundedPrincipal: Map<string, number>
+): (T & { principal_refunded_total: number; net_amount_paid: number })[] {
+  return rows.map((row) => {
+    const id = String(row.id);
+    const principalRefunded = refundedPrincipal.get(id) ?? 0;
+    const collected =
+      row.amount_paid != null && Number.isFinite(Number(row.amount_paid))
+        ? Number(row.amount_paid)
+        : Number(row.amount_owed ?? 0);
+    return {
+      ...row,
+      principal_refunded_total: principalRefunded,
+      net_amount_paid: roundCurrency(Math.max(0, collected - principalRefunded)),
+    };
+  });
+}
+
 // GET - Fetch signups for an event (admin, instructor, or social registration viewer)
 export async function GET(req: NextRequest) {
   try {
@@ -107,23 +157,28 @@ export async function GET(req: NextRequest) {
       }
 
       const list = compList || [];
-      const compCheckedIn = list.filter((c: { checked_in?: boolean }) => c.checked_in === true).length;
+      const refundedPrincipal = await principalRefundedBySignupIds(
+        list.map((c: { id: string | number }) => String(c.id)),
+        true
+      );
+      const enrichedList = withNetPaidAmount(list, refundedPrincipal);
+      const compCheckedIn = enrichedList.filter((c) => c.checked_in === true).length;
       const check_in_arrival_buckets = computeCheckInArrivalBuckets(
-        list,
+        enrichedList,
         eventStartsAt
       );
-      let compSignups = list;
+      let compSignups = enrichedList;
       if (filter === "not_checked_in") {
-        compSignups = list.filter((c: { checked_in?: boolean }) => c.checked_in !== true);
+        compSignups = enrichedList.filter((c) => c.checked_in !== true);
       } else if (filter === "checked_in") {
-        compSignups = list.filter((c: { checked_in?: boolean }) => c.checked_in === true);
+        compSignups = enrichedList.filter((c) => c.checked_in === true);
       }
 
       return NextResponse.json({
         signups: [],
         compSignups,
         isComp: true,
-        total: list.length,
+        total: enrichedList.length,
         checked_in: compCheckedIn,
         check_in_arrival_buckets,
       });
@@ -149,19 +204,24 @@ export async function GET(req: NextRequest) {
     }
 
     const list = allSignups || [];
-    const total = list.length;
-    const checked_in = list.filter((s: { checked_in?: boolean }) => s.checked_in === true).length;
+    const refundedPrincipal = await principalRefundedBySignupIds(
+      list.map((s: { id: string | number }) => String(s.id)),
+      false
+    );
+    const enrichedList = withNetPaidAmount(list, refundedPrincipal);
+    const total = enrichedList.length;
+    const checked_in = enrichedList.filter((s) => s.checked_in === true).length;
     const check_in_arrival_buckets = computeCheckInArrivalBuckets(
-      list,
+      enrichedList,
       eventStartsAt
     );
 
     // Apply filter to list
-    let signups = list;
+    let signups = enrichedList;
     if (filter === "not_checked_in") {
-      signups = list.filter((s: { checked_in?: boolean }) => s.checked_in !== true);
+      signups = enrichedList.filter((s) => s.checked_in !== true);
     } else if (filter === "checked_in") {
-      signups = list.filter((s: { checked_in?: boolean }) => s.checked_in === true);
+      signups = enrichedList.filter((s) => s.checked_in === true);
     }
 
     return NextResponse.json({

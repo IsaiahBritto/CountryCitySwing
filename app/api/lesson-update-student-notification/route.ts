@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { formatFromAddress } from "@/lib/email/fromAddress";
 import {
   buildPrivateLessonStudentSubject,
   createPrivateLessonStudentEmailHtml,
 } from "@/lib/email/privateLessonStudentEmail";
-
-const STUDENT_FROM = "Private Lessons <confirmation@countrycityswing.dance>";
 
 export async function POST(req: Request) {
   try {
@@ -84,7 +83,7 @@ export async function POST(req: Request) {
       studentEmail,
       subject,
       html,
-      STUDENT_FROM,
+      formatFromAddress(`${instructorName} Lessons`, "confirmation@countrycityswing.dance"),
       undefined,
       undefined,
       instructorProfile.email

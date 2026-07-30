@@ -61,14 +61,44 @@ async function loadPriors(signupId: string, isComp: boolean): Promise<RefundBrea
   return (data ?? []) as RefundBreakdownPrior[];
 }
 
-function remainingRefundableCents(pi: {
-  amount?: number | null;
-  amount_received?: number | null;
-  amount_refunded?: number | null;
-}): number {
-  const amount = pi.amount_received ?? pi.amount ?? 0;
-  const refunded = pi.amount_refunded ?? 0;
-  return Math.max(0, amount - refunded);
+type PaymentIntentRefundState = {
+  remainingCents: number;
+  refundedCents: number;
+  chargeAmountCents: number;
+};
+
+/**
+ * Remaining refundable balance lives on the Charge, not PaymentIntent.
+ * PI.amount_refunded is not reliably populated on retrieve.
+ */
+async function loadPaymentIntentRefundState(
+  paymentIntentId: string
+): Promise<PaymentIntentRefundState> {
+  const stripe = getStripe();
+  const pi = await stripe.paymentIntents.retrieve(paymentIntentId, {
+    expand: ["latest_charge"],
+  });
+
+  const piAmount = pi.amount_received ?? pi.amount ?? 0;
+  let chargeAmount = piAmount;
+  let refundedCents = 0;
+
+  const latest = pi.latest_charge;
+  if (latest && typeof latest === "object" && !("deleted" in latest && latest.deleted)) {
+    const charge = latest as { amount?: number | null; amount_refunded?: number | null };
+    chargeAmount = charge.amount ?? piAmount;
+    refundedCents = charge.amount_refunded ?? 0;
+  } else if (typeof latest === "string" && latest) {
+    const charge = await stripe.charges.retrieve(latest);
+    chargeAmount = charge.amount ?? piAmount;
+    refundedCents = charge.amount_refunded ?? 0;
+  }
+
+  return {
+    chargeAmountCents: chargeAmount,
+    refundedCents,
+    remainingCents: Math.max(0, chargeAmount - refundedCents),
+  };
 }
 
 async function insertRefundRow(row: Record<string, unknown>) {
@@ -194,16 +224,8 @@ async function syncFromStripePaymentIntent(opts: {
   currentStatus: string;
   adminEmail: string | null;
 }): Promise<{ status: string; remainingCents: number; synced: boolean }> {
-  const stripe = getStripe();
-  const pi = await stripe.paymentIntents.retrieve(opts.paymentIntentId);
-  const piAmounts = pi as {
-    amount?: number | null;
-    amount_received?: number | null;
-    amount_refunded?: number | null;
-  };
-  const remaining = remainingRefundableCents(piAmounts);
-  const amount = piAmounts.amount_received ?? piAmounts.amount ?? 0;
-  const refunded = piAmounts.amount_refunded ?? 0;
+  const { remainingCents: remaining, refundedCents: refunded, chargeAmountCents: amount } =
+    await loadPaymentIntentRefundState(opts.paymentIntentId);
   let status = opts.currentStatus || "active";
   let synced = false;
 
@@ -312,15 +334,8 @@ export async function GET(req: NextRequest) {
       remainingCents = sync.remainingCents;
       synced = sync.synced;
     } else if (piId) {
-      const stripe = getStripe();
-      const pi = await stripe.paymentIntents.retrieve(piId);
-      remainingCents = remainingRefundableCents(
-        pi as {
-          amount?: number | null;
-          amount_received?: number | null;
-          amount_refunded?: number | null;
-        }
-      );
+      const state = await loadPaymentIntentRefundState(piId);
+      remainingCents = state.remainingCents;
     }
 
     const priors = await loadPriors(String(signupId), isComp);
@@ -467,14 +482,7 @@ export async function POST(req: NextRequest) {
       }
 
       const stripe = getStripe();
-      const pi = await stripe.paymentIntents.retrieve(piId);
-      let remainingCents = remainingRefundableCents(
-        pi as {
-          amount?: number | null;
-          amount_received?: number | null;
-          amount_refunded?: number | null;
-        }
-      );
+      const { remainingCents } = await loadPaymentIntentRefundState(piId);
 
       if (remainingCents <= 0) {
         await updateSignupStatus(table, signupId, "cancelled");

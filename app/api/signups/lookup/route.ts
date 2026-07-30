@@ -28,12 +28,25 @@ export async function GET(req: NextRequest) {
       const { data, error } = await supabaseServer
         .from("signups")
         .select(
-          "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,amount_owed,amount_due,amount_paid,is_ccs_team"
+          "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,amount_owed,amount_due,amount_paid,is_ccs_team,refunded_or_cancelled"
         )
         .eq("id", parsed.id)
         .single();
       if (error || !data) {
         return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+      }
+
+      if (String(data.refunded_or_cancelled || "active") === "cancelled") {
+        return NextResponse.json(
+          {
+            cancelled: true,
+            message:
+              "This person cannot be checked in. Their registration was refunded and cancelled.",
+            signup: data,
+            isComp: false,
+          },
+          { status: 409 }
+        );
       }
 
       const { event, error: eventError } = await loadRegistrationEvent(String(data.event_id));
@@ -50,12 +63,25 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabaseServer
       .from("comp_signups")
       .select(
-        "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_follow_first_name,strictly_follow_last_name,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at"
+        "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_follow_first_name,strictly_follow_last_name,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,refunded_or_cancelled"
       )
       .eq("id", parsed.id)
       .single();
     if (error || !data) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
+
+    if (String(data.refunded_or_cancelled || "active") === "cancelled") {
+      return NextResponse.json(
+        {
+          cancelled: true,
+          message:
+            "This person cannot be checked in. Their registration was refunded and cancelled.",
+          signup: data,
+          isComp: true,
+        },
+        { status: 409 }
+      );
     }
 
     const { event, error: eventError } = await loadRegistrationEvent(String(data.event_id));

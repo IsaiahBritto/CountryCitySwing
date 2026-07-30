@@ -16,6 +16,7 @@ interface SignupRow {
   stripe_processing_fee: number | null;
   free_via_promotion_code: boolean | null;
   used_promotion_code: boolean | null;
+  refunded_or_cancelled?: string | null;
 }
 
 interface CompSignupRow {
@@ -26,6 +27,7 @@ interface CompSignupRow {
   amount_owed: number | null;
   stripe_tax_amount: number | null;
   stripe_processing_fee: number | null;
+  refunded_or_cancelled?: string | null;
 }
 
 type Metrics = {
@@ -182,18 +184,20 @@ async function computeAndPersistMetrics(eventId: string) {
     const { data, error } = await supabaseServer
       .from("comp_signups")
       .select(
-        "payment_method,paid,checked_in,is_ccs_team,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee"
+        "payment_method,paid,checked_in,is_ccs_team,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,refunded_or_cancelled"
       )
-      .eq("event_id", eventId);
+      .eq("event_id", eventId)
+      .neq("refunded_or_cancelled", "cancelled");
     if (error) throw new Error("Failed to load comp signups");
     metrics = computeStatsComp((data || []) as CompSignupRow[]);
   } else {
     const { data, error } = await supabaseServer
       .from("signups")
       .select(
-        "payment_method,paid,checked_in,is_ccs_team,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code"
+        "payment_method,paid,checked_in,is_ccs_team,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code,refunded_or_cancelled"
       )
-      .eq("event_id", eventId);
+      .eq("event_id", eventId)
+      .neq("refunded_or_cancelled", "cancelled");
     if (error) throw new Error("Failed to load signups");
     metrics = computeStats(
       (data || []) as SignupRow[],
@@ -201,6 +205,27 @@ async function computeAndPersistMetrics(eventId: string) {
       eventRow.ccs_team_price ?? null
     );
   }
+
+  // Subtract partial refunds only (cancelled rows already omitted from gross).
+  const { data: partialRefunds } = await supabaseServer
+    .from("signup_refunds")
+    .select("amount_refunded,payment_method")
+    .eq("event_id", eventId)
+    .eq("refunded_or_cancelled_result", "partial");
+
+  let partialCash = 0;
+  let partialStripe = 0;
+  for (const ref of partialRefunds ?? []) {
+    const amt = Number(ref.amount_refunded) || 0;
+    const pm = (ref.payment_method || "").toLowerCase().trim();
+    if (pm === "stripe") partialStripe += amt;
+    else partialCash += amt;
+  }
+  metrics = {
+    ...metrics,
+    cash_total: round2(Math.max(0, metrics.cash_total - partialCash)),
+    stripe_total: round2(Math.max(0, metrics.stripe_total - partialStripe)),
+  };
 
   const payload = {
     event_id: eventId,

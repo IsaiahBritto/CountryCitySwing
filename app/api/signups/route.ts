@@ -17,10 +17,10 @@ import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
 import { roundCurrency } from "@/lib/utils/paymentHelpers";
 
 const COMP_SIGNUPS_SELECT =
-  "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee";
+  "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled";
 
 const SIGNUPS_SELECT =
-  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code";
+  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code";
 
 const EVENT_PRICING_SELECT =
   "id,type,starts_at,ends_at,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes";
@@ -92,6 +92,7 @@ export async function GET(req: NextRequest) {
         .from("comp_signups")
         .select(COMP_SIGNUPS_SELECT)
         .eq("event_id", eventId)
+        .neq("refunded_or_cancelled", "cancelled")
         .order("created_at", { ascending: false });
 
       if (compError) {
@@ -133,6 +134,7 @@ export async function GET(req: NextRequest) {
       .from("signups")
       .select(SIGNUPS_SELECT)
       .eq("event_id", eventId)
+      .neq("refunded_or_cancelled", "cancelled")
       .order("first_name", { ascending: true });
 
     if (error) {
@@ -226,11 +228,17 @@ export async function PATCH(req: NextRequest) {
 
       const { data: existingComp, error: existingCompError } = await supabaseServer
         .from("comp_signups")
-        .select("event_id")
+        .select("event_id,refunded_or_cancelled")
         .eq("id", signupId)
         .single();
       if (existingCompError || !existingComp?.event_id) {
         return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+      }
+      if (String(existingComp.refunded_or_cancelled || "active") === "cancelled") {
+        return NextResponse.json(
+          { error: "Cannot update a cancelled registration." },
+          { status: 409 }
+        );
       }
 
       const { event: eventMeta, error: eventError } = await getEventMetaForAccess(
@@ -288,12 +296,18 @@ export async function PATCH(req: NextRequest) {
     const { data: existingSignup, error: existingSignupError } = await supabaseServer
       .from("signups")
       .select(
-        "id,event_id,payment_method,paid,checked_in,amount_owed,amount_due,amount_paid,is_ccs_team"
+        "id,event_id,payment_method,paid,checked_in,amount_owed,amount_due,amount_paid,is_ccs_team,refunded_or_cancelled"
       )
       .eq("id", signupId)
       .single();
     if (existingSignupError || !existingSignup?.event_id) {
       return NextResponse.json({ error: "Registration not found" }, { status: 404 });
+    }
+    if (String(existingSignup.refunded_or_cancelled || "active") === "cancelled") {
+      return NextResponse.json(
+        { error: "Cannot update a cancelled registration." },
+        { status: 409 }
+      );
     }
 
     const { event: eventMeta, error: eventError } = await getEventMetaForAccess(

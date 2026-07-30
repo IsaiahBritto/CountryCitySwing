@@ -114,6 +114,15 @@ export default function QRCheckInScanner({ open, onClose, sessionToken, onLookup
           })
             .then(async (res) => {
               const data = await res.json();
+              if (res.status === 409 && data.cancelled) {
+                setLookupError(
+                  data.message ||
+                    "This person cannot be checked in. Their registration was refunded and cancelled."
+                );
+                lastTokenRef.current = null;
+                setScanning(true);
+                return;
+              }
               if (!res.ok) {
                 setLookupError(res.status === 404 ? "Registration not found" : (data.error || "Lookup failed"));
                 lastTokenRef.current = null;
@@ -174,7 +183,14 @@ export default function QRCheckInScanner({ open, onClose, sessionToken, onLookup
             </div>
           )}
           {lookupError && (
-            <div className="absolute bottom-2 left-2 right-2 py-2 px-3 rounded bg-red-900/80 text-red-200 text-sm">
+            <div
+              className={`absolute bottom-2 left-2 right-2 py-3 px-3 rounded text-sm ${
+                lookupError.toLowerCase().includes("refunded") ||
+                lookupError.toLowerCase().includes("cancelled")
+                  ? "bg-amber-950/95 border border-amber-600/60 text-amber-100"
+                  : "bg-red-900/80 text-red-200"
+              }`}
+            >
               {lookupError}
             </div>
           )}

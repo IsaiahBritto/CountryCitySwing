@@ -20,6 +20,7 @@ import {
   EMPTY_CHECK_IN_ARRIVAL_BUCKETS,
 } from "@/lib/utils/checkInArrivalBuckets";
 import QRCheckInScanner from "@/components/QRCheckInScanner";
+import RegistrationRefundModal from "@/components/RegistrationRefundModal";
 import {
   resolveDueNowForSignup,
   resolvePaidAmountOptions,
@@ -66,6 +67,10 @@ interface Signup {
   amount_due?: number | null;
   amount_paid?: number | null;
   is_ccs_team?: boolean | null;
+  refunded_or_cancelled?: string | null;
+  stripe_payment_intent_id?: string | null;
+  free_via_promotion_code?: boolean | null;
+  used_promotion_code?: boolean | null;
 }
 
 interface CompSignup {
@@ -92,6 +97,8 @@ interface CompSignup {
   checked_in?: boolean;
   checked_in_at?: string | null;
   created_at: string;
+  refunded_or_cancelled?: string | null;
+  stripe_payment_intent_id?: string | null;
 }
 
 type FilterType = "all" | "not_checked_in" | "checked_in";
@@ -145,6 +152,11 @@ export default function RegistrationPage() {
   const [dueEditSignup, setDueEditSignup] = useState<Signup | null>(null);
   const [dueEditValue, setDueEditValue] = useState("");
   const [dueEditSaving, setDueEditSaving] = useState(false);
+  const [refundModal, setRefundModal] = useState<{
+    signupId: string;
+    isComp: boolean;
+    displayName: string;
+  } | null>(null);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -1046,17 +1058,112 @@ export default function RegistrationPage() {
                         {c.strictly_selected && (
                           <p className="text-white">
                             <span className="text-primary font-medium">Strictly:</span>{" "}
-                            {[c.strictly_lead_first_name, c.strictly_lead_last_name].filter(Boolean).join(" ")}
-                            {([c.strictly_lead_first_name, c.strictly_lead_last_name].some(Boolean) && [c.strictly_follow_first_name, c.strictly_follow_last_name].some(Boolean)) ? " / " : ""}
-                            {[c.strictly_follow_first_name, c.strictly_follow_last_name].filter(Boolean).join(" ")}
+                            {isAdmin ? (
+                              <button
+                                type="button"
+                                className="underline decoration-primary/60 underline-offset-2 hover:text-primary text-left"
+                                onClick={() =>
+                                  setRefundModal({
+                                    signupId: c.id,
+                                    isComp: true,
+                                    displayName:
+                                      [
+                                        [c.strictly_lead_first_name, c.strictly_lead_last_name]
+                                          .filter(Boolean)
+                                          .join(" "),
+                                        [c.strictly_follow_first_name, c.strictly_follow_last_name]
+                                          .filter(Boolean)
+                                          .join(" "),
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" / ") || "Comp registration",
+                                  })
+                                }
+                              >
+                                {[c.strictly_lead_first_name, c.strictly_lead_last_name]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                                {([c.strictly_lead_first_name, c.strictly_lead_last_name].some(
+                                  Boolean
+                                ) &&
+                                [c.strictly_follow_first_name, c.strictly_follow_last_name].some(
+                                  Boolean
+                                )
+                                  ? " / "
+                                  : "") +
+                                  [c.strictly_follow_first_name, c.strictly_follow_last_name]
+                                    .filter(Boolean)
+                                    .join(" ")}
+                              </button>
+                            ) : (
+                              <>
+                                {[c.strictly_lead_first_name, c.strictly_lead_last_name]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                                {([c.strictly_lead_first_name, c.strictly_lead_last_name].some(
+                                  Boolean
+                                ) &&
+                                [c.strictly_follow_first_name, c.strictly_follow_last_name].some(
+                                  Boolean
+                                )
+                                  ? " / "
+                                  : "")}
+                                {[c.strictly_follow_first_name, c.strictly_follow_last_name]
+                                  .filter(Boolean)
+                                  .join(" ")}
+                              </>
+                            )}
                           </p>
                         )}
                         {c.jnj_selected && (
                           <p className="text-white">
                             <span className="text-primary font-medium">JnJ:</span>{" "}
-                            {[c.jnj_lead_first_name, c.jnj_lead_last_name].filter(Boolean).join(" ") ||
-                              [c.jnj_follow_first_name, c.jnj_follow_last_name].filter(Boolean).join(" ")}
+                            {isAdmin ? (
+                              <button
+                                type="button"
+                                className="underline decoration-primary/60 underline-offset-2 hover:text-primary text-left"
+                                onClick={() =>
+                                  setRefundModal({
+                                    signupId: c.id,
+                                    isComp: true,
+                                    displayName:
+                                      [
+                                        c.jnj_lead_first_name,
+                                        c.jnj_lead_last_name,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" ") ||
+                                      [
+                                        c.jnj_follow_first_name,
+                                        c.jnj_follow_last_name,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" ") ||
+                                      "Comp registration",
+                                  })
+                                }
+                              >
+                                {[c.jnj_lead_first_name, c.jnj_lead_last_name]
+                                  .filter(Boolean)
+                                  .join(" ") ||
+                                  [c.jnj_follow_first_name, c.jnj_follow_last_name]
+                                    .filter(Boolean)
+                                    .join(" ")}
+                              </button>
+                            ) : (
+                              <>
+                                {[c.jnj_lead_first_name, c.jnj_lead_last_name]
+                                  .filter(Boolean)
+                                  .join(" ") ||
+                                  [c.jnj_follow_first_name, c.jnj_follow_last_name]
+                                    .filter(Boolean)
+                                    .join(" ")}
+                              </>
+                            )}
                           </p>
+                        )}
+                        {isAdmin && c.refunded_or_cancelled === "partial" && (
+                          <p className="text-amber-300 text-xs font-medium mt-1">Partial refund</p>
                         )}
                         <p className="text-gray-400">
                           Payment: {c.payment_method} · ${Number(c.amount_owed).toFixed(2)} · {c.paid ? "Paid" : "Unpaid"}
@@ -1110,8 +1217,29 @@ export default function RegistrationPage() {
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-white text-sm md:text-base">
-                        {signup.first_name} {signup.last_name}
+                        {isAdmin ? (
+                          <button
+                            type="button"
+                            className="underline decoration-primary/60 underline-offset-2 hover:text-primary text-left"
+                            onClick={() =>
+                              setRefundModal({
+                                signupId: signup.id,
+                                isComp: false,
+                                displayName: `${signup.first_name} ${signup.last_name}`.trim(),
+                              })
+                            }
+                          >
+                            {signup.first_name} {signup.last_name}
+                          </button>
+                        ) : (
+                          <>
+                            {signup.first_name} {signup.last_name}
+                          </>
+                        )}
                       </h3>
+                      {isAdmin && signup.refunded_or_cancelled === "partial" && (
+                        <p className="text-amber-300 text-xs font-medium">Partial refund</p>
+                      )}
                       <p className="text-xs md:text-sm text-gray-400 truncate">{signup.email}</p>
                       <p className="text-xs md:text-sm text-gray-400">
                         Payment: {signup.payment_method}
@@ -1519,6 +1647,44 @@ export default function RegistrationPage() {
           setScannedResult({ signup, isComp: result.isComp });
         }}
       />
+      {refundModal && sessionToken && (
+        <RegistrationRefundModal
+          open={!!refundModal}
+          onClose={() => setRefundModal(null)}
+          sessionToken={sessionToken}
+          signupId={refundModal.signupId}
+          isComp={refundModal.isComp}
+          displayName={refundModal.displayName}
+          onDone={() => {
+            if (selectedEvent) {
+              // Refresh current event list
+              void (async () => {
+                try {
+                  const res = await fetch(
+                    `/api/signups?eventId=${encodeURIComponent(selectedEvent.id)}&filter=${filterRef.current}`,
+                    { headers: { Authorization: `Bearer ${sessionToken}` } }
+                  );
+                  if (!res.ok) return;
+                  const data = await res.json();
+                  if (data.isComp) {
+                    setCompSignups(data.compSignups || []);
+                    setIsCompEvent(true);
+                    setTotalCount(data.total ?? 0);
+                    setCheckedInCount(data.checked_in ?? 0);
+                  } else {
+                    setSignups(data.signups || []);
+                    setIsCompEvent(false);
+                    setTotalCount(data.total ?? 0);
+                    setCheckedInCount(data.checked_in ?? 0);
+                  }
+                } catch {
+                  /* ignore */
+                }
+              })();
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

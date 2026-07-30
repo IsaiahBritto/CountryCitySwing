@@ -116,6 +116,7 @@ describe("POST /api/stripe/webhook canonical event hardening", () => {
           amount_subtotal: 3000,
           total_details: { amount_tax: 0, amount_discount: 0 },
           client_reference_id: "signup-client-ref-123",
+          payment_intent: "pi_test_abc123",
           metadata: {
             payment_type: "stripe_checkout",
             signup_id: "signup-client-ref-123",
@@ -154,6 +155,8 @@ describe("POST /api/stripe/webhook canonical event hardening", () => {
     expect(insertedSignupRows[0]?.event_id).toBe(canonicalEvent.id);
     expect(insertedSignupRows[0]?.event_title).toBe(canonicalEvent.title);
     expect(insertedSignupRows[0]?.event_title).not.toBe("TAMPERED TITLE FROM STRIPE METADATA");
+    expect(insertedSignupRows[0]?.stripe_session_id).toBe("cs_test_123");
+    expect(insertedSignupRows[0]?.stripe_payment_intent_id).toBe("pi_test_abc123");
 
     expect(sendHtmlEmailMock).toHaveBeenCalledTimes(1);
     const [to, subject, html] = sendHtmlEmailMock.mock.calls[0];

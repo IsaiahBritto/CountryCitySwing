@@ -102,6 +102,7 @@ export async function POST(req: NextRequest) {
       .select("id")
       .eq("event_id", eventId)
       .ilike("email", emailTrimmed)
+      .neq("refunded_or_cancelled", "cancelled")
       .maybeSingle();
     if (existing) {
       const eventTitle = canonicalEvent.title ?? "This event";

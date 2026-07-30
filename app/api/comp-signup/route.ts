@@ -101,7 +101,8 @@ export async function POST(req: NextRequest) {
     const { data: existingSignups } = await supabaseServer
       .from("comp_signups")
       .select("strictly_selected, strictly_lead_email, strictly_follow_email, jnj_selected, jnj_lead_email, jnj_follow_email")
-      .eq("event_id", eventId);
+      .eq("event_id", eventId)
+      .neq("refunded_or_cancelled", "cancelled");
 
     const existingStrictlyEmails = new Set<string>();
     const existingJnJEmails = new Set<string>();

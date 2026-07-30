@@ -14,6 +14,14 @@ function getWebhookBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
 }
 
+/** Normalize Checkout Session payment_intent to a string id (or null). */
+function stripePaymentIntentId(session: Stripe.Checkout.Session): string | null {
+  const pi = session.payment_intent;
+  if (typeof pi === "string" && pi) return pi;
+  if (pi && typeof pi === "object" && "id" in pi && typeof pi.id === "string") return pi.id;
+  return null;
+}
+
 // Disable body parsing for webhook to get raw body
 export const runtime = "nodejs";
 
@@ -248,6 +256,7 @@ export async function POST(request: NextRequest) {
         const subtotal = Number(metadata.subtotal || 0);
         const actualTotal =
           session.amount_total != null ? session.amount_total / 100 : subtotal + processingFee + taxAmount;
+        const paymentIntentId = stripePaymentIntentId(session);
 
         const { data: existingComp } = await supabaseServer
           .from("comp_signups")
@@ -268,6 +277,8 @@ export async function POST(request: NextRequest) {
               stripe_tax_amount: taxAmount,
               stripe_processing_fee: processingFee,
               stripe_total_paid: actualTotal,
+              stripe_session_id: session.id,
+              stripe_payment_intent_id: paymentIntentId,
               updated_at: new Date().toISOString(),
             })
             .eq("id", compSignupId);
@@ -323,6 +334,8 @@ export async function POST(request: NextRequest) {
               stripe_tax_amount: taxAmount,
               stripe_processing_fee: processingFee,
               stripe_total_paid: actualTotal,
+              stripe_session_id: session.id,
+              stripe_payment_intent_id: paymentIntentId,
             },
           ]);
         if (compInsertError) {
@@ -375,6 +388,7 @@ export async function POST(request: NextRequest) {
         totalPreDiscount > 0
           ? Math.round((subtotalAfterDiscount * (subtotal / totalPreDiscount)) * 100) / 100
           : subtotal;
+      const paymentIntentId = stripePaymentIntentId(session);
       
       // If this is a new Stripe checkout (not cash-to-stripe), create the signup record
       if (isStripeCheckout) {
@@ -448,6 +462,8 @@ export async function POST(request: NextRequest) {
               stripe_tax_amount: taxAmount,
               stripe_processing_fee: processingFee,
               stripe_total_paid: actualTotal,
+              stripe_session_id: session.id,
+              stripe_payment_intent_id: paymentIntentId,
               ...(usedPromo ? { used_promotion_code: true } : {}),
               updated_at: new Date().toISOString(),
             })
@@ -492,6 +508,8 @@ export async function POST(request: NextRequest) {
                 stripe_tax_amount: taxAmount,
                 stripe_processing_fee: processingFee,
                 stripe_total_paid: actualTotal,
+                stripe_session_id: session.id,
+                stripe_payment_intent_id: paymentIntentId,
                 ...(plannedClassFromMeta && plannedClassLabelInsert
                   ? { planned_class_level: plannedClassFromMeta }
                   : {}),
@@ -873,6 +891,8 @@ export async function POST(request: NextRequest) {
             stripe_tax_amount: taxAmount,
             stripe_processing_fee: processingFee,
             stripe_total_paid: actualTotal,
+            stripe_session_id: session.id,
+            stripe_payment_intent_id: paymentIntentId,
             ...(usedPromoCashToStripe ? { used_promotion_code: true } : {}),
             updated_at: new Date().toISOString(),
           })

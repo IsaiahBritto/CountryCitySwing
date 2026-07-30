@@ -1,13 +1,29 @@
 import { NextResponse } from "next/server";
-import { formatFromAddress, sendHtmlEmail } from "@/lib/mailer";
+import { sendHtmlEmail } from "@/lib/mailer";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   buildPrivateLessonStudentSubject,
   createPrivateLessonStudentEmailHtml,
 } from "@/lib/email/privateLessonStudentEmail";
 
+const STUDENT_FROM = "Private Lessons <confirmation@countrycityswing.dance>";
+
+async function markConfirmationEmailFailed(bookingId: string | undefined) {
+  if (!bookingId) return;
+  const { error } = await supabaseServer
+    .from("lesson_bookings")
+    .update({ student_confirmation_email_sent: false })
+    .eq("id", bookingId);
+  if (error) {
+    console.error("Failed to mark student confirmation email as unsent:", error);
+  }
+}
+
 export async function POST(req: Request) {
+  let bookingId: string | undefined;
   try {
+    const body = await req.json();
+    bookingId = body.bookingId;
     const {
       instructorId,
       studentEmail,
@@ -18,7 +34,7 @@ export async function POST(req: Request) {
       lessonFocus,
       lessonPrice,
       lessonLocation,
-    } = await req.json();
+    } = body;
 
     if (!instructorId || !studentEmail || !firstName || !lessonDate || !lessonTime) {
       return NextResponse.json(
@@ -35,6 +51,7 @@ export async function POST(req: Request) {
 
     if (instructorError || !instructorProfile?.email) {
       console.error("Error fetching instructor profile:", instructorError);
+      await markConfirmationEmailFailed(bookingId);
       return NextResponse.json(
         { error: "Instructor not found" },
         { status: 404 }
@@ -76,7 +93,7 @@ export async function POST(req: Request) {
       studentEmail,
       subject,
       html,
-      formatFromAddress(instructorName, "confirmation@countrycityswing.dance"),
+      STUDENT_FROM,
       undefined,
       undefined,
       instructorProfile.email
@@ -85,6 +102,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("Lesson booking email error:", err);
+    await markConfirmationEmailFailed(bookingId);
     return NextResponse.json(
       { error: "Failed to send confirmation email" },
       { status: 500 }

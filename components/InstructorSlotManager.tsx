@@ -10,6 +10,7 @@ import {
 } from "@/lib/utils/dateHelpers";
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 import LessonDurationSelect from "@/components/LessonDurationSelect";
+import StudentConfirmationEmailFailedBadge from "@/components/StudentConfirmationEmailFailedBadge";
 
 interface LessonSlot {
   id: string;
@@ -21,6 +22,7 @@ interface LessonSlot {
   is_booked: boolean;
   student_name?: string;
   student_email?: string;
+  student_confirmation_email_sent?: boolean;
 }
 
 export default function InstructorSlotManager({
@@ -48,7 +50,7 @@ export default function InstructorSlotManager({
       .from("lesson_slots")
       .select(
         `id, start_time, end_time, duration_minutes, is_booked, time_zone, location,
-         lesson_bookings (student_name, student_email)`
+         lesson_bookings (student_name, student_email, student_confirmation_email_sent)`
       )
       .eq("instructor_id", instructorId)
       .order("start_time", { ascending: true });
@@ -58,6 +60,8 @@ export default function InstructorSlotManager({
         ...s,
         student_name: s.lesson_bookings?.[0]?.student_name,
         student_email: s.lesson_bookings?.[0]?.student_email,
+        student_confirmation_email_sent:
+          s.lesson_bookings?.[0]?.student_confirmation_email_sent !== false,
       }));
       setSlots(formatted);
     }
@@ -542,9 +546,14 @@ export default function InstructorSlotManager({
                   <p className="text-gray-500 text-sm mt-0.5">{slot.location}</p>
                 )}
                 {slot.is_booked && (
-                  <p className="text-sm text-red-400 mt-1">
-                    Booked by {slot.student_name || "Unknown"} (
-                    {slot.student_email || "no email"})
+                  <p className="text-sm text-red-400 mt-1 flex items-center gap-2">
+                    <span>
+                      Booked by {slot.student_name || "Unknown"} (
+                      {slot.student_email || "no email"})
+                    </span>
+                    {slot.student_confirmation_email_sent === false && (
+                      <StudentConfirmationEmailFailedBadge />
+                    )}
                   </p>
                 )}
               </div>

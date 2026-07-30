@@ -10,6 +10,7 @@ import LessonBookingModal from "@/components/LessonBookingModal";
 import InstructorSlotEditModal from "@/components/InstructorSlotEditModal";
 import CancelBookingModal from "@/components/CancelBookingModal";
 import LessonModalShell from "@/components/LessonModalShell";
+import StudentConfirmationEmailFailedBadge from "@/components/StudentConfirmationEmailFailedBadge";
 import {
   DEFAULT_TIME_ZONE,
   formatTimeInTimeZone,
@@ -33,6 +34,7 @@ interface LessonSlot {
   booking_user_id?: string | null;
   booking_id?: string | null;
   time_zone?: string | null;
+  student_confirmation_email_sent?: boolean;
 }
 
 export default function InstructorLessonCalendar({
@@ -99,10 +101,21 @@ export default function InstructorLessonCalendar({
 
       // Now fetch bookings for these slots separately
       const slotIds = slotsData.map((s: any) => s.id);
-      const { data: bookingsData } = await supabaseBrowser
+      let { data: bookingsData, error: bookingsError } = await supabaseBrowser
         .from("lesson_bookings")
-        .select("id, user_id, slot_id")
+        .select("id, user_id, slot_id, student_confirmation_email_sent")
         .in("slot_id", slotIds);
+
+      if (bookingsError?.message?.includes("student_confirmation_email_sent")) {
+        const fallback = await supabaseBrowser
+          .from("lesson_bookings")
+          .select("id, user_id, slot_id")
+          .in("slot_id", slotIds);
+        bookingsData = (fallback.data || []).map((b: any) => ({
+          ...b,
+          student_confirmation_email_sent: true,
+        }));
+      }
 
       // Create a map of slot_id to booking
       const bookingsMap = new Map();
@@ -128,6 +141,8 @@ export default function InstructorLessonCalendar({
           booking_user_id: booking?.user_id || null,
           booking_id: booking?.id || null,
           time_zone: d.time_zone || null,
+          student_confirmation_email_sent:
+            booking?.student_confirmation_email_sent !== false,
         };
       });
 
@@ -447,12 +462,16 @@ export default function InstructorLessonCalendar({
                     const isPast = isSlotPast(s);
                     const tz = s.time_zone || DEFAULT_TIME_ZONE;
                     const tzAbbrev = getTimeZoneAbbreviation(s.start, tz);
+                    const showEmailFailedBadge =
+                      isInstructorView &&
+                      s.is_booked &&
+                      s.student_confirmation_email_sent === false;
                     return (
                       <button
                         key={s.id}
                         onClick={() => handleSlotClick(s)}
                         disabled={isPast && !isInstructorView}
-                        className={`block w-full text-xs text-left mb-1 px-2 py-1 rounded transition-all ${
+                        className={`flex w-full items-center gap-1 text-xs text-left mb-1 px-2 py-1 rounded transition-all ${
                           isPast && !isInstructorView
                             ? "bg-neutral-800 text-gray-600 cursor-not-allowed opacity-50"
                             : s.is_booked
@@ -464,9 +483,14 @@ export default function InstructorLessonCalendar({
                             : "bg-yellow-400 text-black hover:shadow-lg hover:shadow-yellow-400/70"
                         }`}
                       >
-                        {formatTimeInTimeZone(s.start, tz)}{tzAbbrev ? ` ${tzAbbrev}` : ""}
-                        {isUserBooking && !isInstructorView && " (Yours)"}
-                        {isPast && !isInstructorView && !s.is_booked && " (Past)"}
+                        <span className="min-w-0 flex-1">
+                          {formatTimeInTimeZone(s.start, tz)}{tzAbbrev ? ` ${tzAbbrev}` : ""}
+                          {isUserBooking && !isInstructorView && " (Yours)"}
+                          {isPast && !isInstructorView && !s.is_booked && " (Past)"}
+                        </span>
+                        {showEmailFailedBadge && (
+                          <StudentConfirmationEmailFailedBadge className="h-5 w-5" />
+                        )}
                       </button>
                     );
                   })}
@@ -503,13 +527,17 @@ export default function InstructorLessonCalendar({
                 const isPast = isSlotPast(slot);
                 const tz = slot.time_zone || DEFAULT_TIME_ZONE;
                 const tzAbbrev = getTimeZoneAbbreviation(slot.start, tz);
+                const showEmailFailedBadge =
+                  isInstructorView &&
+                  slot.is_booked &&
+                  slot.student_confirmation_email_sent === false;
                 return (
                   <button
                     key={slot.id}
                     type="button"
                     onClick={() => handleSlotClick(slot)}
                     disabled={isPast && !isInstructorView}
-                    className={`block w-full rounded px-4 py-2 text-left transition-all ${
+                    className={`flex w-full items-center gap-2 rounded px-4 py-2 text-left transition-all ${
                       isPast && !isInstructorView
                         ? "cursor-not-allowed bg-neutral-800 text-gray-600 opacity-50"
                         : slot.is_booked
@@ -521,24 +549,27 @@ export default function InstructorLessonCalendar({
                           : "bg-yellow-400 text-black hover:shadow-lg hover:shadow-yellow-400/70"
                     }`}
                   >
-                    <span className="block">
-                      {formatTimeInTimeZone(slot.start, tz)} –{" "}
-                      {formatTimeInTimeZone(slot.end, tz)}
-                      {tzAbbrev ? ` ${tzAbbrev}` : ""} (
-                      {isPast && !isInstructorView && !slot.is_booked
-                        ? "Past"
-                        : slot.is_booked
-                          ? isUserBooking && !isInstructorView
-                            ? "Your Booking"
-                            : "Booked"
-                          : "Available"}
-                      )
-                    </span>
-                    {slot.location && (
-                      <span className="mt-0.5 block truncate text-xs opacity-80">
-                        {slot.location}
+                    <span className="min-w-0 flex-1">
+                      <span className="block">
+                        {formatTimeInTimeZone(slot.start, tz)} –{" "}
+                        {formatTimeInTimeZone(slot.end, tz)}
+                        {tzAbbrev ? ` ${tzAbbrev}` : ""} (
+                        {isPast && !isInstructorView && !slot.is_booked
+                          ? "Past"
+                          : slot.is_booked
+                            ? isUserBooking && !isInstructorView
+                              ? "Your Booking"
+                              : "Booked"
+                            : "Available"}
+                        )
                       </span>
-                    )}
+                      {slot.location && (
+                        <span className="mt-0.5 block truncate text-xs opacity-80">
+                          {slot.location}
+                        </span>
+                      )}
+                    </span>
+                    {showEmailFailedBadge && <StudentConfirmationEmailFailedBadge />}
                   </button>
                 );
               })}

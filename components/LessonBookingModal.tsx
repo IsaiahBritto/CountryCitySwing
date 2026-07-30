@@ -8,7 +8,7 @@ import {
   formatDateInTimeZone,
   formatTimeRangeWithTimeZone,
 } from "@/lib/utils/dateHelpers";
-import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
+import { emitCcsSuccessToast, emitCcsWarningToast } from "@/lib/ccsSuccessToastBus";
 import LessonModalShell from "@/components/LessonModalShell";
 
 interface LessonBookingModalProps {
@@ -148,7 +148,17 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
       user_id: user.id,
     };
 
-    let { error } = await supabaseBrowser.from("lesson_bookings").insert(bookingData);
+    let bookingId: string | null = null;
+
+    let { data: insertedBooking, error } = await supabaseBrowser
+      .from("lesson_bookings")
+      .insert(bookingData)
+      .select("id")
+      .single();
+
+    if (!error && insertedBooking?.id) {
+      bookingId = insertedBooking.id;
+    }
 
     // If new columns don't exist, try with just basic fields
     if (error && (error.message.includes("user_id") || error.message.includes("first_name") || error.message.includes("lesson_focus"))) {
@@ -160,8 +170,13 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
       };
       
       // Try to add optional fields if they exist
-      const retryResult = await supabaseBrowser.from("lesson_bookings").insert(bookingData);
+      const retryResult = await supabaseBrowser
+        .from("lesson_bookings")
+        .insert(bookingData)
+        .select("id")
+        .single();
       error = retryResult.error;
+      if (!error && retryResult.data?.id) bookingId = retryResult.data.id;
       
       if (error) {
         // Last resort: try with just required fields
@@ -171,8 +186,13 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
           student_name: studentName,
           student_email: email.trim(),
         };
-        const finalResult = await supabaseBrowser.from("lesson_bookings").insert(bookingData);
+        const finalResult = await supabaseBrowser
+          .from("lesson_bookings")
+          .insert(bookingData)
+          .select("id")
+          .single();
         error = finalResult.error;
+        if (!error && finalResult.data?.id) bookingId = finalResult.data.id;
       }
     }
 
@@ -184,6 +204,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
         .eq("id", slot.id);
 
       // Send confirmation emails
+      let studentEmailFailed = false;
       try {
         const tz = slot.time_zone || DEFAULT_TIME_ZONE;
         const { startTime, tzAbbrev } = formatTimeRangeWithTimeZone(slot.start, slot.end, tz);
@@ -195,6 +216,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            bookingId,
             instructorId: slot.instructor_id,
             studentEmail: email.trim(),
             firstName: firstName.trim(),
@@ -208,6 +230,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
           }),
         });
         if (!studentEmailRes.ok) {
+          studentEmailFailed = true;
           console.error(
             "Student lesson confirmation email failed:",
             studentEmailRes.status,
@@ -241,11 +264,18 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
           );
         }
       } catch (emailError) {
+        studentEmailFailed = true;
         console.error("Failed to send confirmation email:", emailError);
         // Don't fail the booking if email fails
       }
 
-      emitCcsSuccessToast("Private lesson booked successfully.");
+      if (studentEmailFailed) {
+        emitCcsWarningToast(
+          "Your lesson was booked, but the confirmation email could not be sent. Please contact your instructor or check spam."
+        );
+      } else {
+        emitCcsSuccessToast("Private lesson booked successfully.");
+      }
       setTimeout(() => onClose(), 400); // trigger calendar refresh + close modal
     } else {
       alert("❌ Booking failed: " + error.message);

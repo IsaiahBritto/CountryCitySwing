@@ -12,6 +12,7 @@ import {
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 import LessonDurationSelect from "@/components/LessonDurationSelect";
 import LessonModalShell from "@/components/LessonModalShell";
+import StudentConfirmationEmailFailedBadge from "@/components/StudentConfirmationEmailFailedBadge";
 
 interface BookingInfo {
   id: string;
@@ -22,6 +23,7 @@ interface BookingInfo {
   email?: string;
   phone_number?: string;
   lesson_focus?: string;
+  student_confirmation_email_sent?: boolean;
 }
 
 interface InstructorSlotEditModalProps {
@@ -61,11 +63,11 @@ export default function InstructorSlotEditModal({
     setLoading(true);
     let { data, error } = await supabaseBrowser
       .from("lesson_bookings")
-      .select("id, student_name, student_email, first_name, last_name, email, phone_number, lesson_focus")
+      .select("id, student_name, student_email, first_name, last_name, email, phone_number, lesson_focus, student_confirmation_email_sent")
       .eq("slot_id", slot.id)
       .single();
 
-    if (error && (error.message.includes("first_name") || error.message.includes("lesson_focus"))) {
+    if (error && (error.message.includes("first_name") || error.message.includes("lesson_focus") || error.message.includes("student_confirmation_email_sent"))) {
       const fallbackResult = await supabaseBrowser
         .from("lesson_bookings")
         .select("id, student_name, student_email")
@@ -82,6 +84,7 @@ export default function InstructorSlotEditModal({
           email: null,
           phone_number: null,
           lesson_focus: null,
+          student_confirmation_email_sent: true,
         };
       }
       error = fallbackResult.error;
@@ -319,11 +322,16 @@ export default function InstructorSlotEditModal({
                   : bookingInfo.student_name || "N/A"}
               </span>
             </div>
-            <div>
-              <span className="text-gray-400">Email:</span>{" "}
-              <span className="text-white">
-                {bookingInfo.email || bookingInfo.student_email || "N/A"}
+            <div className="flex items-center gap-2">
+              <span>
+                <span className="text-gray-400">Email:</span>{" "}
+                <span className="text-white">
+                  {bookingInfo.email || bookingInfo.student_email || "N/A"}
+                </span>
               </span>
+              {bookingInfo.student_confirmation_email_sent === false && (
+                <StudentConfirmationEmailFailedBadge />
+              )}
             </div>
             {bookingInfo.phone_number && (
               <div>

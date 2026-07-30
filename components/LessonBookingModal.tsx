@@ -191,7 +191,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
         const lessonDuration = slot.duration_minutes || Math.round((new Date(slot.end).getTime() - new Date(slot.start).getTime()) / 60000);
         
         // Send email to student
-        await fetch("/api/lesson-booking", {
+        const studentEmailRes = await fetch("/api/lesson-booking", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -207,9 +207,16 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             lessonLocation: slot.location?.trim() || null,
           }),
         });
+        if (!studentEmailRes.ok) {
+          console.error(
+            "Student lesson confirmation email failed:",
+            studentEmailRes.status,
+            await studentEmailRes.text()
+          );
+        }
 
         // Send email to instructor
-        await fetch("/api/lesson-booking-instructor-notification", {
+        const instructorEmailRes = await fetch("/api/lesson-booking-instructor-notification", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -226,6 +233,13 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
             lessonLocation: slot.location?.trim() || null,
           }),
         });
+        if (!instructorEmailRes.ok) {
+          console.error(
+            "Instructor lesson notification email failed:",
+            instructorEmailRes.status,
+            await instructorEmailRes.text()
+          );
+        }
       } catch (emailError) {
         console.error("Failed to send confirmation email:", emailError);
         // Don't fail the booking if email fails

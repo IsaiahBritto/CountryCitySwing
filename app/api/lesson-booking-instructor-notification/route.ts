@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sendHtmlEmail } from "@/lib/mailer";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { createPrivateLessonInstructorBookingEmailHtml } from "@/lib/email/privateLessonInstructorEmail";
 
 export async function POST(req: Request) {
   try {
@@ -25,7 +26,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Fetch instructor email
     const { data: instructorProfile, error: instructorError } = await supabaseServer
       .from("profiles")
       .select("email, first_name, last_name")
@@ -47,29 +47,21 @@ export async function POST(req: Request) {
       year: "numeric",
     });
 
-    const studentName = `${studentFirstName || ""} ${studentLastName || ""}`.trim() || "Student";
+    const studentName =
+      `${studentFirstName || ""} ${studentLastName || ""}`.trim() || "Student";
 
-    const html = `
-      <div style="font-family:sans-serif;padding:20px;max-width:600px;margin:0 auto">
-        <h2 style="color:#F2C94C;margin-bottom:20px">New Private Lesson Booking</h2>
-        <p style="font-size:16px;line-height:1.6">Hi ${instructorProfile.first_name || "Instructor"},</p>
-        <p style="font-size:16px;line-height:1.6">You have a new private lesson booking!</p>
-        
-        <div style="background-color:#1a1a1a;padding:20px;border-radius:8px;margin:20px 0">
-          <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Student:</strong> ${studentName}</p>
-          <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Email:</strong> ${studentEmail}</p>
-          ${studentPhone ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Phone:</strong> ${studentPhone}</p>` : ""}
-          <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Date:</strong> ${formattedDate}</p>
-          <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Time:</strong> ${lessonTime}</p>
-          <p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Duration:</strong> ${lessonDuration} minutes</p>
-          ${lessonPrice ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Price:</strong> $${lessonPrice.toFixed(2)}</p>` : ""}
-          ${lessonFocus ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Focus:</strong> ${lessonFocus}</p>` : ""}
-          ${lessonLocation ? `<p style="margin:10px 0;font-size:16px"><strong style="color:#F2C94C">Location:</strong> ${lessonLocation}</p>` : ""}
-        </div>
-
-        <p style="font-size:16px;line-height:1.6">The student has been sent a confirmation email. You can view and manage this booking in your instructor dashboard.</p>
-        <p style="margin-top:30px;color:#888;font-size:14px">— The Country City Swing Team</p>
-      </div>`;
+    const html = createPrivateLessonInstructorBookingEmailHtml({
+      instructorFirstName: instructorProfile.first_name || "Instructor",
+      studentName,
+      studentEmail,
+      studentPhone,
+      lessonDateFormatted: formattedDate,
+      lessonTime,
+      lessonDuration,
+      lessonFocus,
+      lessonPrice,
+      lessonLocation,
+    });
 
     await sendHtmlEmail(
       instructorProfile.email,

@@ -6,7 +6,7 @@ import {
   createPrivateLessonStudentEmailHtml,
 } from "@/lib/email/privateLessonStudentEmail";
 
-const STUDENT_FROM = "confirmation@countrycityswing.dance";
+const STUDENT_FROM = "PrivateLessons <confirmation@countrycityswing.dance>";
 
 async function markConfirmationEmailFailed(bookingId: string | undefined) {
   if (!bookingId) return;

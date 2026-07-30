@@ -6,7 +6,7 @@ import {
   createPrivateLessonStudentEmailHtml,
 } from "@/lib/email/privateLessonStudentEmail";
 
-const STUDENT_FROM = "confirmation@countrycityswing.dance";
+const STUDENT_FROM = "PrivateLessons <confirmation@countrycityswing.dance>";
 
 export async function POST(req: Request) {
   try {

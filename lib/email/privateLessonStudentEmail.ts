@@ -38,7 +38,7 @@ export function buildPrivateLessonStudentSubject(
       ? "Private Lesson Booking Confirmation"
       : "Private Lesson Updated";
   const location = lessonLocation?.trim();
-  return `${title} - ${instructorName}${location ? ` ${location}` : ""}`;
+  return `${title} - ${instructorName}${location ? ` @ ${location}` : ""}`;
 }
 
 export function createPrivateLessonStudentEmailHtml({

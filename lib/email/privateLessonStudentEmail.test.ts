@@ -56,7 +56,7 @@ describe("buildPrivateLessonStudentSubject", () => {
   it("includes instructor name and optional location", () => {
     expect(
       buildPrivateLessonStudentSubject("booking", "Alex Smith", "Downtown Studio")
-    ).toBe("Private Lesson Booking Confirmation - Alex Smith Downtown Studio");
+    ).toBe("Private Lesson Booking Confirmation - Alex Smith @ Downtown Studio");
     expect(buildPrivateLessonStudentSubject("update", "Alex Smith", null)).toBe(
       "Private Lesson Updated - Alex Smith"
     );

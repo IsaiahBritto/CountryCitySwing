@@ -195,10 +195,10 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            instructorId: slot.instructor_id,
             studentEmail: email.trim(),
             firstName: firstName.trim(),
             lastName: lastName.trim(),
-            instructorName: instructorName || "Your Instructor",
             lessonDate: slot.start,
             lessonTime,
             lessonDuration,

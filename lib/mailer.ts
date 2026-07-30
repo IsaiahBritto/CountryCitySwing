@@ -64,7 +64,8 @@ export const sendHtmlEmail = async (
   html: string,
   from?: string,
   text?: string,
-  attachments?: ResendAttachment[]
+  attachments?: ResendAttachment[],
+  replyTo?: string | string[]
 ) => {
   try {
     // Validate Resend API key
@@ -86,6 +87,7 @@ export const sendHtmlEmail = async (
       html: string;
       text?: string;
       attachments?: ResendAttachment[];
+      replyTo?: string | string[];
     } = {
       from: fromEmail,
       to,
@@ -94,6 +96,9 @@ export const sendHtmlEmail = async (
     };
     if (text != null && text !== "") payload.text = text;
     if (attachments && attachments.length > 0) payload.attachments = attachments;
+    if (replyTo != null && (Array.isArray(replyTo) ? replyTo.length > 0 : replyTo !== "")) {
+      payload.replyTo = replyTo;
+    }
 
     const { data, error } = await resend.emails.send(payload);
 
@@ -110,13 +115,23 @@ export const sendHtmlEmail = async (
       // If domain not verified, try with fallback
       if (error.statusCode === 403 && error.message?.includes("not verified")) {
         console.warn(`Domain not verified for ${fromEmail}, using fallback: ${FROM_EMAIL}`);
-        const fallbackPayload: { from: string; to: string; subject: string; html: string; text?: string } = {
+        const fallbackPayload: {
+          from: string;
+          to: string;
+          subject: string;
+          html: string;
+          text?: string;
+          replyTo?: string | string[];
+        } = {
           from: FROM_EMAIL,
           to,
           subject,
           html,
         };
         if (text != null && text !== "") fallbackPayload.text = text;
+        if (replyTo != null && (Array.isArray(replyTo) ? replyTo.length > 0 : replyTo !== "")) {
+          fallbackPayload.replyTo = replyTo;
+        }
         const fallbackResult = await resend.emails.send(fallbackPayload);
         if (fallbackResult.error) {
           console.error("Resend fallback error:", {

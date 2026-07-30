@@ -163,16 +163,6 @@ export default function InstructorSlotEditModal({
 
       if (startChanged || durationChanged || priceChanged || locationChanged) {
         try {
-          const { data: instructorProfile } = await supabaseBrowser
-            .from("profiles")
-            .select("first_name, last_name")
-            .eq("id", slot.instructor_id)
-            .single();
-
-          const instructorName = instructorProfile
-            ? `${instructorProfile.first_name} ${instructorProfile.last_name}`
-            : "Your Instructor";
-
           const lessonDate = start.toISOString();
           const { startTime, tzAbbrev } = formatTimeRangeWithTimeZone(
             lessonDate,
@@ -194,10 +184,10 @@ export default function InstructorSlotEditModal({
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
+                instructorId: slot.instructor_id,
                 studentEmail,
                 studentFirstName,
                 studentLastName,
-                instructorName,
                 lessonDate,
                 lessonTime,
                 lessonDuration: duration,

@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { sendHtmlEmail } from "@/lib/mailer";
+import { supabaseServer } from "@/lib/supabaseServer";
+import {
+  buildPrivateLessonStudentSubject,
+  createPrivateLessonStudentEmailHtml,
+} from "@/lib/email/privateLessonStudentEmail";
 
 export async function POST(req: Request) {
   try {
     const {
+      instructorId,
       studentEmail,
       studentFirstName,
-      studentLastName,
-      instructorName,
       lessonDate,
       lessonTime,
       lessonDuration,
@@ -16,12 +20,36 @@ export async function POST(req: Request) {
       lessonLocation,
     } = await req.json();
 
-    if (!studentEmail || !studentFirstName || !lessonDate || !lessonTime) {
+    if (
+      !instructorId ||
+      !studentEmail ||
+      !studentFirstName ||
+      !lessonDate ||
+      !lessonTime
+    ) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
     }
+
+    const { data: instructorProfile, error: instructorError } = await supabaseServer
+      .from("profiles")
+      .select("email, first_name, last_name, private_lesson_disclaimer")
+      .eq("id", instructorId)
+      .single();
+
+    if (instructorError || !instructorProfile?.email) {
+      console.error("Error fetching instructor profile:", instructorError);
+      return NextResponse.json(
+        { error: "Instructor not found" },
+        { status: 404 }
+      );
+    }
+
+    const instructorName =
+      `${instructorProfile.first_name || ""} ${instructorProfile.last_name || ""}`.trim() ||
+      "Your Instructor";
 
     const formattedDate = new Date(lessonDate).toLocaleDateString(undefined, {
       weekday: "long",
@@ -30,61 +58,34 @@ export async function POST(req: Request) {
       year: "numeric",
     });
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #f2c94c; color: #000; padding: 20px; text-align: center; }
-            .content { background-color: #f9f9f9; padding: 20px; }
-            .lesson-details { background-color: white; padding: 15px; margin: 15px 0; border-radius: 5px; }
-            .update-box { background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 15px 0; }
-            .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>Country City Swing</h1>
-              <h2>Private Lesson Updated</h2>
-            </div>
-            <div class="content">
-              <p>Hi ${studentFirstName},</p>
-              
-              <div class="update-box">
-                <p style="margin: 0;"><strong>Lesson Details Updated</strong></p>
-                <p style="margin: 5px 0 0 0;">Your private lesson details have been updated by your instructor. Please make note of the updated information below.</p>
-              </div>
-              
-              <div class="lesson-details">
-                <h3>Updated Lesson Details</h3>
-                <p><strong>Instructor:</strong> ${instructorName}</p>
-                <p><strong>Date:</strong> ${formattedDate}</p>
-                <p><strong>Time:</strong> ${lessonTime}</p>
-                <p><strong>Duration:</strong> ${lessonDuration} minutes</p>
-                ${lessonPrice ? `<p><strong>Price:</strong> $${lessonPrice.toFixed(2)}</p>` : ""}
-                ${lessonFocus ? `<p><strong>Focus:</strong> ${lessonFocus}</p>` : ""}
-                ${lessonLocation ? `<p><strong>Location:</strong> ${lessonLocation}</p>` : ""}
-              </div>
-              
-              <p>If you have any questions or need to reschedule, please contact your instructor as soon as possible.</p>
-              
-              <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
-            </div>
-            <div class="footer">
-              <p>Country City Swing<br>Nashville, TN</p>
-            </div>
-          </div>
-        </body>
-      </html>`;
+    const html = createPrivateLessonStudentEmailHtml({
+      kind: "update",
+      recipientFirstName: studentFirstName,
+      instructorName,
+      instructorEmail: instructorProfile.email,
+      lessonDateFormatted: formattedDate,
+      lessonTime,
+      lessonDuration,
+      lessonFocus,
+      lessonPrice,
+      lessonLocation,
+      disclaimer: instructorProfile.private_lesson_disclaimer,
+    });
+
+    const subject = buildPrivateLessonStudentSubject(
+      "update",
+      instructorName,
+      lessonLocation
+    );
 
     await sendHtmlEmail(
       studentEmail,
-      "Private Lesson Updated - Country City Swing",
+      subject,
       html,
-      "confirmation@countrycityswing.dance"
+      `${instructorName} <confirmation@countrycityswing.dance>`,
+      undefined,
+      undefined,
+      instructorProfile.email
     );
 
     return NextResponse.json({ success: true });

@@ -3,18 +3,14 @@
 import { useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import RoundSlotPanel from "@/components/comps/admin/RoundSlotPanel";
-import { ROUND_SLOT_ORDER, roundTitle } from "@/lib/comps/roundChain";
+import { ROUND_SLOT_ORDER, roundTitle, type RoundSlotRef } from "@/lib/comps/roundChain";
 import type { RoundType } from "@/lib/comps/types";
 
-interface RoundRow {
-  id: string;
-  round_type: string;
-  judged_role: "lead" | "follow" | null;
+interface RoundRow extends RoundSlotRef {
   scoring_mode: "callback" | "relative_placement";
   callback_count: number | null;
   alternate_count: number;
   round_order: number;
-  status: string;
 }
 
 export { roundTitle } from "@/lib/comps/roundChain";

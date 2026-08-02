@@ -48,9 +48,11 @@ export function seedRawFromPlacements(entryIds: string[]): FinalsScoreItem[] {
 function cascadeDown(items: FinalsScoreItem[]): FinalsScoreItem[] {
   const out = items.map((i) => ({ ...i }));
   for (let i = 1; i < out.length; i++) {
-    if (out[i].raw == null || out[i - 1].raw == null) continue;
-    const maxAllowed = roundScore(out[i - 1].raw - STEP);
-    if (out[i].raw > maxAllowed) {
+    const prev = out[i - 1].raw;
+    const curr = out[i].raw;
+    if (prev == null || curr == null) continue;
+    const maxAllowed = roundScore(prev - STEP);
+    if (curr > maxAllowed) {
       out[i].raw = Math.max(0, maxAllowed);
     }
   }

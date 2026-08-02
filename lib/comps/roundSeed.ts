@@ -50,7 +50,7 @@ export async function resolveEntryIdsForRound(
     .eq("round_id", sourceRound.id)
     .eq("advanced", true);
 
-  const entryIds = ((results ?? []) as { round_entry?: { entry_id: string } }[])
+  const entryIds = ((results ?? []) as any[])
     .map((r) => r.round_entry?.entry_id)
     .filter(Boolean) as string[];
 

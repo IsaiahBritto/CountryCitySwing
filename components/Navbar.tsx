@@ -28,6 +28,7 @@ export default function Navbar() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [showFinances, setShowFinances] = useState(false);
+  const [showJudging, setShowJudging] = useState(false);
 
   // Load and listen for auth changes
   useEffect(() => {
@@ -98,6 +99,30 @@ export default function Navbar() {
       }
     };
     fetchMe();
+  }, [session?.access_token]);
+
+  // Show the Judging tab to users with judge assignments (including admin judges).
+  useEffect(() => {
+    const checkJudge = async () => {
+      if (!session?.access_token) {
+        setShowJudging(false);
+        return;
+      }
+      try {
+        const res = await fetch("/api/judge/rounds", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok) {
+          setShowJudging(false);
+          return;
+        }
+        const data = await res.json();
+        setShowJudging((data.assignments?.length ?? 0) > 0);
+      } catch {
+        setShowJudging(false);
+      }
+    };
+    checkJudge();
   }, [session?.access_token]);
 
   const displayName =
@@ -204,6 +229,16 @@ export default function Navbar() {
               Finances
             </Link>
           )}
+          {isAdmin && (
+            <Link href="/admin/comps" className={linkClass}>
+              Comps
+            </Link>
+          )}
+          {showJudging && (
+            <Link href="/judge" className={linkClass}>
+              Judging
+            </Link>
+          )}
 
           {user ? (
             <Link href="/profile" className={linkClass}>
@@ -243,6 +278,16 @@ export default function Navbar() {
           {showFinances && (
             <Link href="/admin/finances" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
               Finances
+            </Link>
+          )}
+          {isAdmin && (
+            <Link href="/admin/comps" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
+              Comps
+            </Link>
+          )}
+          {showJudging && (
+            <Link href="/judge" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
+              Judging
             </Link>
           )}
 

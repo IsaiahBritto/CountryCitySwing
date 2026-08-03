@@ -27,6 +27,8 @@ import {
   resolveSignupListPrice,
   type PriceChange,
 } from "@/lib/utils/workshopPricing";
+import CompLevelBadge from "@/components/CompLevelBadge";
+import { hasCompDivisionPrice } from "@/lib/compLevels";
 
 type RegistrationAccessLevel = "admin" | "instructor" | "social_viewer";
 
@@ -38,6 +40,10 @@ interface Event {
   location: string;
   type?: string;
   time_zone?: string | null;
+  strictly_price?: number | null;
+  jnj_price?: number | null;
+  strictly_level?: string | null;
+  jnj_level?: string | null;
 }
 
 interface EventPricing {
@@ -217,7 +223,7 @@ export default function RegistrationPage() {
     try {
       const { data, error } = await supabaseBrowser
         .from("events")
-        .select("id,title,starts_at,ends_at,location,type,time_zone")
+        .select("id,title,starts_at,ends_at,location,type,time_zone,strictly_price,jnj_price,strictly_level,jnj_level")
         .order("starts_at", { ascending: true });
 
       if (error) {
@@ -953,10 +959,30 @@ export default function RegistrationPage() {
             </p>
           )}
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-            <h2 className="text-lg md:text-xl font-semibold text-white">
-              <span className="hidden sm:inline">Signups: </span>
-              {selectedEvent.title}
-            </h2>
+            <div>
+              <h2 className="text-lg md:text-xl font-semibold text-white">
+                <span className="hidden sm:inline">Signups: </span>
+                {selectedEvent.title}
+              </h2>
+              {isCompEvent &&
+                (hasCompDivisionPrice(selectedEvent.strictly_price) ||
+                  hasCompDivisionPrice(selectedEvent.jnj_price)) && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {hasCompDivisionPrice(selectedEvent.strictly_price) && (
+                    <span className="inline-flex items-center gap-2 text-sm text-gray-300">
+                      <span className="text-primary font-medium">Strictly</span>
+                      <CompLevelBadge level={selectedEvent.strictly_level} />
+                    </span>
+                  )}
+                  {hasCompDivisionPrice(selectedEvent.jnj_price) && (
+                    <span className="inline-flex items-center gap-2 text-sm text-gray-300">
+                      <span className="text-primary font-medium">JnJ</span>
+                      <CompLevelBadge level={selectedEvent.jnj_level} />
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setFilter("all")}
@@ -1065,8 +1091,10 @@ export default function RegistrationPage() {
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 text-sm">
                       <div className="flex-1 min-w-0">
                         {c.strictly_selected && (
-                          <p className="text-white">
-                            <span className="text-primary font-medium">Strictly:</span>{" "}
+                          <p className="text-white flex flex-wrap items-center gap-2">
+                            <span className="text-primary font-medium">Strictly:</span>
+                            <CompLevelBadge level={selectedEvent.strictly_level} />
+                            <span>
                             {isAdmin ? (
                               <button
                                 type="button"
@@ -1122,11 +1150,14 @@ export default function RegistrationPage() {
                                   .join(" ")}
                               </>
                             )}
+                            </span>
                           </p>
                         )}
                         {c.jnj_selected && (
-                          <p className="text-white">
-                            <span className="text-primary font-medium">JnJ:</span>{" "}
+                          <p className="text-white flex flex-wrap items-center gap-2">
+                            <span className="text-primary font-medium">JnJ:</span>
+                            <CompLevelBadge level={selectedEvent.jnj_level} />
+                            <span>
                             {isAdmin ? (
                               <button
                                 type="button"
@@ -1169,6 +1200,7 @@ export default function RegistrationPage() {
                                     .join(" ")}
                               </>
                             )}
+                            </span>
                           </p>
                         )}
                         {isAdmin && c.refunded_or_cancelled === "partial" && (

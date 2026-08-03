@@ -41,6 +41,8 @@ export async function PUT(
     }
     if (eventData.strictly_price !== undefined) updateData.strictly_price = eventData.strictly_price ?? null;
     if (eventData.jnj_price !== undefined) updateData.jnj_price = eventData.jnj_price ?? null;
+    if (eventData.strictly_level !== undefined) updateData.strictly_level = eventData.strictly_level ?? null;
+    if (eventData.jnj_level !== undefined) updateData.jnj_level = eventData.jnj_level ?? null;
     if (eventData.ccs_team_price !== undefined) updateData.ccs_team_price = eventData.ccs_team_price ?? null;
     if (eventData.type !== undefined) updateData.type = eventData.type || null;
     if (eventData.ends_at !== undefined) updateData.ends_at = eventData.ends_at ?? null;

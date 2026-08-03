@@ -8,7 +8,7 @@ export async function GET() {
     const { data, error } = await supabaseServer
       .from("events")
       .select(
-        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,type,refund_statement,all_three_classes"
+        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,strictly_level,jnj_level,type,refund_statement,all_three_classes"
       )
       .order("starts_at", { ascending: true });
 
@@ -60,6 +60,8 @@ export async function POST(req: NextRequest) {
     }
     if (eventData.strictly_price !== undefined) insertData.strictly_price = eventData.strictly_price ?? null;
     if (eventData.jnj_price !== undefined) insertData.jnj_price = eventData.jnj_price ?? null;
+    if (eventData.strictly_level !== undefined) insertData.strictly_level = eventData.strictly_level ?? null;
+    if (eventData.jnj_level !== undefined) insertData.jnj_level = eventData.jnj_level ?? null;
     if (eventData.ccs_team_price !== undefined) insertData.ccs_team_price = eventData.ccs_team_price ?? null;
     if (eventData.type !== undefined) insertData.type = eventData.type || null;
     if (eventData.ends_at !== undefined) insertData.ends_at = eventData.ends_at ?? null;

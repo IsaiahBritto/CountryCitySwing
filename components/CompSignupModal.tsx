@@ -10,6 +10,7 @@ import { DEFAULT_TIME_ZONE, formatEventDate, formatEventTime, getTimeZoneAbbrevi
 import SignupModalShell from "@/components/SignupModalShell";
 import ChoiceCards from "@/components/ChoiceCards";
 import ProfileSearchPicker, { type ProfileResult } from "@/components/ProfileSearchPicker";
+import CompLevelBadge from "@/components/CompLevelBadge";
 
 type CompEvent = {
   id: string | number;
@@ -20,6 +21,8 @@ type CompEvent = {
   signup_link?: string;
   strictly_price?: number | null;
   jnj_price?: number | null;
+  strictly_level?: string | null;
+  jnj_level?: string | null;
   refund_statement?: string | null;
   refundStatement?: string | null;
 };
@@ -347,6 +350,9 @@ export default function CompSignupModal({
               className="rounded"
             />
             <span>Strictly {event.strictly_price != null && `($${Number(event.strictly_price).toFixed(2)})`}</span>
+            {event.strictly_level && (
+              <CompLevelBadge level={event.strictly_level} className="ml-2" />
+            )}
           </label>
           {strictlySelected && (
             <div className="ml-6 space-y-4">
@@ -385,6 +391,9 @@ export default function CompSignupModal({
               className="rounded"
             />
             <span>JnJ {event.jnj_price != null && `($${Number(event.jnj_price).toFixed(2)})`}</span>
+            {event.jnj_level && (
+              <CompLevelBadge level={event.jnj_level} className="ml-2" />
+            )}
           </label>
           {jnjSelected && (
             <div className="ml-6 space-y-3">

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { compBtnPrimary, compBtnTabActive } from "@/lib/comps/buttonStyles";
 import RoundPanel from "@/components/comps/admin/RoundPanel";
 import {
   getSlotLabel,
@@ -106,7 +107,7 @@ function EnableForm({
         bypassed when advancing competitors.
       </p>
       {isCallback && (
-        <div className="mb-3 flex flex-wrap gap-3">
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           <label className="flex items-center gap-2 text-sm text-neutral-300">
             Call back
             <input
@@ -133,7 +134,7 @@ function EnableForm({
       <button
         onClick={save}
         disabled={busy}
-        className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+        className={compBtnPrimary}
       >
         {busy ? "Enabling…" : "Enable round"}
       </button>
@@ -244,16 +245,14 @@ export default function RoundSlotPanel({
           {skipped ? (
             isJnJ && isCallback ? (
               <div>
-                <div className="mb-2 flex gap-1 rounded-lg border border-neutral-700 p-0.5">
+                <div className="mb-2 flex gap-1 overflow-x-auto rounded-lg border border-neutral-700 p-0.5">
                   {(["lead", "follow"] as const).map((role) => (
                     <button
                       key={role}
                       onClick={() => setJnjTab(role)}
                       className={
-                        "flex-1 rounded-md px-3 py-1.5 text-sm font-medium " +
-                        (jnjTab === role
-                          ? "bg-primary text-black"
-                          : "text-neutral-400")
+                        "min-w-[7rem] flex-1 rounded-md px-3 py-1.5 text-sm font-medium " +
+                        (jnjTab === role ? compBtnTabActive : "text-neutral-400")
                       }
                     >
                       {role === "lead" ? "Leads" : "Follows"}
@@ -285,7 +284,7 @@ export default function RoundSlotPanel({
             )
           ) : isJnJ && isCallback ? (
             <div>
-              <div className="mb-2 flex gap-1 rounded-lg border border-neutral-700 p-0.5">
+              <div className="mb-2 flex gap-1 overflow-x-auto rounded-lg border border-neutral-700 p-0.5">
                 {(["lead", "follow"] as const).map((role) => {
                   const r = slotRounds.find((x) => x.judged_role === role);
                   return (
@@ -293,10 +292,8 @@ export default function RoundSlotPanel({
                       key={role}
                       onClick={() => setJnjTab(role)}
                       className={
-                        "flex-1 rounded-md px-3 py-1.5 text-sm font-medium " +
-                        (jnjTab === role
-                          ? "bg-primary text-black"
-                          : "text-neutral-400")
+                        "min-w-[7rem] flex-1 rounded-md px-3 py-1.5 text-sm font-medium " +
+                        (jnjTab === role ? compBtnTabActive : "text-neutral-400")
                       }
                     >
                       {role === "lead" ? "Leads" : "Follows"}

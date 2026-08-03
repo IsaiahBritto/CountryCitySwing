@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { compBtnPrimaryLg, compBtnTabActive } from "@/lib/comps/buttonStyles";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 import {
   applyRawChange,
@@ -230,8 +231,8 @@ export default function FinalsSheet({
     <div>
       {/* Sticky header: mode toggle + save state */}
       <div className="sticky top-0 z-20 -mx-4 mb-4 border-b border-neutral-800 bg-neutral-900/95 px-4 py-3 backdrop-blur">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex rounded-lg border border-neutral-700 p-0.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex w-full rounded-lg border border-neutral-700 p-0.5 sm:w-auto">
             {(
               [
                 ["placement", "Placements"],
@@ -242,17 +243,15 @@ export default function FinalsSheet({
                 key={key}
                 onClick={() => setMode(key)}
                 className={
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition " +
-                  (mode === key
-                    ? "bg-primary text-black"
-                    : "text-neutral-400 hover:text-white")
+                  "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition min-h-11 sm:flex-none " +
+                  (mode === key ? compBtnTabActive : "text-neutral-400 hover:text-white")
                 }
               >
                 {label}
               </button>
             ))}
           </div>
-          <span className="text-xs text-neutral-500">
+          <span className="text-xs text-neutral-500 max-sm:w-full">
             {autosave.saveState === "saving"
               ? "Saving…"
               : autosave.saveState === "offline"
@@ -285,7 +284,7 @@ export default function FinalsSheet({
         </p>
       )}
 
-      <div ref={listRef} className="space-y-2">
+      <div ref={listRef} className="space-y-2 overflow-x-auto">
         {items.map((item, index) => {
           const entry = entryById.get(item.entryId);
           const isTied = tied.has(item.entryId);
@@ -295,7 +294,7 @@ export default function FinalsSheet({
               data-fs-row
               style={rowStyle(index)}
               className={
-                "flex items-center gap-3 rounded-xl border bg-neutral-800/60 p-3 " +
+                "flex min-w-0 items-center gap-3 rounded-xl border bg-neutral-800/60 p-3 " +
                 (isTied
                   ? "border-amber-500/70"
                   : drag?.index === index
@@ -355,7 +354,7 @@ export default function FinalsSheet({
                         );
                       }
                     }}
-                    className="mt-2 w-full accent-primary"
+                    className="mt-2 h-8 w-full touch-manipulation accent-primary"
                   />
                 )}
               </div>
@@ -365,7 +364,7 @@ export default function FinalsSheet({
                   <button
                     onClick={() => nudge(item.entryId, 0.1)}
                     disabled={locked}
-                    className="h-8 w-10 rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
+                    className="flex h-11 w-11 items-center justify-center rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
                     aria-label="Raise 0.1"
                   >
                     +
@@ -373,7 +372,7 @@ export default function FinalsSheet({
                   <button
                     onClick={() => nudge(item.entryId, -0.1)}
                     disabled={locked}
-                    className="h-8 w-10 rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
+                    className="flex h-11 w-11 items-center justify-center rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
                     aria-label="Lower 0.1"
                   >
                     −
@@ -385,7 +384,7 @@ export default function FinalsSheet({
                     <button
                       onClick={() => moveTo(index, index - 1)}
                       disabled={locked || index === 0}
-                      className="h-7 w-8 rounded-md border border-neutral-600 text-xs text-neutral-300 disabled:opacity-30"
+                      className="flex h-9 w-10 items-center justify-center rounded-md border border-neutral-600 text-xs text-neutral-300 disabled:opacity-30"
                       aria-label="Move up"
                     >
                       ▲
@@ -393,7 +392,7 @@ export default function FinalsSheet({
                     <button
                       onClick={() => moveTo(index, index + 1)}
                       disabled={locked || index === items.length - 1}
-                      className="h-7 w-8 rounded-md border border-neutral-600 text-xs text-neutral-300 disabled:opacity-30"
+                      className="flex h-9 w-10 items-center justify-center rounded-md border border-neutral-600 text-xs text-neutral-300 disabled:opacity-30"
                       aria-label="Move down"
                     >
                       ▼
@@ -405,7 +404,7 @@ export default function FinalsSheet({
                       startDrag(index, e.clientY);
                     }}
                     className={
-                      "flex h-14 w-8 cursor-grab touch-none select-none items-center justify-center rounded-md border border-neutral-600 text-neutral-400 " +
+                      "flex h-14 w-10 cursor-grab touch-none select-none items-center justify-center rounded-md border border-neutral-600 text-neutral-400 " +
                       (locked ? "opacity-40" : "active:cursor-grabbing")
                     }
                     aria-label="Drag to reorder"
@@ -420,10 +419,11 @@ export default function FinalsSheet({
       </div>
 
       {!locked && (
+        <div className="sticky bottom-0 -mx-4 mt-4 border-t border-neutral-800 bg-neutral-900/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
         <button
           onClick={submit}
           disabled={submitting || tied.size > 0}
-          className="mt-4 w-full rounded-xl bg-primary py-3 text-base font-semibold text-black disabled:opacity-40"
+          className={compBtnPrimaryLg}
         >
           {submitting
             ? "Submitting…"
@@ -431,6 +431,7 @@ export default function FinalsSheet({
               ? "Resolve tied scores to submit"
               : "Submit sheet"}
         </button>
+        </div>
       )}
     </div>
   );

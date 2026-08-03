@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { compBtnPrimaryLg, compBtnTabActive } from "@/lib/comps/buttonStyles";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 
 type Vote = "yes" | "alt1" | "alt2" | "alt3" | "no";
@@ -150,17 +151,17 @@ export default function CallbackSheet({
   }, [entries]);
 
   const voteBtn = (active: boolean, tone: string) =>
-    `min-w-11 rounded-md px-2.5 py-2 text-sm font-semibold transition ${
+    `min-h-11 rounded-md border px-2.5 py-2 text-sm font-semibold transition ${
       active
         ? tone
-        : "border border-neutral-600 text-neutral-400 active:bg-neutral-700"
+        : "border-neutral-600 text-neutral-400 active:bg-neutral-700"
     } ${locked ? "opacity-60" : ""}`;
 
   return (
     <div>
       {/* Sticky progress header */}
       <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-neutral-800 bg-neutral-900/95 px-4 py-3 backdrop-blur">
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
           <span
             className={
               yesCount === effectiveCallbacks
@@ -186,7 +187,7 @@ export default function CallbackSheet({
               ))}
             </span>
           )}
-          <span className="text-xs text-neutral-500">
+          <span className="text-xs text-neutral-500 max-sm:w-full max-sm:text-left">
             {autosave.saveState === "saving"
               ? "Saving…"
               : autosave.saveState === "offline"
@@ -234,23 +235,28 @@ export default function CallbackSheet({
               return (
                 <div
                   key={e.roundEntryId}
-                  className={`flex items-center gap-3 rounded-xl border p-3 ${rowTone}`}
+                  className={`flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:gap-3 ${rowTone}`}
                 >
-                  <div className="w-14 text-center">
-                    <div className="text-xl font-bold text-white">
-                      {e.bibNumber ?? "—"}
+                  <div className="flex min-w-0 items-center gap-3 sm:flex-1">
+                    <div className="w-14 shrink-0 text-center">
+                      <div className="text-xl font-bold text-white">
+                        {e.bibNumber ?? "—"}
+                      </div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-neutral-300 sm:truncate">
+                        {e.displayName}
+                      </div>
                     </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-neutral-300">
-                      {e.displayName}
-                    </div>
-                  </div>
-                  <div className="flex gap-1">
+                  <div className="grid grid-cols-3 gap-2 sm:flex sm:shrink-0 sm:gap-1">
                     <button
                       onClick={() => setVote(e.roundEntryId, "yes")}
                       disabled={locked}
-                      className={voteBtn(vote === "yes", "bg-primary text-black")}
+                      className={voteBtn(
+                        vote === "yes",
+                        "border-primary bg-primary text-neutral-900"
+                      )}
                     >
                       Yes
                     </button>
@@ -261,7 +267,7 @@ export default function CallbackSheet({
                         disabled={locked}
                         className={voteBtn(
                           vote === rank,
-                          "bg-amber-500 text-black"
+                          "border-amber-500 bg-amber-500 text-neutral-900"
                         )}
                       >
                         {rank.replace("alt", "A")}
@@ -272,7 +278,7 @@ export default function CallbackSheet({
                       disabled={locked}
                       className={voteBtn(
                         vote === "no",
-                        "bg-red-600 text-white"
+                        "border-red-600 bg-red-600 text-white"
                       )}
                     >
                       No
@@ -286,10 +292,11 @@ export default function CallbackSheet({
       ))}
 
       {!locked && (
+        <div className="sticky bottom-0 -mx-4 mt-4 border-t border-neutral-800 bg-neutral-900/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
         <button
           onClick={submit}
           disabled={!canSubmit || submitting}
-          className="w-full rounded-xl bg-primary py-3 text-base font-semibold text-black disabled:opacity-40"
+          className={compBtnPrimaryLg}
         >
           {submitting
             ? "Submitting…"
@@ -299,6 +306,7 @@ export default function CallbackSheet({
                 ? `Select ${effectiveCallbacks - yesCount} more Yes`
                 : "Assign all alternate ranks to submit"}
         </button>
+        </div>
       )}
     </div>
   );

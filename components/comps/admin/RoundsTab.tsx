@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { compBtnPrimary } from "@/lib/comps/buttonStyles";
 import RoundSlotPanel from "@/components/comps/admin/RoundSlotPanel";
 import { ROUND_SLOT_ORDER, roundTitle, type RoundSlotRef } from "@/lib/comps/roundChain";
 import type { RoundType } from "@/lib/comps/types";
@@ -99,11 +100,11 @@ export default function RoundsTab({
             Pairs advancing leads with advancing follows at random and creates
             the finals round.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <select
               value={drawLead}
               onChange={(e) => setDrawLead(e.target.value)}
-              className={inputCls}
+              className={inputCls + " w-full sm:w-auto"}
             >
               <option value="">Leads round…</option>
               {tabulatedCallbacks
@@ -117,7 +118,7 @@ export default function RoundsTab({
             <select
               value={drawFollow}
               onChange={(e) => setDrawFollow(e.target.value)}
-              className={inputCls}
+              className={inputCls + " w-full sm:w-auto"}
             >
               <option value="">Follows round…</option>
               {tabulatedCallbacks
@@ -131,7 +132,7 @@ export default function RoundsTab({
             <button
               onClick={runDraw}
               disabled={drawing || !drawLead || !drawFollow}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+              className={compBtnPrimary}
             >
               {drawing ? "Drawing…" : "Run draw & create finals"}
             </button>

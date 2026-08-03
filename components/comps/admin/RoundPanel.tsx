@@ -1,9 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import {
+  compBtnPrimary,
+  compBtnSecondary,
+} from "@/lib/comps/buttonStyles";
+import { sortRoundEntriesByBib } from "@/lib/comps/entrySort";
 import RelativePlacementGrid from "@/components/comps/RelativePlacementGrid";
 import CallbackResultsTable from "@/components/comps/CallbackResultsTable";
 
@@ -25,6 +30,7 @@ interface RoundDetail {
   entries: {
     id: string;
     heat_id: string | null;
+    dance_order: number | null;
     checkin_status: "pending" | "checked_in" | "absent";
     scratched: boolean;
     promoted_alternate: boolean;
@@ -206,7 +212,11 @@ export default function RoundPanel({
     return <p className="py-4 text-sm text-neutral-400">{error ?? "Loading round…"}</p>;
   }
 
-  const { round, entries, judges, heats } = detail;
+  const { round, judges, heats } = detail;
+  const entries = useMemo(
+    () => sortRoundEntriesByBib(detail.entries),
+    [detail.entries]
+  );
   const status = round.status;
   const unresolvedCheckin = entries.filter(
     (e) => !e.scratched && e.checkin_status === "pending"
@@ -217,9 +227,8 @@ export default function RoundPanel({
   const heatNumber = (heatId: string | null) =>
     heats.find((h) => h.id === heatId)?.heat_number ?? null;
 
-  const btn =
-    "rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50 transition";
-  const btnPrimary = `${btn} bg-primary text-black hover:bg-primary/90`;
+  const btn = "rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50 transition min-h-11";
+  const btnPrimary = `${btn} border border-primary bg-primary text-neutral-900 hover:bg-primary/90`;
   const btnGhost = `${btn} border border-neutral-600 text-neutral-200 hover:border-primary/60`;
   const btnDanger = `${btn} border border-red-500/50 text-red-300 hover:bg-red-500/10`;
 
@@ -232,7 +241,7 @@ export default function RoundPanel({
       )}
 
       {/* Actions per state */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2 max-sm:[&_.round-action-primary]:w-full">
         {status === "pending" && (
           <>
             <div className="flex items-center gap-2 text-sm text-neutral-300">
@@ -248,7 +257,11 @@ export default function RoundPanel({
                 Randomize heats
               </button>
             </div>
-            <button onClick={() => transition("checkin")} disabled={busy} className={btnPrimary}>
+            <button
+              onClick={() => transition("checkin")}
+              disabled={busy}
+              className={`round-action-primary ${btnPrimary}`}
+            >
               Begin check-in
             </button>
           </>
@@ -266,7 +279,7 @@ export default function RoundPanel({
             <button
               onClick={() => transition("open")}
               disabled={busy || unresolvedCheckin > 0}
-              className={btnPrimary}
+              className={`round-action-primary ${btnPrimary}`}
               title={
                 unresolvedCheckin > 0
                   ? `${unresolvedCheckin} entries still unresolved`
@@ -282,7 +295,11 @@ export default function RoundPanel({
             <button onClick={() => transition("checkin")} disabled={busy} className={btnGhost}>
               Back to check-in
             </button>
-            <button onClick={() => transition("closed")} disabled={busy} className={btnPrimary}>
+            <button
+              onClick={() => transition("closed")}
+              disabled={busy}
+              className={`round-action-primary ${btnPrimary}`}
+            >
               Close scoring
             </button>
           </>
@@ -292,7 +309,11 @@ export default function RoundPanel({
             <button onClick={() => transition("open")} disabled={busy} className={btnGhost}>
               Reopen scoring
             </button>
-            <button onClick={() => tabulate()} disabled={busy} className={btnPrimary}>
+            <button
+              onClick={() => tabulate()}
+              disabled={busy}
+              className={`round-action-primary ${btnPrimary}`}
+            >
               Tabulate
             </button>
           </>
@@ -302,7 +323,11 @@ export default function RoundPanel({
             <button onClick={removeTabulation} disabled={busy} className={btnDanger}>
               Remove tabulation (step back)
             </button>
-            <button onClick={() => publish("POST")} disabled={busy} className={btnPrimary}>
+            <button
+              onClick={() => publish("POST")}
+              disabled={busy}
+              className={`round-action-primary ${btnPrimary}`}
+            >
               Publish results
             </button>
           </>
@@ -364,11 +389,15 @@ export default function RoundPanel({
               </div>
             </div>
           ))}
-          <div className="flex gap-2">
-            <button onClick={() => tabulate(tieOrders)} disabled={busy} className={btnPrimary}>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => tabulate(tieOrders)}
+              disabled={busy}
+              className={compBtnPrimary}
+            >
               Confirm order &amp; tabulate
             </button>
-            <button onClick={() => setTies(null)} className={btnGhost}>
+            <button onClick={() => setTies(null)} className={compBtnSecondary}>
               Cancel
             </button>
           </div>
@@ -381,52 +410,56 @@ export default function RoundPanel({
           <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
             Check-in ({presentCount} in / {unresolvedCheckin} pending)
           </h4>
-          <div className="grid gap-1.5 sm:grid-cols-2">
+          <div className="flex flex-col gap-2 lg:grid lg:grid-cols-2 lg:gap-2">
             {entries
               .filter((e) => !e.scratched)
               .map((e) => (
                 <div
                   key={e.id}
-                  className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-800/40 px-3 py-1.5 text-sm"
+                  className="rounded-md border border-neutral-700 bg-neutral-800/40 px-3 py-2.5"
                 >
-                  <span className="w-12 font-mono text-neutral-400">
-                    {e.display.bibNumber != null ? `#${e.display.bibNumber}` : "—"}
-                  </span>
-                  <span className="flex-1 truncate text-white">
-                    {e.display.displayName}
-                    {e.promoted_alternate && (
-                      <span className="ml-1 text-xs text-amber-400">(alt)</span>
-                    )}
-                    {heatNumber(e.heat_id) != null && (
-                      <span className="ml-1 text-xs text-neutral-500">
-                        H{heatNumber(e.heat_id)}
-                      </span>
-                    )}
-                  </span>
-                  <button
-                    onClick={() => setCheckin(e.id, "checked_in")}
-                    className={
-                      "h-7 w-7 rounded-full text-sm font-bold " +
-                      (e.checkin_status === "checked_in"
-                        ? "bg-green-500 text-black"
-                        : "border border-neutral-600 text-neutral-400 hover:border-green-500 hover:text-green-400")
-                    }
-                    aria-label="Checked in"
-                  >
-                    ✓
-                  </button>
-                  <button
-                    onClick={() => setCheckin(e.id, "absent")}
-                    className={
-                      "h-7 w-7 rounded-full text-sm font-bold " +
-                      (e.checkin_status === "absent"
-                        ? "bg-red-500 text-black"
-                        : "border border-neutral-600 text-neutral-400 hover:border-red-500 hover:text-red-400")
-                    }
-                    aria-label="Absent"
-                  >
-                    ✕
-                  </button>
+                  <div className="mb-2 flex min-w-0 items-start gap-2">
+                    <span className="shrink-0 font-mono text-sm text-neutral-400">
+                      {e.display.bibNumber != null ? `#${e.display.bibNumber}` : "—"}
+                    </span>
+                    <span className="min-w-0 flex-1 text-sm text-white">
+                      {e.display.displayName}
+                      {e.promoted_alternate && (
+                        <span className="ml-1 text-xs text-amber-400">(alt)</span>
+                      )}
+                      {heatNumber(e.heat_id) != null && (
+                        <span className="ml-1 text-xs text-neutral-500">
+                          H{heatNumber(e.heat_id)}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setCheckin(e.id, "checked_in")}
+                      className={
+                        "flex min-h-11 flex-1 items-center justify-center rounded-md border text-sm font-semibold transition " +
+                        (e.checkin_status === "checked_in"
+                          ? "border-green-500 bg-green-500 text-white"
+                          : "border-neutral-600 text-neutral-300 hover:border-green-500 hover:text-green-400")
+                      }
+                      aria-label="Checked in"
+                    >
+                      In
+                    </button>
+                    <button
+                      onClick={() => setCheckin(e.id, "absent")}
+                      className={
+                        "flex min-h-11 flex-1 items-center justify-center rounded-md border text-sm font-semibold transition " +
+                        (e.checkin_status === "absent"
+                          ? "border-red-500 bg-red-500 text-white"
+                          : "border-neutral-600 text-neutral-300 hover:border-red-500 hover:text-red-400")
+                      }
+                      aria-label="Absent"
+                    >
+                      Out
+                    </button>
+                  </div>
                 </div>
               ))}
           </div>
@@ -443,7 +476,7 @@ export default function RoundPanel({
             {judges.map((j) => (
               <div
                 key={j.id}
-                className="flex items-center gap-3 rounded-md border border-neutral-700 bg-neutral-800/40 px-3 py-2 text-sm"
+                className="flex flex-wrap items-center gap-2 rounded-md border border-neutral-700 bg-neutral-800/40 px-3 py-2 text-sm sm:gap-3"
               >
                 <span className="flex-1 text-white">
                   {j.first_name} {j.last_name}
@@ -495,7 +528,7 @@ export default function RoundPanel({
 
       {/* Results grid */}
       {["tabulated", "published"].includes(status) && round.tabulation && (
-        <div className="mt-2">
+        <div className="mt-2 overflow-x-auto -mx-4 px-4">
           <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
             Results
           </h4>

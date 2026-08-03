@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { compBtnPrimary, compBtnTabActive } from "@/lib/comps/buttonStyles";
 
 interface EntryRow {
   id: string;
@@ -187,10 +188,7 @@ export default function EntriesTab({
       )}
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <button
-          onClick={() => setImportOpen(true)}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-black hover:bg-primary/90"
-        >
+        <button onClick={() => setImportOpen(true)} className={compBtnPrimary}>
           Import from signups
         </button>
         <button
@@ -213,10 +211,8 @@ export default function EntriesTab({
                   key={r}
                   onClick={() => setWuRole(r)}
                   className={
-                    "rounded-md px-3 py-1.5 text-sm " +
-                    (wuRole === r
-                      ? "bg-primary font-medium text-black"
-                      : "border border-neutral-600 text-neutral-300")
+                    "rounded-md px-3 py-1.5 text-sm min-h-11 " +
+                    (wuRole === r ? compBtnTabActive : "border border-neutral-600 text-neutral-300")
                   }
                 >
                   {r === "lead" ? "Lead" : "Follow"}
@@ -224,7 +220,7 @@ export default function EntriesTab({
               ))}
             </div>
           )}
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3">
             {(!isJnJ || wuRole === "lead") && (
               <>
                 <input className={inputCls} placeholder="Lead first name" value={wuLeadFirst} onChange={(e) => setWuLeadFirst(e.target.value)} />
@@ -243,7 +239,7 @@ export default function EntriesTab({
           <button
             onClick={addWalkup}
             disabled={addingWalkup}
-            className="mt-3 rounded-md bg-primary px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+            className={"mt-3 " + compBtnPrimary}
           >
             {addingWalkup ? "Adding…" : "Add entry"}
           </button>
@@ -266,8 +262,8 @@ export default function EntriesTab({
             </p>
           ) : (
             <>
-              <div className="max-h-80 overflow-y-auto">
-                <table className="w-full text-sm">
+              <div className="max-h-80 overflow-x-auto overflow-y-auto">
+                <table className="w-full min-w-[28rem] text-sm">
                   <thead>
                     <tr className="text-left text-xs uppercase text-neutral-500">
                       <th className="py-1 pr-2"></th>
@@ -309,7 +305,7 @@ export default function EntriesTab({
               <button
                 onClick={runImport}
                 disabled={importing || selected.size === 0}
-                className="mt-3 rounded-md bg-primary px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+                className={"mt-3 " + compBtnPrimary}
               >
                 {importing ? "Importing…" : `Import ${selected.size} selected`}
               </button>
@@ -326,7 +322,8 @@ export default function EntriesTab({
           No entries yet. Import from signups or add walk-ups.
         </p>
       ) : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto -mx-1 px-1">
+        <table className="w-full min-w-[32rem] text-sm">
           <thead>
             <tr className="text-left text-xs uppercase text-neutral-500">
               <th className="py-1 pr-3">Bib</th>
@@ -361,6 +358,7 @@ export default function EntriesTab({
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       {drawnCouples.length > 0 && (

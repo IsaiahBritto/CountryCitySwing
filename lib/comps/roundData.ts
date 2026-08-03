@@ -5,6 +5,7 @@ import {
   RelativePlacementError,
 } from "@/lib/scoring/relativePlacement";
 import { scoreCallbacks, type CallbackValue } from "@/lib/scoring/callbacks";
+import { sortByBib } from "@/lib/comps/entrySort";
 import type {
   CompetitionRow,
   CompEntryRow,
@@ -94,12 +95,19 @@ export async function loadRoundContext(roundId: string): Promise<RoundContext> {
     email: row.profile?.email ?? null,
   }));
 
+  const roundEntries = sortByBib(
+    (entriesRes.data ?? []) as RoundEntryWithEntry[],
+    (re) => entryDisplay(re).bibNumber,
+    (re) => re.dance_order,
+    (re) => re.id
+  );
+
   return {
     round: round as CompRoundRow,
     competition: competitionRes.data as CompetitionRow,
     judges,
     sheets: (sheetsRes.data ?? []) as CompJudgeSheetRow[],
-    roundEntries: (entriesRes.data ?? []) as RoundEntryWithEntry[],
+    roundEntries,
     scores: (scoresRes.data ?? []) as CompScoreRow[],
   };
 }

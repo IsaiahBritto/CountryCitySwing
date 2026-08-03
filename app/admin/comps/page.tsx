@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { compBtnPrimary } from "@/lib/comps/buttonStyles";
 
 interface CompetitionListItem {
   id: string;
@@ -133,10 +134,7 @@ export default function AdminCompsPage() {
             Scoring &amp; judging for Jack &amp; Jill and Strictly contests
           </p>
         </div>
-        <button
-          onClick={() => setShowCreate((v) => !v)}
-          className="rounded-md bg-primary px-4 py-2 font-medium text-black transition hover:bg-primary/90"
-        >
+        <button onClick={() => setShowCreate((v) => !v)} className={compBtnPrimary}>
           New competition
         </button>
       </div>
@@ -182,7 +180,7 @@ export default function AdminCompsPage() {
             <button
               onClick={createCompetition}
               disabled={creating || !newEventId || !newName.trim()}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-black disabled:opacity-50"
+              className={compBtnPrimary}
             >
               {creating ? "Creating…" : "Create"}
             </button>

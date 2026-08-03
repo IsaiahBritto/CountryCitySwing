@@ -117,7 +117,7 @@ export default function CompetitionConsolePage({
         </div>
       </div>
 
-      <div className="mb-6 flex gap-1 border-b border-neutral-800">
+      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-neutral-800 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {(
           [
             ["entries", `Entries (${entries.length})`],
@@ -129,7 +129,7 @@ export default function CompetitionConsolePage({
             key={key}
             onClick={() => setTab(key)}
             className={
-              "px-4 py-2 text-sm font-medium transition " +
+              "shrink-0 whitespace-nowrap px-4 py-2 text-sm font-medium transition " +
               (tab === key
                 ? "border-b-2 border-primary text-primary"
                 : "text-neutral-400 hover:text-white")

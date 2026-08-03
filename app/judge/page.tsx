@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { compBtnPrimary, compBtnPrimarySm } from "@/lib/comps/buttonStyles";
 import { roundTitle } from "@/lib/comps/roundChain";
 
 interface CompetitionSummary {
@@ -98,10 +99,7 @@ export default function JudgeHomePage() {
       <div className="mx-auto mt-12 max-w-md rounded-xl border border-neutral-700 bg-neutral-800/50 p-8 text-center">
         <h1 className="mb-2 text-xl font-semibold text-primary">Judge sign-in</h1>
         <p className="mb-6 text-neutral-400">Sign in to see your assigned rounds.</p>
-        <Link
-          href="/auth"
-          className="inline-block rounded-md bg-primary px-4 py-2 font-medium text-black"
-        >
+        <Link href="/auth" className={"inline-block " + compBtnPrimary}>
           Sign in
         </Link>
       </div>
@@ -165,24 +163,22 @@ export default function JudgeHomePage() {
                     <div
                       key={r.id}
                       className={
-                        "flex items-center justify-between rounded-lg border px-3 py-2 " +
+                        "flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:justify-between " +
                         (r.readyToJudge
                           ? "border-primary/50 bg-primary/5"
                           : "border-neutral-800 bg-neutral-900/40")
                       }
                     >
-                      <span className="text-sm text-neutral-200">
-                        {roundTitle(r)}
-                      </span>
+                      <span className="text-sm text-neutral-200">{roundTitle(r)}</span>
                       {r.readyToJudge ? (
                         <Link
                           href={`/judge/${r.id}`}
-                          className="rounded bg-primary px-2 py-1 text-xs font-semibold text-black"
+                          className={compBtnPrimarySm + " text-center"}
                         >
                           Ready to judge
                         </Link>
                       ) : (
-                        <span className="text-xs text-neutral-500">
+                        <span className="text-xs text-neutral-500 sm:text-right">
                           {roundStatusLabel(r)}
                         </span>
                       )}

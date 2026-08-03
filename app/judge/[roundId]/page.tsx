@@ -95,19 +95,17 @@ function JudgeRoundInner({
   }`;
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-6">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <Link href="/judge" className="text-xs text-neutral-500 hover:text-primary">
-            ← My rounds
-          </Link>
-          <h1 className="text-lg font-bold text-white">{title}</h1>
-          {asAssignment && (
-            <p className="text-xs text-amber-400">
-              Entering scores on a judge&apos;s behalf (admin)
-            </p>
-          )}
-        </div>
+    <div className="mx-auto max-w-2xl px-4 py-4 sm:py-6">
+      <div className="mb-4">
+        <Link href="/judge" className="text-xs text-neutral-500 hover:text-primary">
+          ← My rounds
+        </Link>
+        <h1 className="text-base font-bold leading-snug text-white sm:text-lg">{title}</h1>
+        {asAssignment && (
+          <p className="text-xs text-amber-400">
+            Entering scores on a judge&apos;s behalf (admin)
+          </p>
+        )}
       </div>
 
       {round.status === "checkin" && (

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import {
-  compBtnPrimary,
+  compBtnOutline,
   compBtnSecondary,
 } from "@/lib/comps/buttonStyles";
 import { sortRoundEntriesByBib } from "@/lib/comps/entrySort";
@@ -228,10 +228,8 @@ export default function RoundPanel({
   const heatNumber = (heatId: string | null) =>
     heats.find((h) => h.id === heatId)?.heat_number ?? null;
 
-  const btn = "rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50 transition min-h-11";
-  const btnPrimary = `${btn} border border-primary bg-primary text-neutral-900 hover:bg-primary/90`;
-  const btnGhost = `${btn} border border-neutral-600 text-neutral-200 hover:border-primary/60`;
-  const btnDanger = `${btn} border border-red-500/50 text-red-300 hover:bg-red-500/10`;
+  const btnDanger =
+    "inline-flex min-h-11 items-center justify-center rounded-md border border-red-500/50 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50";
 
   return (
     <div className="mt-3 rounded-lg border border-neutral-700 bg-neutral-900/60 p-4">
@@ -254,14 +252,14 @@ export default function RoundPanel({
                 onChange={(e) => setHeatCount(Math.max(1, Number(e.target.value)))}
                 className="w-16 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-1 text-sm text-white"
               />
-              <button onClick={randomizeHeats} disabled={busy} className={btnGhost}>
+              <button onClick={randomizeHeats} disabled={busy} className={compBtnSecondary}>
                 Randomize heats
               </button>
             </div>
             <button
               onClick={() => transition("checkin")}
               disabled={busy}
-              className={`round-action-primary ${btnPrimary}`}
+              className={`round-action-primary ${compBtnOutline}`}
             >
               Begin check-in
             </button>
@@ -269,18 +267,18 @@ export default function RoundPanel({
         )}
         {status === "checkin" && (
           <>
-            <button onClick={() => transition("pending")} disabled={busy} className={btnGhost}>
+            <button onClick={() => transition("pending")} disabled={busy} className={compBtnSecondary}>
               Back
             </button>
             {round.source_round_id && (
-              <button onClick={promoteAlternate} disabled={busy} className={btnGhost}>
+              <button onClick={promoteAlternate} disabled={busy} className={compBtnSecondary}>
                 Promote next alternate
               </button>
             )}
             <button
               onClick={() => transition("open")}
               disabled={busy || unresolvedCheckin > 0}
-              className={`round-action-primary ${btnPrimary}`}
+              className={`round-action-primary ${compBtnOutline}`}
               title={
                 unresolvedCheckin > 0
                   ? `${unresolvedCheckin} entries still unresolved`
@@ -293,13 +291,13 @@ export default function RoundPanel({
         )}
         {status === "open" && (
           <>
-            <button onClick={() => transition("checkin")} disabled={busy} className={btnGhost}>
+            <button onClick={() => transition("checkin")} disabled={busy} className={compBtnSecondary}>
               Back to check-in
             </button>
             <button
               onClick={() => transition("closed")}
               disabled={busy}
-              className={`round-action-primary ${btnPrimary}`}
+              className={`round-action-primary ${compBtnOutline}`}
             >
               Close scoring
             </button>
@@ -307,13 +305,13 @@ export default function RoundPanel({
         )}
         {status === "closed" && (
           <>
-            <button onClick={() => transition("open")} disabled={busy} className={btnGhost}>
+            <button onClick={() => transition("open")} disabled={busy} className={compBtnSecondary}>
               Reopen scoring
             </button>
             <button
               onClick={() => tabulate()}
               disabled={busy}
-              className={`round-action-primary ${btnPrimary}`}
+              className={`round-action-primary ${compBtnOutline}`}
             >
               Tabulate
             </button>
@@ -327,7 +325,7 @@ export default function RoundPanel({
             <button
               onClick={() => publish("POST")}
               disabled={busy}
-              className={`round-action-primary ${btnPrimary}`}
+              className={`round-action-primary ${compBtnOutline}`}
             >
               Publish results
             </button>
@@ -394,7 +392,7 @@ export default function RoundPanel({
             <button
               onClick={() => tabulate(tieOrders)}
               disabled={busy}
-              className={compBtnPrimary}
+              className={compBtnOutline}
             >
               Confirm order &amp; tabulate
             </button>

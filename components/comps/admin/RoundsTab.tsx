@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnPrimary } from "@/lib/comps/buttonStyles";
+import { compBtnOutline } from "@/lib/comps/buttonStyles";
 import RoundSlotPanel from "@/components/comps/admin/RoundSlotPanel";
 import { ROUND_SLOT_ORDER, roundTitle, type RoundSlotRef } from "@/lib/comps/roundChain";
 import type { RoundType } from "@/lib/comps/types";
@@ -132,7 +132,7 @@ export default function RoundsTab({
             <button
               onClick={runDraw}
               disabled={drawing || !drawLead || !drawFollow}
-              className={compBtnPrimary}
+              className={compBtnOutline}
             >
               {drawing ? "Drawing…" : "Run draw & create finals"}
             </button>

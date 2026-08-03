@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnPrimary, compBtnTabActive } from "@/lib/comps/buttonStyles";
+import { compBtnOutline, compBtnTabActive } from "@/lib/comps/buttonStyles";
 import RoundPanel from "@/components/comps/admin/RoundPanel";
 import {
   getSlotLabel,
@@ -134,7 +134,7 @@ function EnableForm({
       <button
         onClick={save}
         disabled={busy}
-        className={compBtnPrimary}
+        className={compBtnOutline}
       >
         {busy ? "Enabling…" : "Enable round"}
       </button>
@@ -251,8 +251,8 @@ export default function RoundSlotPanel({
                       key={role}
                       onClick={() => setJnjTab(role)}
                       className={
-                        "min-w-[7rem] flex-1 rounded-md px-3 py-1.5 text-sm font-medium " +
-                        (jnjTab === role ? compBtnTabActive : "text-neutral-400")
+                        "min-w-[7rem] flex-1 " +
+                        (jnjTab === role ? compBtnTabActive : "rounded-md px-3 py-1.5 text-sm font-medium text-neutral-400")
                       }
                     >
                       {role === "lead" ? "Leads" : "Follows"}
@@ -292,8 +292,8 @@ export default function RoundSlotPanel({
                       key={role}
                       onClick={() => setJnjTab(role)}
                       className={
-                        "min-w-[7rem] flex-1 rounded-md px-3 py-1.5 text-sm font-medium " +
-                        (jnjTab === role ? compBtnTabActive : "text-neutral-400")
+                        "min-w-[7rem] flex-1 " +
+                        (jnjTab === role ? compBtnTabActive : "rounded-md px-3 py-1.5 text-sm font-medium text-neutral-400")
                       }
                     >
                       {role === "lead" ? "Leads" : "Follows"}

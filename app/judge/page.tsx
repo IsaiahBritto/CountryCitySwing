@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnPrimary, compBtnPrimarySm } from "@/lib/comps/buttonStyles";
+import { compBtnOutline, compBtnOutlineSm } from "@/lib/comps/buttonStyles";
 import { roundTitle } from "@/lib/comps/roundChain";
 
 interface CompetitionSummary {
@@ -99,7 +99,7 @@ export default function JudgeHomePage() {
       <div className="mx-auto mt-12 max-w-md rounded-xl border border-neutral-700 bg-neutral-800/50 p-8 text-center">
         <h1 className="mb-2 text-xl font-semibold text-primary">Judge sign-in</h1>
         <p className="mb-6 text-neutral-400">Sign in to see your assigned rounds.</p>
-        <Link href="/auth" className={"inline-block " + compBtnPrimary}>
+        <Link href="/auth" className={compBtnOutline}>
           Sign in
         </Link>
       </div>
@@ -173,7 +173,7 @@ export default function JudgeHomePage() {
                       {r.readyToJudge ? (
                         <Link
                           href={`/judge/${r.id}`}
-                          className={compBtnPrimarySm + " text-center"}
+                          className={compBtnOutlineSm + " text-center"}
                         >
                           Ready to judge
                         </Link>

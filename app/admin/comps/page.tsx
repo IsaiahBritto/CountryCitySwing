@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnPrimary } from "@/lib/comps/buttonStyles";
+import { compBtnOutline } from "@/lib/comps/buttonStyles";
 
 interface CompetitionListItem {
   id: string;
@@ -134,7 +134,7 @@ export default function AdminCompsPage() {
             Scoring &amp; judging for Jack &amp; Jill and Strictly contests
           </p>
         </div>
-        <button onClick={() => setShowCreate((v) => !v)} className={compBtnPrimary}>
+        <button onClick={() => setShowCreate((v) => !v)} className={compBtnOutline}>
           New competition
         </button>
       </div>
@@ -180,7 +180,7 @@ export default function AdminCompsPage() {
             <button
               onClick={createCompetition}
               disabled={creating || !newEventId || !newName.trim()}
-              className={compBtnPrimary}
+              className={compBtnOutline}
             >
               {creating ? "Creating…" : "Create"}
             </button>

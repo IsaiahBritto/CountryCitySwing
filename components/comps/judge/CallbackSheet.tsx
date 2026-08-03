@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnPrimaryLg, compBtnTabActive } from "@/lib/comps/buttonStyles";
+import { compBtnOutlineLg, compBtnVoteYes } from "@/lib/comps/buttonStyles";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 
 type Vote = "yes" | "alt1" | "alt2" | "alt3" | "no";
@@ -150,12 +150,9 @@ export default function CallbackSheet({
     return [...map.entries()].sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0));
   }, [entries]);
 
-  const voteBtn = (active: boolean, tone: string) =>
-    `min-h-11 rounded-md border px-2.5 py-2 text-sm font-semibold transition ${
-      active
-        ? tone
-        : "border-neutral-600 text-neutral-400 active:bg-neutral-700"
-    } ${locked ? "opacity-60" : ""}`;
+  const voteBtnLocked = locked ? " opacity-60" : "";
+  const voteBtnNeutral =
+    "min-h-11 rounded-md border border-neutral-600 px-2.5 py-2 text-sm font-semibold text-neutral-400 active:bg-neutral-700";
 
   return (
     <div>
@@ -253,10 +250,11 @@ export default function CallbackSheet({
                     <button
                       onClick={() => setVote(e.roundEntryId, "yes")}
                       disabled={locked}
-                      className={voteBtn(
-                        vote === "yes",
-                        "border-primary bg-primary text-neutral-900"
-                      )}
+                      className={
+                        (vote === "yes"
+                          ? `${compBtnVoteYes} is-active`
+                          : compBtnVoteYes) + voteBtnLocked
+                      }
                     >
                       Yes
                     </button>
@@ -265,10 +263,11 @@ export default function CallbackSheet({
                         key={rank}
                         onClick={() => setVote(e.roundEntryId, rank)}
                         disabled={locked}
-                        className={voteBtn(
-                          vote === rank,
-                          "border-amber-500 bg-amber-500 text-neutral-900"
-                        )}
+                        className={
+                          (vote === rank
+                            ? "min-h-11 rounded-md border border-amber-500 bg-amber-500 px-2.5 py-2 text-sm font-semibold text-neutral-900"
+                            : voteBtnNeutral) + voteBtnLocked
+                        }
                       >
                         {rank.replace("alt", "A")}
                       </button>
@@ -276,10 +275,11 @@ export default function CallbackSheet({
                     <button
                       onClick={() => setVote(e.roundEntryId, "no")}
                       disabled={locked}
-                      className={voteBtn(
-                        vote === "no",
-                        "border-red-600 bg-red-600 text-white"
-                      )}
+                      className={
+                        (vote === "no"
+                          ? "min-h-11 rounded-md border border-red-600 bg-red-600 px-2.5 py-2 text-sm font-semibold text-white"
+                          : voteBtnNeutral) + voteBtnLocked
+                      }
                     >
                       No
                     </button>
@@ -296,7 +296,7 @@ export default function CallbackSheet({
         <button
           onClick={submit}
           disabled={!canSubmit || submitting}
-          className={compBtnPrimaryLg}
+          className={compBtnOutlineLg}
         >
           {submitting
             ? "Submitting…"

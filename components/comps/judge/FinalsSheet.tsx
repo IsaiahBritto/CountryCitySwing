@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnPrimaryLg, compBtnTabActive } from "@/lib/comps/buttonStyles";
+import { compBtnOutlineLg, compBtnTabActive } from "@/lib/comps/buttonStyles";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 import {
   applyRawChange,
@@ -244,7 +244,9 @@ export default function FinalsSheet({
                 onClick={() => setMode(key)}
                 className={
                   "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition min-h-11 sm:flex-none " +
-                  (mode === key ? compBtnTabActive : "text-neutral-400 hover:text-white")
+                  (mode === key
+                    ? compBtnTabActive
+                    : "border border-transparent text-neutral-400 hover:text-white")
                 }
               >
                 {label}
@@ -423,7 +425,7 @@ export default function FinalsSheet({
         <button
           onClick={submit}
           disabled={submitting || tied.size > 0}
-          className={compBtnPrimaryLg}
+          className={compBtnOutlineLg}
         >
           {submitting
             ? "Submitting…"

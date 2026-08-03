@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnPrimary, compBtnTabActive } from "@/lib/comps/buttonStyles";
+import { compBtnOutline, compBtnSecondary, compBtnTabActive } from "@/lib/comps/buttonStyles";
 
 interface EntryRow {
   id: string;
@@ -188,7 +188,7 @@ export default function EntriesTab({
       )}
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <button onClick={() => setImportOpen(true)} className={compBtnPrimary}>
+        <button onClick={() => setImportOpen(true)} className={compBtnOutline}>
           Import from signups
         </button>
         <button
@@ -212,7 +212,7 @@ export default function EntriesTab({
                   onClick={() => setWuRole(r)}
                   className={
                     "rounded-md px-3 py-1.5 text-sm min-h-11 " +
-                    (wuRole === r ? compBtnTabActive : "border border-neutral-600 text-neutral-300")
+                    (wuRole === r ? compBtnTabActive : compBtnSecondary)
                   }
                 >
                   {r === "lead" ? "Lead" : "Follow"}
@@ -239,7 +239,7 @@ export default function EntriesTab({
           <button
             onClick={addWalkup}
             disabled={addingWalkup}
-            className={"mt-3 " + compBtnPrimary}
+            className={"mt-3 " + compBtnOutline}
           >
             {addingWalkup ? "Adding…" : "Add entry"}
           </button>
@@ -305,7 +305,7 @@ export default function EntriesTab({
               <button
                 onClick={runImport}
                 disabled={importing || selected.size === 0}
-                className={"mt-3 " + compBtnPrimary}
+                className={"mt-3 " + compBtnOutline}
               >
                 {importing ? "Importing…" : `Import ${selected.size} selected`}
               </button>

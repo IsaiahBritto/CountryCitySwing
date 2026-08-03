@@ -5,7 +5,11 @@ import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import { compBtnOutline, compBtnOutlineSm } from "@/lib/comps/buttonStyles";
-import { roundTitle } from "@/lib/comps/roundChain";
+import {
+  groupJudgeRoundSlots,
+  type JudgeRoundRow,
+} from "@/lib/comps/judgeRoundSlots";
+import type { ScoringScope } from "@/lib/comps/types";
 
 interface CompetitionSummary {
   id: string;
@@ -14,34 +18,17 @@ interface CompetitionSummary {
   event: { title: string; starts_at: string } | null;
 }
 
-interface JudgeRound {
-  id: string;
-  round_type: string;
-  judged_role: "lead" | "follow" | null;
-  status: string;
-  sheetStatus: "draft" | "submitted" | null;
-  readyToJudge: boolean;
-}
-
 interface JudgeAssignment {
   id: string;
   competitionId: string;
   judgeRole: "judge" | "chief_judge";
+  scoringScope: ScoringScope;
   competition: CompetitionSummary | null;
-  rounds: JudgeRound[];
+  rounds: JudgeRoundRow[];
 }
 
 function roleLabel(role: "judge" | "chief_judge"): string {
   return role === "chief_judge" ? "Chief judge" : "Judge";
-}
-
-function roundStatusLabel(r: JudgeRound): string {
-  if (r.readyToJudge) return "Ready to judge";
-  if (r.status === "open" && r.sheetStatus === "submitted") return "Submitted";
-  if (r.status === "checkin") return "Check-in";
-  if (r.status === "closed") return "Closed";
-  if (r.status === "tabulated" || r.status === "published") return "Done";
-  return r.status;
 }
 
 export default function JudgeHomePage() {
@@ -131,63 +118,66 @@ export default function JudgeHomePage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">
             Your assignments
           </h2>
-          {assignments.map((a) => (
-            <div
-              key={a.id}
-              className="rounded-xl border border-neutral-700 bg-neutral-800/50 p-4"
-            >
-              <div className="font-semibold text-white">
-                {a.competition?.name ?? "Competition"}
-              </div>
-              <div className="text-sm text-neutral-400">
-                {a.competition?.event?.title}
-                {" · "}
-                <span
-                  className={
-                    a.judgeRole === "chief_judge"
-                      ? "text-primary"
-                      : "text-neutral-400"
-                  }
-                >
-                  {roleLabel(a.judgeRole)}
-                </span>
-              </div>
-
-              {a.rounds.length === 0 ? (
-                <p className="mt-3 text-sm text-neutral-500">
-                  Waiting for the director to start a round.
-                </p>
-              ) : (
-                <div className="mt-3 space-y-2">
-                  {a.rounds.map((r) => (
-                    <div
-                      key={r.id}
-                      className={
-                        "flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:justify-between " +
-                        (r.readyToJudge
-                          ? "border-primary/50 bg-primary/5"
-                          : "border-neutral-800 bg-neutral-900/40")
-                      }
-                    >
-                      <span className="text-sm text-neutral-200">{roundTitle(r)}</span>
-                      {r.readyToJudge ? (
-                        <Link
-                          href={`/judge/${r.id}`}
-                          className={compBtnOutlineSm + " text-center"}
-                        >
-                          Ready to judge
-                        </Link>
-                      ) : (
-                        <span className="text-xs text-neutral-500 sm:text-right">
-                          {roundStatusLabel(r)}
-                        </span>
-                      )}
-                    </div>
-                  ))}
+          {assignments.map((a) => {
+            const slots = groupJudgeRoundSlots(a.rounds, a.scoringScope ?? "both");
+            return (
+              <div
+                key={a.id}
+                className="rounded-xl border border-neutral-700 bg-neutral-800/50 p-4"
+              >
+                <div className="font-semibold text-white">
+                  {a.competition?.name ?? "Competition"}
                 </div>
-              )}
-            </div>
-          ))}
+                <div className="text-sm text-neutral-400">
+                  {a.competition?.event?.title}
+                  {" · "}
+                  <span
+                    className={
+                      a.judgeRole === "chief_judge"
+                        ? "text-primary"
+                        : "text-neutral-400"
+                    }
+                  >
+                    {roleLabel(a.judgeRole)}
+                  </span>
+                </div>
+
+                {slots.length === 0 ? (
+                  <p className="mt-3 text-sm text-neutral-500">
+                    Waiting for the director to start a round.
+                  </p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {slots.map((slot) => (
+                      <div
+                        key={slot.key}
+                        className={
+                          "flex flex-col gap-2 rounded-lg border px-3 py-2 sm:flex-row sm:items-center sm:justify-between " +
+                          (slot.readyToJudge
+                            ? "border-primary/50 bg-primary/5"
+                            : "border-neutral-800 bg-neutral-900/40")
+                        }
+                      >
+                        <span className="text-sm text-neutral-200">{slot.label}</span>
+                        {slot.readyToJudge ? (
+                          <Link
+                            href={`/judge/${slot.roundId}`}
+                            className={compBtnOutlineSm + " text-center"}
+                          >
+                            Ready to judge
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-neutral-500 sm:text-right">
+                            {slot.statusLabel}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

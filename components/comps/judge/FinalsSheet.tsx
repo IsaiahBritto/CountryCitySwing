@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnOutlineLg, compBtnTabActive } from "@/lib/comps/buttonStyles";
+import { compBtnOutlineLg, compBtnTabActive, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 import {
   applyRawChange,
@@ -34,6 +34,7 @@ export default function FinalsSheet({
   initialScores,
   sheetStatus,
   onSubmitted,
+  stickyHeaderExtra,
 }: {
   roundId: string;
   judgeAssignmentId: string;
@@ -46,6 +47,7 @@ export default function FinalsSheet({
   }[];
   sheetStatus: "draft" | "submitted";
   onSubmitted: () => void;
+  stickyHeaderExtra?: ReactNode;
 }) {
   const entryById = useMemo(
     () => new Map(entries.map((e) => [e.roundEntryId, e])),
@@ -233,8 +235,11 @@ export default function FinalsSheet({
 
   return (
     <div>
-      {/* Sticky header: mode toggle + save state */}
-      <div className="sticky top-0 z-20 -mx-4 mb-4 border-b border-neutral-800 bg-neutral-900/95 px-4 py-3 backdrop-blur">
+      {/* Sticky header: role toggle, mode toggle + save state */}
+      <div className={judgeSheetStickyTop}>
+        {stickyHeaderExtra && (
+          <div className="mb-2 w-full">{stickyHeaderExtra}</div>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex w-full rounded-lg border border-neutral-700 p-0.5 sm:w-auto">
             {(

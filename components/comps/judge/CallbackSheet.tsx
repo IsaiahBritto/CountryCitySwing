@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnOutlineLg, compBtnVoteYes } from "@/lib/comps/buttonStyles";
+import { compBtnOutlineLg, compBtnVoteYesSm, judgeSheetStickyBottom, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 
 type Vote = "yes" | "alt1" | "alt2" | "alt3" | "no";
@@ -24,6 +24,7 @@ export default function CallbackSheet({
   initialScores,
   sheetStatus,
   onSubmitted,
+  stickyHeaderExtra,
 }: {
   roundId: string;
   judgeAssignmentId: string;
@@ -34,6 +35,7 @@ export default function CallbackSheet({
   initialScores: { round_entry_id: string; callback_value: string | null }[];
   sheetStatus: "draft" | "submitted";
   onSubmitted: () => void;
+  stickyHeaderExtra?: ReactNode;
 }) {
   const [votes, setVotes] = useState<Map<string, Vote>>(() => {
     const map = new Map<string, Vote>();
@@ -155,13 +157,19 @@ export default function CallbackSheet({
 
   const voteBtnLocked = locked ? " opacity-60" : "";
   const voteBtnNeutral =
-    "min-h-11 rounded-md border border-neutral-600 px-2.5 py-2 text-sm font-semibold text-neutral-400 active:bg-neutral-700";
+    "min-h-9 rounded-md border border-neutral-600 px-1 py-1.5 text-xs font-semibold text-neutral-400 active:bg-neutral-700 sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
+  const voteBtnNeutralActiveAlt =
+    "min-h-9 rounded-md border border-amber-500 bg-amber-500 px-1 py-1.5 text-xs font-semibold text-neutral-900 sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
+  const voteBtnNeutralActiveNo =
+    "min-h-9 rounded-md border border-red-600 bg-red-600 px-1 py-1.5 text-xs font-semibold text-white sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
 
   return (
     <div>
-      {/* Sticky progress header */}
-      <div className="sticky top-0 z-20 -mx-4 mb-4 border-b border-neutral-800 bg-neutral-900/95 px-4 py-3 backdrop-blur">
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
+      <div className={judgeSheetStickyTop}>
+        {stickyHeaderExtra && (
+          <div className="mb-2 w-full">{stickyHeaderExtra}</div>
+        )}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
           <span
             className={
               yesCount === effectiveCallbacks
@@ -190,7 +198,7 @@ export default function CallbackSheet({
               ))}
             </span>
           )}
-          <span className="text-xs text-neutral-500 max-sm:w-full max-sm:text-left">
+          <span className="ml-auto text-xs text-neutral-500">
             {autosave.saveState === "saving"
               ? "Saving…"
               : autosave.saveState === "offline"
@@ -252,14 +260,14 @@ export default function CallbackSheet({
                       </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 sm:flex sm:shrink-0 sm:gap-1">
+                  <div className="grid w-full grid-cols-5 gap-1 sm:flex sm:shrink-0 sm:gap-1">
                     <button
                       onClick={() => setVote(e.roundEntryId, "yes")}
                       disabled={locked}
                       className={
                         (vote === "yes"
-                          ? `${compBtnVoteYes} is-active`
-                          : compBtnVoteYes) + voteBtnLocked
+                          ? `${compBtnVoteYesSm} is-active`
+                          : compBtnVoteYesSm) + voteBtnLocked
                       }
                     >
                       Yes
@@ -270,9 +278,8 @@ export default function CallbackSheet({
                         onClick={() => setVote(e.roundEntryId, rank)}
                         disabled={locked}
                         className={
-                          (vote === rank
-                            ? "min-h-11 rounded-md border border-amber-500 bg-amber-500 px-2.5 py-2 text-sm font-semibold text-neutral-900"
-                            : voteBtnNeutral) + voteBtnLocked
+                          (vote === rank ? voteBtnNeutralActiveAlt : voteBtnNeutral) +
+                          voteBtnLocked
                         }
                       >
                         {rank.replace("alt", "A")}
@@ -282,9 +289,8 @@ export default function CallbackSheet({
                       onClick={() => setVote(e.roundEntryId, "no")}
                       disabled={locked}
                       className={
-                        (vote === "no"
-                          ? "min-h-11 rounded-md border border-red-600 bg-red-600 px-2.5 py-2 text-sm font-semibold text-white"
-                          : voteBtnNeutral) + voteBtnLocked
+                        (vote === "no" ? voteBtnNeutralActiveNo : voteBtnNeutral) +
+                        voteBtnLocked
                       }
                     >
                       No
@@ -298,7 +304,7 @@ export default function CallbackSheet({
       ))}
 
       {!locked && (
-        <div className="sticky bottom-0 -mx-4 mt-4 border-t border-neutral-800 bg-neutral-900/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
+        <div className={judgeSheetStickyBottom}>
         <button
           onClick={submit}
           disabled={!canSubmit || submitting}

@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireJudgeAuth } from "@/lib/judgeAuth";
+import { loadRoundContext, RoundDataError } from "@/lib/comps/roundData";
 import {
-  activeRoundEntries,
-  entryDisplay,
-  loadRoundContext,
-  RoundDataError,
-} from "@/lib/comps/roundData";
+  buildJudgeRoundViewPayload,
+  JudgeRoundAccessError,
+} from "@/lib/comps/judgeRoundPayload";
 import { judgeScoresRound, siblingRoundFor } from "@/lib/comps/judgeScope";
 import { supabaseServer } from "@/lib/supabaseServer";
 
@@ -13,6 +12,9 @@ import { supabaseServer } from "@/lib/supabaseServer";
  * GET: scoring context for a judge device. Entries only populate once the
  * round is open (check-in complete). Admins may pass ?judge_assignment_id=
  * to load/enter scores on a judge's behalf.
+ *
+ * When the judge scores both roles, siblingContext includes the opposite
+ * role's payload in the same response for instant client-side toggling.
  */
 export async function GET(
   req: NextRequest,
@@ -35,7 +37,6 @@ export async function GET(
   });
   if (!auth.ok) return auth.response;
 
-  // Resolve which judge assignment this request acts as.
   const overrideId = req.nextUrl.searchParams.get("judge_assignment_id");
   let assignment = auth.assignments.find(
     (a) => a.competition_id === ctx.round.competition_id
@@ -64,48 +65,40 @@ export async function GET(
     );
   }
 
+  let primary;
+  try {
+    primary = await buildJudgeRoundViewPayload(roundId, assignment);
+  } catch (err) {
+    if (err instanceof JudgeRoundAccessError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    throw err;
+  }
+
   const { data: compRounds } = await supabaseServer
     .from("comp_rounds")
     .select("id, round_type, judged_role")
     .eq("competition_id", ctx.round.competition_id);
   const siblingRound = siblingRoundFor(compRounds ?? [], ctx.round);
 
-  const { data: heats } = await supabaseServer
-    .from("comp_heats")
-    .select("*")
-    .eq("round_id", roundId)
-    .order("heat_number");
-
-  const showEntries = ["open", "closed"].includes(ctx.round.status);
-  const active = showEntries ? activeRoundEntries(ctx) : [];
-  const heatNumberById = new Map((heats ?? []).map((h) => [h.id, h.heat_number]));
-
-  const sheet = ctx.sheets.find((s) => s.judge_assignment_id === assignment.id);
-  const myScores = ctx.scores.filter(
-    (s) => s.judge_assignment_id === assignment.id
-  );
-
-  const unresolvedCheckin = ctx.roundEntries.filter(
-    (re) => !re.scratched && re.checkin_status === "pending"
-  ).length;
-  const presentCount = activeRoundEntries(ctx).length;
+  let siblingContext = null;
+  if (assignment.scoring_scope === "both" && siblingRound) {
+    try {
+      siblingContext = await buildJudgeRoundViewPayload(
+        siblingRound.id,
+        assignment
+      );
+    } catch (err) {
+      if (err instanceof JudgeRoundAccessError) {
+        siblingContext = null;
+      } else {
+        throw err;
+      }
+    }
+  }
 
   return NextResponse.json({
-    round: {
-      id: ctx.round.id,
-      competition_id: ctx.round.competition_id,
-      round_type: ctx.round.round_type,
-      judged_role: ctx.round.judged_role,
-      scoring_mode: ctx.round.scoring_mode,
-      callback_count: ctx.round.callback_count,
-      alternate_count: ctx.round.alternate_count,
-      status: ctx.round.status,
-    },
-    checkin: {
-      unresolved: unresolvedCheckin,
-      present: presentCount,
-      complete: unresolvedCheckin === 0 && presentCount > 0,
-    },
+    ...primary,
     competition: {
       id: ctx.competition.id,
       name: ctx.competition.name,
@@ -115,27 +108,6 @@ export async function GET(
     judgeRole: assignment.judge_role,
     scoringScope: assignment.scoring_scope,
     siblingRound,
-    sheet: sheet
-      ? { status: sheet.status, submitted_at: sheet.submitted_at }
-      : { status: "draft", submitted_at: null },
-    entries: active
-      .map((re) => ({
-        ...entryDisplay(re),
-        heatNumber: re.heat_id ? heatNumberById.get(re.heat_id) ?? null : null,
-        danceOrder: re.dance_order,
-      }))
-      .sort(
-        (a, b) =>
-          (a.heatNumber ?? 0) - (b.heatNumber ?? 0) ||
-          (a.danceOrder ?? 0) - (b.danceOrder ?? 0) ||
-          (a.bibNumber ?? 0) - (b.bibNumber ?? 0)
-      ),
-    scores: myScores.map((s) => ({
-      round_entry_id: s.round_entry_id,
-      callback_value: s.callback_value,
-      ordinal: s.ordinal,
-      raw_score: s.raw_score != null ? Number(s.raw_score) : null,
-      updated_at: s.updated_at,
-    })),
+    siblingContext,
   });
 }

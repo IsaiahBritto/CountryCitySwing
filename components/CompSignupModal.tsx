@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { authedFetch } from "@/lib/comps/clientAuth";
+import { profileDisplayName } from "@/lib/profileUtils";
 import { DEFAULT_TIME_ZONE, formatEventDate, formatEventTime, getTimeZoneAbbreviation } from "@/lib/utils/dateHelpers";
 import SignupModalShell from "@/components/SignupModalShell";
 import ChoiceCards from "@/components/ChoiceCards";
+import ProfileSearchPicker, { type ProfileResult } from "@/components/ProfileSearchPicker";
 
 type CompEvent = {
   id: string | number;
@@ -20,6 +25,7 @@ type CompEvent = {
 };
 
 type PaymentMethod = "Stripe" | "Cash";
+type AuthState = "loading" | "logged_out" | "no_profile" | "ready";
 
 const ROLE_LEAD = "lead";
 const ROLE_FOLLOW = "follow";
@@ -33,9 +39,11 @@ export default function CompSignupModal({
   event: CompEvent | null;
   open: boolean;
   onClose: () => void;
-  /** When true, render only the link + form (no modal wrapper). Use inside another overlay to avoid nested modals. */
   embedded?: boolean;
 }) {
+  const pathname = usePathname();
+  const authNext = pathname ? `/auth?next=${encodeURIComponent(pathname)}` : "/auth";
+
   const hasStrictly = event && event.strictly_price != null && Number(event.strictly_price) >= 0;
   const hasJnJ = event && event.jnj_price != null && Number(event.jnj_price) >= 0;
   const howsMyDancingUrl = event?.signupLink || event?.signup_link || "";
@@ -45,32 +53,19 @@ export default function CompSignupModal({
     "";
   const hasRefundStatement = Boolean(refundStatement);
 
+  const [authState, setAuthState] = useState<AuthState>("loading");
+  const [selfProfile, setSelfProfile] = useState<ProfileResult | null>(null);
+
   const [strictlySelected, setStrictlySelected] = useState(false);
   const [jnjSelected, setJnJSelected] = useState(false);
   const [strictlyRole, setStrictlyRole] = useState<"lead" | "follow" | "">("");
   const [jnjRole, setJnJRole] = useState<"lead" | "follow" | "">("");
+  const [strictlyPartner, setStrictlyPartner] = useState<ProfileResult | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Stripe");
-
-  const [strictlyLeadFirst, setStrictlyLeadFirst] = useState("");
-  const [strictlyLeadLast, setStrictlyLeadLast] = useState("");
-  const [strictlyLeadEmail, setStrictlyLeadEmail] = useState("");
-  const [strictlyFollowFirst, setStrictlyFollowFirst] = useState("");
-  const [strictlyFollowLast, setStrictlyFollowLast] = useState("");
-  const [strictlyFollowEmail, setStrictlyFollowEmail] = useState("");
-
-  const [jnjLeadFirst, setJnJLeadFirst] = useState("");
-  const [jnjLeadLast, setJnJLeadLast] = useState("");
-  const [jnjLeadEmail, setJnJLeadEmail] = useState("");
-  const [jnjFollowFirst, setJnJFollowFirst] = useState("");
-  const [jnjFollowLast, setJnJFollowLast] = useState("");
-  const [jnjFollowEmail, setJnJFollowEmail] = useState("");
-
-  const [userInfo, setUserInfo] = useState<{ first: string; last: string; email: string } | null>(null);
 
   const [acceptLiability, setAcceptLiability] = useState(false);
   const [acceptPayment, setAcceptPayment] = useState(false);
   const [acceptRefund, setAcceptRefund] = useState(false);
-  const [loadingUser, setLoadingUser] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
@@ -87,53 +82,37 @@ export default function CompSignupModal({
     if (!event || (!open && !embedded)) return;
     let cancelled = false;
     (async () => {
-      setLoadingUser(true);
+      setAuthState("loading");
       try {
         const { data: { user } } = await supabaseBrowser.auth.getUser();
-        if (!user || cancelled) return;
+        if (cancelled) return;
+        if (!user) {
+          setSelfProfile(null);
+          setAuthState("logged_out");
+          return;
+        }
         const { data: profile } = await supabaseBrowser
           .from("profiles")
-          .select("first_name, last_name")
+          .select("id, first_name, last_name, email")
           .eq("id", user.id)
-          .single();
-        const first = profile?.first_name || (user.user_metadata?.first_name as string) || "";
-        const last = profile?.last_name || (user.user_metadata?.last_name as string) || "";
-        const email = (user.email as string) || "";
-        if (!cancelled) setUserInfo({ first, last, email });
-      } catch (_) {
-        if (!cancelled) setUserInfo(null);
-      } finally {
-        if (!cancelled) setLoadingUser(false);
+          .maybeSingle();
+        if (cancelled) return;
+        if (!profile) {
+          setSelfProfile(null);
+          setAuthState("no_profile");
+          return;
+        }
+        setSelfProfile(profile as ProfileResult);
+        setAuthState("ready");
+      } catch {
+        if (!cancelled) {
+          setSelfProfile(null);
+          setAuthState("logged_out");
+        }
       }
     })();
     return () => { cancelled = true; };
   }, [open, embedded, event?.id]);
-
-  useEffect(() => {
-    if (!userInfo) return;
-    if (strictlyRole === ROLE_LEAD) {
-      setStrictlyLeadFirst(userInfo.first);
-      setStrictlyLeadLast(userInfo.last);
-      setStrictlyLeadEmail(userInfo.email);
-    } else if (strictlyRole === ROLE_FOLLOW) {
-      setStrictlyFollowFirst(userInfo.first);
-      setStrictlyFollowLast(userInfo.last);
-      setStrictlyFollowEmail(userInfo.email);
-    }
-  }, [strictlyRole, userInfo]);
-
-  useEffect(() => {
-    if (!userInfo) return;
-    if (jnjRole === ROLE_LEAD) {
-      setJnJLeadFirst(userInfo.first);
-      setJnJLeadLast(userInfo.last);
-      setJnJLeadEmail(userInfo.email);
-    } else if (jnjRole === ROLE_FOLLOW) {
-      setJnJFollowFirst(userInfo.first);
-      setJnJFollowLast(userInfo.last);
-      setJnJFollowEmail(userInfo.email);
-    }
-  }, [jnjRole, userInfo]);
 
   useEffect(() => {
     if (!open && !embedded) {
@@ -141,19 +120,8 @@ export default function CompSignupModal({
       setJnJSelected(false);
       setStrictlyRole("");
       setJnJRole("");
+      setStrictlyPartner(null);
       setPaymentMethod("Stripe");
-      setStrictlyLeadFirst("");
-      setStrictlyLeadLast("");
-      setStrictlyLeadEmail("");
-      setStrictlyFollowFirst("");
-      setStrictlyFollowLast("");
-      setStrictlyFollowEmail("");
-      setJnJLeadFirst("");
-      setJnJLeadLast("");
-      setJnJLeadEmail("");
-      setJnJFollowFirst("");
-      setJnJFollowLast("");
-      setJnJFollowEmail("");
       setAcceptLiability(false);
       setAcceptPayment(false);
       setAcceptRefund(false);
@@ -164,81 +132,63 @@ export default function CompSignupModal({
   }, [open, embedded]);
 
   useEffect(() => {
+    setStrictlyPartner(null);
+  }, [strictlyRole]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   const validate = (): string | null => {
+    if (authState !== "ready" || !selfProfile) {
+      return "Sign in with a CCS account to register.";
+    }
     if (!strictlySelected && !jnjSelected) return "Please select at least one: Strictly or JnJ.";
     if (strictlySelected && hasStrictly) {
-      if (!strictlyLeadFirst?.trim() || !strictlyLeadLast?.trim() || !strictlyLeadEmail?.trim())
-        return "Strictly: please fill in Lead first name, last name, and email.";
-      if (!strictlyFollowFirst?.trim() || !strictlyFollowLast?.trim() || !strictlyFollowEmail?.trim())
-        return "Strictly: please fill in Follow first name, last name, and email.";
-      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRe.test(strictlyLeadEmail) || !emailRe.test(strictlyFollowEmail))
-        return "Strictly: please enter valid email addresses.";
+      if (!strictlyRole) return "Strictly: select whether you are Lead or Follow.";
+      if (!strictlyPartner) return "Strictly: search for and select your partner.";
     }
     if (jnjSelected && hasJnJ) {
-      if (!jnjRole) return "JnJ: please select I am a Lead or I am a Follow.";
-      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (jnjRole === ROLE_LEAD) {
-        if (!jnjLeadFirst?.trim() || !jnjLeadLast?.trim() || !jnjLeadEmail?.trim())
-          return "JnJ: please fill in Lead first name, last name, and email.";
-        if (!emailRe.test(jnjLeadEmail)) return "JnJ: please enter a valid email.";
-      } else {
-        if (!jnjFollowFirst?.trim() || !jnjFollowLast?.trim() || !jnjFollowEmail?.trim())
-          return "JnJ: please fill in Follow first name, last name, and email.";
-        if (!emailRe.test(jnjFollowEmail)) return "JnJ: please enter a valid email.";
-      }
+      if (!jnjRole) return "JnJ: select whether you are Lead or Follow.";
     }
     if (!acceptLiability) return "The above is a required field.";
     if (!acceptPayment) return "The above is a required field.";
-    if (hasRefundStatement && !acceptRefund) {
-      return "The above is a required field.";
-    }
+    if (hasRefundStatement && !acceptRefund) return "The above is a required field.";
     return null;
   };
 
-  const getJnJPayload = () => {
-    if (!jnjSelected) {
-      return {
-        jnj_lead_first_name: null as string | null,
-        jnj_lead_last_name: null,
-        jnj_lead_email: null,
-        jnj_follow_first_name: null,
-        jnj_follow_last_name: null,
-        jnj_follow_email: null,
-      };
+  const buildProfilePayload = () => {
+    const registrantId = selfProfile!.id;
+    let strictlyLeadId: string | null = null;
+    let strictlyFollowId: string | null = null;
+    let jnjLeadId: string | null = null;
+    let jnjFollowId: string | null = null;
+
+    if (strictlySelected && strictlyRole && strictlyPartner) {
+      if (strictlyRole === ROLE_LEAD) {
+        strictlyLeadId = registrantId;
+        strictlyFollowId = strictlyPartner.id;
+      } else {
+        strictlyFollowId = registrantId;
+        strictlyLeadId = strictlyPartner.id;
+      }
     }
-    if (jnjRole === ROLE_LEAD) {
-      return {
-        jnj_lead_first_name: jnjLeadFirst.trim(),
-        jnj_lead_last_name: jnjLeadLast.trim(),
-        jnj_lead_email: jnjLeadEmail.trim(),
-        jnj_follow_first_name: null,
-        jnj_follow_last_name: null,
-        jnj_follow_email: null,
-      };
+
+    if (jnjSelected && jnjRole) {
+      if (jnjRole === ROLE_LEAD) jnjLeadId = registrantId;
+      else jnjFollowId = registrantId;
     }
-    if (jnjRole === ROLE_FOLLOW) {
-      return {
-        jnj_lead_first_name: null,
-        jnj_lead_last_name: null,
-        jnj_lead_email: null,
-        jnj_follow_first_name: jnjFollowFirst.trim(),
-        jnj_follow_last_name: jnjFollowLast.trim(),
-        jnj_follow_email: jnjFollowEmail.trim(),
-      };
-    }
+
     return {
-      jnj_lead_first_name: null,
-      jnj_lead_last_name: null,
-      jnj_lead_email: null,
-      jnj_follow_first_name: null,
-      jnj_follow_last_name: null,
-      jnj_follow_email: null,
+      registrant_profile_id: registrantId,
+      strictly_role: strictlySelected ? strictlyRole || null : null,
+      strictly_lead_profile_id: strictlyLeadId,
+      strictly_follow_profile_id: strictlyFollowId,
+      jnj_role: jnjSelected ? jnjRole || null : null,
+      jnj_lead_profile_id: jnjLeadId,
+      jnj_follow_profile_id: jnjFollowId,
     };
   };
 
@@ -253,7 +203,6 @@ export default function CompSignupModal({
     }
     setIsSubmitting(true);
     try {
-      const jnjPayload = getJnJPayload();
       const body = {
         event: {
           id: event!.id,
@@ -265,24 +214,17 @@ export default function CompSignupModal({
         },
         strictly_selected: strictlySelected,
         strictly_price: hasStrictly ? event!.strictly_price : null,
-        strictly_lead_first_name: strictlySelected ? strictlyLeadFirst.trim() : null,
-        strictly_lead_last_name: strictlySelected ? strictlyLeadLast.trim() : null,
-        strictly_lead_email: strictlySelected ? strictlyLeadEmail.trim() : null,
-        strictly_follow_first_name: strictlySelected ? strictlyFollowFirst.trim() : null,
-        strictly_follow_last_name: strictlySelected ? strictlyFollowLast.trim() : null,
-        strictly_follow_email: strictlySelected ? strictlyFollowEmail.trim() : null,
         jnj_selected: jnjSelected,
         jnj_price: hasJnJ ? event!.jnj_price : null,
-        ...jnjPayload,
+        ...buildProfilePayload(),
         payment_method: paymentMethod,
         amount_owed: total,
         accept_liability: acceptLiability,
         accept_payment: acceptPayment,
         accept_refund: hasRefundStatement ? acceptRefund : true,
       };
-      const res = await fetch("/api/comp-signup", {
+      const res = await authedFetch("/api/comp-signup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -308,8 +250,8 @@ export default function CompSignupModal({
       }
       setSubmitSuccess("Signup submitted!");
       setTimeout(() => onClose(), 2000);
-    } catch (e: any) {
-      setSubmitError(e?.message || "Something went wrong.");
+    } catch (e: unknown) {
+      setSubmitError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setIsSubmitting(false);
     }
@@ -321,9 +263,9 @@ export default function CompSignupModal({
   const dateBlock = (
     <p className="text-gray-300 text-sm">
       <strong>Date:</strong>{" "}
-      {formatEventDate(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)}
+      {formatEventDate(event.starts_at, (event as { time_zone?: string }).time_zone || DEFAULT_TIME_ZONE)}
       {event.starts_at
-        ? ` • ${formatEventTime(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(event.starts_at, (event as any).time_zone || DEFAULT_TIME_ZONE)}`
+        ? ` • ${formatEventTime(event.starts_at, (event as { time_zone?: string }).time_zone || DEFAULT_TIME_ZONE)} ${getTimeZoneAbbreviation(event.starts_at, (event as { time_zone?: string }).time_zone || DEFAULT_TIME_ZONE)}`
         : ""}
       <br />
       <strong>Location:</strong> {event.location || "—"}
@@ -344,276 +286,217 @@ export default function CompSignupModal({
     </div>
   ) : null;
 
-  const formBlock = (
+  const authGateBlock = (
+    <div className="rounded-lg border border-neutral-600 bg-neutral-800/80 p-6 text-center space-y-4">
+      {authState === "loading" && (
+        <p className="text-gray-300 text-sm">Checking your account…</p>
+      )}
+      {authState === "logged_out" && (
+        <>
+          <p className="text-gray-200 font-medium">Sign in to register for this comp</p>
+          <p className="text-gray-400 text-sm">
+            Comp registration requires a Country City Swing account so we can link your profile to your entry.
+          </p>
+          <Link
+            href={authNext}
+            className="inline-block bg-accent text-white px-6 py-2 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all"
+          >
+            Sign in or create account
+          </Link>
+        </>
+      )}
+      {authState === "no_profile" && (
+        <>
+          <p className="text-gray-200 font-medium">Complete your CCS profile</p>
+          <p className="text-gray-400 text-sm">
+            Your account needs a profile before you can register. Create or finish setting up your account.
+          </p>
+          <Link
+            href={authNext}
+            className="inline-block bg-accent text-white px-6 py-2 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all"
+          >
+            Go to account setup
+          </Link>
+        </>
+      )}
+    </div>
+  );
+
+  const selfCard = selfProfile && authState === "ready" && (
+    <div className="p-3 rounded-lg bg-neutral-800 border border-primary/40">
+      <p className="text-xs uppercase tracking-wide text-primary mb-1">Competing as</p>
+      <p className="text-white font-medium">{profileDisplayName(selfProfile)}</p>
+      {selfProfile.email && (
+        <p className="text-gray-400 text-sm mt-0.5">{selfProfile.email}</p>
+      )}
+    </div>
+  );
+
+  const formBlock = authState === "ready" ? (
     <form onSubmit={onSubmit} className="space-y-4">
-            <p className="font-medium text-gray-200">Comp registration — at least one division required</p>
+      <p className="font-medium text-gray-200">Comp registration — at least one division required</p>
+      {selfCard}
 
-            {/* Strictly */}
-            {hasStrictly && (
-              <div className="space-y-3">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={strictlySelected}
-                    onChange={(e) => setStrictlySelected(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span>Strictly {event.strictly_price != null && `($${Number(event.strictly_price).toFixed(2)})`}</span>
-                </label>
-                {strictlySelected && (
-                  <div className="ml-6 space-y-4">
-                    <p className="text-sm text-gray-300">I am the</p>
-                    <select
-                      value={strictlyRole}
-                      onChange={(e) => setStrictlyRole(e.target.value as "lead" | "follow")}
-                      className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                    >
-                      <option value="">— Select —</option>
-                      <option value="lead">Lead</option>
-                      <option value="follow">Follow</option>
-                    </select>
-                    <div className="grid gap-3">
-                      <div className="p-3 rounded bg-neutral-800/80 border border-neutral-700">
-                        <p className="text-sm font-medium text-primary mb-2">Lead</p>
-                        <div className="space-y-2">
-                          <input
-                            placeholder="Lead first name"
-                            value={strictlyLeadFirst}
-                            onChange={(e) => setStrictlyLeadFirst(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                          <input
-                            placeholder="Lead last name"
-                            value={strictlyLeadLast}
-                            onChange={(e) => setStrictlyLeadLast(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                          <input
-                            type="email"
-                            placeholder="Lead email"
-                            value={strictlyLeadEmail}
-                            onChange={(e) => setStrictlyLeadEmail(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                        </div>
-                      </div>
-                      <div className="p-3 rounded bg-neutral-800/80 border border-neutral-700">
-                        <p className="text-sm font-medium text-primary mb-2">Follow</p>
-                        <div className="space-y-2">
-                          <input
-                            placeholder="Follow first name"
-                            value={strictlyFollowFirst}
-                            onChange={(e) => setStrictlyFollowFirst(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                          <input
-                            placeholder="Follow last name"
-                            value={strictlyFollowLast}
-                            onChange={(e) => setStrictlyFollowLast(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                          <input
-                            type="email"
-                            placeholder="Follow email"
-                            value={strictlyFollowEmail}
-                            onChange={(e) => setStrictlyFollowEmail(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* JnJ - only Lead OR only Follow fields based on dropdown; autopopulate when signed in, always editable */}
-            {hasJnJ && (
-              <div className="space-y-3">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={jnjSelected}
-                    onChange={(e) => setJnJSelected(e.target.checked)}
-                    className="rounded"
-                  />
-                  <span>JnJ {event.jnj_price != null && `($${Number(event.jnj_price).toFixed(2)})`}</span>
-                </label>
-                {jnjSelected && (
-                  <div className="ml-6 space-y-3">
-                    <p className="text-sm text-gray-300">I am a</p>
-                    <select
-                      value={jnjRole}
-                      onChange={(e) => setJnJRole(e.target.value as "lead" | "follow")}
-                      className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                    >
-                      <option value="">— Select —</option>
-                      <option value="lead">Lead</option>
-                      <option value="follow">Follow</option>
-                    </select>
-                    {jnjRole === ROLE_LEAD && (
-                      <div className="p-3 rounded bg-neutral-800/80 border border-neutral-700">
-                        <p className="text-sm font-medium text-primary mb-2">Lead (you)</p>
-                        <div className="space-y-2">
-                          <input
-                            placeholder="Lead first name"
-                            value={jnjLeadFirst}
-                            onChange={(e) => setJnJLeadFirst(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                          <input
-                            placeholder="Lead last name"
-                            value={jnjLeadLast}
-                            onChange={(e) => setJnJLeadLast(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                          <input
-                            type="email"
-                            placeholder="Lead email"
-                            value={jnjLeadEmail}
-                            onChange={(e) => setJnJLeadEmail(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {jnjRole === ROLE_FOLLOW && (
-                      <div className="p-3 rounded bg-neutral-800/80 border border-neutral-700">
-                        <p className="text-sm font-medium text-primary mb-2">Follow (you)</p>
-                        <div className="space-y-2">
-                          <input
-                            placeholder="Follow first name"
-                            value={jnjFollowFirst}
-                            onChange={(e) => setJnJFollowFirst(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                          <input
-                            placeholder="Follow last name"
-                            value={jnjFollowLast}
-                            onChange={(e) => setJnJFollowLast(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                          <input
-                            type="email"
-                            placeholder="Follow email"
-                            value={jnjFollowEmail}
-                            onChange={(e) => setJnJFollowEmail(e.target.value)}
-                            className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Payment method */}
-            <div>
-              <p className="font-medium mb-2">Payment method</p>
-              <ChoiceCards
-                name="paymentMethod"
-                aria-label="Payment method"
-                value={paymentMethod}
-                onChange={(next) => setPaymentMethod(next as PaymentMethod)}
-                options={[
-                  { value: "Stripe", label: "Stripe (Credit/Debit Card)" },
-                  { value: "Cash", label: "Cash" },
-                ]}
-              />
-            </div>
-
-            <div className="p-3 rounded-lg bg-neutral-800 border border-neutral-700">
-              <strong>Total:</strong> ${total.toFixed(2)}
-            </div>
-
-            <div className="bg-neutral-800 p-3 rounded text-sm">
-              <p>
-                <strong>Liability Release and Assumption of Risk:</strong> I understand and voluntarily accept the risks associated with participating in dance activities. I release and discharge Clearbrook Hospitality, LLC dba Events at 1900 and Country City Swing, its instructors and affiliates from any claims arising from my participation. I certify that I am physically fit to participate. I authorize Country City Swing to obtain necessary medical treatment if needed. I grant permission for use of photographs/videos for promotional or educational purposes.
-              </p>
-            </div>
-            <label className="block text-sm">
-              <input type="checkbox" checked={acceptLiability} onChange={(e) => setAcceptLiability(e.target.checked)} className="mr-2" />
-              I accept the liability release.
-            </label>
-            <label className="block text-sm">
-              <input type="checkbox" checked={acceptPayment} onChange={(e) => setAcceptPayment(e.target.checked)} className="mr-2" />
-              I understand I will need to complete payment (Stripe or cash at the door) and show confirmation as required.
-            </label>
-
-            {hasRefundStatement && (
-              <div className="rounded-lg border border-red-500/50 bg-gradient-to-b from-red-500/10 to-transparent p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-red-400 mb-2">
-                  Refund policy
-                </p>
-                <div className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto pr-1">
-                  {refundStatement}
-                </div>
-                <label className="flex items-start gap-3 mt-4 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={acceptRefund}
-                    onChange={(e) => setAcceptRefund(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 shrink-0 accent-red-500"
-                  />
-                  <span className="text-sm text-gray-300">
-                    I have read and agree to the refund policy.{" "}
-                    <span className="text-red-400">*</span>
-                  </span>
-                </label>
-              </div>
-            )}
-
-            {alreadyRegistered && (
-              <div
-                role="alert"
-                className="rounded-lg border border-amber-500/60 bg-amber-950/40 p-4 text-amber-100 shadow-lg"
-              >
-                <p className="font-semibold text-amber-200">
-                  You&apos;re already registered for this event
-                </p>
-                <p className="mt-2 text-sm">
-                  <span className="font-medium">{alreadyRegistered.eventTitle}</span>
-                  {alreadyRegistered.eventDate && (
-                    <>
-                      <br />
-                      <span className="text-amber-200/90">{alreadyRegistered.eventDate}</span>
-                    </>
-                  )}
-                </p>
-                <p className="mt-2 text-sm text-amber-200/80">
-                  No need to sign up again — we&apos;ll see you there!
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setAlreadyRegistered(null)}
-                  className="mt-3 rounded-md bg-amber-600/80 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+      {hasStrictly && (
+        <div className="space-y-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={strictlySelected}
+              onChange={(e) => setStrictlySelected(e.target.checked)}
+              className="rounded"
+            />
+            <span>Strictly {event.strictly_price != null && `($${Number(event.strictly_price).toFixed(2)})`}</span>
+          </label>
+          {strictlySelected && (
+            <div className="ml-6 space-y-4">
+              <div>
+                <p className="text-sm text-gray-300 mb-2">I am the</p>
+                <select
+                  value={strictlyRole}
+                  onChange={(e) => setStrictlyRole(e.target.value as "lead" | "follow")}
+                  className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
                 >
-                  OK
-                </button>
+                  <option value="">— Select —</option>
+                  <option value="lead">Lead</option>
+                  <option value="follow">Follow</option>
+                </select>
               </div>
-            )}
-            {submitError && (
-              <div className="bg-red-900/20 border border-red-500 rounded-lg p-3 text-red-400 text-sm">
-                {submitError}
-              </div>
-            )}
-            {submitSuccess && (
-              <div className="bg-green-900/20 border border-green-500 rounded-lg p-3 text-green-400 text-sm">
-                {submitSuccess}
-              </div>
-            )}
-
-            <div className="flex justify-center">
-              <button
-                type="submit"
-                disabled={isSubmitting || loadingUser}
-                className="bg-accent text-white px-6 py-2 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] disabled:opacity-50"
-              >
-                {isSubmitting ? "Submitting..." : "Submit Signup"}
-              </button>
+              {strictlyRole && (
+                <ProfileSearchPicker
+                  label={strictlyRole === ROLE_LEAD ? "Your partner (Follow)" : "Your partner (Lead)"}
+                  value={strictlyPartner}
+                  onChange={setStrictlyPartner}
+                  excludeProfileId={selfProfile?.id}
+                />
+              )}
             </div>
-          </form>
+          )}
+        </div>
+      )}
+
+      {hasJnJ && (
+        <div className="space-y-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={jnjSelected}
+              onChange={(e) => setJnJSelected(e.target.checked)}
+              className="rounded"
+            />
+            <span>JnJ {event.jnj_price != null && `($${Number(event.jnj_price).toFixed(2)})`}</span>
+          </label>
+          {jnjSelected && (
+            <div className="ml-6 space-y-3">
+              <p className="text-sm text-gray-300">I am a</p>
+              <select
+                value={jnjRole}
+                onChange={(e) => setJnJRole(e.target.value as "lead" | "follow")}
+                className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
+              >
+                <option value="">— Select —</option>
+                <option value="lead">Lead</option>
+                <option value="follow">Follow</option>
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div>
+        <p className="font-medium mb-2">Payment method</p>
+        <ChoiceCards
+          name="paymentMethod"
+          aria-label="Payment method"
+          value={paymentMethod}
+          onChange={(next) => setPaymentMethod(next as PaymentMethod)}
+          options={[
+            { value: "Stripe", label: "Stripe (Credit/Debit Card)" },
+            { value: "Cash", label: "Cash" },
+          ]}
+        />
+      </div>
+
+      <div className="p-3 rounded-lg bg-neutral-800 border border-neutral-700">
+        <strong>Total:</strong> ${total.toFixed(2)}
+      </div>
+
+      <div className="bg-neutral-800 p-3 rounded text-sm">
+        <p>
+          <strong>Liability Release and Assumption of Risk:</strong> I understand and voluntarily accept the risks associated with participating in dance activities. I release and discharge Clearbrook Hospitality, LLC dba Events at 1900 and Country City Swing, its instructors and affiliates from any claims arising from my participation. I certify that I am physically fit to participate. I authorize Country City Swing to obtain necessary medical treatment if needed. I grant permission for use of photographs/videos for promotional or educational purposes.
+        </p>
+      </div>
+      <label className="block text-sm">
+        <input type="checkbox" checked={acceptLiability} onChange={(e) => setAcceptLiability(e.target.checked)} className="mr-2" />
+        I accept the liability release.
+      </label>
+      <label className="block text-sm">
+        <input type="checkbox" checked={acceptPayment} onChange={(e) => setAcceptPayment(e.target.checked)} className="mr-2" />
+        I understand I will need to complete payment (Stripe or cash at the door) and show confirmation as required.
+      </label>
+
+      {hasRefundStatement && (
+        <div className="rounded-lg border border-red-500/50 bg-gradient-to-b from-red-500/10 to-transparent p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-red-400 mb-2">Refund policy</p>
+          <div className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto pr-1">
+            {refundStatement}
+          </div>
+          <label className="flex items-start gap-3 mt-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={acceptRefund}
+              onChange={(e) => setAcceptRefund(e.target.checked)}
+              className="mt-0.5 w-4 h-4 shrink-0 accent-red-500"
+            />
+            <span className="text-sm text-gray-300">
+              I have read and agree to the refund policy.{" "}
+              <span className="text-red-400">*</span>
+            </span>
+          </label>
+        </div>
+      )}
+
+      {alreadyRegistered && (
+        <div role="alert" className="rounded-lg border border-amber-500/60 bg-amber-950/40 p-4 text-amber-100 shadow-lg">
+          <p className="font-semibold text-amber-200">You&apos;re already registered for this event</p>
+          <p className="mt-2 text-sm">
+            <span className="font-medium">{alreadyRegistered.eventTitle}</span>
+            {alreadyRegistered.eventDate && (
+              <>
+                <br />
+                <span className="text-amber-200/90">{alreadyRegistered.eventDate}</span>
+              </>
+            )}
+          </p>
+          <p className="mt-2 text-sm text-amber-200/80">No need to sign up again — we&apos;ll see you there!</p>
+          <button
+            type="button"
+            onClick={() => setAlreadyRegistered(null)}
+            className="mt-3 rounded-md bg-amber-600/80 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+          >
+            OK
+          </button>
+        </div>
+      )}
+      {submitError && (
+        <div className="bg-red-900/20 border border-red-500 rounded-lg p-3 text-red-400 text-sm">{submitError}</div>
+      )}
+      {submitSuccess && (
+        <div className="bg-green-900/20 border border-green-500 rounded-lg p-3 text-green-400 text-sm">{submitSuccess}</div>
+      )}
+
+      <div className="flex justify-center">
+        <button
+          type="submit"
+          disabled={isSubmitting}
+          className="bg-accent text-white px-6 py-2 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] disabled:opacity-50"
+        >
+          {isSubmitting ? "Submitting..." : "Submit Signup"}
+        </button>
+      </div>
+    </form>
+  ) : (
+    authGateBlock
   );
 
   if (embedded) {

@@ -38,6 +38,7 @@ export interface CompBibRow {
   last_name: string;
   email: string | null;
   bib_number: number;
+  profile_id: string | null;
 }
 
 export interface CompEntryRow {
@@ -51,11 +52,39 @@ export interface CompEntryRow {
   follow_first_name: string;
   follow_last_name: string;
   follow_email: string | null;
+  lead_profile_id: string | null;
+  follow_profile_id: string | null;
   lead_bib_id: string | null;
   follow_bib_id: string | null;
   comp_signup_id: string | null;
   source_lead_entry_id: string | null;
   source_follow_entry_id: string | null;
+}
+
+export interface CompSignupRow {
+  id: string;
+  event_id: string;
+  event_title: string;
+  registrant_profile_id: string | null;
+  strictly_selected: boolean;
+  strictly_lead_profile_id: string | null;
+  strictly_follow_profile_id: string | null;
+  strictly_lead_first_name: string | null;
+  strictly_lead_last_name: string | null;
+  strictly_lead_email: string | null;
+  strictly_follow_first_name: string | null;
+  strictly_follow_last_name: string | null;
+  strictly_follow_email: string | null;
+  jnj_selected: boolean;
+  jnj_lead_profile_id: string | null;
+  jnj_follow_profile_id: string | null;
+  jnj_lead_first_name: string | null;
+  jnj_lead_last_name: string | null;
+  jnj_lead_email: string | null;
+  jnj_follow_first_name: string | null;
+  jnj_follow_last_name: string | null;
+  jnj_follow_email: string | null;
+  paid: boolean;
 }
 
 export interface CompRoundRow {

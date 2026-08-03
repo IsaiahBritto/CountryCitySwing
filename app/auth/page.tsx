@@ -1,10 +1,16 @@
 "use client";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function AuthPage() {
+function AuthPageContent() {
+  const searchParams = useSearchParams();
+  const nextPath = searchParams.get("next");
+  const safeNext =
+    nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")
+      ? nextPath
+      : "/";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -129,7 +135,7 @@ export default function AuthPage() {
       
       // Redirect to homepage after 10 seconds
       setTimeout(() => {
-        router.push("/");
+        router.push(safeNext);
       }, 10000);
     } else if (mode === "signin" && signInMethod === "magiclink") {
       const redirectTo = `${typeof window !== "undefined" ? window.location.origin : ""}/auth/callback`;
@@ -151,7 +157,7 @@ export default function AuthPage() {
         password,
       });
       if (error) alert(error.message);
-      else router.push("/");
+      else router.push(safeNext);
     }
 
     setLoading(false);
@@ -435,5 +441,17 @@ export default function AuthPage() {
         ← Back to home
       </Link>
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={
+      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+        <p>Loading…</p>
+      </div>
+    }>
+      <AuthPageContent />
+    </Suspense>
   );
 }

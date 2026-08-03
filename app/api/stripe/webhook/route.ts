@@ -303,6 +303,11 @@ export async function POST(request: NextRequest) {
           );
         }
 
+        const metaProfileId = (key: string) => {
+          const v = metadata[key];
+          return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+        };
+
         const { error: compInsertError } = await supabaseServer
           .from("comp_signups")
           .insert([
@@ -310,8 +315,11 @@ export async function POST(request: NextRequest) {
               id: compSignupId,
               event_id: metadata.event_id,
               event_title: metadata.event_title || "Comp Event",
+              registrant_profile_id: metaProfileId("registrant_profile_id"),
               strictly_selected: metadata.strictly_selected === "true",
               strictly_price: metadata.strictly_price ? Number(metadata.strictly_price) : null,
+              strictly_lead_profile_id: metaProfileId("strictly_lead_profile_id"),
+              strictly_follow_profile_id: metaProfileId("strictly_follow_profile_id"),
               strictly_lead_first_name: metadata.strictly_lead_first_name || null,
               strictly_lead_last_name: metadata.strictly_lead_last_name || null,
               strictly_lead_email: metadata.strictly_lead_email || null,
@@ -320,6 +328,8 @@ export async function POST(request: NextRequest) {
               strictly_follow_email: metadata.strictly_follow_email || null,
               jnj_selected: metadata.jnj_selected === "true",
               jnj_price: metadata.jnj_price ? Number(metadata.jnj_price) : null,
+              jnj_lead_profile_id: metaProfileId("jnj_lead_profile_id"),
+              jnj_follow_profile_id: metaProfileId("jnj_follow_profile_id"),
               jnj_lead_first_name: metadata.jnj_lead_first_name || null,
               jnj_lead_last_name: metadata.jnj_lead_last_name || null,
               jnj_lead_email: metadata.jnj_lead_email || null,

@@ -8,6 +8,11 @@ import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxC
 import { compSignupToken } from "@/lib/utils/qrCheckIn";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
+import { requireCompSignupAuth } from "@/lib/compSignupAuth";
+import {
+  checkDuplicateCompSignup,
+  resolveCompSignupProfiles,
+} from "@/lib/compSignupPayload";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -20,6 +25,9 @@ function getBaseUrl(request: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireCompSignupAuth(req);
+  if (!auth.ok) return auth.response;
+
   const data = await req.json();
   const event = data.event ?? {};
   const eventId = event.id;
@@ -84,58 +92,29 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Sanity check: reject only if the same email is already registered for the *same division*
-  // (User may submit one form for Strictly and another for JnJ.)
-  const norm = (e: unknown) =>
-    typeof e === "string" && e.trim() !== "" ? e.trim().toLowerCase() : null;
-  const strictlyEmailsThisRequest = [
-    norm(data.strictly_lead_email),
-    norm(data.strictly_follow_email),
-  ].filter((e): e is string => e !== null);
-  const jnjEmailsThisRequest = [
-    norm(data.jnj_lead_email),
-    norm(data.jnj_follow_email),
-  ].filter((e): e is string => e !== null);
+  const resolved = await resolveCompSignupProfiles(auth.profile, data, {
+    strictlySelected,
+    jnjSelected,
+  });
+  if ("error" in resolved) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+  }
 
-  if (strictlyEmailsThisRequest.length > 0 || jnjEmailsThisRequest.length > 0) {
-    const { data: existingSignups } = await supabaseServer
-      .from("comp_signups")
-      .select("strictly_selected, strictly_lead_email, strictly_follow_email, jnj_selected, jnj_lead_email, jnj_follow_email")
-      .eq("event_id", eventId)
-      .neq("refunded_or_cancelled", "cancelled");
-
-    const existingStrictlyEmails = new Set<string>();
-    const existingJnJEmails = new Set<string>();
-    for (const row of existingSignups ?? []) {
-      const r = row as Record<string, string | null | boolean>;
-      if (r.strictly_selected) {
-        const a = norm(r.strictly_lead_email);
-        const b = norm(r.strictly_follow_email);
-        if (a) existingStrictlyEmails.add(a);
-        if (b) existingStrictlyEmails.add(b);
-      }
-      if (r.jnj_selected) {
-        const a = norm(r.jnj_lead_email);
-        const b = norm(r.jnj_follow_email);
-        if (a) existingJnJEmails.add(a);
-        if (b) existingJnJEmails.add(b);
-      }
-    }
-
-    const duplicateStrictly = strictlyEmailsThisRequest.some((e) => existingStrictlyEmails.has(e));
-    const duplicateJnJ = jnjEmailsThisRequest.some((e) => existingJnJEmails.has(e));
-    if (duplicateStrictly || duplicateJnJ) {
-      const eventDate = event.starts_at ? formatEventDateInChicago(event.starts_at) : "";
-      return NextResponse.json(
-        {
-          error: "Already registered",
-          alreadyRegistered: true,
-          eventTitle,
-          eventDate,
-        },
-        { status: 409 }
-      );
-    }
+  const isDuplicate = await checkDuplicateCompSignup(eventId, resolved, {
+    strictlySelected,
+    jnjSelected,
+  });
+  if (isDuplicate) {
+    const eventDate = event.starts_at ? formatEventDateInChicago(event.starts_at) : "";
+    return NextResponse.json(
+      {
+        error: "Already registered",
+        alreadyRegistered: true,
+        eventTitle,
+        eventDate,
+      },
+      { status: 409 }
+    );
   }
 
   const effectivePayment =
@@ -144,35 +123,55 @@ export async function POST(req: NextRequest) {
   const insertRow: Record<string, unknown> = {
     event_id: eventId,
     event_title: eventTitle,
+    registrant_profile_id: resolved.registrant_profile_id,
     strictly_selected: strictlySelected,
     strictly_price: data.strictly_price ?? null,
-    strictly_lead_first_name: data.strictly_lead_first_name ?? null,
-    strictly_lead_last_name: data.strictly_lead_last_name ?? null,
-    strictly_lead_email: data.strictly_lead_email ?? null,
-    strictly_follow_first_name: data.strictly_follow_first_name ?? null,
-    strictly_follow_last_name: data.strictly_follow_last_name ?? null,
-    strictly_follow_email: data.strictly_follow_email ?? null,
+    strictly_lead_profile_id: resolved.strictly_lead_profile_id,
+    strictly_follow_profile_id: resolved.strictly_follow_profile_id,
+    strictly_lead_first_name: resolved.strictly_lead_first_name,
+    strictly_lead_last_name: resolved.strictly_lead_last_name,
+    strictly_lead_email: resolved.strictly_lead_email,
+    strictly_follow_first_name: resolved.strictly_follow_first_name,
+    strictly_follow_last_name: resolved.strictly_follow_last_name,
+    strictly_follow_email: resolved.strictly_follow_email,
     jnj_selected: jnjSelected,
     jnj_price: data.jnj_price ?? null,
-    jnj_lead_first_name: data.jnj_lead_first_name ?? null,
-    jnj_lead_last_name: data.jnj_lead_last_name ?? null,
-    jnj_lead_email: data.jnj_lead_email ?? null,
-    jnj_follow_first_name: data.jnj_follow_first_name ?? null,
-    jnj_follow_last_name: data.jnj_follow_last_name ?? null,
-    jnj_follow_email: data.jnj_follow_email ?? null,
+    jnj_lead_profile_id: resolved.jnj_lead_profile_id,
+    jnj_follow_profile_id: resolved.jnj_follow_profile_id,
+    jnj_lead_first_name: resolved.jnj_lead_first_name,
+    jnj_lead_last_name: resolved.jnj_lead_last_name,
+    jnj_lead_email: resolved.jnj_lead_email,
+    jnj_follow_first_name: resolved.jnj_follow_first_name,
+    jnj_follow_last_name: resolved.jnj_follow_last_name,
+    jnj_follow_email: resolved.jnj_follow_email,
     payment_method: effectivePayment,
     amount_owed: amountOwed,
-    paid: false, // Only Stripe checkout sets paid: true (via webhook or below for $0)
+    paid: false,
     accept_liability: acceptLiability,
     accept_payment: acceptPayment,
   };
 
-  // Stripe path: do NOT create record here; webhook creates it when payment completes (same as event stripe_checkout)
+  const profileMetadata = {
+    registrant_profile_id: resolved.registrant_profile_id,
+    strictly_lead_profile_id: resolved.strictly_lead_profile_id ?? "",
+    strictly_follow_profile_id: resolved.strictly_follow_profile_id ?? "",
+    jnj_lead_profile_id: resolved.jnj_lead_profile_id ?? "",
+    jnj_follow_profile_id: resolved.jnj_follow_profile_id ?? "",
+  };
+
+  // Stripe path: do NOT create record here; webhook creates it when payment completes
   if (effectivePayment === "Stripe" && amountOwed > 0.5) {
     const processingFee = roundCurrency(calculateProcessingFee(amountOwed));
     const compSignupId = randomUUID();
     const base = getBaseUrl(req);
-    const lineItems: any[] = [
+    const lineItems: {
+      price_data: {
+        currency: string;
+        product_data: { name: string; description: string; tax_code: string };
+        unit_amount: number;
+      };
+      quantity: number;
+    }[] = [
       {
         price_data: {
           currency: "usd",
@@ -202,7 +201,11 @@ export async function POST(req: NextRequest) {
     }
 
     const customerEmail =
-      data.strictly_lead_email || data.strictly_follow_email || data.jnj_lead_email || data.jnj_follow_email;
+      auth.profile.email ||
+      resolved.strictly_lead_email ||
+      resolved.strictly_follow_email ||
+      resolved.jnj_lead_email ||
+      resolved.jnj_follow_email;
     try {
       const session = await getStripe().checkout.sessions.create({
         mode: "payment",
@@ -221,20 +224,23 @@ export async function POST(req: NextRequest) {
           processing_fee: String(processingFee),
           strictly_selected: String(strictlySelected),
           strictly_price: data.strictly_price != null ? String(data.strictly_price) : "",
-          strictly_lead_first_name: (data.strictly_lead_first_name ?? "") as string,
-          strictly_lead_last_name: (data.strictly_lead_last_name ?? "") as string,
-          strictly_lead_email: (data.strictly_lead_email ?? "") as string,
-          strictly_follow_first_name: (data.strictly_follow_first_name ?? "") as string,
-          strictly_follow_last_name: (data.strictly_follow_last_name ?? "") as string,
-          strictly_follow_email: (data.strictly_follow_email ?? "") as string,
+          strictly_lead_first_name: resolved.strictly_lead_first_name ?? "",
+          strictly_lead_last_name: resolved.strictly_lead_last_name ?? "",
+          strictly_lead_email: resolved.strictly_lead_email ?? "",
+          strictly_follow_first_name: resolved.strictly_follow_first_name ?? "",
+          strictly_follow_last_name: resolved.strictly_follow_last_name ?? "",
+          strictly_follow_email: resolved.strictly_follow_email ?? "",
           jnj_selected: String(jnjSelected),
           jnj_price: data.jnj_price != null ? String(data.jnj_price) : "",
-          jnj_lead_first_name: (data.jnj_lead_first_name ?? "") as string,
-          jnj_lead_last_name: (data.jnj_lead_last_name ?? "") as string,
-          jnj_lead_email: (data.jnj_lead_email ?? "") as string,
-          jnj_follow_first_name: (data.jnj_follow_first_name ?? "") as string,
-          jnj_follow_last_name: (data.jnj_follow_last_name ?? "") as string,
-          jnj_follow_email: (data.jnj_follow_email ?? "") as string,
+          jnj_lead_first_name: resolved.jnj_lead_first_name ?? "",
+          jnj_lead_last_name: resolved.jnj_lead_last_name ?? "",
+          jnj_lead_email: resolved.jnj_lead_email ?? "",
+          jnj_follow_first_name: resolved.jnj_follow_first_name ?? "",
+          jnj_follow_last_name: resolved.jnj_follow_last_name ?? "",
+          jnj_follow_email: resolved.jnj_follow_email ?? "",
+          ...Object.fromEntries(
+            Object.entries(profileMetadata).map(([k, v]) => [k, v ?? ""])
+          ),
           amount_owed: String(amountOwed),
           accept_liability: String(acceptLiability),
           accept_payment: String(acceptPayment),
@@ -243,16 +249,18 @@ export async function POST(req: NextRequest) {
         cancel_url: `${base}/events?payment=cancelled`,
       });
       return NextResponse.json({ success: true, redirect: session.url! });
-    } catch (stripeErr: any) {
+    } catch (stripeErr: unknown) {
       console.error("Stripe error:", stripeErr);
       return NextResponse.json(
-        { error: "Failed to create Stripe session", details: stripeErr?.message },
+        {
+          error: "Failed to create Stripe session",
+          details: stripeErr instanceof Error ? stripeErr.message : String(stripeErr),
+        },
         { status: 500 }
       );
     }
   }
 
-  // Cash or Stripe with $0: insert and send email
   if (effectivePayment === "Stripe" && amountOwed <= 0.5) {
     insertRow.paid = true;
     insertRow.amount_owed = 0;
@@ -275,13 +283,11 @@ export async function POST(req: NextRequest) {
   const base = getBaseUrl(req);
   const paymentLink = `${base}/events/comp-pay/${inserted.id}`;
   const primaryEmail =
-    strictlySelected && data.strictly_lead_email
-      ? data.strictly_lead_email
-      : jnjSelected && data.jnj_lead_email
-        ? data.jnj_lead_email
-        : strictlySelected && data.strictly_follow_email
-          ? data.strictly_follow_email
-          : data.jnj_follow_email;
+    auth.profile.email ||
+    resolved.strictly_lead_email ||
+    resolved.jnj_lead_email ||
+    resolved.strictly_follow_email ||
+    resolved.jnj_follow_email;
 
   const paymentSection =
     effectivePayment === "Cash" && amountOwed > 0

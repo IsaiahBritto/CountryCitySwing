@@ -18,7 +18,7 @@ interface PreviewRow {
 
 async function buildPreview(competitionId: string): Promise<
   | { error: string; status: number }
-  | { competition: any; rows: PreviewRow[] }
+  | { competition: { id: string; event_id: string; comp_type: string }; rows: PreviewRow[] }
 > {
   const { data: competition } = await supabaseServer
     .from("competitions")
@@ -38,11 +38,11 @@ async function buildPreview(competitionId: string): Promise<
       .eq(`${prefix}_selected`, true),
     supabaseServer
       .from("comp_entries")
-      .select("comp_signup_id, lead_email, follow_email")
+      .select("comp_signup_id, lead_email, follow_email, lead_profile_id, follow_profile_id")
       .eq("competition_id", competitionId),
     supabaseServer
       .from("comp_judge_assignments")
-      .select("profile:profiles(email)")
+      .select("profile_id, profile:profiles(email)")
       .eq("competition_id", competitionId),
   ]);
 
@@ -50,36 +50,49 @@ async function buildPreview(competitionId: string): Promise<
     (entriesRes.data ?? []).map((e) => e.comp_signup_id).filter(Boolean)
   );
   const existingEmails = new Set<string>();
+  const existingProfileIds = new Set<string>();
   for (const e of entriesRes.data ?? []) {
     if (e.lead_email) existingEmails.add(norm(e.lead_email));
     if (e.follow_email) existingEmails.add(norm(e.follow_email));
+    if (e.lead_profile_id) existingProfileIds.add(e.lead_profile_id);
+    if (e.follow_profile_id) existingProfileIds.add(e.follow_profile_id);
   }
-  const judgeEmails = new Set(
-    ((judgesRes.data ?? []) as any[])
-      .map((row) => norm(row.profile?.email))
-      .filter(Boolean)
-  );
+  const judgeEmails = new Set<string>();
+  const judgeProfileIds = new Set<string>();
+  for (const row of (judgesRes.data ?? []) as {
+    profile_id?: string;
+    profile?: { email?: string | null };
+  }[]) {
+    const email = norm(row.profile?.email);
+    if (email) judgeEmails.add(email);
+    if (row.profile_id) judgeProfileIds.add(row.profile_id);
+  }
 
-  const rows: PreviewRow[] = (signupsRes.data ?? []).map((s: any) => {
-    const leadFirst = s[`${prefix}_lead_first_name`] ?? "";
-    const leadLast = s[`${prefix}_lead_last_name`] ?? "";
-    const leadEmail = s[`${prefix}_lead_email`] ?? null;
-    const followFirst = s[`${prefix}_follow_first_name`] ?? "";
-    const followLast = s[`${prefix}_follow_last_name`] ?? "";
-    const followEmail = s[`${prefix}_follow_email`] ?? null;
+  const rows: PreviewRow[] = (signupsRes.data ?? []).map((s: Record<string, unknown>) => {
+    const leadFirst = String(s[`${prefix}_lead_first_name`] ?? "");
+    const leadLast = String(s[`${prefix}_lead_last_name`] ?? "");
+    const leadEmail = (s[`${prefix}_lead_email`] as string | null) ?? null;
+    const followFirst = String(s[`${prefix}_follow_first_name`] ?? "");
+    const followLast = String(s[`${prefix}_follow_last_name`] ?? "");
+    const followEmail = (s[`${prefix}_follow_email`] as string | null) ?? null;
+    const leadProfileId = (s[`${prefix}_lead_profile_id`] as string | null) ?? null;
+    const followProfileId = (s[`${prefix}_follow_profile_id`] as string | null) ?? null;
 
     const warnings: string[] = [];
     if (s.refunded_or_cancelled) {
       warnings.push(`Signup is ${s.refunded_or_cancelled}`);
     }
     if (!s.paid) warnings.push("Not paid");
-    const hasLead = !!(leadFirst || leadLast || leadEmail);
-    const hasFollow = !!(followFirst || followLast || followEmail);
+    const hasLead = !!(leadFirst || leadLast || leadEmail || leadProfileId);
+    const hasFollow = !!(followFirst || followLast || followEmail || followProfileId);
     if (!isJnJ && (!hasLead || !hasFollow)) {
       warnings.push("Missing partner info (Strictly requires both)");
     }
     if (isJnJ && !hasLead && !hasFollow) {
       warnings.push("No competitor info on signup");
+    }
+    if (!leadProfileId && !followProfileId && !s.registrant_profile_id) {
+      warnings.push("Missing profile link (legacy signup)");
     }
     for (const email of [leadEmail, followEmail]) {
       if (email && existingEmails.has(norm(email))) {
@@ -89,15 +102,23 @@ async function buildPreview(competitionId: string): Promise<
         warnings.push(`${email} is a judge for this competition`);
       }
     }
+    for (const profileId of [leadProfileId, followProfileId]) {
+      if (profileId && existingProfileIds.has(profileId)) {
+        warnings.push(`${profileId} already has an entry in this competition`);
+      }
+      if (profileId && judgeProfileIds.has(profileId)) {
+        warnings.push(`Profile ${profileId} is a judge for this competition`);
+      }
+    }
 
     return {
-      signupId: s.id,
+      signupId: String(s.id),
       leadName: `${leadFirst} ${leadLast}`.trim(),
       leadEmail,
       followName: `${followFirst} ${followLast}`.trim(),
       followEmail,
       warnings,
-      alreadyImported: importedSignupIds.has(s.id),
+      alreadyImported: importedSignupIds.has(s.id as string),
     };
   });
 
@@ -147,7 +168,6 @@ export async function POST(
   const isJnJ = competition.comp_type === "jack_and_jill";
   const prefix = isJnJ ? "jnj" : "strictly";
 
-  // Judge conflicts are a hard block even if the admin selected the row.
   const blocked = preview.rows.filter(
     (r) =>
       signupIds.includes(r.signupId) &&
@@ -178,21 +198,20 @@ export async function POST(
   );
 
   const inserts: Record<string, unknown>[] = [];
-  for (const s of (signups ?? []) as any[]) {
-    if (alreadyImported.has(s.id)) continue;
-    const leadFirst = s[`${prefix}_lead_first_name`] ?? "";
-    const leadLast = s[`${prefix}_lead_last_name`] ?? "";
-    const leadEmail = s[`${prefix}_lead_email`] ?? null;
-    const followFirst = s[`${prefix}_follow_first_name`] ?? "";
-    const followLast = s[`${prefix}_follow_last_name`] ?? "";
-    const followEmail = s[`${prefix}_follow_email`] ?? null;
-    const hasLead = !!(leadFirst || leadLast || leadEmail);
-    const hasFollow = !!(followFirst || followLast || followEmail);
+  for (const s of (signups ?? []) as Record<string, unknown>[]) {
+    if (alreadyImported.has(String(s.id))) continue;
+    const leadFirst = String(s[`${prefix}_lead_first_name`] ?? "");
+    const leadLast = String(s[`${prefix}_lead_last_name`] ?? "");
+    const leadEmail = (s[`${prefix}_lead_email`] as string | null) ?? null;
+    const followFirst = String(s[`${prefix}_follow_first_name`] ?? "");
+    const followLast = String(s[`${prefix}_follow_last_name`] ?? "");
+    const followEmail = (s[`${prefix}_follow_email`] as string | null) ?? null;
+    const leadProfileId = (s[`${prefix}_lead_profile_id`] as string | null) ?? null;
+    const followProfileId = (s[`${prefix}_follow_profile_id`] as string | null) ?? null;
+    const hasLead = !!(leadFirst || leadLast || leadEmail || leadProfileId);
+    const hasFollow = !!(followFirst || followLast || followEmail || followProfileId);
 
     if (isJnJ) {
-      // JnJ: one individual entry per person; both roles wear bibs.
-      // Every row must include all name columns: bulk insert aligns keys across
-      // rows, and omitted fields become null (violates NOT NULL on comp_entries).
       if (hasLead) {
         inserts.push({
           competition_id: competitionId,
@@ -201,13 +220,16 @@ export async function POST(
           lead_first_name: leadFirst,
           lead_last_name: leadLast,
           lead_email: leadEmail,
+          lead_profile_id: leadProfileId,
           follow_first_name: "",
           follow_last_name: "",
           follow_email: null,
+          follow_profile_id: null,
           lead_bib_id: await ensureBib(competition.event_id, {
             firstName: leadFirst,
             lastName: leadLast,
             email: leadEmail,
+            profileId: leadProfileId,
           }),
           follow_bib_id: null,
           comp_signup_id: s.id,
@@ -221,34 +243,39 @@ export async function POST(
           lead_first_name: "",
           lead_last_name: "",
           lead_email: null,
+          lead_profile_id: null,
           follow_first_name: followFirst,
           follow_last_name: followLast,
           follow_email: followEmail,
+          follow_profile_id: followProfileId,
           lead_bib_id: null,
           follow_bib_id: await ensureBib(competition.event_id, {
             firstName: followFirst,
             lastName: followLast,
             email: followEmail,
+            profileId: followProfileId,
           }),
           comp_signup_id: s.id,
         });
       }
     } else {
-      // Strictly: one couple entry; only the lead wears a bib.
       inserts.push({
         competition_id: competitionId,
         entry_kind: "couple",
         lead_first_name: leadFirst,
         lead_last_name: leadLast,
         lead_email: leadEmail,
+        lead_profile_id: leadProfileId,
         follow_first_name: followFirst,
         follow_last_name: followLast,
         follow_email: followEmail,
+        follow_profile_id: followProfileId,
         lead_bib_id: hasLead
           ? await ensureBib(competition.event_id, {
               firstName: leadFirst,
               lastName: leadLast,
               email: leadEmail,
+              profileId: leadProfileId,
             })
           : null,
         comp_signup_id: s.id,

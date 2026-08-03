@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { parseScoringScope } from "@/lib/comps/judgeScope";
+import type { ScoringScope } from "@/lib/comps/types";
 
 /** GET: search profiles to assign as judges (?q=). */
 export async function GET(
@@ -24,6 +26,44 @@ export async function GET(
   return NextResponse.json({ profiles: data ?? [] });
 }
 
+async function loadCompetition(competitionId: string) {
+  const { data } = await supabaseServer
+    .from("competitions")
+    .select("id, comp_type")
+    .eq("id", competitionId)
+    .maybeSingle();
+  return data;
+}
+
+async function enforceSingleDropsFinals(
+  competitionId: string,
+  dropsFinals: boolean,
+  excludeAssignmentId?: string
+) {
+  if (!dropsFinals) return null;
+  let query = supabaseServer
+    .from("comp_judge_assignments")
+    .select("id, judge_role")
+    .eq("competition_id", competitionId)
+    .eq("drops_finals", true);
+  if (excludeAssignmentId) {
+    query = query.neq("id", excludeAssignmentId);
+  }
+  const { data: existing } = await query.limit(1);
+  if ((existing ?? []).length > 0) {
+    return "Only one judge may be marked as dropping finals per competition";
+  }
+  return null;
+}
+
+function resolveScoringScope(
+  compType: string,
+  value: unknown
+): ScoringScope {
+  if (compType !== "jack_and_jill") return "both";
+  return parseScoringScope(value);
+}
+
 /** POST: assign a judge or chief judge. Judges cannot compete in this comp. */
 export async function POST(
   req: NextRequest,
@@ -35,8 +75,20 @@ export async function POST(
   const body = await req.json();
   const profileId = body.profile_id;
   const judgeRole = body.judge_role === "chief_judge" ? "chief_judge" : "judge";
+  const dropsFinals = body.drops_finals === true;
   if (!profileId) {
     return NextResponse.json({ error: "profile_id is required" }, { status: 400 });
+  }
+
+  const competition = await loadCompetition(competitionId);
+  if (!competition) {
+    return NextResponse.json({ error: "Competition not found" }, { status: 404 });
+  }
+  const scoringScope = resolveScoringScope(competition.comp_type, body.scoring_scope);
+
+  const dropsError = await enforceSingleDropsFinals(competitionId, dropsFinals);
+  if (dropsError) {
+    return NextResponse.json({ error: dropsError }, { status: 409 });
   }
 
   const { data: profile } = await supabaseServer
@@ -90,6 +142,8 @@ export async function POST(
         competition_id: competitionId,
         profile_id: profileId,
         judge_role: judgeRole,
+        scoring_scope: scoringScope,
+        drops_finals: dropsFinals,
       },
     ])
     .select("*, profile:profiles(id, first_name, last_name, email)")
@@ -99,6 +153,64 @@ export async function POST(
       ? "This person is already assigned to this competition"
       : "Failed to assign judge";
     return NextResponse.json({ error: message }, { status: 409 });
+  }
+  return NextResponse.json({ judge: data });
+}
+
+/** PATCH: update scoring scope or finals drop flag on an existing assignment. */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ competitionId: string }> }
+) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.ok) return auth.response;
+  const { competitionId } = await params;
+  const body = await req.json();
+  const assignmentId = body.assignment_id;
+  if (!assignmentId) {
+    return NextResponse.json({ error: "assignment_id is required" }, { status: 400 });
+  }
+
+  const competition = await loadCompetition(competitionId);
+  if (!competition) {
+    return NextResponse.json({ error: "Competition not found" }, { status: 404 });
+  }
+
+  const update: Record<string, unknown> = {};
+  if (body.scoring_scope !== undefined) {
+    update.scoring_scope = resolveScoringScope(
+      competition.comp_type,
+      body.scoring_scope
+    );
+  }
+  if (body.drops_finals !== undefined) {
+    const dropsFinals = body.drops_finals === true;
+    const dropsError = await enforceSingleDropsFinals(
+      competitionId,
+      dropsFinals,
+      assignmentId
+    );
+    if (dropsError) {
+      return NextResponse.json({ error: dropsError }, { status: 409 });
+    }
+    update.drops_finals = dropsFinals;
+  }
+  if (Object.keys(update).length === 0) {
+    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+  }
+
+  const { data, error } = await supabaseServer
+    .from("comp_judge_assignments")
+    .update(update)
+    .eq("id", assignmentId)
+    .eq("competition_id", competitionId)
+    .select("*, profile:profiles(id, first_name, last_name, email)")
+    .single();
+  if (error || !data) {
+    return NextResponse.json(
+      { error: "Failed to update judge assignment" },
+      { status: error ? 500 : 404 }
+    );
   }
   return NextResponse.json({ judge: data });
 }

@@ -6,6 +6,7 @@ import {
 } from "@/lib/scoring/relativePlacement";
 import { scoreCallbacks, type CallbackValue } from "@/lib/scoring/callbacks";
 import { sortByBib } from "@/lib/comps/entrySort";
+import { panelJudgesForRound } from "@/lib/comps/judgeScope";
 import type {
   CompetitionRow,
   CompEntryRow,
@@ -90,6 +91,8 @@ export async function loadRoundContext(roundId: string): Promise<RoundContext> {
     competition_id: row.competition_id,
     profile_id: row.profile_id,
     judge_role: row.judge_role,
+    scoring_scope: row.scoring_scope ?? "both",
+    drops_finals: row.drops_finals ?? false,
     first_name: row.profile?.first_name ?? "",
     last_name: row.profile?.last_name ?? "",
     email: row.profile?.email ?? null,
@@ -122,9 +125,20 @@ export function entryDisplay(re: RoundEntryWithEntry): EntryDisplay {
   let displayName: string;
   let bibNumber: number | null;
   if (e.entry_kind === "couple") {
-    displayName = `${personName(e.lead_first_name, e.lead_last_name)} & ${personName(e.follow_first_name, e.follow_last_name)}`;
-    // Couples are judged off the leader's bib (Strictly and JnJ finals).
+    const leadName = personName(e.lead_first_name, e.lead_last_name);
+    const followName = personName(e.follow_first_name, e.follow_last_name);
+    displayName = `${leadName} & ${followName}`;
     bibNumber = e.lead_bib?.bib_number ?? null;
+    return {
+      roundEntryId: re.id,
+      entryId: re.entry_id,
+      bibNumber,
+      displayName,
+      role: null,
+      leadDisplayName: leadName,
+      followBibNumber: e.follow_bib?.bib_number ?? null,
+      followDisplayName: followName,
+    };
   } else if (e.role === "follow") {
     displayName = personName(e.follow_first_name, e.follow_last_name);
     bibNumber = e.follow_bib?.bib_number ?? null;
@@ -155,9 +169,7 @@ export function activeRoundEntries(
  * panel only when the competition is configured with cj_in_panel.
  */
 export function panelJudges(ctx: RoundContext): JudgeWithProfile[] {
-  return ctx.judges.filter(
-    (j) => j.judge_role === "judge" || ctx.competition.cj_in_panel
-  );
+  return panelJudgesForRound(ctx.judges, ctx.round, ctx.competition.cj_in_panel);
 }
 
 export function chiefJudge(ctx: RoundContext): JudgeWithProfile | null {

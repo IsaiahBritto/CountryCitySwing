@@ -6,6 +6,7 @@ import {
   loadRoundContext,
   RoundDataError,
 } from "@/lib/comps/roundData";
+import { judgeScoresRound, siblingRoundFor } from "@/lib/comps/judgeScope";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 /**
@@ -56,6 +57,19 @@ export async function GET(
     );
   }
 
+  if (!judgeScoresRound(assignment, ctx.round)) {
+    return NextResponse.json(
+      { error: "Your assignment does not include this round" },
+      { status: 403 }
+    );
+  }
+
+  const { data: compRounds } = await supabaseServer
+    .from("comp_rounds")
+    .select("id, round_type, judged_role")
+    .eq("competition_id", ctx.round.competition_id);
+  const siblingRound = siblingRoundFor(compRounds ?? [], ctx.round);
+
   const { data: heats } = await supabaseServer
     .from("comp_heats")
     .select("*")
@@ -99,6 +113,8 @@ export async function GET(
     },
     judgeAssignmentId: assignment.id,
     judgeRole: assignment.judge_role,
+    scoringScope: assignment.scoring_scope,
+    siblingRound,
     sheet: sheet
       ? { status: sheet.status, submitted_at: sheet.submitted_at }
       : { status: "draft", submitted_at: null },

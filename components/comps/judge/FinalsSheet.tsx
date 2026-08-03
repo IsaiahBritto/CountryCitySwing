@@ -18,6 +18,10 @@ interface SheetEntry {
   roundEntryId: string;
   bibNumber: number | null;
   displayName: string;
+  leadDisplayName?: string | null;
+  followBibNumber?: number | null;
+  followDisplayName?: string | null;
+  heatNumber?: number | null;
 }
 
 type Mode = "placement" | "raw";
@@ -304,19 +308,35 @@ export default function FinalsSheet({
                     : "border-neutral-700")
               }
             >
-              {/* Placement + bib always visible */}
-              <div className="w-12 text-center">
+              {/* Lead bib primary; follow secondary for JnJ couples */}
+              <div className="w-14 shrink-0 text-center">
+                <div className="text-2xl font-bold text-white">
+                  {entry?.bibNumber ?? "—"}
+                </div>
+                {entry?.followBibNumber != null && (
+                  <div className="font-mono text-xs text-neutral-500">
+                    +{entry.followBibNumber}
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
                 <div className="text-lg font-bold text-primary">
                   {ordinalLabel(index + 1)}
                 </div>
-                <div className="font-mono text-xs text-neutral-400">
-                  #{entry?.bibNumber ?? "—"}
-                </div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm text-white">
-                  {entry?.displayName}
-                </div>
+                {entry?.followDisplayName ? (
+                  <>
+                    <div className="truncate text-sm text-neutral-300">
+                      {entry.leadDisplayName ?? entry.displayName.split(" & ")[0]}
+                    </div>
+                    <div className="truncate text-xs text-neutral-500">
+                      {entry.followDisplayName}
+                    </div>
+                  </>
+                ) : (
+                  <div className="truncate text-sm text-white">
+                    {entry?.displayName}
+                  </div>
+                )}
                 <div className="text-xs text-neutral-400">
                   Raw{" "}
                   <span className="font-mono text-neutral-200">

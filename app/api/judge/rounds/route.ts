@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireJudgeAuth } from "@/lib/judgeAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { judgeScoresRound, siblingRoundFor } from "@/lib/comps/judgeScope";
 
 interface JudgeRoundPayload {
   id: string;
@@ -11,8 +12,10 @@ interface JudgeRoundPayload {
   round_order: number;
   judgeAssignmentId: string;
   judgeRole: string;
+  scoringScope: string;
   sheetStatus: string | null;
   readyToJudge: boolean;
+  siblingRound: { id: string; judged_role: string } | null;
 }
 
 /** GET: the logged-in judge's assignments with nested round status. */
@@ -50,6 +53,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Failed to load rounds" }, { status: 500 });
   }
 
+  const roundsByCompetition = new Map<string, typeof rounds>();
+  for (const round of rounds ?? []) {
+    const list = roundsByCompetition.get(round.competition_id) ?? [];
+    list.push(round);
+    roundsByCompetition.set(round.competition_id, list);
+  }
+
   const assignmentByCompetition = new Map(
     auth.assignments.map((a) => [a.competition_id, a])
   );
@@ -63,11 +73,16 @@ export async function GET(req: NextRequest) {
         .in("judge_assignment_id", assignmentIds)
     : { data: [] };
 
-  const roundsByCompetition = new Map<string, JudgeRoundPayload[]>();
+  const roundsByCompetitionPayload = new Map<string, JudgeRoundPayload[]>();
 
   for (const round of rounds ?? []) {
     const assignment = assignmentByCompetition.get(round.competition_id);
     if (!assignment) continue;
+    if (!judgeScoresRound(assignment, round)) continue;
+
+    const compRounds = roundsByCompetition.get(round.competition_id) ?? [];
+    const sibling = siblingRoundFor(compRounds, round);
+
     const sheet = (sheets ?? []).find(
       (s) =>
         s.round_id === round.id && s.judge_assignment_id === assignment.id
@@ -82,20 +97,24 @@ export async function GET(req: NextRequest) {
       round_order: round.round_order,
       judgeAssignmentId: assignment.id,
       judgeRole: assignment.judge_role,
+      scoringScope: assignment.scoring_scope,
       sheetStatus,
       readyToJudge: round.status === "open" && sheetStatus !== "submitted",
+      siblingRound: sibling,
     };
-    const list = roundsByCompetition.get(round.competition_id) ?? [];
+    const list = roundsByCompetitionPayload.get(round.competition_id) ?? [];
     list.push(roundPayload);
-    roundsByCompetition.set(round.competition_id, list);
+    roundsByCompetitionPayload.set(round.competition_id, list);
   }
 
   const assignmentsPayload = auth.assignments.map((a) => ({
     id: a.id,
     competitionId: a.competition_id,
     judgeRole: a.judge_role,
+    scoringScope: a.scoring_scope,
+    dropsFinals: a.drops_finals,
     competition: competitionById.get(a.competition_id) ?? null,
-    rounds: roundsByCompetition.get(a.competition_id) ?? [],
+    rounds: roundsByCompetitionPayload.get(a.competition_id) ?? [],
   }));
 
   return NextResponse.json({ assignments: assignmentsPayload });

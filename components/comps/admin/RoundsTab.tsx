@@ -95,10 +95,10 @@ export default function RoundsTab({
       {/* JnJ random draw — shown inside Final slot context when expanded, or here when ready */}
       {isJnJ && !hasFinals && tabulatedCallbacks.length >= 2 && (
         <div className="mb-4 rounded-xl border border-primary/40 bg-neutral-800/60 p-4">
-          <h3 className="mb-1 font-semibold text-white">Finals random draw</h3>
+          <h3 className="mb-1 font-semibold text-white">Create finals from advancers</h3>
           <p className="mb-3 text-sm text-neutral-400">
-            Pairs advancing leads with advancing follows at random and creates
-            the finals round.
+            Seeds advancing leads and follows as separate entries. Pair them with
+            a rotation at finals check-in before scoring opens.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <select
@@ -134,7 +134,7 @@ export default function RoundsTab({
               disabled={drawing || !drawLead || !drawFollow}
               className={compBtnOutline}
             >
-              {drawing ? "Drawing…" : "Run draw & create finals"}
+              {drawing ? "Creating…" : "Create finals from advancers"}
             </button>
           </div>
         </div>

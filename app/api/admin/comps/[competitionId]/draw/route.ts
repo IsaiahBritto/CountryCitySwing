@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { roundOrderForType } from "@/lib/comps/roundChain";
+import { sortByBib } from "@/lib/comps/entrySort";
 
 /**
- * POST: JnJ finals random draw. Pairs the advancing leads with the advancing
- * follows from the two tabulated callback rounds, creates couple entries
- * (keyed to the leader's bib), and creates the finals round seeded with them.
+ * POST: JnJ finals seeding from advancers (no random pairing).
+ * Seeds individual lead and follow round entries; rotation happens at check-in.
  * Body: lead_round_id, follow_round_id
  */
 export async function POST(
@@ -36,7 +36,7 @@ export async function POST(
   }
   if (competition.comp_type !== "jack_and_jill") {
     return NextResponse.json(
-      { error: "The random draw only applies to Jack & Jill" },
+      { error: "Finals seeding only applies to Jack & Jill" },
       { status: 400 }
     );
   }
@@ -54,7 +54,7 @@ export async function POST(
     const { data: results } = await supabaseServer
       .from("comp_round_results")
       .select(
-        "advanced, round_entry:comp_round_entries(entry_id, entry:comp_entries(*))"
+        "advanced, round_entry:comp_round_entries(entry_id, entry:comp_entries(*, lead_bib:comp_bibs!comp_entries_lead_bib_id_fkey(bib_number), follow_bib:comp_bibs!comp_entries_follow_bib_id_fkey(bib_number)))"
       )
       .eq("round_id", roundId)
       .eq("advanced", true);
@@ -84,55 +84,27 @@ export async function POST(
   if (leads.entries.length !== follows.entries.length) {
     return NextResponse.json(
       {
-        error: `Lead and follow counts differ (${leads.entries.length} vs ${follows.entries.length}); promote alternates or adjust before the draw`,
+        error: `Lead and follow counts differ (${leads.entries.length} vs ${follows.entries.length}); promote alternates or adjust before creating finals`,
       },
       { status: 409 }
     );
   }
   if (leads.entries.length === 0) {
-    return NextResponse.json({ error: "No advancers to pair" }, { status: 409 });
+    return NextResponse.json({ error: "No advancers to seed" }, { status: 409 });
   }
 
-  // Fisher-Yates shuffle of the follows against dance-order leads.
-  const shuffledFollows = [...follows.entries];
-  for (let i = shuffledFollows.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffledFollows[i], shuffledFollows[j]] = [
-      shuffledFollows[j],
-      shuffledFollows[i],
-    ];
-  }
-
-  const coupleRows = leads.entries.map((lead: any, i: number) => {
-    const follow = shuffledFollows[i];
-    return {
-      competition_id: competitionId,
-      entry_kind: "couple",
-      lead_first_name: lead.lead_first_name,
-      lead_last_name: lead.lead_last_name,
-      lead_email: lead.lead_email,
-      follow_first_name: follow.follow_first_name,
-      follow_last_name: follow.follow_last_name,
-      follow_email: follow.follow_email,
-      // Judged off the leader's bib in finals.
-      lead_bib_id: lead.lead_bib_id,
-      follow_bib_id: follow.follow_bib_id,
-      source_lead_entry_id: lead.id,
-      source_follow_entry_id: follow.id,
-    };
-  });
-
-  const { data: couples, error: couplesError } = await supabaseServer
-    .from("comp_entries")
-    .insert(coupleRows)
-    .select("id");
-  if (couplesError) {
-    console.error("[admin/comps/draw] couple insert failed", couplesError);
-    return NextResponse.json(
-      { error: "Failed to create drawn couples" },
-      { status: 500 }
-    );
-  }
+  const sortedLeads = sortByBib(
+    leads.entries,
+    (e: any) => e.lead_bib?.bib_number ?? null,
+    () => 0,
+    (e: any) => e.id
+  );
+  const sortedFollows = sortByBib(
+    follows.entries,
+    (e: any) => e.follow_bib?.bib_number ?? null,
+    () => 0,
+    (e: any) => e.id
+  );
 
   const { data: existingFinal } = await supabaseServer
     .from("comp_rounds")
@@ -157,6 +129,8 @@ export async function POST(
         scoring_mode: "relative_placement",
         round_order: roundOrderForType("final"),
         source_round_id: leadRoundId,
+        rotation_offset: null,
+        pairings_confirmed_at: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", existingFinal.id)
@@ -197,16 +171,26 @@ export async function POST(
     finalsRound = data;
   }
 
+  const seedRows = [
+    ...sortedLeads.map((entry: any, i: number) => ({
+      round_id: finalsRound.id,
+      entry_id: entry.id,
+      dance_order: i + 1,
+      checkin_role: "lead" as const,
+    })),
+    ...sortedFollows.map((entry: any, i: number) => ({
+      round_id: finalsRound.id,
+      entry_id: entry.id,
+      dance_order: i + 1,
+      checkin_role: "follow" as const,
+    })),
+  ];
+
   const { error: entriesError } = await supabaseServer
     .from("comp_round_entries")
-    .insert(
-      (couples ?? []).map((c, i) => ({
-        round_id: finalsRound.id,
-        entry_id: c.id,
-        dance_order: i + 1,
-      }))
-    );
+    .insert(seedRows);
   if (entriesError) {
+    console.error("[admin/comps/draw] seed failed", entriesError);
     return NextResponse.json(
       { error: "Failed to seed finals entries" },
       { status: 500 }
@@ -215,6 +199,7 @@ export async function POST(
 
   return NextResponse.json({
     round: finalsRound,
-    couples: couples?.length ?? 0,
+    leads: sortedLeads.length,
+    follows: sortedFollows.length,
   });
 }

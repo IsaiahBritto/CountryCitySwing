@@ -15,6 +15,8 @@ export type RoundStatus =
   | "published";
 export type CheckinStatus = "pending" | "checked_in" | "absent";
 export type JudgeRole = "judge" | "chief_judge";
+export type ScoringScope = "lead" | "follow" | "both";
+export type CheckinRole = "lead" | "follow";
 export type SheetStatus = "draft" | "submitted";
 export type CallbackValue = "yes" | "alt1" | "alt2" | "alt3" | "no";
 
@@ -70,6 +72,8 @@ export interface CompRoundRow {
   tabulation: RoundTabulation | null;
   tabulated_at: string | null;
   published_at: string | null;
+  rotation_offset: number | null;
+  pairings_confirmed_at: string | null;
 }
 
 export interface CompHeatRow {
@@ -87,6 +91,7 @@ export interface CompRoundEntryRow {
   checkin_status: CheckinStatus;
   scratched: boolean;
   promoted_alternate: boolean;
+  checkin_role: CheckinRole | null;
 }
 
 export interface CompJudgeAssignmentRow {
@@ -94,6 +99,8 @@ export interface CompJudgeAssignmentRow {
   competition_id: string;
   profile_id: string;
   judge_role: JudgeRole;
+  scoring_scope: ScoringScope;
+  drops_finals: boolean;
 }
 
 export interface CompJudgeSheetRow {
@@ -137,6 +144,11 @@ export interface EntryDisplay {
   /** "Jane Doe" or "Jack Doe & Jill Roe". */
   displayName: string;
   role: DanceRole | null;
+  /** JnJ finals: leader name (couples). */
+  leadDisplayName?: string | null;
+  /** JnJ finals: follow bib shown secondary to lead. */
+  followBibNumber?: number | null;
+  followDisplayName?: string | null;
 }
 
 /** Round-level tabulation snapshot stored on comp_rounds.tabulation. */

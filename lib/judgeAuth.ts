@@ -8,6 +8,8 @@ export interface JudgeAssignment {
   competition_id: string;
   profile_id: string;
   judge_role: "judge" | "chief_judge";
+  scoring_scope: "lead" | "follow" | "both";
+  drops_finals: boolean;
 }
 
 export type JudgeAuthResult =
@@ -70,7 +72,7 @@ export async function requireJudgeAuth(
 
   let query = supabaseServer
     .from("comp_judge_assignments")
-    .select("id, competition_id, profile_id, judge_role")
+    .select("id, competition_id, profile_id, judge_role, scoring_scope, drops_finals")
     .eq("profile_id", user.id);
   if (options.competitionId) {
     query = query.eq("competition_id", options.competitionId);
@@ -98,7 +100,11 @@ export async function requireJudgeAuth(
     ok: true,
     userId: user.id,
     token: tokenOrResponse,
-    assignments: (assignments ?? []) as JudgeAssignment[],
+    assignments: (assignments ?? []).map((a) => ({
+      ...a,
+      scoring_scope: a.scoring_scope ?? "both",
+      drops_finals: a.drops_finals ?? false,
+    })) as JudgeAssignment[],
     isAdmin,
   };
 }

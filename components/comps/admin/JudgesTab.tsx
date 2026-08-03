@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import type { ScoringScope } from "@/lib/comps/types";
 
 interface JudgeRow {
   id: string;
   judge_role: "judge" | "chief_judge";
+  scoring_scope: ScoringScope;
+  drops_finals: boolean;
   profile: {
     id: string;
     first_name: string | null;
@@ -21,21 +24,31 @@ interface ProfileResult {
   email: string | null;
 }
 
+const SCOPE_LABEL: Record<ScoringScope, string> = {
+  lead: "Leads",
+  follow: "Follows",
+  both: "Both",
+};
+
 export default function JudgesTab({
   competitionId,
+  compType,
   judges,
   cjInPanel,
   onChanged,
 }: {
   competitionId: string;
+  compType: "jack_and_jill" | "strictly";
   judges: JudgeRow[];
   cjInPanel: boolean;
   onChanged: () => void;
 }) {
+  const isJnJ = compType === "jack_and_jill";
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ProfileResult[]>([]);
   const [assignRole, setAssignRole] = useState<"judge" | "chief_judge">("judge");
+  const [assignScope, setAssignScope] = useState<ScoringScope>("both");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -60,7 +73,11 @@ export default function JudgesTab({
     setError(null);
     const res = await authedFetch(`/api/admin/comps/${competitionId}/judges`, {
       method: "POST",
-      body: JSON.stringify({ profile_id: profileId, judge_role: assignRole }),
+      body: JSON.stringify({
+        profile_id: profileId,
+        judge_role: assignRole,
+        scoring_scope: isJnJ ? assignScope : "both",
+      }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -69,6 +86,22 @@ export default function JudgesTab({
     }
     setQuery("");
     setResults([]);
+    onChanged();
+  };
+
+  const patchJudge = async (
+    assignmentId: string,
+    patch: { scoring_scope?: ScoringScope; drops_finals?: boolean }
+  ) => {
+    setError(null);
+    const res = await authedFetch(`/api/admin/comps/${competitionId}/judges`, {
+      method: "PATCH",
+      body: JSON.stringify({ assignment_id: assignmentId, ...patch }),
+    });
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
     onChanged();
   };
 
@@ -102,10 +135,22 @@ export default function JudgesTab({
   const effectivePanel = panel.length + (cjInPanel && cj ? 1 : 0);
   const evenPanel = effectivePanel > 0 && effectivePanel % 2 === 0;
 
+  const finalsPanel =
+    panel.filter((j) => !j.drops_finals).length +
+    (cjInPanel && cj && !cj.drops_finals ? 1 : 0);
+  const evenFinalsPanel = finalsPanel > 0 && finalsPanel % 2 === 0;
+
   const name = (j: JudgeRow) =>
     `${j.profile?.first_name ?? ""} ${j.profile?.last_name ?? ""}`.trim() ||
     j.profile?.email ||
     "Unknown";
+
+  const scopeBadge = (scope: ScoringScope) =>
+    isJnJ && scope !== "both" ? (
+      <span className="ml-2 rounded bg-neutral-700/80 px-1.5 py-0.5 text-xs text-neutral-300">
+        {SCOPE_LABEL[scope]}
+      </span>
+    ) : null;
 
   return (
     <div>
@@ -126,12 +171,23 @@ export default function JudgesTab({
           />
           <select
             value={assignRole}
-            onChange={(e) => setAssignRole(e.target.value as any)}
+            onChange={(e) => setAssignRole(e.target.value as "judge" | "chief_judge")}
             className="rounded-md border border-neutral-600 bg-neutral-900 px-3 py-2 text-sm text-white"
           >
             <option value="judge">Judge</option>
             <option value="chief_judge">Chief judge</option>
           </select>
+          {isJnJ && (
+            <select
+              value={assignScope}
+              onChange={(e) => setAssignScope(e.target.value as ScoringScope)}
+              className="rounded-md border border-neutral-600 bg-neutral-900 px-3 py-2 text-sm text-white"
+            >
+              <option value="both">Scores: Both</option>
+              <option value="lead">Scores: Leads</option>
+              <option value="follow">Scores: Follows</option>
+            </select>
+          )}
         </div>
         {results.length > 0 && (
           <div className="mt-2 divide-y divide-neutral-800 rounded-md border border-neutral-700 bg-neutral-900">
@@ -163,6 +219,13 @@ export default function JudgesTab({
           essential. Consider an odd panel.
         </div>
       )}
+      {isJnJ && evenFinalsPanel && (
+        <div className="mb-4 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-300">
+          The finals panel has an even number of judges ({finalsPanel}). Mark
+          one judge as dropping finals to reach an odd panel, or adjust CJ in
+          panel settings.
+        </div>
+      )}
 
       <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
         Panel ({panel.length} judge{panel.length === 1 ? "" : "s"})
@@ -174,18 +237,54 @@ export default function JudgesTab({
         {panel.map((j) => (
           <div
             key={j.id}
-            className="flex items-center justify-between rounded-lg border border-neutral-700 bg-neutral-800/40 px-3 py-2"
+            className="rounded-lg border border-neutral-700 bg-neutral-800/40 px-3 py-2"
           >
-            <div>
-              <span className="text-white">{name(j)}</span>
-              <span className="ml-2 text-xs text-neutral-500">{j.profile?.email}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <span className="text-white">{name(j)}</span>
+                {scopeBadge(j.scoring_scope ?? "both")}
+                {j.drops_finals && (
+                  <span className="ml-2 text-xs text-amber-400">Drops finals</span>
+                )}
+                <div className="text-xs text-neutral-500">{j.profile?.email}</div>
+              </div>
+              <button
+                onClick={() => remove(j.id)}
+                className="text-xs text-neutral-500 hover:text-red-400"
+              >
+                Remove
+              </button>
             </div>
-            <button
-              onClick={() => remove(j.id)}
-              className="text-xs text-neutral-500 hover:text-red-400"
-            >
-              Remove
-            </button>
+            {isJnJ && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                <label className="flex items-center gap-1.5 text-neutral-400">
+                  Scope
+                  <select
+                    value={j.scoring_scope ?? "both"}
+                    onChange={(e) =>
+                      patchJudge(j.id, {
+                        scoring_scope: e.target.value as ScoringScope,
+                      })
+                    }
+                    className="rounded border border-neutral-600 bg-neutral-900 px-2 py-1 text-white"
+                  >
+                    <option value="both">Both</option>
+                    <option value="lead">Leads</option>
+                    <option value="follow">Follows</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-1.5 text-neutral-400">
+                  <input
+                    type="checkbox"
+                    checked={j.drops_finals ?? false}
+                    onChange={(e) =>
+                      patchJudge(j.id, { drops_finals: e.target.checked })
+                    }
+                  />
+                  Drops finals
+                </label>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -194,17 +293,35 @@ export default function JudgesTab({
         Chief judge
       </h3>
       {cj ? (
-        <div className="flex items-center justify-between rounded-lg border border-primary/40 bg-neutral-800/40 px-3 py-2">
-          <div>
-            <span className="text-white">{name(cj)}</span>
-            <span className="ml-2 text-xs text-neutral-500">{cj.profile?.email}</span>
+        <div className="rounded-lg border border-primary/40 bg-neutral-800/40 px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span className="text-white">{name(cj)}</span>
+              {cj.drops_finals && (
+                <span className="ml-2 text-xs text-amber-400">Drops finals</span>
+              )}
+              <div className="text-xs text-neutral-500">{cj.profile?.email}</div>
+            </div>
+            <button
+              onClick={() => remove(cj.id)}
+              className="text-xs text-neutral-500 hover:text-red-400"
+            >
+              Remove
+            </button>
           </div>
-          <button
-            onClick={() => remove(cj.id)}
-            className="text-xs text-neutral-500 hover:text-red-400"
-          >
-            Remove
-          </button>
+          {isJnJ && (
+            <label className="mt-2 flex items-center gap-1.5 text-xs text-neutral-400">
+              <input
+                type="checkbox"
+                checked={cj.drops_finals ?? false}
+                onChange={(e) => patchJudge(cj.id, { drops_finals: e.target.checked })}
+              />
+              Drops finals
+              {cj.drops_finals && (
+                <span className="text-amber-400">— CJ will not score finals</span>
+              )}
+            </label>
+          )}
         </div>
       ) : (
         <p className="text-sm text-neutral-500">

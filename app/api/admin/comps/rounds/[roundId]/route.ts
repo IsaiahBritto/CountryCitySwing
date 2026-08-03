@@ -15,6 +15,7 @@ import {
   chiefJudge,
   RoundDataError,
 } from "@/lib/comps/roundData";
+import { panelJudgesForRound } from "@/lib/comps/judgeScope";
 import type { RoundStatus } from "@/lib/comps/types";
 
 /** GET: round detail for the director console (entries, judges, progress). */
@@ -60,15 +61,29 @@ export async function GET(
       })),
       judges: ctx.judges.map((j) => {
         const sheet = ctx.sheets.find((s) => s.judge_assignment_id === j.id);
+        const isPanel = panelJudgesForRound(
+          [j],
+          ctx.round,
+          ctx.competition.cj_in_panel
+        ).length > 0;
         return {
           ...j,
-          isPanel: j.judge_role === "judge" || ctx.competition.cj_in_panel,
+          isPanel,
           sheetStatus: sheet?.status ?? "draft",
           submittedAt: sheet?.submitted_at ?? null,
           scored: scoreCounts.get(j.id) ?? 0,
           total: activeCount,
         };
       }),
+      finalsMeta:
+        ctx.competition.comp_type === "jack_and_jill" &&
+        ctx.round.round_type === "final"
+          ? {
+              rotation_offset: ctx.round.rotation_offset,
+              pairings_confirmed_at: ctx.round.pairings_confirmed_at,
+              prePairing: ctx.round.pairings_confirmed_at == null,
+            }
+          : null,
     });
   } catch (err) {
     if (err instanceof RoundDataError) {
@@ -136,8 +151,21 @@ export async function PATCH(
         }
       }
       if (target === "open") {
-        // Check-in gate: every non-scratched entry must be resolved, at
-        // least one present, and the panel must exist before judges score.
+        const isJnJFinalsPrePairing =
+          ctx.competition.comp_type === "jack_and_jill" &&
+          ctx.round.round_type === "final" &&
+          ctx.round.pairings_confirmed_at == null;
+
+        if (isJnJFinalsPrePairing) {
+          return NextResponse.json(
+            {
+              error:
+                "Confirm rotation pairings before opening scoring for JnJ finals",
+            },
+            { status: 409 }
+          );
+        }
+
         const unresolved = ctx.roundEntries.filter(
           (re) => !re.scratched && re.checkin_status === "pending"
         );

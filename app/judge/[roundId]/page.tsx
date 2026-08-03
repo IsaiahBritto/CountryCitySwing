@@ -2,8 +2,9 @@
 
 import { Suspense, use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { compBtnTabActive } from "@/lib/comps/buttonStyles";
 import CallbackSheet from "@/components/comps/judge/CallbackSheet";
 import FinalsSheet from "@/components/comps/judge/FinalsSheet";
 
@@ -38,6 +39,7 @@ function JudgeRoundInner({
   params: Promise<{ roundId: string }>;
 }) {
   const { roundId } = use(params);
+  const router = useRouter();
   const searchParams = useSearchParams();
   // Admin override: /judge/[roundId]?as=<judgeAssignmentId>
   const asAssignment = searchParams.get("as");
@@ -87,15 +89,60 @@ function JudgeRoundInner({
     );
   }
 
-  const { round, competition, entries, scores, sheet } = context;
+  const { round, competition, entries, scores, sheet, scoringScope, siblingRound } =
+    context;
   const title = `${competition.name} · ${ROUND_LABEL[round.round_type] ?? round.round_type}${
     round.judged_role
       ? ` — ${round.judged_role === "lead" ? "Leads" : "Follows"}`
       : ""
   }`;
+  const showRoleToggle =
+    scoringScope === "both" && siblingRound && round.judged_role != null;
+  const asQuery = asAssignment ? `?as=${asAssignment}` : "";
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-4 sm:py-6">
+      {showRoleToggle && (
+        <div className="sticky top-0 z-30 -mx-4 mb-4 border-b border-neutral-800 bg-neutral-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex w-full rounded-lg border border-neutral-700 p-0.5">
+            {(
+              [
+                {
+                  role: "lead" as const,
+                  label: "Leads",
+                  id:
+                    round.judged_role === "lead" ? roundId : siblingRound.id,
+                },
+                {
+                  role: "follow" as const,
+                  label: "Follows",
+                  id:
+                    round.judged_role === "follow" ? roundId : siblingRound.id,
+                },
+              ] as const
+            ).map(({ role, label, id: targetId }) => {
+              const active = round.judged_role === role;
+              return (
+                <button
+                  key={role}
+                  onClick={() => {
+                    if (!active) router.push(`/judge/${targetId}${asQuery}`);
+                  }}
+                  className={
+                    "flex-1 rounded-md px-3 py-2 text-sm font-medium transition min-h-11 " +
+                    (active
+                      ? compBtnTabActive
+                      : "border border-transparent text-neutral-400 hover:text-white")
+                  }
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="mb-4">
         <Link href="/judge" className="text-xs text-neutral-500 hover:text-primary">
           ← My rounds

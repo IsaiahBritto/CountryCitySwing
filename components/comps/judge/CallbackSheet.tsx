@@ -82,6 +82,9 @@ export default function CallbackSheet({
   );
 
   const yesCount = [...votes.values()].filter((v) => v === "yes").length;
+  const unknownCount = entries.filter(
+    (e) => votes.get(e.roundEntryId) == null
+  ).length;
 
   const setVote = (roundEntryId: string, vote: Vote) => {
     if (locked) return;
@@ -157,7 +160,7 @@ export default function CallbackSheet({
   return (
     <div>
       {/* Sticky progress header */}
-      <div className="sticky top-0 z-10 -mx-4 mb-4 border-b border-neutral-800 bg-neutral-900/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-0 z-20 -mx-4 mb-4 border-b border-neutral-800 bg-neutral-900/95 px-4 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm">
           <span
             className={
@@ -167,6 +170,9 @@ export default function CallbackSheet({
             }
           >
             Yes: {yesCount}/{effectiveCallbacks}
+          </span>
+          <span className="text-neutral-300">
+            Unknown: {unknownCount}
           </span>
           {altOptions.length > 0 && (
             <span className="text-neutral-300">

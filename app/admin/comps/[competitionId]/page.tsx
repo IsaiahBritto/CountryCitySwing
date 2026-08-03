@@ -151,6 +151,7 @@ export default function CompetitionConsolePage({
       {tab === "judges" && (
         <JudgesTab
           competitionId={competitionId}
+          compType={competition.comp_type}
           judges={judges}
           cjInPanel={competition.cj_in_panel}
           onChanged={load}

@@ -24,7 +24,12 @@ interface RoundDetail {
     source_round_id: string | null;
     tabulation: any;
   };
-  competition: { id: string; name: string };
+  competition: { id: string; name: string; comp_type: string };
+  finalsMeta: {
+    rotation_offset: number | null;
+    pairings_confirmed_at: string | null;
+    prePairing: boolean;
+  } | null;
   heats: { id: string; heat_number: number }[];
   results: any[];
   entries: {
@@ -32,6 +37,7 @@ interface RoundDetail {
     heat_id: string | null;
     dance_order: number | null;
     checkin_status: "pending" | "checked_in" | "absent";
+    checkin_role: "lead" | "follow" | null;
     scratched: boolean;
     promoted_alternate: boolean;
     display: {
@@ -71,6 +77,10 @@ export default function RoundPanel({
   const [heatCount, setHeatCount] = useState(1);
   const [ties, setTies] = useState<UnresolvedTie[] | null>(null);
   const [tieOrders, setTieOrders] = useState<string[][]>([]);
+  const [rotationInput, setRotationInput] = useState("");
+  const [pairPreview, setPairPreview] = useState<
+    { leadBib: number | null; followBib: number | null }[]
+  >([]);
   const detailRef = useRef<RoundDetail | null>(null);
   detailRef.current = detail;
 
@@ -86,6 +96,29 @@ export default function RoundPanel({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const offset = detail?.finalsMeta?.rotation_offset;
+    if (offset != null) {
+      setRotationInput(String(offset));
+    }
+    if (
+      detail?.finalsMeta?.prePairing &&
+      detail.finalsMeta.rotation_offset != null
+    ) {
+      (async () => {
+        const res = await authedFetch(
+          `/api/admin/comps/rounds/${roundId}/pairings`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          setPairPreview(data.preview ?? []);
+        }
+      })();
+    } else if (!detail?.finalsMeta?.prePairing) {
+      setPairPreview([]);
+    }
+  }, [detail?.finalsMeta, roundId]);
 
   // Live judge progress: poll while check-in/scoring is active, and listen on
   // the round's broadcast channel for instant updates from judge devices.
@@ -139,6 +172,49 @@ export default function RoundPanel({
       authedFetch(`/api/admin/comps/rounds/${roundId}/checkin`, {
         method: "POST",
         body: JSON.stringify({ action: "promote_alternate" }),
+      })
+    );
+
+  const submitRotation = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await authedFetch(`/api/admin/comps/rounds/${roundId}/pairings`, {
+      method: "POST",
+      body: JSON.stringify({ rotation_offset: Number(rotationInput) }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    const data = await res.json();
+    setPairPreview(data.preview ?? []);
+    await load();
+    onChanged();
+  };
+
+  const generateRandomRotation = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await authedFetch(`/api/admin/comps/rounds/${roundId}/pairings`, {
+      method: "POST",
+      body: JSON.stringify({ action: "random" }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    const data = await res.json();
+    if (data.rotation_offset != null) {
+      setRotationInput(String(data.rotation_offset));
+    }
+  };
+
+  const confirmPairings = () =>
+    act(() =>
+      authedFetch(`/api/admin/comps/rounds/${roundId}/pairings/confirm`, {
+        method: "POST",
       })
     );
 
@@ -217,16 +293,101 @@ export default function RoundPanel({
     return <p className="py-4 text-sm text-neutral-400">{error ?? "Loading round…"}</p>;
   }
 
-  const { round, judges, heats } = detail;
+  const { round, judges, heats, finalsMeta, competition } = detail;
   const status = round.status;
-  const unresolvedCheckin = entries.filter(
-    (e) => !e.scratched && e.checkin_status === "pending"
+  const isJnJFinalsPrePairing =
+    competition.comp_type === "jack_and_jill" &&
+    round.round_type === "final" &&
+    finalsMeta?.prePairing === true;
+
+  const activeEntries = entries.filter((e) => !e.scratched);
+  const leadEntries = isJnJFinalsPrePairing
+    ? activeEntries.filter((e) => e.checkin_role === "lead")
+    : [];
+  const followEntries = isJnJFinalsPrePairing
+    ? activeEntries.filter((e) => e.checkin_role === "follow")
+    : [];
+
+  const unresolvedCheckin = activeEntries.filter(
+    (e) => e.checkin_status === "pending"
   ).length;
-  const presentCount = entries.filter(
-    (e) => !e.scratched && e.checkin_status === "checked_in"
+  const presentCount = activeEntries.filter(
+    (e) => e.checkin_status === "checked_in"
   ).length;
+
+  const leadUnresolved = leadEntries.filter(
+    (e) => e.checkin_status === "pending"
+  ).length;
+  const followUnresolved = followEntries.filter(
+    (e) => e.checkin_status === "pending"
+  ).length;
+  const leadPresent = leadEntries.filter(
+    (e) => e.checkin_status === "checked_in"
+  ).length;
+  const followPresent = followEntries.filter(
+    (e) => e.checkin_status === "checked_in"
+  ).length;
+  const rotationReady =
+    isJnJFinalsPrePairing &&
+    leadUnresolved === 0 &&
+    followUnresolved === 0 &&
+    leadPresent > 0 &&
+    followPresent > 0 &&
+    leadPresent === followPresent;
+  const pairingsConfirmed = finalsMeta?.pairings_confirmed_at != null;
+  const rotationMax = Math.max(0, leadPresent - 1);
   const heatNumber = (heatId: string | null) =>
     heats.find((h) => h.id === heatId)?.heat_number ?? null;
+
+  const renderCheckinRow = (e: (typeof entries)[0]) => (
+    <div
+      key={e.id}
+      className="rounded-md border border-neutral-700 bg-neutral-800/40 px-3 py-2.5"
+    >
+      <div className="mb-2 flex min-w-0 items-start gap-2">
+        <span className="shrink-0 font-mono text-sm text-neutral-400">
+          {e.display.bibNumber != null ? `#${e.display.bibNumber}` : "—"}
+        </span>
+        <span className="min-w-0 flex-1 text-sm text-white">
+          {e.display.displayName}
+          {e.promoted_alternate && (
+            <span className="ml-1 text-xs text-amber-400">(alt)</span>
+          )}
+          {heatNumber(e.heat_id) != null && (
+            <span className="ml-1 text-xs text-neutral-500">
+              H{heatNumber(e.heat_id)}
+            </span>
+          )}
+        </span>
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={() => setCheckin(e.id, "checked_in")}
+          className={
+            "flex min-h-11 flex-1 items-center justify-center rounded-md border text-sm font-semibold transition " +
+            (e.checkin_status === "checked_in"
+              ? "border-green-500 bg-green-500 text-white"
+              : "border-neutral-600 text-neutral-300 hover:border-green-500 hover:text-green-400")
+          }
+          aria-label="Checked in"
+        >
+          In
+        </button>
+        <button
+          onClick={() => setCheckin(e.id, "absent")}
+          className={
+            "flex min-h-11 flex-1 items-center justify-center rounded-md border text-sm font-semibold transition " +
+            (e.checkin_status === "absent"
+              ? "border-red-500 bg-red-500 text-white"
+              : "border-neutral-600 text-neutral-300 hover:border-red-500 hover:text-red-400")
+          }
+          aria-label="Absent"
+        >
+          Out
+        </button>
+      </div>
+    </div>
+  );
 
   const btnDanger =
     "inline-flex min-h-11 items-center justify-center rounded-md border border-red-500/50 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50";
@@ -277,16 +438,25 @@ export default function RoundPanel({
             )}
             <button
               onClick={() => transition("open")}
-              disabled={busy || unresolvedCheckin > 0}
+              disabled={
+                busy ||
+                unresolvedCheckin > 0 ||
+                (isJnJFinalsPrePairing && !pairingsConfirmed)
+              }
               className={`round-action-primary ${compBtnOutline}`}
               title={
-                unresolvedCheckin > 0
-                  ? `${unresolvedCheckin} entries still unresolved`
-                  : undefined
+                isJnJFinalsPrePairing && !pairingsConfirmed
+                  ? "Confirm rotation pairings before opening scoring"
+                  : unresolvedCheckin > 0
+                    ? `${unresolvedCheckin} entries still unresolved`
+                    : undefined
               }
             >
               Open scoring ({presentCount} dancing)
             </button>
+            {isJnJFinalsPrePairing && pairingsConfirmed && (
+              <span className="text-xs text-primary">Pairings confirmed</span>
+            )}
           </>
         )}
         {status === "open" && (
@@ -406,62 +576,102 @@ export default function RoundPanel({
       {/* Check-in list */}
       {(status === "checkin" || status === "open") && (
         <div className="mb-4">
-          <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
-            Check-in ({presentCount} in / {unresolvedCheckin} pending)
-          </h4>
-          <div className="flex flex-col gap-2 lg:grid lg:grid-cols-2 lg:gap-2">
-            {entries
-              .filter((e) => !e.scratched)
-              .map((e) => (
-                <div
-                  key={e.id}
-                  className="rounded-md border border-neutral-700 bg-neutral-800/40 px-3 py-2.5"
-                >
-                  <div className="mb-2 flex min-w-0 items-start gap-2">
-                    <span className="shrink-0 font-mono text-sm text-neutral-400">
-                      {e.display.bibNumber != null ? `#${e.display.bibNumber}` : "—"}
-                    </span>
-                    <span className="min-w-0 flex-1 text-sm text-white">
-                      {e.display.displayName}
-                      {e.promoted_alternate && (
-                        <span className="ml-1 text-xs text-amber-400">(alt)</span>
-                      )}
-                      {heatNumber(e.heat_id) != null && (
-                        <span className="ml-1 text-xs text-neutral-500">
-                          H{heatNumber(e.heat_id)}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
+          {isJnJFinalsPrePairing ? (
+            <>
+              <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
+                Finals check-in — leads ({leadPresent} in / {leadUnresolved}{" "}
+                pending)
+              </h4>
+              <div className="mb-4 flex flex-col gap-2 lg:grid lg:grid-cols-2 lg:gap-2">
+                {leadEntries.map(renderCheckinRow)}
+              </div>
+              <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
+                Finals check-in — follows ({followPresent} in /{" "}
+                {followUnresolved} pending)
+              </h4>
+              <div className="mb-4 flex flex-col gap-2 lg:grid lg:grid-cols-2 lg:gap-2">
+                {followEntries.map(renderCheckinRow)}
+              </div>
+
+              {rotationReady && (
+                <div className="rounded-xl border border-primary/40 bg-neutral-800/60 p-4">
+                  <h4 className="mb-2 font-semibold text-white">
+                    Rotation pairing
+                  </h4>
+                  <p className="mb-3 text-sm text-neutral-400">
+                    Enter a rotation from 1 to {rotationMax}. Lead bib order
+                    pairs with follows shifted by that amount.
+                  </p>
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={rotationMax || 1}
+                      value={rotationInput}
+                      onChange={(e) => setRotationInput(e.target.value)}
+                      className="w-20 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-2 text-sm text-white"
+                    />
                     <button
-                      onClick={() => setCheckin(e.id, "checked_in")}
-                      className={
-                        "flex min-h-11 flex-1 items-center justify-center rounded-md border text-sm font-semibold transition " +
-                        (e.checkin_status === "checked_in"
-                          ? "border-green-500 bg-green-500 text-white"
-                          : "border-neutral-600 text-neutral-300 hover:border-green-500 hover:text-green-400")
-                      }
-                      aria-label="Checked in"
+                      onClick={generateRandomRotation}
+                      disabled={busy || rotationMax < 1}
+                      className={compBtnSecondary}
                     >
-                      In
+                      Generate random
                     </button>
                     <button
-                      onClick={() => setCheckin(e.id, "absent")}
-                      className={
-                        "flex min-h-11 flex-1 items-center justify-center rounded-md border text-sm font-semibold transition " +
-                        (e.checkin_status === "absent"
-                          ? "border-red-500 bg-red-500 text-white"
-                          : "border-neutral-600 text-neutral-300 hover:border-red-500 hover:text-red-400")
-                      }
-                      aria-label="Absent"
+                      onClick={submitRotation}
+                      disabled={busy || !rotationInput || rotationMax < 1}
+                      className={compBtnOutline}
                     >
-                      Out
+                      Submit rotation
                     </button>
+                    {finalsMeta?.rotation_offset != null && !pairingsConfirmed && (
+                      <button
+                        onClick={confirmPairings}
+                        disabled={busy}
+                        className={compBtnOutline}
+                      >
+                        Confirm pairings
+                      </button>
+                    )}
                   </div>
+                  {pairPreview.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-neutral-500">
+                            <th className="pb-2 pr-4">Lead bib</th>
+                            <th className="pb-2">Follow bib</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pairPreview.map((p, i) => (
+                            <tr key={i} className="border-t border-neutral-800">
+                              <td className="py-1.5 font-mono text-white">
+                                #{p.leadBib ?? "—"}
+                              </td>
+                              <td className="py-1.5 font-mono text-neutral-300">
+                                #{p.followBib ?? "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
-              ))}
-          </div>
+              )}
+            </>
+          ) : (
+            <>
+              <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
+                Check-in ({presentCount} in / {unresolvedCheckin} pending)
+              </h4>
+              <div className="flex flex-col gap-2 lg:grid lg:grid-cols-2 lg:gap-2">
+                {activeEntries.map(renderCheckinRow)}
+              </div>
+            </>
+          )}
         </div>
       )}
 

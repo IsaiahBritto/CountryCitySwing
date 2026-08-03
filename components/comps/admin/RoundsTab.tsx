@@ -1,10 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnOutline } from "@/lib/comps/buttonStyles";
 import RoundSlotPanel from "@/components/comps/admin/RoundSlotPanel";
-import { ROUND_SLOT_ORDER, roundTitle, type RoundSlotRef } from "@/lib/comps/roundChain";
+import { ROUND_SLOT_ORDER, type RoundSlotRef } from "@/lib/comps/roundChain";
 import type { RoundType } from "@/lib/comps/types";
 
 interface RoundRow extends RoundSlotRef {
@@ -33,42 +31,11 @@ export default function RoundsTab({
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [expandedSlot, setExpandedSlot] = useState<RoundType | null>(null);
-  const [drawLead, setDrawLead] = useState("");
-  const [drawFollow, setDrawFollow] = useState("");
-  const [drawing, setDrawing] = useState(false);
-
-  const callbackRounds = rounds.filter((r) => r.scoring_mode === "callback");
-  const tabulatedCallbacks = callbackRounds.filter((r) =>
-    ["tabulated", "published"].includes(r.status)
-  );
-  const hasFinals = rounds.some((r) => r.round_type === "final");
 
   const handleError = (msg: string) => {
     if (msg.includes("even number of judges")) setWarning(msg);
     else setError(msg);
   };
-
-  const runDraw = async () => {
-    if (!drawLead || !drawFollow) return;
-    setDrawing(true);
-    setError(null);
-    const res = await authedFetch(`/api/admin/comps/${competitionId}/draw`, {
-      method: "POST",
-      body: JSON.stringify({
-        lead_round_id: drawLead,
-        follow_round_id: drawFollow,
-      }),
-    });
-    setDrawing(false);
-    if (!res.ok) {
-      setError(await apiError(res));
-      return;
-    }
-    onChanged();
-  };
-
-  const inputCls =
-    "rounded-md border border-neutral-600 bg-neutral-900 px-3 py-2 text-sm text-white";
 
   return (
     <div>
@@ -89,55 +56,14 @@ export default function RoundsTab({
           {entryCount <= 8
             ? "Small field — you can enable only Final and skip earlier rounds."
             : "Enable each round you need; skipped rounds are bypassed automatically."}
+          {isJnJ && (
+            <>
+              {" "}
+              JnJ finals advancers are seeded automatically when you begin
+              check-in on Final.
+            </>
+          )}
         </p>
-      )}
-
-      {/* JnJ random draw — shown inside Final slot context when expanded, or here when ready */}
-      {isJnJ && !hasFinals && tabulatedCallbacks.length >= 2 && (
-        <div className="mb-4 rounded-xl border border-primary/40 bg-neutral-800/60 p-4">
-          <h3 className="mb-1 font-semibold text-white">Create finals from advancers</h3>
-          <p className="mb-3 text-sm text-neutral-400">
-            Seeds advancing leads and follows as separate entries. Pair them with
-            a rotation at finals check-in before scoring opens.
-          </p>
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            <select
-              value={drawLead}
-              onChange={(e) => setDrawLead(e.target.value)}
-              className={inputCls + " w-full sm:w-auto"}
-            >
-              <option value="">Leads round…</option>
-              {tabulatedCallbacks
-                .filter((r) => r.judged_role === "lead")
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {roundTitle(r)}
-                  </option>
-                ))}
-            </select>
-            <select
-              value={drawFollow}
-              onChange={(e) => setDrawFollow(e.target.value)}
-              className={inputCls + " w-full sm:w-auto"}
-            >
-              <option value="">Follows round…</option>
-              {tabulatedCallbacks
-                .filter((r) => r.judged_role === "follow")
-                .map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {roundTitle(r)}
-                  </option>
-                ))}
-            </select>
-            <button
-              onClick={runDraw}
-              disabled={drawing || !drawLead || !drawFollow}
-              className={compBtnOutline}
-            >
-              {drawing ? "Creating…" : "Create finals from advancers"}
-            </button>
-          </div>
-        </div>
       )}
 
       <div className="space-y-2">

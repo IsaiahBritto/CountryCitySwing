@@ -85,6 +85,38 @@ export function findPreviousEnabledRound(
   return null;
 }
 
+/** Previous enabled slot before targetType (may contain lead + follow rows). */
+export function findPreviousEnabledSlot(
+  rounds: RoundSlotRef[],
+  targetType: RoundType
+): { slotType: RoundType; rounds: RoundSlotRef[] } | null {
+  const targetIdx = ROUND_SLOT_ORDER.indexOf(targetType);
+  if (targetIdx <= 0) return null;
+
+  for (let i = targetIdx - 1; i >= 0; i--) {
+    const slotType = ROUND_SLOT_ORDER[i];
+    const inSlot = roundsForSlot(rounds, slotType);
+    if (inSlot.length > 0) {
+      return { slotType, rounds: inSlot };
+    }
+  }
+  return null;
+}
+
+/** Lead + follow source callback rounds for JnJ finals from the previous enabled slot. */
+export function resolveJnJFinalsSourceRounds(allRounds: RoundSlotRef[]): {
+  leadRound: RoundSlotRef;
+  followRound: RoundSlotRef;
+  slotType: RoundType;
+} | null {
+  const prev = findPreviousEnabledSlot(allRounds, "final");
+  if (!prev) return null;
+  const leadRound = prev.rounds.find((r) => r.judged_role === "lead");
+  const followRound = prev.rounds.find((r) => r.judged_role === "follow");
+  if (!leadRound || !followRound) return null;
+  return { leadRound, followRound, slotType: prev.slotType };
+}
+
 /** Next enabled round after sourceType (same role preference for JnJ). */
 export function findNextEnabledRound(
   rounds: RoundSlotRef[],

@@ -3,8 +3,10 @@ import {
   canOpenRound,
   findNextEnabledRound,
   findPreviousEnabledRound,
+  findPreviousEnabledSlot,
   isFirstEnabledSlot,
   isSlotSkipped,
+  resolveJnJFinalsSourceRounds,
   ROUND_SLOT_ORDER,
 } from "@/lib/comps/roundChain";
 import type { RoundSlotRef } from "@/lib/comps/roundChain";
@@ -87,5 +89,46 @@ describe("roundChain", () => {
       "semifinal",
       "final",
     ]);
+  });
+
+  it("findPreviousEnabledSlot skips quarterfinal when disabled", () => {
+    const rounds = [
+      r("pl", "prelims", "published", "lead"),
+      r("pf", "prelims", "published", "follow"),
+      r("f", "final", "pending"),
+    ];
+    const prev = findPreviousEnabledSlot(rounds, "final");
+    expect(prev?.slotType).toBe("prelims");
+    expect(prev?.rounds.map((x) => x.id)).toEqual(["pl", "pf"]);
+  });
+
+  it("findPreviousEnabledSlot uses semis when quarterfinal skipped", () => {
+    const rounds = [
+      r("sl", "semifinal", "tabulated", "lead"),
+      r("sf", "semifinal", "tabulated", "follow"),
+      r("f", "final", "pending"),
+    ];
+    const prev = findPreviousEnabledSlot(rounds, "final");
+    expect(prev?.slotType).toBe("semifinal");
+  });
+
+  it("resolveJnJFinalsSourceRounds returns lead and follow from previous slot", () => {
+    const rounds = [
+      r("sl", "semifinal", "tabulated", "lead"),
+      r("sf", "semifinal", "tabulated", "follow"),
+      r("f", "final", "pending"),
+    ];
+    const sources = resolveJnJFinalsSourceRounds(rounds);
+    expect(sources?.leadRound.id).toBe("sl");
+    expect(sources?.followRound.id).toBe("sf");
+    expect(sources?.slotType).toBe("semifinal");
+  });
+
+  it("resolveJnJFinalsSourceRounds returns null when follow round missing", () => {
+    const rounds = [
+      r("sl", "semifinal", "tabulated", "lead"),
+      r("f", "final", "pending"),
+    ];
+    expect(resolveJnJFinalsSourceRounds(rounds)).toBeNull();
   });
 });

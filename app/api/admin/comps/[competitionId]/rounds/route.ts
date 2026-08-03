@@ -11,6 +11,7 @@ import {
 import {
   resolveEntryIdsForRound,
   seedRoundEntries,
+  isJnJFinalsRound,
 } from "@/lib/comps/roundSeed";
 import type { RoundType } from "@/lib/comps/types";
 
@@ -105,9 +106,15 @@ export async function POST(
   }
 
   const prev = findPreviousEnabledRound(allRounds, roundType, judgedRole);
+  const deferJnJFinalsSeed = isJnJFinalsRound(
+    competition.comp_type,
+    roundType,
+    judgedRole
+  );
   const canSeedNow =
-    isFirstEnabledSlot(allRounds, roundType) ||
-    (prev != null && isRoundFinalized(prev.status));
+    !deferJnJFinalsSeed &&
+    (isFirstEnabledSlot(allRounds, roundType) ||
+      (prev != null && isRoundFinalized(prev.status)));
 
   let sourceRoundId: string | null = null;
   let entryIds: string[] = [];

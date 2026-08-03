@@ -6,6 +6,10 @@ import { canOpenRound, type RoundSlotRef } from "@/lib/comps/roundChain";
 import {
   resolveEntryIdsForRound,
   seedRoundEntries,
+  seedJnJFinalsFromAdvancers,
+  JnJFinalsSeedError,
+  isJnJFinalsRound,
+  needsJnJFinalsReseed,
 } from "@/lib/comps/roundSeed";
 import {
   activeRoundEntries,
@@ -127,7 +131,28 @@ export async function PATCH(
         if (!gate.ok) {
           return NextResponse.json({ error: gate.reason }, { status: 409 });
         }
-        if (ctx.roundEntries.length === 0) {
+
+        const isJnJFinals = isJnJFinalsRound(
+          ctx.competition.comp_type,
+          ctx.round.round_type,
+          ctx.round.judged_role
+        );
+
+        if (isJnJFinals && needsJnJFinalsReseed(ctx.roundEntries)) {
+          try {
+            const result = await seedJnJFinalsFromAdvancers(
+              ctx.competition.id,
+              roundId,
+              allRounds
+            );
+            update.source_round_id = result.leadSourceId;
+          } catch (err) {
+            if (err instanceof JnJFinalsSeedError) {
+              return NextResponse.json({ error: err.message }, { status: 409 });
+            }
+            throw err;
+          }
+        } else if (!isJnJFinals && ctx.roundEntries.length === 0) {
           const { entryIds, sourceRoundId } = await resolveEntryIdsForRound(
             ctx.competition.id,
             ctx.competition.comp_type,

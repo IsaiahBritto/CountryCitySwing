@@ -208,15 +208,16 @@ export default function RoundPanel({
     });
   };
 
+  const entries = useMemo(
+    () => sortRoundEntriesByBib(detail?.entries ?? []),
+    [detail?.entries]
+  );
+
   if (!detail) {
     return <p className="py-4 text-sm text-neutral-400">{error ?? "Loading round…"}</p>;
   }
 
   const { round, judges, heats } = detail;
-  const entries = useMemo(
-    () => sortRoundEntriesByBib(detail.entries),
-    [detail.entries]
-  );
   const status = round.status;
   const unresolvedCheckin = entries.filter(
     (e) => !e.scratched && e.checkin_status === "pending"

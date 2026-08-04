@@ -29,10 +29,12 @@ const STATUS_STYLE: Record<string, string> = {
 
 function SlotRoundPanel({
   round,
+  testComp,
   onChanged,
   onDisable,
 }: {
   round: RoundRow;
+  testComp?: boolean;
   onChanged: () => void;
   onDisable: () => void;
 }) {
@@ -48,7 +50,83 @@ function SlotRoundPanel({
           </button>
         </div>
       )}
-      <RoundPanel roundId={round.id} onChanged={onChanged} />
+      {round.status === "pending" && round.scoring_mode === "callback" && (
+        <PendingCallbackConfig round={round} onChanged={onChanged} />
+      )}
+      <RoundPanel roundId={round.id} testComp={testComp} onChanged={onChanged} />
+    </div>
+  );
+}
+
+function PendingCallbackConfig({
+  round,
+  onChanged,
+}: {
+  round: RoundRow;
+  onChanged: () => void;
+}) {
+  const [callbacks, setCallbacks] = useState(round.callback_count ?? 1);
+  const [alternates, setAlternates] = useState(round.alternate_count ?? 0);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    setSaved(false);
+    const res = await authedFetch(`/api/admin/comps/rounds/${round.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        callback_count: callbacks,
+        alternate_count: alternates,
+      }),
+    });
+    setBusy(false);
+    if (!res.ok) return;
+    setSaved(true);
+    onChanged();
+  };
+
+  const inputCls =
+    "rounded-md border border-neutral-600 bg-neutral-900 px-3 py-2 text-sm text-white";
+
+  return (
+    <div className="mb-3 rounded-lg border border-neutral-700 bg-neutral-900/40 p-3">
+      <p className="mb-2 text-xs text-neutral-400">
+        Adjust callbacks before check-in (saved to this round).
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex items-center gap-2 text-sm text-neutral-300">
+          Call back
+          <input
+            type="number"
+            min={1}
+            value={callbacks}
+            onChange={(e) => setCallbacks(Number(e.target.value))}
+            className={inputCls + " w-20"}
+          />
+        </label>
+        <label className="flex items-center gap-2 text-sm text-neutral-300">
+          Alternates
+          <input
+            type="number"
+            min={0}
+            max={3}
+            value={alternates}
+            onChange={(e) => setAlternates(Number(e.target.value))}
+            className={inputCls + " w-20"}
+          />
+        </label>
+        <button
+          onClick={save}
+          disabled={busy}
+          className={compBtnOutline + " text-sm"}
+        >
+          {busy ? "Saving…" : "Save callbacks"}
+        </button>
+        {saved && (
+          <span className="text-xs text-green-400">Saved</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -147,6 +225,7 @@ export default function RoundSlotPanel({
   roundType,
   compType,
   entryCount,
+  testComp,
   rounds,
   expanded,
   onToggleExpand,
@@ -157,6 +236,7 @@ export default function RoundSlotPanel({
   roundType: RoundType;
   compType: "jack_and_jill" | "strictly";
   entryCount: number;
+  testComp?: boolean;
   rounds: RoundRow[];
   expanded: boolean;
   onToggleExpand: () => void;
@@ -323,6 +403,7 @@ export default function RoundSlotPanel({
                 return (
                   <SlotRoundPanel
                     round={r}
+                    testComp={testComp}
                     onChanged={onChanged}
                     onDisable={() => disableRound(r)}
                   />
@@ -332,6 +413,7 @@ export default function RoundSlotPanel({
           ) : (
             <SlotRoundPanel
               round={slotRounds[0]}
+              testComp={testComp}
               onChanged={onChanged}
               onDisable={() => disableRound(slotRounds[0])}
             />

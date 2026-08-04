@@ -16,6 +16,7 @@ import type { JudgeRoundViewPayload } from "@/lib/comps/judgeRoundPayload";
 import CallbackSheet from "@/components/comps/judge/CallbackSheet";
 import FinalsSheet from "@/components/comps/judge/FinalsSheet";
 import JudgeRoleToggle from "@/components/comps/judge/JudgeRoleToggle";
+import JudgeNavLinks from "@/components/comps/judge/JudgeNavLinks";
 import type { DanceRole } from "@/lib/comps/types";
 
 const ROUND_LABEL: Record<string, string> = {
@@ -86,9 +87,7 @@ function JudgeRoundInner({
     return (
       <div className="mx-auto mt-12 max-w-md rounded-xl border border-neutral-700 bg-neutral-800/50 p-8 text-center">
         <p className="mb-4 text-red-300">{error}</p>
-        <Link href="/judge" className="text-sm text-primary">
-          ← Back to my rounds
-        </Link>
+        <JudgeNavLinks />
       </div>
     );
   }
@@ -124,9 +123,7 @@ function JudgeRoundInner({
   return (
     <div className="mx-auto max-w-2xl px-4 py-4 sm:py-6">
       <div className="mb-4">
-        <Link href="/judge" className="text-xs text-neutral-500 hover:text-primary">
-          ← My rounds
-        </Link>
+        <JudgeNavLinks className="mb-2" />
         <h1 className="text-base font-bold leading-snug text-white sm:text-lg">{title}</h1>
         {asAssignment && (
           <p className="text-xs text-amber-400">

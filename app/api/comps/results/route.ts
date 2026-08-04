@@ -6,9 +6,10 @@ export async function GET() {
   const { data: rounds, error } = await supabaseServer
     .from("comp_rounds")
     .select(
-      "id, competition_id, round_type, judged_role, published_at, competition:competitions(id, name, comp_type, event:events(id, title, starts_at))"
+      "id, competition_id, round_type, judged_role, published_at, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at))"
     )
     .eq("status", "published")
+    .eq("competition.test_comp", false)
     .order("published_at", { ascending: false });
   if (error) {
     return NextResponse.json({ error: "Failed to load results" }, { status: 500 });
@@ -17,7 +18,7 @@ export async function GET() {
   const byCompetition = new Map<string, any>();
   for (const round of (rounds ?? []) as any[]) {
     const comp = round.competition;
-    if (!comp) continue;
+    if (!comp || comp.test_comp) continue;
     if (!byCompetition.has(comp.id)) {
       byCompetition.set(comp.id, {
         id: comp.id,

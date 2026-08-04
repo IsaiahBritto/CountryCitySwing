@@ -12,6 +12,7 @@ interface CompetitionListItem {
   comp_type: "jack_and_jill" | "strictly";
   status: string;
   cj_in_panel: boolean;
+  test_comp?: boolean;
   event: { id: string; title: string; starts_at: string } | null;
   entries: { count: number }[];
   judges: { count: number }[];
@@ -127,16 +128,21 @@ export default function AdminCompsPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-10">
-      <div className="mb-6 flex items-center justify-between">
+      <Link href="/comps" className="text-sm text-neutral-400 hover:text-primary">
+        ← Comps hub
+      </Link>
+      <div className="mb-6 mt-2 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-primary">Competitions</h1>
           <p className="text-sm text-neutral-400">
             Scoring &amp; judging for Jack &amp; Jill and Strictly contests
           </p>
         </div>
-        <button onClick={() => setShowCreate((v) => !v)} className={compBtnOutline}>
-          New competition
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setShowCreate((v) => !v)} className={compBtnOutline}>
+            New competition
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -208,7 +214,14 @@ export default function AdminCompsPage() {
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <div className="font-semibold text-white">{c.name}</div>
+                  <div className="font-semibold text-white">
+                    {c.name}
+                    {c.test_comp && (
+                      <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-300">
+                        Test
+                      </span>
+                    )}
+                  </div>
                   <div className="text-sm text-neutral-400">
                     {TYPE_LABEL[c.comp_type]} · {c.event?.title ?? "Unknown event"}
                     {c.event?.starts_at &&

@@ -4,11 +4,13 @@ import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { judgeDisplayCount } from "@/lib/comps/judgeDisplayCount";
 import EntriesTab from "@/components/comps/admin/EntriesTab";
 import JudgesTab from "@/components/comps/admin/JudgesTab";
 import RoundsTab from "@/components/comps/admin/RoundsTab";
+import PrizesTab from "@/components/comps/admin/PrizesTab";
 
-type Tab = "entries" | "judges" | "rounds";
+type Tab = "entries" | "judges" | "rounds" | "prizes";
 
 const TYPE_LABEL: Record<string, string> = {
   jack_and_jill: "Jack & Jill",
@@ -26,6 +28,8 @@ export default function CompetitionConsolePage({
   const [detail, setDetail] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("entries");
+  const [testActionBusy, setTestActionBusy] = useState(false);
+  const [testActionMsg, setTestActionMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await authedFetch(`/api/admin/comps/${competitionId}`);
@@ -65,6 +69,45 @@ export default function CompetitionConsolePage({
     if (res.ok) load();
   };
 
+  const resetTestComp = async () => {
+    if (
+      !confirm(
+        "Reset this test comp? All rounds will be deleted (entries and judges preserved). You will need to re-enable each round."
+      )
+    ) {
+      return;
+    }
+    setTestActionBusy(true);
+    setTestActionMsg(null);
+    const res = await authedFetch(
+      `/api/admin/comps/${competitionId}/test-reset`,
+      { method: "POST" }
+    );
+    setTestActionBusy(false);
+    if (!res.ok) {
+      setTestActionMsg(await apiError(res));
+      return;
+    }
+    setTestActionMsg("Test comp reset — re-enable rounds to continue.");
+    load();
+  };
+
+  const ensureTestJudges = async () => {
+    setTestActionBusy(true);
+    setTestActionMsg(null);
+    const res = await authedFetch(
+      `/api/admin/comps/${competitionId}/test-judges`,
+      { method: "POST" }
+    );
+    setTestActionBusy(false);
+    if (!res.ok) {
+      setTestActionMsg(await apiError(res));
+      return;
+    }
+    setTestActionMsg("Test judges assigned.");
+    load();
+  };
+
   if (loading) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-12">
@@ -90,6 +133,12 @@ export default function CompetitionConsolePage({
 
   const { competition, entries, judges, rounds } = detail;
 
+  const tabs: [Tab, string][] = [
+    ["entries", `Entries (${entries.length})`],
+    ["judges", `Judges (${judgeDisplayCount(judges)})`],
+    ["rounds", `Rounds (${rounds.length})`],
+    ["prizes", "Prizes"],
+  ];
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
       <Link href="/admin/comps" className="text-sm text-neutral-400 hover:text-primary">
@@ -104,7 +153,28 @@ export default function CompetitionConsolePage({
               ` · ${new Date(competition.event.starts_at).toLocaleDateString()}`}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {competition.test_comp && (
+            <>
+              <span className="rounded bg-violet-500/20 px-2 py-1 text-xs font-semibold text-violet-300">
+                test comp
+              </span>
+              <button
+                onClick={ensureTestJudges}
+                disabled={testActionBusy}
+                className="rounded-md border border-violet-500/50 px-3 py-1.5 text-sm text-violet-300 hover:border-violet-400"
+              >
+                Ensure test judges
+              </button>
+              <button
+                onClick={resetTestComp}
+                disabled={testActionBusy}
+                className="rounded-md border border-amber-500/50 px-3 py-1.5 text-sm text-amber-300 hover:border-amber-400"
+              >
+                Reset test comp
+              </button>
+            </>
+          )}
           <span className="rounded bg-neutral-700/60 px-2 py-1 text-xs font-semibold text-neutral-300">
             {competition.status.replace("_", " ")}
           </span>
@@ -117,13 +187,15 @@ export default function CompetitionConsolePage({
         </div>
       </div>
 
+      {testActionMsg && (
+        <div className="mb-4 rounded-md border border-neutral-600 bg-neutral-800/60 p-3 text-sm text-neutral-300">
+          {testActionMsg}
+        </div>
+      )}
+
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-neutral-800 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {(
-          [
-            ["entries", `Entries (${entries.length})`],
-            ["judges", `Judges (${judges.length})`],
-            ["rounds", `Rounds (${rounds.length})`],
-          ] as [Tab, string][]
+          tabs
         ).map(([key, label]) => (
           <button
             key={key}
@@ -162,9 +234,13 @@ export default function CompetitionConsolePage({
           competitionId={competitionId}
           compType={competition.comp_type}
           entryCount={entries.length}
+          testComp={competition.test_comp}
           rounds={rounds}
           onChanged={load}
         />
+      )}
+      {tab === "prizes" && (
+        <PrizesTab competitionId={competitionId} />
       )}
     </div>
   );

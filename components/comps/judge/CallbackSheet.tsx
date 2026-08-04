@@ -243,24 +243,26 @@ export default function CallbackSheet({
                     : vote?.startsWith("alt")
                       ? "border-amber-500/60 bg-amber-500/10"
                       : "border-neutral-700 bg-neutral-800/50";
+              const voteBtnCount = 2 + altOptions.length;
               return (
                 <div
                   key={e.roundEntryId}
-                  className={`flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:gap-3 ${rowTone}`}
+                  className={`flex flex-col gap-3 rounded-xl border p-3 ${rowTone}`}
                 >
-                  <div className="flex min-w-0 items-center gap-3 sm:flex-1">
-                    <div className="w-14 shrink-0 text-center">
-                      <div className="text-xl font-bold text-white">
-                        {e.bibNumber ?? "—"}
-                      </div>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-12 shrink-0 items-center justify-center rounded-md bg-neutral-900/80 font-mono text-lg font-bold text-white">
+                      {e.bibNumber ?? "—"}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm text-neutral-300 sm:truncate">
-                        {e.displayName}
-                      </div>
+                      <div className="text-sm text-neutral-300">{e.displayName}</div>
                     </div>
                   </div>
-                  <div className="grid w-full grid-cols-5 gap-1 sm:flex sm:shrink-0 sm:gap-1">
+                  <div
+                    className={
+                      "grid w-full gap-1 " +
+                      (voteBtnCount === 4 ? "grid-cols-4" : "grid-cols-5")
+                    }
+                  >
                     <button
                       onClick={() => setVote(e.roundEntryId, "yes")}
                       disabled={locked}

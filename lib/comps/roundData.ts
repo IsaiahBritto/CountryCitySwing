@@ -187,7 +187,15 @@ export interface TabulateOutcome {
     placements?: number[];
     points?: number;
   }[];
+  /** Full scoring snapshot for tie-resolution UI (not persisted on 409). */
+  previewTabulation?: RoundTabulation;
   tabulation?: RoundTabulation;
+}
+
+export interface TabulateOptions {
+  manualTieResolutions?: string[][];
+  callbackCount?: number;
+  alternateCount?: number;
 }
 
 /**
@@ -197,8 +205,9 @@ export interface TabulateOutcome {
  */
 export async function tabulateRound(
   roundId: string,
-  manualTieResolutions: string[][] = []
+  options: TabulateOptions = {}
 ): Promise<TabulateOutcome> {
+  const manualTieResolutions = options.manualTieResolutions ?? [];
   const ctx = await loadRoundContext(roundId);
   const { round, competition } = ctx;
 
@@ -259,6 +268,8 @@ export async function tabulateRound(
       judgeLabels,
       scoresByJudge,
       manualTieResolutions,
+      callbackCount: options.callbackCount,
+      alternateCount: options.alternateCount,
     });
   }
   return tabulateRelativePlacementRound(ctx, {
@@ -278,6 +289,43 @@ interface TabulateContext {
   judgeLabels: { assignmentId: string; label: string; name: string }[];
   scoresByJudge: Map<string, Map<string, CompScoreRow>>;
   manualTieResolutions: string[][];
+  callbackCount?: number;
+  alternateCount?: number;
+}
+
+function buildCallbackTabulation(
+  t: TabulateContext,
+  result: ReturnType<typeof scoreCallbacks>,
+  votes: Record<string, Record<string, CallbackValue | undefined>>,
+  callbackCount: number,
+  alternateCount: number,
+  cjLabel: { assignmentId: string; label: string; name: string } | null,
+  chiefJudgeVotes: Record<string, CallbackValue | undefined> | null
+): RoundTabulation {
+  return {
+    mode: "callback",
+    judges: t.judgeLabels,
+    chiefJudge: cjLabel,
+    callbackCount,
+    alternateCount,
+    entries: t.active.map((re) => t.displays.get(re.id)!),
+    ranked: result.ranked.map((r) => ({
+      roundEntryId: r.entryId,
+      points: r.points,
+      rank: r.rank,
+      advanced: r.advanced,
+      alternateRank: r.alternateRank,
+      resolvedByDecision: r.resolvedByDecision,
+      resolvedByChiefJudge: r.resolvedByChiefJudge,
+      tieBreakNote: r.tieBreakNote,
+      votes: t.panel.map(
+        (j) => (votes[j.id]?.[r.entryId] ?? "no") as CallbackValue
+      ),
+      chiefJudgeVote: chiefJudgeVotes
+        ? ((chiefJudgeVotes[r.entryId] ?? "no") as CallbackValue | "no")
+        : null,
+    })),
+  };
 }
 
 async function tabulateCallbackRound(
@@ -285,7 +333,8 @@ async function tabulateCallbackRound(
   t: TabulateContext
 ): Promise<TabulateOutcome> {
   const { round } = ctx;
-  const callbackCount = round.callback_count ?? 0;
+  const callbackCount = t.callbackCount ?? round.callback_count ?? 0;
+  const alternateCount = t.alternateCount ?? round.alternate_count ?? 0;
   if (callbackCount <= 0) {
     throw new RoundDataError("Callback count is not configured for this round", 409);
   }
@@ -300,18 +349,51 @@ async function tabulateCallbackRound(
     votes[judge.id] = sheet;
   }
 
+  const cj = chiefJudge(ctx);
+  let chiefJudgeVotes: Record<string, CallbackValue | undefined> | null = null;
+  let cjLabel: { assignmentId: string; label: string; name: string } | null =
+    null;
+  if (cj) {
+    const cjScores = t.scoresByJudge.get(cj.id);
+    const sheet: Record<string, CallbackValue | undefined> = {};
+    for (const re of t.active) {
+      const value = cjScores?.get(re.id)?.callback_value;
+      if (value != null) {
+        sheet[re.id] = value as CallbackValue;
+      }
+    }
+    chiefJudgeVotes = sheet;
+    cjLabel = {
+      assignmentId: cj.id,
+      label: "CJ",
+      name: personName(cj.first_name, cj.last_name),
+    };
+  }
+
   const result = scoreCallbacks({
     judgeIds: t.panel.map((j) => j.id),
     entryIds: t.active.map((re) => re.id),
     votes,
     callbackCount,
-    alternateCount: round.alternate_count ?? 0,
+    alternateCount,
+    chiefJudgeVotes: chiefJudgeVotes ?? undefined,
     manualTieResolutions: t.manualTieResolutions,
   });
+
+  const tabulation = buildCallbackTabulation(
+    t,
+    result,
+    votes,
+    callbackCount,
+    alternateCount,
+    cjLabel,
+    chiefJudgeVotes
+  );
 
   if (result.unresolvedTies.length > 0) {
     return {
       ok: false,
+      previewTabulation: tabulation,
       unresolvedTies: result.unresolvedTies.map((tie) => ({
         entryIds: tie.entryIds,
         roundEntryIds: tie.entryIds,
@@ -322,25 +404,6 @@ async function tabulateCallbackRound(
     };
   }
 
-  const tabulation: RoundTabulation = {
-    mode: "callback",
-    judges: t.judgeLabels,
-    callbackCount,
-    alternateCount: round.alternate_count ?? 0,
-    entries: t.active.map((re) => t.displays.get(re.id)!),
-    ranked: result.ranked.map((r) => ({
-      roundEntryId: r.entryId,
-      points: r.points,
-      rank: r.rank,
-      advanced: r.advanced,
-      alternateRank: r.alternateRank,
-      resolvedByDecision: r.resolvedByDecision,
-      votes: t.panel.map(
-        (j) => (votes[j.id]?.[r.entryId] ?? "no") as CallbackValue
-      ),
-    })),
-  };
-
   const resultRows = result.ranked.map((r) => ({
     round_id: round.id,
     round_entry_id: r.entryId,
@@ -348,12 +411,17 @@ async function tabulateCallbackRound(
     advanced: r.advanced,
     alternate_rank: r.alternateRank,
     callback_points: r.points,
-    cj_decision: r.resolvedByDecision
-      ? "Boundary tie resolved by coordinator/chief judge decision"
-      : null,
+    cj_decision:
+      r.tieBreakNote ??
+      (r.resolvedByDecision
+        ? "Boundary tie resolved by coordinator/chief judge decision"
+        : null),
   }));
 
-  await persistTabulation(round.id, resultRows, tabulation);
+  await persistTabulation(round.id, resultRows, tabulation, {
+    callback_count: callbackCount,
+    alternate_count: alternateCount,
+  });
   return { ok: true, tabulation };
 }
 
@@ -437,8 +505,29 @@ async function tabulateRelativePlacementRound(
   }
 
   if (result.unresolvedTies.length > 0) {
+    const gridByEntry = new Map(result.grid.map((g) => [g.entryId, g]));
+    const previewTabulation: RoundTabulation = {
+      mode: "relative_placement",
+      judges: t.judgeLabels,
+      chiefJudge: cjLabel,
+      majority: result.majority,
+      entries: t.active.map((re) => t.displays.get(re.id)!),
+      grid: t.active.map((re) => {
+        const g = gridByEntry.get(re.id)!;
+        return {
+          roundEntryId: re.id,
+          ordinals: g.ordinals,
+          cells: g.cells,
+          placement: g.placement,
+          decidedAtLevel: g.decidedAtLevel,
+          tieBreakNote: g.tieBreakNote,
+          chiefJudgeOrdinal: chiefJudgeOrdinals?.[re.id] ?? null,
+        };
+      }),
+    };
     return {
       ok: false,
+      previewTabulation,
       unresolvedTies: result.unresolvedTies.map((tie) => ({
         entryIds: tie.entryIds,
         roundEntryIds: tie.entryIds,
@@ -497,7 +586,8 @@ async function tabulateRelativePlacementRound(
 async function persistTabulation(
   roundId: string,
   resultRows: Record<string, unknown>[],
-  tabulation: RoundTabulation
+  tabulation: RoundTabulation,
+  roundConfig?: { callback_count?: number; alternate_count?: number }
 ) {
   const { error: deleteError } = await supabaseServer
     .from("comp_round_results")
@@ -514,14 +604,22 @@ async function persistTabulation(
     throw new RoundDataError("Failed to save results", 500);
   }
 
+  const roundUpdate: Record<string, unknown> = {
+    status: "tabulated",
+    tabulation,
+    tabulated_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (roundConfig?.callback_count != null) {
+    roundUpdate.callback_count = roundConfig.callback_count;
+  }
+  if (roundConfig?.alternate_count != null) {
+    roundUpdate.alternate_count = roundConfig.alternate_count;
+  }
+
   const { error: updateError } = await supabaseServer
     .from("comp_rounds")
-    .update({
-      status: "tabulated",
-      tabulation,
-      tabulated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .update(roundUpdate)
     .eq("id", roundId);
   if (updateError) {
     throw new RoundDataError("Failed to update round status", 500);

@@ -27,6 +27,7 @@ export interface CompetitionRow {
   name: string;
   status: CompStatus;
   cj_in_panel: boolean;
+  test_comp?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -201,6 +202,7 @@ export type RoundTabulation =
   | {
       mode: "callback";
       judges: { assignmentId: string; label: string; name: string }[];
+      chiefJudge: { assignmentId: string; label: string; name: string } | null;
       callbackCount: number;
       alternateCount: number;
       entries: EntryDisplay[];
@@ -211,6 +213,9 @@ export type RoundTabulation =
         advanced: boolean;
         alternateRank: number | null;
         resolvedByDecision: boolean;
+        resolvedByChiefJudge: boolean;
+        tieBreakNote: string | null;
         votes: (CallbackValue | "no")[];
+        chiefJudgeVote: CallbackValue | "no" | null;
       }[];
     };

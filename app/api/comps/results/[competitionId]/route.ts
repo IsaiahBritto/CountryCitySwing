@@ -1,25 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { includeTestFixtures } from "@/lib/comps/testCompAccess";
 
 /**
  * GET: public results for one competition — published rounds only, rendered
  * from the stored tabulation snapshot (never a live recompute).
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
   const { competitionId } = await params;
+  const includeTest = await includeTestFixtures(req);
 
   const { data: competition, error } = await supabaseServer
     .from("competitions")
-    .select("id, name, comp_type, event:events(id, title, starts_at, location)")
+    .select(
+      "id, name, comp_type, status, test_comp, event:events(id, title, starts_at, location)"
+    )
     .eq("id", competitionId)
     .maybeSingle();
   if (error) {
     return NextResponse.json({ error: "Failed to load competition" }, { status: 500 });
   }
   if (!competition) {
+    return NextResponse.json({ error: "Competition not found" }, { status: 404 });
+  }
+  if (competition.test_comp && !includeTest) {
     return NextResponse.json({ error: "Competition not found" }, { status: 404 });
   }
 

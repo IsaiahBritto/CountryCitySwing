@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
         comp_type: compType,
         name,
         cj_in_panel: !!body.cj_in_panel,
+        test_comp: body.test_comp === true,
       },
     ])
     .select("*")

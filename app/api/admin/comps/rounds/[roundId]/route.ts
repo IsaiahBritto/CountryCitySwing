@@ -21,6 +21,7 @@ import {
 } from "@/lib/comps/roundData";
 import { panelJudgesForRound } from "@/lib/comps/judgeScope";
 import type { RoundStatus } from "@/lib/comps/types";
+import { autoFillTestRound } from "@/lib/comps/scoringTest/autoFillOnOpen";
 
 /** GET: round detail for the director console (entries, judges, progress). */
 export async function GET(
@@ -265,7 +266,17 @@ export async function PATCH(
     if (error) {
       return NextResponse.json({ error: "Failed to update round" }, { status: 500 });
     }
-    return NextResponse.json({ round: data });
+
+    let autoFill: Awaited<ReturnType<typeof autoFillTestRound>> | undefined;
+    if (
+      body.status === "open" &&
+      ctx.competition.test_comp
+    ) {
+      const freshCtx = await loadRoundContext(roundId);
+      autoFill = await autoFillTestRound(freshCtx);
+    }
+
+    return NextResponse.json({ round: data, autoFill });
   } catch (err) {
     if (err instanceof RoundDataError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

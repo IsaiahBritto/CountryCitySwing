@@ -6,6 +6,10 @@ import {
   RoundDataError,
   tabulateRound,
 } from "@/lib/comps/roundData";
+import {
+  clearPrizeAwardsForCompetition,
+  isCoupleFinalsRound,
+} from "@/lib/comps/prizeAwards";
 import { reseedNextPendingSlots } from "@/lib/comps/roundSeed";
 import type { RoundSlotRef } from "@/lib/comps/roundChain";
 
@@ -36,22 +40,35 @@ export async function POST(
   if (!auth.ok) return auth.response;
 
   let manualTieResolutions: string[][] = [];
+  let callbackCount: number | undefined;
+  let alternateCount: number | undefined;
   try {
     const body = await req.json();
     if (Array.isArray(body?.manual_tie_resolutions)) {
       manualTieResolutions = body.manual_tie_resolutions;
+    }
+    if (body?.callback_count != null) {
+      callbackCount = Number(body.callback_count) || undefined;
+    }
+    if (body?.alternate_count != null) {
+      alternateCount = Math.min(3, Math.max(0, Number(body.alternate_count) || 0));
     }
   } catch {
     // Empty body is fine.
   }
 
   try {
-    const outcome = await tabulateRound(roundId, manualTieResolutions);
+    const outcome = await tabulateRound(roundId, {
+      manualTieResolutions,
+      callbackCount,
+      alternateCount,
+    });
     if (!outcome.ok) {
       return NextResponse.json(
         {
           error: "Ties need a coordinator/chief judge decision",
           unresolvedTies: outcome.unresolvedTies,
+          previewTabulation: outcome.previewTabulation,
         },
         { status: 409 }
       );
@@ -106,6 +123,17 @@ export async function DELETE(
 
   try {
     await removeTabulation(roundId);
+
+    const { data: round } = await supabaseServer
+      .from("comp_rounds")
+      .select("round_type, judged_role")
+      .eq("id", roundId)
+      .maybeSingle();
+
+    if (round && isCoupleFinalsRound(round)) {
+      await clearPrizeAwardsForCompetition(competitionId);
+    }
+
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof RoundDataError) {

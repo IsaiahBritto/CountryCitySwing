@@ -44,15 +44,31 @@ function ordinalLabel(n: number): string {
 
 export default function RelativePlacementGrid({
   tabulation,
+  showJudgeDetail = true,
+  highlightEntryIds,
 }: {
   tabulation: RpTabulation;
+  /** When false, show placements only (no per-judge ordinals or majority grid). */
+  showJudgeDetail?: boolean;
+  highlightEntryIds?: Set<string> | string[];
 }) {
   const entryById = new Map(
     tabulation.entries.map((e) => [e.roundEntryId, e])
   );
+  const highlight = highlightEntryIds
+    ? new Set(
+        highlightEntryIds instanceof Set
+          ? highlightEntryIds
+          : highlightEntryIds
+      )
+    : null;
   const levels = tabulation.grid[0]?.cells.length ?? 0;
-  const rows = [...tabulation.grid].sort(
-    (a, b) => (a.placement ?? 999) - (b.placement ?? 999)
+  const bibKey = (roundEntryId: string) =>
+    entryById.get(roundEntryId)?.bibNumber ?? Number.MAX_SAFE_INTEGER;
+  const rows = [...tabulation.grid].sort((a, b) =>
+    showJudgeDetail
+      ? (a.placement ?? 999) - (b.placement ?? 999)
+      : bibKey(a.roundEntryId) - bibKey(b.roundEntryId)
   );
   const hasCj = tabulation.chiefJudge != null;
 
@@ -61,15 +77,15 @@ export default function RelativePlacementGrid({
       <table className="w-full min-w-max border-collapse text-sm">
         <thead>
           <tr className="border-b border-neutral-700 text-left text-xs uppercase tracking-wide text-neutral-400">
-            <th className="px-2 py-2">Place</th>
+            {showJudgeDetail && <th className="px-2 py-2">Place</th>}
             <th className="px-2 py-2">Bib</th>
             <th className="px-2 py-2">Competitors</th>
-            {tabulation.judges.map((j) => (
+            {showJudgeDetail && tabulation.judges.map((j) => (
               <th key={j.assignmentId} className="px-2 py-2 text-center" title={j.name}>
                 {j.label}
               </th>
             ))}
-            {hasCj && (
+            {showJudgeDetail && hasCj && (
               <th
                 className="px-2 py-2 text-center text-neutral-500"
                 title={tabulation.chiefJudge!.name}
@@ -77,38 +93,47 @@ export default function RelativePlacementGrid({
                 CJ
               </th>
             )}
-            {Array.from({ length: levels }, (_, i) => (
-              <th key={i} className="px-2 py-2 text-center">
-                {i === 0 ? "1st" : `1–${ordinalLabel(i + 1)}`}
-              </th>
-            ))}
-            <th className="px-2 py-2">Notes</th>
+            {showJudgeDetail &&
+              Array.from({ length: levels }, (_, i) => (
+                <th key={i} className="px-2 py-2 text-center">
+                  {i === 0 ? "1st" : `1–${ordinalLabel(i + 1)}`}
+                </th>
+              ))}
+            {showJudgeDetail && <th className="px-2 py-2">Notes</th>}
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => {
             const entry = entryById.get(row.roundEntryId);
+            const highlighted = highlight?.has(row.roundEntryId);
             return (
               <tr
                 key={row.roundEntryId}
-                className="border-b border-neutral-800 hover:bg-neutral-800/50"
+                className={
+                  "border-b border-neutral-800 hover:bg-neutral-800/50 " +
+                  (highlighted ? "bg-amber-500/15" : "")
+                }
               >
-                <td className="px-2 py-2 font-semibold text-primary">
-                  {row.placement != null ? ordinalLabel(row.placement) : "—"}
-                </td>
+                {showJudgeDetail && (
+                  <td className="px-2 py-2 font-semibold text-primary">
+                    {row.placement != null ? ordinalLabel(row.placement) : "—"}
+                  </td>
+                )}
                 <td className="px-2 py-2 font-mono">{entry?.bibNumber ?? "—"}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{entry?.displayName}</td>
-                {row.ordinals.map((ord, i) => (
-                  <td key={i} className="px-2 py-2 text-center text-neutral-300">
-                    {ord}
-                  </td>
-                ))}
-                {hasCj && (
+                {showJudgeDetail &&
+                  row.ordinals.map((ord, i) => (
+                    <td key={i} className="px-2 py-2 text-center text-neutral-300">
+                      {ord}
+                    </td>
+                  ))}
+                {showJudgeDetail && hasCj && (
                   <td className="px-2 py-2 text-center text-neutral-500">
                     {row.chiefJudgeOrdinal ?? "—"}
                   </td>
                 )}
-                {row.cells.map((cell, i) => {
+                {showJudgeDetail &&
+                  row.cells.map((cell, i) => {
                   const level = i + 1;
                   const decided = row.decidedAtLevel === level;
                   const afterDecision =
@@ -137,19 +162,27 @@ export default function RelativePlacementGrid({
                       ) : ""}
                     </td>
                   );
-                })}
-                <td className="max-w-56 px-2 py-2 text-xs text-neutral-400">
-                  {row.tieBreakNote}
-                </td>
+                  })}
+                {showJudgeDetail && (
+                  <td className="max-w-56 px-2 py-2 text-xs text-neutral-400">
+                    {row.tieBreakNote}
+                  </td>
+                )}
               </tr>
             );
           })}
         </tbody>
       </table>
       <p className="mt-2 text-xs text-neutral-500">
-        {tabulation.judges.length} judges; majority {tabulation.majority}.
-        Highlighted cell marks where each couple earned its placement.
-        {hasCj && " CJ scores are tie-break only."}
+        {showJudgeDetail ? (
+          <>
+            {tabulation.judges.length} judges; majority {tabulation.majority}.
+            Highlighted cell marks where each couple earned its placement.
+            {hasCj && " CJ scores are tie-break only."}
+          </>
+        ) : (
+          "Full judge scores will be posted once the competition is marked complete."
+        )}
       </p>
     </div>
   );

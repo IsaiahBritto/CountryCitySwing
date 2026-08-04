@@ -9,6 +9,7 @@ import {
   groupJudgeRoundSlots,
   type JudgeRoundRow,
 } from "@/lib/comps/judgeRoundSlots";
+import JudgeNavLinks from "@/components/comps/judge/JudgeNavLinks";
 import type { ScoringScope } from "@/lib/comps/types";
 
 interface CompetitionSummary {
@@ -95,6 +96,7 @@ export default function JudgeHomePage() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8">
+      <JudgeNavLinks className="mb-4 text-sm" />
       <h1 className="mb-1 text-2xl font-bold text-primary">Judging</h1>
       <p className="mb-6 text-sm text-neutral-400">
         Your assigned competitions. Score when a round shows Ready to judge.

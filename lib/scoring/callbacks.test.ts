@@ -3,6 +3,7 @@ import {
   CALLBACK_WEIGHTS,
   scoreCallbacks,
   type CallbackInput,
+  type CallbackValue,
 } from "@/lib/scoring/callbacks";
 
 describe("scoreCallbacks", () => {
@@ -112,6 +113,47 @@ describe("scoreCallbacks", () => {
     expect([...result.unresolvedTies[0].entryIds].sort()).toEqual(["B", "C"]);
   });
 
+  it("flags equal-point ties within the alternate zone (alt1 vs alt2 ordering)", () => {
+    const entryIds = Array.from({ length: 13 }, (_, i) => `E${i}`);
+    const votes: CallbackInput["votes"] = {
+      J1: {},
+      J2: {},
+      J3: {},
+      J4: {},
+      J5: {},
+    };
+    for (let i = 0; i < 10; i++) {
+      for (const j of Object.keys(votes)) {
+        votes[j][entryIds[i]] = "yes";
+      }
+    }
+    votes.J1[entryIds[10]] = "alt1";
+    votes.J1[entryIds[11]] = "alt2";
+    votes.J2[entryIds[10]] = "alt2";
+    votes.J2[entryIds[11]] = "alt1";
+    votes.J3[entryIds[10]] = "alt1";
+    votes.J3[entryIds[11]] = "alt2";
+    votes.J4[entryIds[10]] = "alt2";
+    votes.J4[entryIds[11]] = "alt1";
+    votes.J5[entryIds[10]] = "alt3";
+    votes.J5[entryIds[11]] = "alt3";
+
+    const result = scoreCallbacks({
+      judgeIds: ["J1", "J2", "J3", "J4", "J5"],
+      entryIds,
+      callbackCount: 10,
+      alternateCount: 2,
+      votes,
+    });
+    expect(result.unresolvedTies).toHaveLength(1);
+    expect(result.unresolvedTies[0].boundary).toBe("alternate");
+    expect([...result.unresolvedTies[0].entryIds].sort()).toEqual([
+      "E10",
+      "E11",
+    ]);
+    expect(result.unresolvedTies[0].points).toBe(21.8);
+  });
+
   it("applies a manual resolution to a boundary tie", () => {
     const result = scoreCallbacks({
       judgeIds: ["J1", "J2"],
@@ -129,5 +171,140 @@ describe("scoreCallbacks", () => {
     expect(byId.C.advanced).toBe(true);
     expect(byId.C.resolvedByDecision).toBe(true);
     expect(byId.B.advanced).toBe(false);
+  });
+
+  it("breaks an advance boundary tie via chief judge votes", () => {
+    const result = scoreCallbacks({
+      judgeIds: ["J1", "J2"],
+      entryIds: ["A", "B", "C"],
+      callbackCount: 2,
+      alternateCount: 0,
+      votes: {
+        J1: { A: "yes", B: "yes", C: "no" },
+        J2: { A: "yes", B: "no", C: "yes" },
+      },
+      chiefJudgeVotes: { A: "yes", B: "yes", C: "no" },
+    });
+    expect(result.unresolvedTies).toEqual([]);
+    const byId = Object.fromEntries(result.ranked.map((r) => [r.entryId, r]));
+    expect(byId.B.advanced).toBe(true);
+    expect(byId.C.advanced).toBe(false);
+    expect(byId.B.resolvedByChiefJudge).toBe(true);
+    expect(byId.B.tieBreakNote).toContain("chief judge");
+  });
+
+  it("still unresolved when CJ gives identical votes on a boundary tie", () => {
+    const result = scoreCallbacks({
+      judgeIds: ["J1", "J2"],
+      entryIds: ["A", "B", "C"],
+      callbackCount: 2,
+      alternateCount: 0,
+      votes: {
+        J1: { A: "yes", B: "yes", C: "no" },
+        J2: { A: "yes", B: "no", C: "yes" },
+      },
+      chiefJudgeVotes: { A: "yes", B: "no", C: "no" },
+    });
+    expect(result.unresolvedTies).toHaveLength(1);
+    expect([...result.unresolvedTies[0].entryIds].sort()).toEqual(["B", "C"]);
+  });
+
+  it("breaks within-alternate-zone tie via CJ alt1 vs alt2", () => {
+    const entryIds = Array.from({ length: 13 }, (_, i) => `E${i}`);
+    const votes: CallbackInput["votes"] = {
+      J1: {},
+      J2: {},
+      J3: {},
+      J4: {},
+      J5: {},
+    };
+    for (let i = 0; i < 10; i++) {
+      for (const j of Object.keys(votes)) {
+        votes[j][entryIds[i]] = "yes";
+      }
+    }
+    votes.J1[entryIds[10]] = "alt1";
+    votes.J1[entryIds[11]] = "alt2";
+    votes.J2[entryIds[10]] = "alt2";
+    votes.J2[entryIds[11]] = "alt1";
+    votes.J3[entryIds[10]] = "alt1";
+    votes.J3[entryIds[11]] = "alt2";
+    votes.J4[entryIds[10]] = "alt2";
+    votes.J4[entryIds[11]] = "alt1";
+    votes.J5[entryIds[10]] = "alt3";
+    votes.J5[entryIds[11]] = "alt3";
+
+    const chiefJudgeVotes: Record<string, CallbackValue> = {};
+    for (const id of entryIds) {
+      chiefJudgeVotes[id] = "no";
+    }
+    chiefJudgeVotes[entryIds[10]] = "alt1";
+    chiefJudgeVotes[entryIds[11]] = "alt2";
+
+    const result = scoreCallbacks({
+      judgeIds: ["J1", "J2", "J3", "J4", "J5"],
+      entryIds,
+      callbackCount: 10,
+      alternateCount: 2,
+      votes,
+      chiefJudgeVotes,
+    });
+    expect(result.unresolvedTies).toEqual([]);
+    const byId = Object.fromEntries(result.ranked.map((r) => [r.entryId, r]));
+    expect(byId[entryIds[10]].alternateRank).toBe(1);
+    expect(byId[entryIds[11]].alternateRank).toBe(2);
+    expect(byId[entryIds[10]].resolvedByChiefJudge).toBe(true);
+  });
+
+  it("unresolved when CJ vote missing on a tied entry", () => {
+    const result = scoreCallbacks({
+      judgeIds: ["J1", "J2"],
+      entryIds: ["A", "B", "C"],
+      callbackCount: 2,
+      alternateCount: 0,
+      votes: {
+        J1: { A: "yes", B: "yes", C: "no" },
+        J2: { A: "yes", B: "no", C: "yes" },
+      },
+      chiefJudgeVotes: { A: "yes", B: "yes" },
+    });
+    expect(result.unresolvedTies).toHaveLength(1);
+  });
+
+  it("manual resolution takes precedence over CJ votes", () => {
+    const result = scoreCallbacks({
+      judgeIds: ["J1", "J2"],
+      entryIds: ["A", "B", "C"],
+      callbackCount: 2,
+      alternateCount: 0,
+      votes: {
+        J1: { A: "yes", B: "yes", C: "no" },
+        J2: { A: "yes", B: "no", C: "yes" },
+      },
+      chiefJudgeVotes: { A: "yes", B: "yes", C: "no" },
+      manualTieResolutions: [["C", "B"]],
+    });
+    const byId = Object.fromEntries(result.ranked.map((r) => [r.entryId, r]));
+    expect(byId.C.advanced).toBe(true);
+    expect(byId.C.resolvedByDecision).toBe(true);
+    expect(byId.C.resolvedByChiefJudge).toBe(false);
+  });
+
+  it("3-way panel tie at advance cut: CJ partial break advances top two", () => {
+    const result = scoreCallbacks({
+      judgeIds: ["J1", "J2", "J3"],
+      entryIds: ["A", "B", "C", "D"],
+      callbackCount: 2,
+      alternateCount: 0,
+      votes: {
+        J1: { A: "yes", B: "yes", C: "yes", D: "no" },
+        J2: { A: "yes", B: "yes", C: "yes", D: "no" },
+        J3: { A: "yes", B: "yes", C: "yes", D: "no" },
+      },
+      chiefJudgeVotes: { A: "yes", B: "alt1", C: "no", D: "no" },
+    });
+    expect(result.unresolvedTies).toEqual([]);
+    const advancers = result.ranked.filter((r) => r.advanced).map((r) => r.entryId);
+    expect(advancers).toEqual(["A", "B"]);
   });
 });

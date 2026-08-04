@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { hasDuplicateChiefJudges } from "@/lib/comps/judgeDisplayCount";
 import type { ScoringScope } from "@/lib/comps/types";
 
 interface JudgeRow {
@@ -131,7 +132,9 @@ export default function JudgesTab({
   };
 
   const panel = judges.filter((j) => j.judge_role === "judge");
-  const cj = judges.find((j) => j.judge_role === "chief_judge") ?? null;
+  const chiefJudges = judges.filter((j) => j.judge_role === "chief_judge");
+  const cj = chiefJudges[0] ?? null;
+  const duplicateCj = hasDuplicateChiefJudges(judges);
   const effectivePanel = panel.length + (cjInPanel && cj ? 1 : 0);
   const evenPanel = effectivePanel > 0 && effectivePanel % 2 === 0;
 
@@ -212,6 +215,13 @@ export default function JudgesTab({
         </p>
       </div>
 
+      {duplicateCj && (
+        <div className="mb-4 rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
+          Multiple chief judge assignments found ({chiefJudges.length}). Only one
+          is shown below. Click <strong>Ensure test judges</strong> on a test comp,
+          or remove the extra chief judge manually.
+        </div>
+      )}
       {evenPanel && (
         <div className="mb-4 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-300">
           The effective panel has an even number of judges ({effectivePanel}).

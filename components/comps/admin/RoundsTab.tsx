@@ -18,12 +18,14 @@ export default function RoundsTab({
   competitionId,
   compType,
   entryCount,
+  testComp,
   rounds,
   onChanged,
 }: {
   competitionId: string;
   compType: "jack_and_jill" | "strictly";
   entryCount: number;
+  testComp?: boolean;
   rounds: RoundRow[];
   onChanged: () => void;
 }) {
@@ -74,6 +76,7 @@ export default function RoundsTab({
             roundType={slotType}
             compType={compType}
             entryCount={entryCount}
+            testComp={testComp}
             rounds={rounds}
             expanded={expandedSlot === slotType}
             onToggleExpand={() =>

@@ -9,6 +9,7 @@ import {
   compBtnSecondary,
 } from "@/lib/comps/buttonStyles";
 import { sortRoundEntriesByBib } from "@/lib/comps/entrySort";
+import { lookupPlaybookEntry } from "@/lib/comps/scoringTest/playbook";
 import RelativePlacementGrid from "@/components/comps/RelativePlacementGrid";
 import CallbackResultsTable from "@/components/comps/CallbackResultsTable";
 
@@ -66,17 +67,23 @@ interface UnresolvedTie {
 
 export default function RoundPanel({
   roundId,
+  testComp,
   onChanged,
 }: {
   roundId: string;
+  testComp?: boolean;
   onChanged: () => void;
 }) {
   const [detail, setDetail] = useState<RoundDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [autoFillMsg, setAutoFillMsg] = useState<string | null>(null);
   const [heatCount, setHeatCount] = useState(1);
   const [ties, setTies] = useState<UnresolvedTie[] | null>(null);
   const [tieOrders, setTieOrders] = useState<string[][]>([]);
+  const [previewTabulation, setPreviewTabulation] = useState<any>(null);
+  const [tieCallbacks, setTieCallbacks] = useState<number>(0);
+  const [tieAlternates, setTieAlternates] = useState<number>(0);
   const [rotationInput, setRotationInput] = useState("");
   const [pairPreview, setPairPreview] = useState<
     { leadBib: number | null; followBib: number | null }[]
@@ -151,13 +158,28 @@ export default function RoundPanel({
     return true;
   };
 
-  const transition = (status: string) =>
-    act(() =>
-      authedFetch(`/api/admin/comps/rounds/${roundId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      })
-    );
+  const transition = async (status: string) => {
+    setBusy(true);
+    setError(null);
+    const res = await authedFetch(`/api/admin/comps/rounds/${roundId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return false;
+    }
+    const body = await res.json();
+    if (body.autoFill?.autoFilled) {
+      setAutoFillMsg(
+        `Test scores auto-filled for ${body.autoFill.judgeCount} judge${body.autoFill.judgeCount === 1 ? "" : "s"}.`
+      );
+    }
+    await load();
+    onChanged();
+    return true;
+  };
 
   const setCheckin = (roundEntryId: string, checkin_status: string) =>
     act(() =>
@@ -226,20 +248,50 @@ export default function RoundPanel({
       })
     );
 
-  const tabulate = async (resolutions: string[][] = []) => {
+  const tabulate = async (
+    resolutions: string[][] = [],
+    options?: { callbackCount?: number; alternateCount?: number; previewOnly?: boolean }
+  ) => {
     setBusy(true);
     setError(null);
-    setTies(null);
+    if (!options?.previewOnly) {
+      setTies(null);
+      setPreviewTabulation(null);
+    }
+    const payload: Record<string, unknown> = {
+      manual_tie_resolutions: resolutions,
+    };
+    const cb = options?.callbackCount ?? tieCallbacks;
+    const alt = options?.alternateCount ?? tieAlternates;
+    const scoringMode = detailRef.current?.round.scoring_mode;
+    if (scoringMode === "callback" && cb > 0) {
+      payload.callback_count = cb;
+      payload.alternate_count = alt;
+    }
     const res = await authedFetch(`/api/admin/comps/rounds/${roundId}/tabulate`, {
       method: "POST",
-      body: JSON.stringify({ manual_tie_resolutions: resolutions }),
+      body: JSON.stringify(payload),
     });
     setBusy(false);
     if (res.status === 409) {
       const body = await res.json().catch(() => ({}));
       if (body.unresolvedTies) {
         setTies(body.unresolvedTies);
-        setTieOrders(body.unresolvedTies.map((t: UnresolvedTie) => t.roundEntryIds));
+        setTieOrders(
+          resolutions.length > 0
+            ? resolutions
+            : body.unresolvedTies.map((t: UnresolvedTie) => t.roundEntryIds)
+        );
+        if (body.previewTabulation) {
+          setPreviewTabulation(body.previewTabulation);
+          if (body.previewTabulation.mode === "callback") {
+            setTieCallbacks(body.previewTabulation.callbackCount);
+            setTieAlternates(body.previewTabulation.alternateCount);
+          }
+        } else if (detailRef.current?.round) {
+          setTieCallbacks(detailRef.current.round.callback_count ?? 0);
+          setTieAlternates(detailRef.current.round.alternate_count ?? 0);
+        }
         return;
       }
       setError(body.error ?? "Tabulation blocked");
@@ -249,9 +301,30 @@ export default function RoundPanel({
       setError(await apiError(res));
       return;
     }
+    setTies(null);
+    setPreviewTabulation(null);
     await load();
     onChanged();
   };
+
+  const refreshTiePreview = () => {
+    if (!ties) return;
+    tabulate([], { previewOnly: true });
+  };
+
+  const cancelTieResolution = () => {
+    setTies(null);
+    setPreviewTabulation(null);
+  };
+
+  const tiedEntryIds = useMemo(() => {
+    if (!ties) return new Set<string>();
+    const ids = new Set<string>();
+    for (const tie of ties) {
+      for (const id of tie.roundEntryIds) ids.add(id);
+    }
+    return ids;
+  }, [ties]);
 
   const removeTabulation = () =>
     act(() =>
@@ -392,8 +465,30 @@ export default function RoundPanel({
   const btnDanger =
     "inline-flex min-h-11 items-center justify-center rounded-md border border-red-500/50 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-500/10 disabled:opacity-50";
 
+  const playbook =
+    testComp && round
+      ? lookupPlaybookEntry(
+          competition.comp_type as "strictly" | "jack_and_jill",
+          round.round_type as "prelims" | "quarterfinal" | "semifinal" | "final",
+          (round.judged_role as "lead" | "follow" | null) ?? null
+        )
+      : null;
+
   return (
     <div className="mt-3 rounded-lg border border-neutral-700 bg-neutral-900/60 p-4">
+      {testComp && playbook && (
+        <div className="mb-3 rounded-md border border-violet-500/40 bg-violet-500/10 p-3 text-sm text-violet-200">
+          <p className="font-semibold text-violet-300">
+            Test scenario: {playbook.label}
+          </p>
+          <p className="mt-1 text-violet-200/90">{playbook.description}</p>
+        </div>
+      )}
+      {autoFillMsg && (
+        <div className="mb-3 rounded-md border border-green-500/40 bg-green-500/10 p-3 text-sm text-green-300">
+          {autoFillMsg}
+        </div>
+      )}
       {error && (
         <div className="mb-3 rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
           {error}
@@ -510,65 +605,134 @@ export default function RoundPanel({
 
       {/* Tie resolution (round verification) */}
       {ties && (
-        <div className="mb-4 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
-          <h4 className="mb-2 font-semibold text-amber-300">
-            Coordinator / chief judge decision required
-          </h4>
-          {ties.map((tie, gi) => (
-            <div key={gi} className="mb-3">
-              <p className="mb-2 text-sm text-amber-200">{tie.reason}</p>
-              <div className="space-y-1">
-                {tieOrders[gi]?.map((entryId, i) => {
-                  const display = tie.displays.find(
-                    (d) => d.roundEntryId === entryId
-                  );
-                  return (
-                    <div
-                      key={entryId}
-                      className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
-                    >
-                      <span className="w-6 font-semibold text-primary">{i + 1}.</span>
-                      <span className="flex-1 text-white">
-                        {display?.bibNumber != null && (
-                          <span className="mr-2 font-mono text-neutral-400">
-                            #{display.bibNumber}
-                          </span>
-                        )}
-                        {display?.displayName}
-                      </span>
-                      <button
-                        onClick={() => moveInTie(gi, i, i - 1)}
-                        disabled={i === 0}
-                        className="px-1 text-neutral-400 disabled:opacity-30"
-                        aria-label="Move up"
-                      >
-                        ▲
-                      </button>
-                      <button
-                        onClick={() => moveInTie(gi, i, i + 1)}
-                        disabled={i === (tieOrders[gi]?.length ?? 0) - 1}
-                        className="px-1 text-neutral-400 disabled:opacity-30"
-                        aria-label="Move down"
-                      >
-                        ▼
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
+        <div className="mb-4 space-y-4">
+          {previewTabulation && (
+            <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 p-4">
+              <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-400">
+                Full scoring
+              </h4>
+              {previewTabulation.mode === "relative_placement" ? (
+                <RelativePlacementGrid
+                  tabulation={previewTabulation}
+                  highlightEntryIds={tiedEntryIds}
+                />
+              ) : (
+                <CallbackResultsTable
+                  tabulation={previewTabulation}
+                  highlightEntryIds={tiedEntryIds}
+                />
+              )}
             </div>
-          ))}
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => tabulate(tieOrders)}
-              disabled={busy}
-              className={compBtnOutline}
-            >
-              Confirm order &amp; tabulate
-            </button>
-            <button onClick={() => setTies(null)} className={compBtnSecondary}>
-              Cancel
-            </button>
+          )}
+
+          <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
+            <h4 className="mb-2 font-semibold text-amber-300">
+              Coordinator / chief judge decision required
+            </h4>
+            {previewTabulation?.mode === "callback" && (
+              <p className="mb-3 text-sm text-amber-200/90">
+                Panel scores are tied at a cut line. The chief judge&apos;s votes
+                were checked but could not break this tie (missing sheet, identical
+                votes, or still tied after CJ ordering). Set the final order below.
+              </p>
+            )}
+            {previewTabulation?.mode === "callback" && (
+              <div className="mb-4 rounded-md border border-neutral-700 bg-neutral-900/50 p-3">
+                <p className="mb-2 text-xs text-neutral-400">
+                  Adjust call back or alternates if you need to advance more or
+                  fewer competitors than configured. Changes persist when you
+                  confirm tabulate.
+                </p>
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="flex items-center gap-2 text-sm text-neutral-300">
+                    Call back
+                    <input
+                      type="number"
+                      min={1}
+                      value={tieCallbacks}
+                      onChange={(e) => setTieCallbacks(Number(e.target.value))}
+                      className="w-20 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-1 text-sm text-white"
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-neutral-300">
+                    Alternates
+                    <input
+                      type="number"
+                      min={0}
+                      max={3}
+                      value={tieAlternates}
+                      onChange={(e) => setTieAlternates(Number(e.target.value))}
+                      className="w-20 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-1 text-sm text-white"
+                    />
+                  </label>
+                  <button
+                    onClick={refreshTiePreview}
+                    disabled={busy}
+                    className={compBtnSecondary + " text-sm"}
+                  >
+                    Update preview
+                  </button>
+                </div>
+              </div>
+            )}
+            {ties.map((tie, gi) => (
+              <div key={gi} className="mb-3">
+                <p className="mb-2 text-sm text-amber-200">{tie.reason}</p>
+                <div className="space-y-1">
+                  {tieOrders[gi]?.map((entryId, i) => {
+                    const display = tie.displays.find(
+                      (d) => d.roundEntryId === entryId
+                    );
+                    return (
+                      <div
+                        key={entryId}
+                        className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm"
+                      >
+                        <span className="w-6 font-semibold text-primary">
+                          {i + 1}.
+                        </span>
+                        <span className="flex-1 text-white">
+                          {display?.bibNumber != null && (
+                            <span className="mr-2 font-mono text-neutral-400">
+                              #{display.bibNumber}
+                            </span>
+                          )}
+                          {display?.displayName}
+                        </span>
+                        <button
+                          onClick={() => moveInTie(gi, i, i - 1)}
+                          disabled={i === 0}
+                          className="px-1 text-neutral-400 disabled:opacity-30"
+                          aria-label="Move up"
+                        >
+                          ▲
+                        </button>
+                        <button
+                          onClick={() => moveInTie(gi, i, i + 1)}
+                          disabled={i === (tieOrders[gi]?.length ?? 0) - 1}
+                          className="px-1 text-neutral-400 disabled:opacity-30"
+                          aria-label="Move down"
+                        >
+                          ▼
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => tabulate(tieOrders)}
+                disabled={busy}
+                className={compBtnOutline}
+              >
+                Confirm order &amp; tabulate
+              </button>
+              <button onClick={cancelTieResolution} className={compBtnSecondary}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

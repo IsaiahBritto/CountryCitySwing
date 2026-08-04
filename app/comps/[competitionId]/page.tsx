@@ -84,12 +84,14 @@ function PublicCompetitionInner({
       .catch((err) => setError(err.message));
   }, [competitionId]);
 
-  const roundTypes = useMemo(() => {
-    if (!data) return [] as string[];
+  const roundTypes = useMemo((): string[] => {
+    if (!data) return [];
     const types = new Set(data.rounds.map((r) => r.round_type));
-    return ROUND_ORDER.filter((t) => types.has(t)).concat(
-      [...types].filter((t) => !(ROUND_ORDER as readonly string[]).includes(t))
+    const ordered = ROUND_ORDER.filter((t) => types.has(t));
+    const extra = [...types].filter(
+      (t) => !ROUND_ORDER.includes(t as (typeof ROUND_ORDER)[number])
     );
+    return [...ordered, ...extra];
   }, [data]);
 
   const defaultRoundType = useMemo(() => {

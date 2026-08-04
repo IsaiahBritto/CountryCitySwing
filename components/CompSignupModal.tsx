@@ -16,9 +16,9 @@ type CompEvent = {
   id: string | number;
   title: string;
   starts_at: string;
-  location?: string;
-  signupLink?: string;
-  signup_link?: string;
+  location?: string | null;
+  signupLink?: string | null;
+  signup_link?: string | null;
   strictly_price?: number | null;
   jnj_price?: number | null;
   strictly_level?: string | null;

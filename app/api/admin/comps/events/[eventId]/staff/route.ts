@@ -6,6 +6,20 @@ import {
   parseStaffSearchScope,
 } from "@/lib/compStaffProfileSearch";
 
+type StaffProfileRow = {
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  role?: string | null;
+};
+
+function joinedProfile(
+  profile: StaffProfileRow | StaffProfileRow[] | null | undefined
+): StaffProfileRow | null {
+  if (profile == null) return null;
+  return Array.isArray(profile) ? (profile[0] ?? null) : profile;
+}
+
 async function loadAssignedStaff(eventId: string) {
   const { data, error } = await supabaseServer
     .from("comp_event_staff")
@@ -16,14 +30,16 @@ async function loadAssignedStaff(eventId: string) {
     .order("created_at", { ascending: true });
   if (error) throw new Error("Failed to load staff");
   return (data ?? []).map((row) => {
-    const profile = (row as { profile?: Record<string, unknown> }).profile;
+    const profile = joinedProfile(
+      (row as { profile?: StaffProfileRow | StaffProfileRow[] | null }).profile
+    );
     return {
       id: row.id as string,
       profile_id: row.profile_id as string,
-      first_name: (profile?.first_name as string | null) ?? null,
-      last_name: (profile?.last_name as string | null) ?? null,
-      email: (profile?.email as string | null) ?? null,
-      role: (profile?.role as string | null) ?? null,
+      first_name: profile?.first_name ?? null,
+      last_name: profile?.last_name ?? null,
+      email: profile?.email ?? null,
+      role: profile?.role ?? null,
     };
   });
 }

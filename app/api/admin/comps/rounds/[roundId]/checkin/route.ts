@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { requireCompCheckinAuth } from "@/lib/compStaffAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 /**
@@ -14,9 +14,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ roundId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { roundId } = await params;
+  const auth = await requireCompCheckinAuth(req, roundId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
 
   const { data: round } = await supabaseServer
@@ -115,5 +115,6 @@ export async function POST(
       { status: 500 }
     );
   }
+
   return NextResponse.json({ roundEntry: data });
 }

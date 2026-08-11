@@ -184,8 +184,9 @@ function PublicCompetitionInner({
         <>
           {!showVotes && (
             <p className="mb-4 rounded-md border border-neutral-700 bg-neutral-900/50 px-3 py-2 text-sm text-neutral-400">
-              Placements and callback results are shown below. Per-judge scores
-              will be posted when the competition is marked complete.
+              Placements and callback results are shown below. Chief judge scores
+              are visible in the results table; full panel scores will be posted
+              when the competition is marked complete.
             </p>
           )}
 

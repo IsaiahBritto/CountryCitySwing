@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import { compBtnOutlineLg, compBtnTabActive, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import HeatSectionDivider from "@/components/comps/judge/HeatSectionDivider";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 import {
   applyRawChange,
@@ -57,6 +58,24 @@ export default function FinalsSheet({
   const [items, setItems] = useState<FinalsScoreItem[]>(() =>
     buildInitialItems(entries, initialScores)
   );
+
+  const heatSections = useMemo(() => {
+    const rows = items.map((item, index) => ({
+      item,
+      index,
+      heatNumber: entryById.get(item.entryId)?.heatNumber ?? null,
+    }));
+    const hasHeat = rows.some((r) => r.heatNumber != null);
+    if (!hasHeat) {
+      return [[null, rows] as const];
+    }
+    const map = new Map<number | null, typeof rows>();
+    for (const row of rows) {
+      map.set(row.heatNumber, [...(map.get(row.heatNumber) ?? []), row]);
+    }
+    return [...map.entries()].sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0));
+  }, [items, entryById]);
+
   const [mode, setMode] = useState<Mode>("placement");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -296,7 +315,15 @@ export default function FinalsSheet({
       )}
 
       <div ref={listRef} className="space-y-2 overflow-x-auto">
-        {items.map((item, index) => {
+        {heatSections.map(([heatNumber, rows]) => (
+          <div key={heatNumber ?? "all"}>
+            {heatNumber != null && (
+              <HeatSectionDivider
+                heatNumber={heatNumber}
+                entryCount={rows.length}
+              />
+            )}
+            {rows.map(({ item, index }) => {
           const entry = entryById.get(item.entryId);
           const isTied = tied.has(item.entryId);
           return (
@@ -305,7 +332,7 @@ export default function FinalsSheet({
               data-fs-row
               style={rowStyle(index)}
               className={
-                "flex min-w-0 items-center gap-3 rounded-xl border bg-neutral-800/60 p-3 " +
+                "mb-2 flex min-w-0 items-center gap-3 rounded-xl border bg-neutral-800/60 p-3 " +
                 (isTied
                   ? "border-amber-500/70"
                   : drag?.index === index
@@ -443,6 +470,8 @@ export default function FinalsSheet({
             </div>
           );
         })}
+          </div>
+        ))}
       </div>
 
       {!locked && (

@@ -30,6 +30,8 @@ export default function CompetitionConsolePage({
   const [tab, setTab] = useState<Tab>("entries");
   const [testActionBusy, setTestActionBusy] = useState(false);
   const [testActionMsg, setTestActionMsg] = useState<string | null>(null);
+  const [maxFloorCouples, setMaxFloorCouples] = useState("");
+  const [maxFloorSaving, setMaxFloorSaving] = useState(false);
 
   const load = useCallback(async () => {
     const res = await authedFetch(`/api/admin/comps/${competitionId}`);
@@ -39,6 +41,14 @@ export default function CompetitionConsolePage({
     }
     setDetail(await res.json());
   }, [competitionId]);
+
+  useEffect(() => {
+    if (detail?.competition?.max_floor_couples != null) {
+      setMaxFloorCouples(String(detail.competition.max_floor_couples));
+    } else {
+      setMaxFloorCouples("");
+    }
+  }, [detail?.competition?.max_floor_couples]);
 
   useEffect(() => {
     (async () => {
@@ -67,6 +77,25 @@ export default function CompetitionConsolePage({
       body: JSON.stringify({ status: next }),
     });
     if (res.ok) load();
+  };
+
+  const saveMaxFloorCouples = async () => {
+    const parsed = Number(maxFloorCouples);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      setError("Enter a max couples on floor value (1 or greater) before saving.");
+      return;
+    }
+    setMaxFloorSaving(true);
+    const res = await authedFetch(`/api/admin/comps/${competitionId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ max_floor_couples: Math.floor(parsed) }),
+    });
+    setMaxFloorSaving(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    load();
   };
 
   const resetTestComp = async () => {
@@ -193,6 +222,33 @@ export default function CompetitionConsolePage({
         </div>
       )}
 
+      <div className="mb-6 flex flex-wrap items-end gap-3 rounded-lg border border-neutral-700 bg-neutral-900/50 p-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-neutral-400">
+            Max couples on floor <span className="text-amber-400">*</span>
+          </label>
+          <input
+            type="number"
+            min={1}
+            required
+            placeholder="Required"
+            value={maxFloorCouples}
+            onChange={(e) => setMaxFloorCouples(e.target.value)}
+            className="w-24 rounded-md border border-neutral-600 bg-neutral-900 px-3 py-2 text-sm text-white"
+          />
+        </div>
+        <button
+          onClick={saveMaxFloorCouples}
+          disabled={maxFloorSaving || maxFloorCouples.trim() === ""}
+          className="rounded-md border border-neutral-600 px-3 py-2 text-sm text-neutral-300 hover:border-primary/60 disabled:opacity-50"
+        >
+          {maxFloorSaving ? "Saving…" : "Save floor limit"}
+        </button>
+        <p className="text-xs text-neutral-500">
+          Required per competition before heats can be set up (bib order, no randomization).
+        </p>
+      </div>
+
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-neutral-800 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {(
           tabs
@@ -235,6 +291,7 @@ export default function CompetitionConsolePage({
           compType={competition.comp_type}
           entryCount={entries.length}
           testComp={competition.test_comp}
+          cjInPanel={competition.cj_in_panel}
           rounds={rounds}
           onChanged={load}
         />

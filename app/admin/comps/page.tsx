@@ -1,10 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import { compBtnOutline } from "@/lib/comps/buttonStyles";
+import {
+  DEFAULT_TIME_ZONE,
+  formatEventScheduleSubtitle,
+} from "@/lib/utils/dateHelpers";
+
+interface CompEventInfo {
+  id: string;
+  title: string;
+  starts_at: string;
+  ends_at?: string | null;
+  time_zone?: string | null;
+  type?: string | null;
+}
 
 interface CompetitionListItem {
   id: string;
@@ -13,7 +26,7 @@ interface CompetitionListItem {
   status: string;
   cj_in_panel: boolean;
   test_comp?: boolean;
-  event: { id: string; title: string; starts_at: string } | null;
+  event: CompEventInfo | null;
   entries: { count: number }[];
   judges: { count: number }[];
   rounds: { count: number }[];
@@ -25,10 +38,62 @@ interface CompEvent {
   starts_at: string;
 }
 
+interface EventCompGroup {
+  eventId: string | null;
+  event: CompEventInfo | null;
+  competitions: CompetitionListItem[];
+}
+
 const TYPE_LABEL: Record<string, string> = {
   jack_and_jill: "Jack & Jill",
   strictly: "Strictly",
 };
+
+function groupCompetitionsByEvent(
+  competitions: CompetitionListItem[]
+): EventCompGroup[] {
+  const byEvent = new Map<string, EventCompGroup>();
+
+  for (const competition of competitions) {
+    const key = competition.event?.id ?? "__none__";
+    let group = byEvent.get(key);
+    if (!group) {
+      group = {
+        eventId: competition.event?.id ?? null,
+        event: competition.event,
+        competitions: [],
+      };
+      byEvent.set(key, group);
+    }
+    group.competitions.push(competition);
+  }
+
+  return [...byEvent.values()]
+    .sort((a, b) => {
+      const aTime = a.event?.starts_at
+        ? new Date(a.event.starts_at).getTime()
+        : 0;
+      const bTime = b.event?.starts_at
+        ? new Date(b.event.starts_at).getTime()
+        : 0;
+      return bTime - aTime;
+    })
+    .map((group) => ({
+      ...group,
+      competitions: [...group.competitions].sort((a, b) =>
+        a.name.localeCompare(b.name)
+      ),
+    }));
+}
+
+function eventScheduleLabel(event: CompEventInfo): string {
+  return formatEventScheduleSubtitle(
+    event.starts_at,
+    event.ends_at,
+    event.time_zone || DEFAULT_TIME_ZONE,
+    event.type ?? "comp"
+  );
+}
 
 export default function AdminCompsPage() {
   const [loading, setLoading] = useState(true);
@@ -44,6 +109,11 @@ export default function AdminCompsPage() {
   );
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+
+  const eventGroups = useMemo(
+    () => groupCompetitionsByEvent(competitions),
+    [competitions]
+  );
 
   const load = useCallback(async () => {
     const res = await authedFetch("/api/admin/comps");
@@ -205,48 +275,90 @@ export default function AdminCompsPage() {
           No competitions yet. Create one for a comp event to get started.
         </p>
       ) : (
-        <div className="space-y-3">
-          {competitions.map((c) => (
-            <Link
-              key={c.id}
-              href={`/admin/comps/${c.id}`}
-              className="block rounded-xl border border-neutral-700 bg-neutral-800/50 p-4 transition hover:border-primary/60"
+        <div className="space-y-6">
+          {eventGroups.map((group) => (
+            <section
+              key={group.eventId ?? "no-event"}
+              className="rounded-xl border border-neutral-700 bg-neutral-800/40 p-4"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="font-semibold text-white">
-                    {c.name}
-                    {c.test_comp && (
-                      <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-300">
-                        Test
-                      </span>
+              <div className="mb-3 border-b border-neutral-700/80 pb-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      {group.event?.title ?? "No comp event linked"}
+                    </h2>
+                    {group.event?.starts_at && (
+                      <p className="mt-0.5 text-sm text-neutral-400">
+                        {eventScheduleLabel(group.event)}
+                      </p>
                     )}
+                    <p className="mt-1 text-xs text-neutral-500">
+                      {group.competitions.length} division
+                      {group.competitions.length === 1 ? "" : "s"} · shared signup
+                      registration
+                    </p>
                   </div>
-                  <div className="text-sm text-neutral-400">
-                    {TYPE_LABEL[c.comp_type]} · {c.event?.title ?? "Unknown event"}
-                    {c.event?.starts_at &&
-                      ` · ${new Date(c.event.starts_at).toLocaleDateString()}`}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 text-sm text-neutral-400">
-                  <span>{c.entries?.[0]?.count ?? 0} entries</span>
-                  <span>{c.judges?.[0]?.count ?? 0} judges</span>
-                  <span>{c.rounds?.[0]?.count ?? 0} rounds</span>
-                  <span
-                    className={
-                      "rounded px-2 py-0.5 text-xs font-semibold " +
-                      (c.status === "completed"
-                        ? "bg-neutral-600/40 text-neutral-300"
-                        : c.status === "in_progress"
-                          ? "bg-primary/20 text-primary"
-                          : "bg-neutral-700/60 text-neutral-300")
-                    }
-                  >
-                    {c.status.replace("_", " ")}
-                  </span>
+                  {group.eventId && (
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Link
+                        href={`/admin/comps/events/${group.eventId}/bibs`}
+                        className={compBtnOutline + " text-sm"}
+                      >
+                        Assign bib numbers
+                      </Link>
+                      <Link
+                        href={`/admin/comps/events/${group.eventId}/ops`}
+                        className="rounded-md border border-neutral-600 px-4 py-2 text-sm text-neutral-200 hover:border-primary/60"
+                      >
+                        Staff ops
+                      </Link>
+                    </div>
+                  )}
                 </div>
               </div>
-            </Link>
+              <div className="space-y-2">
+                {group.competitions.map((c) => (
+                  <Link
+                    key={c.id}
+                    href={`/admin/comps/${c.id}`}
+                    className="block rounded-lg border border-neutral-700/80 bg-neutral-800/50 p-4 transition hover:border-primary/60"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="font-semibold text-white">
+                          {c.name}
+                          {c.test_comp && (
+                            <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-300">
+                              Test
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm text-neutral-400">
+                          {TYPE_LABEL[c.comp_type]}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm text-neutral-400">
+                        <span>{c.entries?.[0]?.count ?? 0} entries</span>
+                        <span>{c.judges?.[0]?.count ?? 0} judges</span>
+                        <span>{c.rounds?.[0]?.count ?? 0} rounds</span>
+                        <span
+                          className={
+                            "rounded px-2 py-0.5 text-xs font-semibold " +
+                            (c.status === "completed"
+                              ? "bg-neutral-600/40 text-neutral-300"
+                              : c.status === "in_progress"
+                                ? "bg-primary/20 text-primary"
+                                : "bg-neutral-700/60 text-neutral-300")
+                          }
+                        >
+                          {c.status.replace("_", " ")}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}

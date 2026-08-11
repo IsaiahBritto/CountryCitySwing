@@ -97,18 +97,213 @@ function expandCjOrdinals(
   return sheet;
 }
 
-function cleanOrdinals(
+/** No more than `maxSame` judges may assign the same ordinal to one entry. */
+export function assertMaxSamePlacement(
+  judgeOrdinals: JudgeOrdinalSheet[],
+  slots: EntrySlot[],
+  maxSame = 3
+) {
+  for (const slot of slots) {
+    const counts = new Map<number, number>();
+    for (const sheet of judgeOrdinals) {
+      const ord = sheet[slot];
+      if (ord == null) {
+        throw new Error(`Missing ordinal for slot ${slot}`);
+      }
+      counts.set(ord, (counts.get(ord) ?? 0) + 1);
+    }
+    for (const [ord, count] of counts) {
+      if (count > maxSame) {
+        throw new Error(
+          `${count} judges assigned ${ord} to ${slot} (max ${maxSame})`
+        );
+      }
+    }
+  }
+}
+
+function orderToSheet(
+  order: number[],
+  activeSlots: EntrySlot[]
+): JudgeOrdinalSheet {
+  const sheet: JudgeOrdinalSheet = {};
+  order.forEach((slotIdx, rank) => {
+    sheet[activeSlots[slotIdx]] = rank + 1;
+  });
+  return sheet;
+}
+
+function patternEntryRank(entryIdx: number, rank: number, n: number): number[] {
+  const others = Array.from({ length: n }, (_, i) => i).filter(
+    (i) => i !== entryIdx
+  );
+  const order: number[] = [];
+  let oIdx = 0;
+  for (let pos = 0; pos < n; pos++) {
+    if (pos === rank - 1) order.push(entryIdx);
+    else order.push(others[oIdx++]);
+  }
+  return order;
+}
+
+function buildPatternLibrary(n: number): number[][] {
+  if (n <= 1) return [Array.from({ length: n }, (_, i) => i)];
+
+  const seen = new Set<string>();
+  const patterns: number[][] = [];
+  const add = (order: number[]) => {
+    const key = order.join(",");
+    if (!seen.has(key)) {
+      seen.add(key);
+      patterns.push([...order]);
+    }
+  };
+
+  const identity = Array.from({ length: n }, (_, i) => i);
+  add(identity);
+
+  const maxSwaps = Math.min(4, Math.max(2, n - 1));
+  let frontier: number[][] = [identity];
+  for (let depth = 0; depth < maxSwaps; depth++) {
+    const next: number[][] = [];
+    for (const order of frontier) {
+      for (let p = 0; p < n - 1; p++) {
+        const swapped = [...order];
+        [swapped[p], swapped[p + 1]] = [swapped[p + 1], swapped[p]];
+        if (!seen.has(swapped.join(","))) {
+          add(swapped);
+          next.push(swapped);
+        }
+      }
+    }
+    frontier = next;
+  }
+
+  for (let i = 0; i < n; i++) {
+    const seed = i + 1;
+    for (let rank = Math.max(1, seed - 1); rank <= Math.min(n, seed + 1); rank++) {
+      add(patternEntryRank(i, rank, n));
+    }
+  }
+
+  return patterns;
+}
+
+function inversionCount(order: number[]): number {
+  let inv = 0;
+  for (let i = 0; i < order.length; i++) {
+    for (let j = i + 1; j < order.length; j++) {
+      if (order[i] > order[j]) inv++;
+    }
+  }
+  return inv;
+}
+
+function tabulatesClean(
+  sheets: JudgeOrdinalSheet[],
+  activeSlots: EntrySlot[]
+): boolean {
+  const judgeIds = sheets.map((_, i) => `j${i}`);
+  const ordinals: Record<string, Record<string, number>> = {};
+  for (let j = 0; j < sheets.length; j++) {
+    ordinals[judgeIds[j]] = {};
+    for (const slot of activeSlots) {
+      ordinals[judgeIds[j]][slot] = sheets[j][slot]!;
+    }
+  }
+  const tab = tabulateRelativePlacement({
+    judgeIds,
+    entryIds: activeSlots,
+    ordinals,
+    chiefJudgeOrdinals: null,
+  });
+  return tab.unresolvedTies.length === 0;
+}
+
+function assignVariedSheets(
+  judgeIndex: number,
+  judgeCount: number,
+  sheets: JudgeOrdinalSheet[],
+  patterns: number[][],
+  activeSlots: EntrySlot[],
+  maxSame: number,
+  requireCleanTabulation: boolean
+): boolean {
+  if (judgeIndex === judgeCount) {
+    return !requireCleanTabulation || tabulatesClean(sheets, activeSlots);
+  }
+
+  for (const pattern of patterns) {
+    const candidate = orderToSheet(pattern, activeSlots);
+    try {
+      assertMaxSamePlacement([...sheets, candidate], activeSlots, maxSame);
+    } catch {
+      continue;
+    }
+    sheets.push(candidate);
+    if (
+      assignVariedSheets(
+        judgeIndex + 1,
+        judgeCount,
+        sheets,
+        patterns,
+        activeSlots,
+        maxSame,
+        requireCleanTabulation
+      )
+    ) {
+      return true;
+    }
+    sheets.pop();
+  }
+  return false;
+}
+
+/** Per-judge permutations close to seed order with small deterministic spread. */
+function variedConsensusOrdinals(
   judgeCount: number,
   activeSlots: EntrySlot[],
-  activeCount: number
+  maxSame = 3
 ): JudgeOrdinalSheet[] {
-  return Array.from({ length: judgeCount }, () => {
-    const sheet: JudgeOrdinalSheet = {};
-    activeSlots.forEach((slot, i) => {
-      sheet[slot] = Math.min(i + 1, activeCount);
-    });
-    return sheet;
-  });
+  const n = activeSlots.length;
+  if (n === 0) return [];
+
+  const patterns = buildPatternLibrary(n).sort(
+    (a, b) => inversionCount(a) - inversionCount(b)
+  );
+  const sheets: JudgeOrdinalSheet[] = [];
+  const ok = assignVariedSheets(
+    0,
+    judgeCount,
+    sheets,
+    patterns,
+    activeSlots,
+    maxSame,
+    true
+  );
+  if (!ok) {
+    throw new Error(
+      `Could not assign varied ordinals (${judgeCount} judges, ${n} entries, max ${maxSame} same)`
+    );
+  }
+  return sheets;
+}
+
+function assertVariedOrdinalSheets(
+  judgeOrdinals: JudgeOrdinalSheet[],
+  slots: EntrySlot[],
+  maxSame = 3
+) {
+  assertMaxSamePlacement(judgeOrdinals, slots, maxSame);
+  if (judgeOrdinals.length > 1) {
+    const first = JSON.stringify(judgeOrdinals[0]);
+    const allIdentical = judgeOrdinals.every(
+      (sheet) => JSON.stringify(sheet) === first
+    );
+    if (allIdentical) {
+      throw new Error("Expected varied ordinals but all judges match");
+    }
+  }
 }
 
 export function generateOrdinalVotes(
@@ -139,10 +334,11 @@ export function generateOrdinalVotes(
         cjOrdinals: expandCjOrdinals(CJ_CYCLE_BREAK, slots),
       };
     case "rp_clean":
-    case "jnj_scope_smoke":
-      return {
-        judgeOrdinals: cleanOrdinals(judgeCount, slots, activeCount),
-      };
+    case "jnj_scope_smoke": {
+      const judgeOrdinals = variedConsensusOrdinals(judgeCount, slots);
+      assertVariedOrdinalSheets(judgeOrdinals, slots);
+      return { judgeOrdinals };
+    }
     default:
       throw new Error(`Not an ordinal edge case: ${edgeCase}`);
   }

@@ -27,6 +27,8 @@ const PLAYBOOK: Record<
   },
   jack_and_jill: {
     prelims: { lead: "advance_boundary_tie", follow: "clean_callback" },
+    quarterfinal: { lead: "clean_callback", follow: "clean_callback" },
+    semifinal: { lead: "alternate_boundary_tie", follow: "alternate_boundary_tie" },
     final: { all: "jnj_scope_smoke" },
   },
 };
@@ -68,7 +70,7 @@ const EDGE_META: Record<
   jnj_scope_smoke: {
     label: "JnJ finals panel smoke",
     description:
-      "Validates scoped panel size (drops_finals excluded). Clean ordinals — verify tabulate and placements.",
+      "Validates scoped panel size (drops_finals excluded). Varied panel ordinals near consensus — verify RP grid and tabulate.",
   },
 };
 

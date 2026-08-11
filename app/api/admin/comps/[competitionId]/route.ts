@@ -88,6 +88,16 @@ export async function PATCH(
   if (typeof body.cj_in_panel === "boolean") {
     update.cj_in_panel = body.cj_in_panel;
   }
+  if (body.max_floor_couples !== undefined) {
+    const n = Number(body.max_floor_couples);
+    if (!Number.isFinite(n) || n < 1) {
+      return NextResponse.json(
+        { error: "max_floor_couples must be a positive number" },
+        { status: 400 }
+      );
+    }
+    update.max_floor_couples = Math.floor(n);
+  }
 
   const { data, error } = await supabaseServer
     .from("competitions")

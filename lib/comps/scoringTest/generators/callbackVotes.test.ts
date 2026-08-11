@@ -4,6 +4,7 @@ import {
   generateCallbackVotes,
   expectCallbackTabulation,
   buildCjSheetAdvanceBreak,
+  assertCallbackSheetQuotas,
 } from "./callbackVotes";
 
 describe("slotAtIndex", () => {
@@ -14,22 +15,37 @@ describe("slotAtIndex", () => {
   });
 });
 
+function assertAllSheetsMeetQuotas(
+  panelSheets: ReturnType<typeof generateCallbackVotes>["panelSheets"],
+  cjSheet: ReturnType<typeof generateCallbackVotes>["cjSheet"],
+  slots: string[],
+  callbackCount: number,
+  alternateCount: number
+) {
+  for (const sheet of panelSheets) {
+    assertCallbackSheetQuotas(sheet, slots, callbackCount, alternateCount);
+  }
+  assertCallbackSheetQuotas(cjSheet, slots, callbackCount, alternateCount);
+}
+
 describe("generateCallbackVotes", () => {
   const slots30 = Array.from({ length: 30 }, (_, i) => slotAtIndex(i));
 
   it("advance_boundary_tie produces unresolved advance tie with matching CJ votes (K=2)", () => {
+    const slots = slots30.slice(0, 5);
     const { panelSheets, cjSheet } = generateCallbackVotes({
       edgeCase: "advance_boundary_tie",
       callbackCount: 2,
-      alternateCount: 0,
+      alternateCount: 1,
       entryCount: 5,
       judgeCount: 5,
     });
+    assertAllSheetsMeetQuotas(panelSheets, cjSheet, slots, 2, 1);
     expectCallbackTabulation(
       panelSheets,
-      slots30.slice(0, 5),
+      slots,
       2,
-      0,
+      1,
       true,
       cjSheet
     );
@@ -39,12 +55,26 @@ describe("generateCallbackVotes", () => {
     const { panelSheets, cjSheet } = generateCallbackVotes({
       edgeCase: "advance_boundary_tie",
       callbackCount: 3,
-      alternateCount: 0,
+      alternateCount: 2,
       entryCount: 30,
       judgeCount: 5,
       slots: slots30,
     });
-    expectCallbackTabulation(panelSheets, slots30, 3, 0, true, cjSheet);
+    assertAllSheetsMeetQuotas(panelSheets, cjSheet, slots30, 3, 2);
+    expectCallbackTabulation(panelSheets, slots30, 3, 2, true, cjSheet);
+  });
+
+  it("advance_boundary_tie at test-comp prelims scale (22+2 alts)", () => {
+    const { panelSheets, cjSheet } = generateCallbackVotes({
+      edgeCase: "advance_boundary_tie",
+      callbackCount: 22,
+      alternateCount: 2,
+      entryCount: 30,
+      judgeCount: 5,
+      slots: slots30,
+    });
+    assertAllSheetsMeetQuotas(panelSheets, cjSheet, slots30, 22, 2);
+    expectCallbackTabulation(panelSheets, slots30, 22, 2, true, cjSheet);
   });
 
   it("advance_boundary_tie tabulates clean when CJ breaks the tie", () => {
@@ -52,16 +82,17 @@ describe("generateCallbackVotes", () => {
     const { panelSheets } = generateCallbackVotes({
       edgeCase: "advance_boundary_tie",
       callbackCount: 2,
-      alternateCount: 0,
+      alternateCount: 1,
       entryCount: 5,
       judgeCount: 5,
     });
-    const cjSheet = buildCjSheetAdvanceBreak(slots, 2);
+    const cjSheet = buildCjSheetAdvanceBreak(slots, 2, 1);
+    assertCallbackSheetQuotas(cjSheet, slots, 2, 1);
     const result = expectCallbackTabulation(
       panelSheets,
       slots,
       2,
-      0,
+      1,
       false,
       cjSheet
     );
@@ -72,6 +103,7 @@ describe("generateCallbackVotes", () => {
   });
 
   it("clean_callback tabulates without ties", () => {
+    const slots = slots30.slice(0, 8);
     const { panelSheets, cjSheet } = generateCallbackVotes({
       edgeCase: "clean_callback",
       callbackCount: 2,
@@ -79,9 +111,10 @@ describe("generateCallbackVotes", () => {
       entryCount: 8,
       judgeCount: 5,
     });
+    assertAllSheetsMeetQuotas(panelSheets, cjSheet, slots, 2, 1);
     expectCallbackTabulation(
       panelSheets,
-      slots30.slice(0, 8),
+      slots,
       2,
       1,
       false,
@@ -90,18 +123,20 @@ describe("generateCallbackVotes", () => {
   });
 
   it("alternate_boundary_tie produces unresolved alternate tie with matching CJ votes", () => {
+    const slots = slots30.slice(0, 6);
     const { panelSheets, cjSheet } = generateCallbackVotes({
       edgeCase: "alternate_boundary_tie",
       callbackCount: 1,
-      alternateCount: 1,
+      alternateCount: 2,
       entryCount: 6,
       judgeCount: 5,
     });
+    assertAllSheetsMeetQuotas(panelSheets, cjSheet, slots, 1, 2);
     expectCallbackTabulation(
       panelSheets,
-      slots30.slice(0, 6),
+      slots,
       1,
-      1,
+      2,
       true,
       cjSheet
     );
@@ -117,6 +152,7 @@ describe("generateCallbackVotes", () => {
       judgeCount: 5,
       slots: slots16,
     });
+    assertAllSheetsMeetQuotas(panelSheets, cjSheet, slots16, 10, 2);
     expectCallbackTabulation(panelSheets, slots16, 10, 2, true, cjSheet);
   });
 
@@ -125,7 +161,7 @@ describe("generateCallbackVotes", () => {
       generateCallbackVotes({
         edgeCase: "advance_boundary_tie",
         callbackCount: 5,
-        alternateCount: 0,
+        alternateCount: 2,
         entryCount: 3,
         judgeCount: 5,
       })

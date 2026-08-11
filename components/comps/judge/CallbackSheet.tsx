@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnOutlineLg, compBtnVoteYesSm, judgeSheetStickyBottom, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import { compBtnOutlineLg, judgeSheetStickyBottom, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import HeatSectionDivider from "@/components/comps/judge/HeatSectionDivider";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 
 type Vote = "yes" | "alt1" | "alt2" | "alt3" | "no";
@@ -158,6 +159,8 @@ export default function CallbackSheet({
   const voteBtnLocked = locked ? " opacity-60" : "";
   const voteBtnNeutral =
     "min-h-9 rounded-md border border-neutral-600 px-1 py-1.5 text-xs font-semibold text-neutral-400 active:bg-neutral-700 sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
+  const voteBtnNeutralActiveYes =
+    "min-h-9 rounded-md border border-green-600 bg-green-600 px-1 py-1.5 text-xs font-semibold text-white sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
   const voteBtnNeutralActiveAlt =
     "min-h-9 rounded-md border border-amber-500 bg-amber-500 px-1 py-1.5 text-xs font-semibold text-neutral-900 sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
   const voteBtnNeutralActiveNo =
@@ -228,9 +231,10 @@ export default function CallbackSheet({
       {heats.map(([heatNumber, heatEntries]) => (
         <div key={heatNumber ?? "all"} className="mb-6">
           {heatNumber != null && (
-            <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
-              Heat {heatNumber}
-            </h3>
+            <HeatSectionDivider
+              heatNumber={heatNumber}
+              entryCount={heatEntries.length}
+            />
           )}
           <div className="space-y-2">
             {heatEntries.map((e) => {
@@ -267,9 +271,8 @@ export default function CallbackSheet({
                       onClick={() => setVote(e.roundEntryId, "yes")}
                       disabled={locked}
                       className={
-                        (vote === "yes"
-                          ? `${compBtnVoteYesSm} is-active`
-                          : compBtnVoteYesSm) + voteBtnLocked
+                        (vote === "yes" ? voteBtnNeutralActiveYes : voteBtnNeutral) +
+                        voteBtnLocked
                       }
                     >
                       Yes

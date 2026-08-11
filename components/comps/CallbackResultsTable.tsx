@@ -2,6 +2,12 @@
 
 /** Callback (Yes/Alt/No) round results rendered from a tabulation snapshot. */
 
+import {
+  JudgeColumnHeader,
+  JudgeSheetLegend,
+  cjColumnCellClass,
+  panelScoresLayout,
+} from "@/components/comps/JudgeSheetLegend";
 import { orderCallbackRowsForDisplay } from "@/lib/comps/callbackDisplayOrder";
 
 export interface CallbackTabulation {
@@ -67,13 +73,11 @@ export default function CallbackResultsTable({
   );
   const advanceCut = tabulation.callbackCount;
   const alternateCut = tabulation.callbackCount + tabulation.alternateCount;
-  const cjInPanel =
-    tabulation.chiefJudge != null &&
-    tabulation.judges.some(
-      (j) => j.assignmentId === tabulation.chiefJudge!.assignmentId
-    );
-  const showCjColumn =
-    showVotes && tabulation.chiefJudge != null && !cjInPanel;
+  const { panelJudges, showPanelJudgeColumns, showCjColumn, cjInPanel } =
+    panelScoresLayout(tabulation.judges, tabulation.chiefJudge, showVotes);
+  const judgeVoteIndex = new Map(
+    tabulation.judges.map((j, i) => [j.assignmentId, i])
+  );
   const hasCjTieBreak = tabulation.ranked.some((r) => r.resolvedByChiefJudge);
   const hasManualDecision = tabulation.ranked.some((r) => r.resolvedByDecision);
 
@@ -85,19 +89,21 @@ export default function CallbackResultsTable({
             {showVotes && <th className="px-2 py-2">#</th>}
             <th className="px-2 py-2">Bib</th>
             <th className="px-2 py-2">Competitor</th>
-            {showVotes &&
-              tabulation.judges.map((j) => (
-                <th key={j.assignmentId} className="px-2 py-2 text-center" title={j.name}>
-                  {j.label}
-                </th>
+            {showPanelJudgeColumns &&
+              panelJudges.map((j) => (
+                <JudgeColumnHeader
+                  key={j.assignmentId}
+                  label={j.label}
+                  name={j.name}
+                />
               ))}
             {showCjColumn && (
-              <th
-                className="px-2 py-2 text-center"
-                title={tabulation.chiefJudge!.name}
-              >
-                {tabulation.chiefJudge!.label}
-              </th>
+              <JudgeColumnHeader
+                label={tabulation.chiefJudge!.label}
+                name={tabulation.chiefJudge!.name}
+                muted
+                separated
+              />
             )}
             {showVotes && (
               <th className="px-2 py-2 text-right">Points</th>
@@ -134,19 +140,24 @@ export default function CallbackResultsTable({
                 )}
                 <td className="px-2 py-2 font-mono">{entry?.bibNumber ?? "—"}</td>
                 <td className="px-2 py-2 whitespace-nowrap">{entry?.displayName}</td>
-                {showVotes &&
-                  row.votes.map((v, i) => (
-                    <td
-                      key={i}
-                      className={"px-2 py-2 text-center " + voteCellClass(v)}
-                    >
-                      {VOTE_LABEL[v] ?? v}
-                    </td>
-                  ))}
+                {showPanelJudgeColumns &&
+                  panelJudges.map((j) => {
+                    const voteIdx = judgeVoteIndex.get(j.assignmentId)!;
+                    const v = row.votes[voteIdx];
+                    return (
+                      <td
+                        key={j.assignmentId}
+                        className={"px-2 py-2 text-center " + voteCellClass(v)}
+                      >
+                        {VOTE_LABEL[v] ?? v}
+                      </td>
+                    );
+                  })}
                 {showCjColumn && (
                   <td
                     className={
-                      "px-2 py-2 text-center " +
+                      cjColumnCellClass +
+                      " " +
                       voteCellClass(cjVote) +
                       (highlighted ? " ring-1 ring-inset ring-amber-400/50" : "")
                     }
@@ -191,6 +202,13 @@ export default function CallbackResultsTable({
           })}
         </tbody>
       </table>
+      {(showVotes || showCjColumn || showPanelJudgeColumns) && (
+        <JudgeSheetLegend
+          judges={showVotes ? tabulation.judges : panelJudges}
+          chiefJudge={tabulation.chiefJudge}
+          cjOnly={!showVotes}
+        />
+      )}
       <p className="mt-2 text-xs text-neutral-500">
         {showVotes ? (
           <>
@@ -198,7 +216,10 @@ export default function CallbackResultsTable({
             {tabulation.alternateCount > 0 &&
               `, ${tabulation.alternateCount} ranked alternate${tabulation.alternateCount === 1 ? "" : "s"}`}
             . Y = 10, A1 = 4.5, A2 = 4.3, A3 = 4.2 points.
-            {showCjColumn && " CJ column is tie-break only."}
+            {showCjColumn &&
+              (cjInPanel
+                ? " CJ column also shows the chief judge's scores."
+                : " CJ column is tie-break only.")}
             {hasCjTieBreak && " † = tie broken by chief judge's vote."}
             {hasManualDecision && " * = coordinator/CJ manual decision."}
           </>
@@ -207,7 +228,12 @@ export default function CallbackResultsTable({
             Top {tabulation.callbackCount} advance
             {tabulation.alternateCount > 0 &&
               `, ${tabulation.alternateCount} ranked alternate${tabulation.alternateCount === 1 ? "" : "s"}`}
-            . Full judge scores will be posted once the competition is marked complete.
+            .{" "}
+            {cjInPanel
+              ? "Chief judge scores are shown in their panel column and the CJ column; full panel scores will be posted once the competition is marked complete."
+              : "Chief judge scores are shown; full panel scores will be posted once the competition is marked complete."}
+            {hasCjTieBreak && " † = tie broken by chief judge's vote."}
+            {hasManualDecision && " * = coordinator/CJ manual decision."}
           </>
         )}
       </p>

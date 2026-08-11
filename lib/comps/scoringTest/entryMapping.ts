@@ -9,8 +9,8 @@ export interface MappedEntry {
 }
 
 type EntryWithBib = CompEntryRow & {
-  lead_bib?: { bib_number: number } | null;
-  follow_bib?: { bib_number: number } | null;
+  lead_bib?: { bib_number: number | null } | null;
+  follow_bib?: { bib_number: number | null } | null;
 };
 
 function bibForEntry(entry: EntryWithBib): number | null {

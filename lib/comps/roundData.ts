@@ -27,8 +27,8 @@ export interface JudgeWithProfile extends CompJudgeAssignmentRow {
 
 export interface RoundEntryWithEntry extends CompRoundEntryRow {
   entry: CompEntryRow & {
-    lead_bib: { bib_number: number } | null;
-    follow_bib: { bib_number: number } | null;
+    lead_bib: { bib_number: number | null } | null;
+    follow_bib: { bib_number: number | null } | null;
   };
 }
 
@@ -466,27 +466,46 @@ async function tabulateRelativePlacementRound(
   let chiefJudgeOrdinals: Record<string, number> | null = null;
   let cjLabel: { assignmentId: string; label: string; name: string } | null =
     null;
-  if (cj && !competition.cj_in_panel) {
-    const cjScores = t.scoresByJudge.get(cj.id);
-    const sheet: Record<string, number> = {};
-    let complete = true;
-    for (const id of activeIds) {
-      const ord = cjScores?.get(id)?.ordinal;
-      if (ord == null) {
-        complete = false;
-        break;
+  const cjPanelIndex =
+    cj != null && competition.cj_in_panel
+      ? t.panel.findIndex((j) => j.id === cj.id)
+      : -1;
+  if (cj) {
+    cjLabel = {
+      assignmentId: cj.id,
+      label: "CJ",
+      name: personName(cj.first_name, cj.last_name),
+    };
+    if (!competition.cj_in_panel) {
+      const cjScores = t.scoresByJudge.get(cj.id);
+      const sheet: Record<string, number> = {};
+      let complete = true;
+      for (const id of activeIds) {
+        const ord = cjScores?.get(id)?.ordinal;
+        if (ord == null) {
+          complete = false;
+          break;
+        }
+        sheet[id] = ord;
       }
-      sheet[id] = ord;
-    }
-    if (complete) {
-      chiefJudgeOrdinals = compressOrdinals({ cj: sheet }, activeIds).cj;
-      cjLabel = {
-        assignmentId: cj.id,
-        label: "CJ",
-        name: personName(cj.first_name, cj.last_name),
-      };
+      if (complete) {
+        chiefJudgeOrdinals = compressOrdinals({ cj: sheet }, activeIds).cj;
+      }
     }
   }
+
+  const chiefJudgeOrdinalForEntry = (
+    entryId: string,
+    panelOrdinals: number[]
+  ): number | null => {
+    if (chiefJudgeOrdinals?.[entryId] != null) {
+      return chiefJudgeOrdinals[entryId];
+    }
+    if (cjPanelIndex >= 0) {
+      return panelOrdinals[cjPanelIndex] ?? null;
+    }
+    return null;
+  };
 
   let result;
   try {
@@ -521,7 +540,7 @@ async function tabulateRelativePlacementRound(
           placement: g.placement,
           decidedAtLevel: g.decidedAtLevel,
           tieBreakNote: g.tieBreakNote,
-          chiefJudgeOrdinal: chiefJudgeOrdinals?.[re.id] ?? null,
+          chiefJudgeOrdinal: chiefJudgeOrdinalForEntry(re.id, g.ordinals),
         };
       }),
     };
@@ -557,7 +576,7 @@ async function tabulateRelativePlacementRound(
         placement: g.placement,
         decidedAtLevel: g.decidedAtLevel,
         tieBreakNote: g.tieBreakNote,
-        chiefJudgeOrdinal: chiefJudgeOrdinals?.[re.id] ?? null,
+        chiefJudgeOrdinal: chiefJudgeOrdinalForEntry(re.id, g.ordinals),
       };
     }),
   };

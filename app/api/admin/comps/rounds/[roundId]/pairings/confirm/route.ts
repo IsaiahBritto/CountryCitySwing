@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { computeRotatedPairs } from "@/lib/comps/finalsPairing";
+import { resolveFinalsPairs } from "@/lib/comps/finalsPairing";
 import {
   activeRoundEntries,
   entryDisplay,
@@ -10,7 +10,7 @@ import {
 } from "@/lib/comps/roundData";
 
 /**
- * POST: confirm rotation pairings — creates couple entries and replaces
+ * POST: confirm rotation or manual pairings — creates couple entries and replaces
  * individual lead/follow round entries with couple rows (bib order by lead).
  */
 export async function POST(
@@ -41,9 +41,17 @@ export async function POST(
         { status: 409 }
       );
     }
-    if (round.rotation_offset == null) {
+
+    const mode = round.pairing_mode ?? "rotation";
+    if (mode === "rotation" && round.rotation_offset == null) {
       return NextResponse.json(
         { error: "Submit a rotation offset before confirming pairings" },
+        { status: 409 }
+      );
+    }
+    if (mode === "manual" && !round.manual_pairings?.length) {
+      return NextResponse.json(
+        { error: "Save manual pairings before confirming" },
         { status: 409 }
       );
     }
@@ -91,7 +99,15 @@ export async function POST(
       role: "follow" as const,
     }));
 
-    const pairs = computeRotatedPairs(leads, follows, round.rotation_offset);
+    let pairs;
+    try {
+      pairs = resolveFinalsPairs(leads, follows, round);
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Invalid pairings" },
+        { status: 409 }
+      );
+    }
 
     const coupleRows = pairs.map((p) => {
       const leadRe = leadById.get(p.lead.id)!;

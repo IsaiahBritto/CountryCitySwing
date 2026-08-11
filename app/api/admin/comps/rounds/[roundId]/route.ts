@@ -22,6 +22,12 @@ import {
 import { panelJudgesForRound } from "@/lib/comps/judgeScope";
 import type { RoundStatus } from "@/lib/comps/types";
 import { autoFillTestRound } from "@/lib/comps/scoringTest/autoFillOnOpen";
+import {
+  buildHeatPlanFromContext,
+  loadHeatSetupContext,
+  setupRoundHeats,
+} from "@/lib/comps/heatSetup";
+import { previewAutoHeatCount } from "@/lib/comps/heatPlan";
 
 /** GET: round detail for the director console (entries, judges, progress). */
 export async function GET(
@@ -55,10 +61,53 @@ export async function GET(
     }
     const activeCount = activeRoundEntries(ctx).length;
 
+    const heatSizes = (heats ?? []).map((h) =>
+      ctx.roundEntries.filter(
+        (re) => re.heat_id === h.id && !re.scratched
+      ).length
+    );
+
+    let heatSlotSizes: number[] | null = null;
+    let heatPreview: {
+      autoHeatCount: number | null;
+      leadCount: number;
+      followCount: number;
+      heatReturnCount: number;
+      heatReturnRole: "lead" | "follow" | null;
+      maxFloorCouples: number | null;
+    } | null = null;
+    try {
+      const setupCtx = await loadHeatSetupContext(roundId, undefined);
+      const plan = buildHeatPlanFromContext(setupCtx);
+      heatSlotSizes = plan?.heatSizes ?? null;
+      heatPreview = {
+        autoHeatCount:
+          setupCtx.maxFloorCouples != null
+            ? previewAutoHeatCount({
+                maxFloorCouples: setupCtx.maxFloorCouples,
+                leadCount: setupCtx.leadCount,
+                followCount: setupCtx.followCount,
+                compType: setupCtx.compType,
+                entryCount: setupCtx.entries.length,
+              })
+            : null,
+        leadCount: setupCtx.leadCount,
+        followCount: setupCtx.followCount,
+        heatReturnCount: plan?.heatReturnCount ?? 0,
+        heatReturnRole: plan?.heatReturnRole ?? null,
+        maxFloorCouples: setupCtx.maxFloorCouples,
+      };
+    } catch {
+      heatPreview = null;
+    }
+
     return NextResponse.json({
       round: ctx.round,
       competition: ctx.competition,
       heats: heats ?? [],
+      heatSizes,
+      heatSlotSizes,
+      heatPreview,
       results: results ?? [],
       entries: ctx.roundEntries.map((re) => ({
         ...re,
@@ -87,6 +136,8 @@ export async function GET(
               rotation_offset: ctx.round.rotation_offset,
               pairings_confirmed_at: ctx.round.pairings_confirmed_at,
               prePairing: ctx.round.pairings_confirmed_at == null,
+              pairing_mode: ctx.round.pairing_mode ?? "rotation",
+              manual_pairings: ctx.round.manual_pairings,
             }
           : null,
     });
@@ -265,6 +316,20 @@ export async function PATCH(
       .single();
     if (error) {
       return NextResponse.json({ error: "Failed to update round" }, { status: 500 });
+    }
+
+    if (body.status === "checkin") {
+      const { count } = await supabaseServer
+        .from("comp_heats")
+        .select("id", { count: "exact", head: true })
+        .eq("round_id", roundId);
+      if ((count ?? 0) === 0) {
+        try {
+          await setupRoundHeats(roundId, undefined);
+        } catch {
+          // Entries may not be seeded yet; director can setup heats manually.
+        }
+      }
     }
 
     let autoFill: Awaited<ReturnType<typeof autoFillTestRound>> | undefined;

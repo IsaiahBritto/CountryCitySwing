@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { ensureBib } from "@/lib/comps/bibs";
+import { findOrCreateBibRecord } from "@/lib/comps/bibs";
 
 const norm = (v: unknown) =>
   typeof v === "string" ? v.trim().toLowerCase() : "";
@@ -225,7 +225,7 @@ export async function POST(
           follow_last_name: "",
           follow_email: null,
           follow_profile_id: null,
-          lead_bib_id: await ensureBib(competition.event_id, {
+          lead_bib_id: await findOrCreateBibRecord(competition.event_id, {
             firstName: leadFirst,
             lastName: leadLast,
             email: leadEmail,
@@ -249,7 +249,7 @@ export async function POST(
           follow_email: followEmail,
           follow_profile_id: followProfileId,
           lead_bib_id: null,
-          follow_bib_id: await ensureBib(competition.event_id, {
+          follow_bib_id: await findOrCreateBibRecord(competition.event_id, {
             firstName: followFirst,
             lastName: followLast,
             email: followEmail,
@@ -271,13 +271,14 @@ export async function POST(
         follow_email: followEmail,
         follow_profile_id: followProfileId,
         lead_bib_id: hasLead
-          ? await ensureBib(competition.event_id, {
+          ? await findOrCreateBibRecord(competition.event_id, {
               firstName: leadFirst,
               lastName: leadLast,
               email: leadEmail,
               profileId: leadProfileId,
             })
           : null,
+        follow_bib_id: null,
         comp_signup_id: s.id,
       });
     }

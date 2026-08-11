@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { ensureBib } from "@/lib/comps/bibs";
+import { findOrCreateBibRecord } from "@/lib/comps/bibs";
 
 async function loadCompetition(competitionId: string) {
   const { data } = await supabaseServer
@@ -79,7 +79,7 @@ export async function POST(
   let followBibId: string | null = null;
   if (entryKind === "couple" || role === "lead") {
     if (leadFirst || leadLast || leadEmail) {
-      leadBibId = await ensureBib(competition.event_id, {
+      leadBibId = await findOrCreateBibRecord(competition.event_id, {
         firstName: leadFirst,
         lastName: leadLast,
         email: leadEmail,
@@ -87,7 +87,7 @@ export async function POST(
     }
   }
   if (entryKind === "individual" && role === "follow") {
-    followBibId = await ensureBib(competition.event_id, {
+    followBibId = await findOrCreateBibRecord(competition.event_id, {
       firstName: followFirst,
       lastName: followLast,
       email: followEmail,

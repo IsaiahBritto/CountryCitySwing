@@ -14,8 +14,8 @@ interface EntryRow {
   follow_first_name: string;
   follow_last_name: string;
   follow_email: string | null;
-  lead_bib: { bib_number: number } | null;
-  follow_bib: { bib_number: number } | null;
+  lead_bib: { bib_number: number | null } | null;
+  follow_bib: { bib_number: number | null } | null;
   source_lead_entry_id: string | null;
   comp_signup_id: string | null;
 }
@@ -176,6 +176,10 @@ export default function EntriesTab({
       ? e.lead_bib?.bib_number
       : e.follow_bib?.bib_number;
 
+  const unassignedBibCount = baseEntries.filter(
+    (e) => entryBib(e) == null
+  ).length;
+
   const inputCls =
     "rounded-md border border-neutral-600 bg-neutral-900 px-3 py-2 text-sm text-white";
 
@@ -317,6 +321,13 @@ export default function EntriesTab({
       <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
         Entries ({baseEntries.length})
       </h3>
+      {unassignedBibCount > 0 && (
+        <p className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          {unassignedBibCount} entr{unassignedBibCount === 1 ? "y" : "ies"}{" "}
+          {unassignedBibCount === 1 ? "has" : "have"} no bib number yet. Assign
+          bibs from the comp event group on the competitions list.
+        </p>
+      )}
       {baseEntries.length === 0 ? (
         <p className="py-6 text-center text-sm text-neutral-500">
           No entries yet. Import from signups or add walk-ups.
@@ -337,7 +348,9 @@ export default function EntriesTab({
             {baseEntries.map((e) => (
               <tr key={e.id} className="border-t border-neutral-800">
                 <td className="py-2 pr-3 font-mono text-neutral-300">
-                  {entryBib(e) ?? "—"}
+                  {entryBib(e) != null ? entryBib(e) : (
+                    <span className="text-amber-400">—</span>
+                  )}
                 </td>
                 <td className="py-2 pr-3 text-white">{entryName(e)}</td>
                 {isJnJ && (

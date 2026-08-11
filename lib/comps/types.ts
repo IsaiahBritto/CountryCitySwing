@@ -19,6 +19,12 @@ export type ScoringScope = "lead" | "follow" | "both";
 export type CheckinRole = "lead" | "follow";
 export type SheetStatus = "draft" | "submitted";
 export type CallbackValue = "yes" | "alt1" | "alt2" | "alt3" | "no";
+export type PairingMode = "rotation" | "manual";
+
+export interface ManualPairingRow {
+  lead_round_entry_id: string;
+  follow_round_entry_id: string;
+}
 
 export interface CompetitionRow {
   id: string;
@@ -27,6 +33,7 @@ export interface CompetitionRow {
   name: string;
   status: CompStatus;
   cj_in_panel: boolean;
+  max_floor_couples: number | null;
   test_comp?: boolean;
   created_at: string;
   updated_at: string;
@@ -38,8 +45,15 @@ export interface CompBibRow {
   first_name: string;
   last_name: string;
   email: string | null;
-  bib_number: number;
+  bib_number: number | null;
   profile_id: string | null;
+}
+
+export interface CompEventStaffRow {
+  id: string;
+  event_id: string;
+  profile_id: string;
+  created_at: string;
 }
 
 export interface CompEntryRow {
@@ -104,6 +118,11 @@ export interface CompRoundRow {
   published_at: string | null;
   rotation_offset: number | null;
   pairings_confirmed_at: string | null;
+  pairing_mode: PairingMode;
+  manual_pairings: ManualPairingRow[] | null;
+  heat_count: number | null;
+  heat_return_count: number;
+  heat_return_role: DanceRole | null;
 }
 
 export interface CompHeatRow {

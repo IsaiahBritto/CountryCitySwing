@@ -307,4 +307,50 @@ describe("scoreCallbacks", () => {
     const advancers = result.ranked.filter((r) => r.advanced).map((r) => r.entryId);
     expect(advancers).toEqual(["A", "B"]);
   });
+
+  it("3-way advance-boundary tie: CJ yes breaks one advancer, manual tie on the rest", () => {
+    const entryIds = Array.from({ length: 24 }, (_, i) => `E${i}`);
+    const votes: CallbackInput["votes"] = {
+      J1: {},
+      J2: {},
+      J3: {},
+    };
+    for (let i = 0; i < 21; i++) {
+      for (const j of Object.keys(votes)) {
+        votes[j][entryIds[i]] = "yes";
+      }
+    }
+    votes.J1[entryIds[21]] = "yes";
+    votes.J2[entryIds[22]] = "yes";
+    votes.J3[entryIds[23]] = "yes";
+
+    const chiefJudgeVotes: Record<string, CallbackValue> = {};
+    for (const id of entryIds) chiefJudgeVotes[id] = "no";
+    chiefJudgeVotes[entryIds[21]] = "no";
+    chiefJudgeVotes[entryIds[22]] = "no";
+    chiefJudgeVotes[entryIds[23]] = "yes";
+
+    const result = scoreCallbacks({
+      judgeIds: ["J1", "J2", "J3"],
+      entryIds,
+      callbackCount: 22,
+      alternateCount: 2,
+      votes,
+      chiefJudgeVotes,
+    });
+
+    expect(result.unresolvedTies).toHaveLength(1);
+    expect([...result.unresolvedTies[0].entryIds].sort()).toEqual([
+      "E21",
+      "E22",
+    ]);
+    expect(result.unresolvedTies[0].boundary).toBe("alternate");
+
+    const byId = Object.fromEntries(result.ranked.map((r) => [r.entryId, r]));
+    expect(byId.E23.advanced).toBe(true);
+    expect(byId.E23.rank).toBe(22);
+    expect(byId.E23.resolvedByChiefJudge).toBe(true);
+    expect(byId.E21.alternateRank).toBe(1);
+    expect(byId.E22.alternateRank).toBe(2);
+  });
 });

@@ -1,74 +1,107 @@
 import { supabaseServer } from "@/lib/supabaseServer";
+import {
+  type BibAssignment,
+  type BibPerson,
+  validateBibNumberAssignments,
+} from "@/lib/comps/eventRegistrants";
 
-export interface BibPerson {
-  firstName: string;
-  lastName: string;
-  email?: string | null;
-  profileId?: string | null;
+export type { BibAssignment, BibPerson } from "@/lib/comps/eventRegistrants";
+export {
+  collectEventRegistrants,
+  personKeyFromFields,
+  ROLE_LABEL,
+  validateBibNumberAssignments,
+  type EventRegistrantPerson,
+  type EventRegistrantRole,
+} from "@/lib/comps/eventRegistrants";
+
+const normEmail = (v: unknown) =>
+  typeof v === "string" ? v.trim().toLowerCase() : "";
+
+const normName = (v: unknown) =>
+  typeof v === "string" ? v.trim().toLowerCase() : "";
+
+async function loadEventBibs(eventId: string) {
+  const { data } = await supabaseServer
+    .from("comp_bibs")
+    .select("id, first_name, last_name, email, profile_id, bib_number")
+    .eq("event_id", eventId);
+  return data ?? [];
 }
 
-const FIRST_BIB_NUMBER = 100;
-
-/**
- * Finds or creates the per-event bib for a person. Bibs are per event: the
- * same person keeps one number across every competition they enter. Matches
- * by profile_id when available, then email, then full name (case-insensitive).
- */
-export async function ensureBib(
-  eventId: string,
+function findExistingBibId(
+  existing: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string | null;
+    profile_id: string | null;
+  }[],
   person: BibPerson
-): Promise<string | null> {
+): string | null {
   const first = (person.firstName ?? "").trim();
   const last = (person.lastName ?? "").trim();
-  const email = (person.email ?? "").trim().toLowerCase() || null;
+  const email = normEmail(person.email) || null;
   const profileId = person.profileId?.trim() || null;
   if (!first && !last && !email && !profileId) return null;
 
-  const { data: existing } = await supabaseServer
-    .from("comp_bibs")
-    .select("id, first_name, last_name, email, profile_id")
-    .eq("event_id", eventId);
-
   if (profileId) {
-    for (const bib of existing ?? []) {
+    for (const bib of existing) {
       if (bib.profile_id === profileId) return bib.id;
     }
   }
 
-  for (const bib of existing ?? []) {
-    if (email && (bib.email ?? "").trim().toLowerCase() === email) {
-      if (profileId && !bib.profile_id) {
-        await supabaseServer
-          .from("comp_bibs")
-          .update({ profile_id: profileId })
-          .eq("id", bib.id);
-      }
-      return bib.id;
-    }
-  }
-  for (const bib of existing ?? []) {
-    const sameName =
-      (bib.first_name ?? "").trim().toLowerCase() === first.toLowerCase() &&
-      (bib.last_name ?? "").trim().toLowerCase() === last.toLowerCase();
-    if (sameName && (first || last)) {
-      if (profileId && !bib.profile_id) {
-        await supabaseServer
-          .from("comp_bibs")
-          .update({ profile_id: profileId })
-          .eq("id", bib.id);
-      }
-      return bib.id;
-    }
+  for (const bib of existing) {
+    if (email && normEmail(bib.email) === email) return bib.id;
   }
 
-  const { data: maxRow } = await supabaseServer
-    .from("comp_bibs")
-    .select("bib_number")
-    .eq("event_id", eventId)
-    .order("bib_number", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const nextNumber = Math.max(FIRST_BIB_NUMBER, (maxRow?.bib_number ?? 0) + 1);
+  for (const bib of existing) {
+    const sameName =
+      normName(bib.first_name) === normName(first) &&
+      normName(bib.last_name) === normName(last);
+    if (sameName && (first || last)) return bib.id;
+  }
+
+  return null;
+}
+
+function hasPersonFields(person: BibPerson): boolean {
+  const first = (person.firstName ?? "").trim();
+  const last = (person.lastName ?? "").trim();
+  const email = normEmail(person.email);
+  const profileId = person.profileId?.trim() || "";
+  return !!(first || last || email || profileId);
+}
+
+/**
+ * Finds or creates the per-event bib record for a person without assigning a
+ * number. Matches by profile_id, then email, then full name.
+ */
+export async function findOrCreateBibRecord(
+  eventId: string,
+  person: BibPerson
+): Promise<string | null> {
+  if (!hasPersonFields(person)) return null;
+
+  const first = (person.firstName ?? "").trim();
+  const last = (person.lastName ?? "").trim();
+  const email = normEmail(person.email) || null;
+  const profileId = person.profileId?.trim() || null;
+
+  const existing = await loadEventBibs(eventId);
+  const foundId = findExistingBibId(existing, person);
+  if (foundId) {
+    if (profileId) {
+      const row = existing.find((b) => b.id === foundId);
+      if (row && !row.profile_id) {
+        await supabaseServer
+          .from("comp_bibs")
+          .update({ profile_id: profileId })
+          .eq("id", foundId);
+      }
+    }
+    return foundId;
+  }
 
   const { data: created, error } = await supabaseServer
     .from("comp_bibs")
@@ -79,28 +112,62 @@ export async function ensureBib(
         last_name: last,
         email,
         profile_id: profileId,
-        bib_number: nextNumber,
+        bib_number: null,
       },
     ])
     .select("id")
     .single();
-  if (error) {
-    const { data: retry, error: retryError } = await supabaseServer
-      .from("comp_bibs")
-      .insert([
-        {
-          event_id: eventId,
-          first_name: first,
-          last_name: last,
-          email,
-          profile_id: profileId,
-          bib_number: nextNumber + 1,
-        },
-      ])
-      .select("id")
-      .single();
-    if (retryError) throw new Error("Failed to assign bib number");
-    return retry.id;
-  }
+  if (error) throw new Error("Failed to create bib record");
   return created.id;
+}
+
+/** @deprecated Use findOrCreateBibRecord — no longer auto-assigns numbers. */
+export const ensureBib = findOrCreateBibRecord;
+
+/** Admin bulk save of bib numbers for an event. */
+export async function assignBibNumbers(
+  eventId: string,
+  assignments: BibAssignment[]
+): Promise<{ error: string } | { ok: true }> {
+  const validationError = validateBibNumberAssignments(assignments);
+  if (validationError) return { error: validationError };
+
+  const existing = await loadEventBibs(eventId);
+  const byId = new Map(existing.map((b) => [b.id, b]));
+
+  for (const { bibId } of assignments) {
+    if (!byId.has(bibId)) {
+      return { error: `Unknown bib record ${bibId}` };
+    }
+  }
+
+  for (const other of existing) {
+    if (other.bib_number == null) continue;
+    const reassigned = assignments.find((a) => a.bibId === other.id);
+    const num = reassigned ? reassigned.bibNumber : other.bib_number;
+    const clash = assignments.find(
+      (a) => a.bibId !== other.id && a.bibNumber === num
+    );
+    if (clash && !reassigned) {
+      return {
+        error: `Bib number ${num} is already assigned to another competitor`,
+      };
+    }
+  }
+
+  for (const { bibId, bibNumber } of assignments) {
+    const { error } = await supabaseServer
+      .from("comp_bibs")
+      .update({ bib_number: bibNumber })
+      .eq("id", bibId)
+      .eq("event_id", eventId);
+    if (error) {
+      if (error.code === "23505") {
+        return { error: `Bib number ${bibNumber} is already in use` };
+      }
+      return { error: "Failed to save bib numbers" };
+    }
+  }
+
+  return { ok: true };
 }

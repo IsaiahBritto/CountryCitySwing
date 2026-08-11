@@ -4,6 +4,7 @@ import { useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import { compBtnOutline, compBtnTabActive } from "@/lib/comps/buttonStyles";
 import RoundPanel from "@/components/comps/admin/RoundPanel";
+import JudgeProgressSlot from "@/components/comps/admin/JudgeProgressSlot";
 import {
   getSlotLabel,
   roundTitle,
@@ -30,11 +31,13 @@ const STATUS_STYLE: Record<string, string> = {
 function SlotRoundPanel({
   round,
   testComp,
+  hideJudgeProgress,
   onChanged,
   onDisable,
 }: {
   round: RoundRow;
   testComp?: boolean;
+  hideJudgeProgress?: boolean;
   onChanged: () => void;
   onDisable: () => void;
 }) {
@@ -53,7 +56,12 @@ function SlotRoundPanel({
       {round.status === "pending" && round.scoring_mode === "callback" && (
         <PendingCallbackConfig round={round} onChanged={onChanged} />
       )}
-      <RoundPanel roundId={round.id} testComp={testComp} onChanged={onChanged} />
+      <RoundPanel
+        roundId={round.id}
+        testComp={testComp}
+        hideJudgeProgress={hideJudgeProgress}
+        onChanged={onChanged}
+      />
     </div>
   );
 }
@@ -226,6 +234,7 @@ export default function RoundSlotPanel({
   compType,
   entryCount,
   testComp,
+  cjInPanel,
   rounds,
   expanded,
   onToggleExpand,
@@ -237,6 +246,7 @@ export default function RoundSlotPanel({
   compType: "jack_and_jill" | "strictly";
   entryCount: number;
   testComp?: boolean;
+  cjInPanel?: boolean;
   rounds: RoundRow[];
   expanded: boolean;
   onToggleExpand: () => void;
@@ -364,6 +374,13 @@ export default function RoundSlotPanel({
             )
           ) : isJnJ && isCallback ? (
             <div>
+              <JudgeProgressSlot
+                competitionId={competitionId}
+                roundType={roundType}
+                slotRounds={slotRounds}
+                cjInPanel={cjInPanel ?? false}
+                onChanged={onChanged}
+              />
               <div className="mb-2 flex gap-1 overflow-x-auto rounded-lg border border-neutral-700 p-0.5">
                 {(["lead", "follow"] as const).map((role) => {
                   const r = slotRounds.find((x) => x.judged_role === role);
@@ -404,6 +421,7 @@ export default function RoundSlotPanel({
                   <SlotRoundPanel
                     round={r}
                     testComp={testComp}
+                    hideJudgeProgress
                     onChanged={onChanged}
                     onDisable={() => disableRound(r)}
                   />

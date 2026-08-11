@@ -9,6 +9,9 @@ import {
   compBtnSecondary,
 } from "@/lib/comps/buttonStyles";
 import { sortRoundEntriesByBib } from "@/lib/comps/entrySort";
+import { patchEntryCheckinStatus } from "@/lib/comps/checkinOptimistic";
+import { checkinSync, type CheckinReloadOptions } from "@/lib/comps/checkinSync";
+import type { CheckinStatus } from "@/lib/comps/types";
 import { lookupPlaybookEntry } from "@/lib/comps/scoringTest/playbook";
 import RelativePlacementGrid from "@/components/comps/RelativePlacementGrid";
 import CallbackResultsTable from "@/components/comps/CallbackResultsTable";
@@ -24,14 +27,37 @@ interface RoundDetail {
     status: string;
     source_round_id: string | null;
     tabulation: any;
+    heat_count: number | null;
+    heat_return_count: number;
+    heat_return_role: "lead" | "follow" | null;
   };
-  competition: { id: string; name: string; comp_type: string };
+  competition: {
+    id: string;
+    name: string;
+    comp_type: string;
+    max_floor_couples?: number | null;
+  };
   finalsMeta: {
     rotation_offset: number | null;
     pairings_confirmed_at: string | null;
     prePairing: boolean;
+    pairing_mode: "rotation" | "manual";
+    manual_pairings: {
+      lead_round_entry_id: string;
+      follow_round_entry_id: string;
+    }[] | null;
   } | null;
   heats: { id: string; heat_number: number }[];
+  heatSizes?: number[];
+  heatSlotSizes?: number[] | null;
+  heatPreview?: {
+    autoHeatCount: number | null;
+    leadCount: number;
+    followCount: number;
+    heatReturnCount: number;
+    heatReturnRole: "lead" | "follow" | null;
+    maxFloorCouples: number | null;
+  } | null;
   results: any[];
   entries: {
     id: string;
@@ -68,51 +94,105 @@ interface UnresolvedTie {
 export default function RoundPanel({
   roundId,
   testComp,
+  hideJudgeProgress = false,
   onChanged,
 }: {
   roundId: string;
   testComp?: boolean;
+  hideJudgeProgress?: boolean;
   onChanged: () => void;
 }) {
   const [detail, setDetail] = useState<RoundDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [autoFillMsg, setAutoFillMsg] = useState<string | null>(null);
-  const [heatCount, setHeatCount] = useState(1);
+  const [heatOverrideEnabled, setHeatOverrideEnabled] = useState(false);
+  const [heatOverrideCount, setHeatOverrideCount] = useState(1);
   const [ties, setTies] = useState<UnresolvedTie[] | null>(null);
   const [tieOrders, setTieOrders] = useState<string[][]>([]);
   const [previewTabulation, setPreviewTabulation] = useState<any>(null);
   const [tieCallbacks, setTieCallbacks] = useState<number>(0);
   const [tieAlternates, setTieAlternates] = useState<number>(0);
   const [rotationInput, setRotationInput] = useState("");
+  const [pairingMode, setPairingMode] = useState<"rotation" | "manual">(
+    "rotation"
+  );
+  const [manualFollowByLead, setManualFollowByLead] = useState<
+    Record<string, string>
+  >({});
   const [pairPreview, setPairPreview] = useState<
     { leadBib: number | null; followBib: number | null }[]
+  >([]);
+  const [pairingLeads, setPairingLeads] = useState<
+    { roundEntryId: string; bibNumber: number | null; displayName: string }[]
+  >([]);
+  const [pairingFollows, setPairingFollows] = useState<
+    { roundEntryId: string; bibNumber: number | null; displayName: string }[]
   >([]);
   const detailRef = useRef<RoundDetail | null>(null);
   detailRef.current = detail;
 
-  const load = useCallback(async () => {
-    const res = await authedFetch(`/api/admin/comps/rounds/${roundId}`);
-    if (!res.ok) {
-      setError(await apiError(res));
-      return;
+  const guardedLoad = useCallback(
+    async (options?: CheckinReloadOptions) => {
+      const res = await authedFetch(`/api/admin/comps/rounds/${roundId}`);
+      if (!res.ok) {
+        setError(await apiError(res));
+        return;
+      }
+      const data = await res.json();
+      if (
+        options?.force ||
+        (options?.generationAtSyncStart != null &&
+          checkinSync.shouldApplyReload(
+            roundId,
+            options.generationAtSyncStart
+          )) ||
+        (options?.generationAtSyncStart == null &&
+          checkinSync.isBackgroundReloadAllowed(roundId))
+      ) {
+        setDetail(data);
+        if (options?.force) {
+          checkinSync.markSynced(roundId);
+        }
+      }
+    },
+    [roundId]
+  );
+
+  useEffect(() => {
+    guardedLoad();
+  }, [guardedLoad]);
+
+  const load = guardedLoad;
+
+  useEffect(() => {
+    if (!detail) return;
+    const stored = detail.round.heat_count;
+    if (stored != null) {
+      setHeatOverrideEnabled(true);
+      setHeatOverrideCount(stored);
+    } else {
+      setHeatOverrideEnabled(false);
+      setHeatOverrideCount(detail.heatPreview?.autoHeatCount ?? 1);
     }
-    setDetail(await res.json());
-  }, [roundId]);
+  }, [detail?.round.id, detail?.round.heat_count, detail?.heatPreview?.autoHeatCount]);
 
   useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    const offset = detail?.finalsMeta?.rotation_offset;
+    const meta = detail?.finalsMeta;
+    if (!meta) return;
+    const offset = meta.rotation_offset;
     if (offset != null) {
       setRotationInput(String(offset));
     }
-    if (
-      detail?.finalsMeta?.prePairing &&
-      detail.finalsMeta.rotation_offset != null
-    ) {
+    setPairingMode(meta.pairing_mode ?? "rotation");
+    if (meta.manual_pairings?.length) {
+      const map: Record<string, string> = {};
+      for (const p of meta.manual_pairings) {
+        map[p.lead_round_entry_id] = p.follow_round_entry_id;
+      }
+      setManualFollowByLead(map);
+    }
+    if (meta.prePairing) {
       (async () => {
         const res = await authedFetch(
           `/api/admin/comps/rounds/${roundId}/pairings`
@@ -120,10 +200,22 @@ export default function RoundPanel({
         if (res.ok) {
           const data = await res.json();
           setPairPreview(data.preview ?? []);
+          setPairingLeads(data.leads ?? []);
+          setPairingFollows(data.follows ?? []);
+          if (data.pairing_mode) setPairingMode(data.pairing_mode);
+          if (data.manual_pairings?.length) {
+            const map: Record<string, string> = {};
+            for (const p of data.manual_pairings) {
+              map[p.lead_round_entry_id] = p.follow_round_entry_id;
+            }
+            setManualFollowByLead(map);
+          }
         }
       })();
-    } else if (!detail?.finalsMeta?.prePairing) {
+    } else if (!meta.prePairing) {
       setPairPreview([]);
+      setPairingLeads([]);
+      setPairingFollows([]);
     }
   }, [detail?.finalsMeta, roundId]);
 
@@ -132,11 +224,18 @@ export default function RoundPanel({
   useEffect(() => {
     const interval = setInterval(() => {
       const status = detailRef.current?.round.status;
-      if (status === "checkin" || status === "open") load();
+      if (
+        (status === "checkin" || status === "open") &&
+        !checkinSync.isSyncActive(roundId)
+      ) {
+        load();
+      }
     }, 5000);
     const channel = supabaseBrowser
       .channel(`comp-round-${roundId}`)
-      .on("broadcast", { event: "judge_progress" }, () => load())
+      .on("broadcast", { event: "judge_progress" }, () => {
+        if (!checkinSync.isSyncActive(roundId)) load();
+      })
       .subscribe();
     return () => {
       clearInterval(interval);
@@ -153,7 +252,7 @@ export default function RoundPanel({
       setError(await apiError(res));
       return false;
     }
-    await load();
+    await load({ force: true });
     onChanged();
     return true;
   };
@@ -176,26 +275,60 @@ export default function RoundPanel({
         `Test scores auto-filled for ${body.autoFill.judgeCount} judge${body.autoFill.judgeCount === 1 ? "" : "s"}.`
       );
     }
-    await load();
+    await load({ force: true });
     onChanged();
     return true;
   };
 
-  const setCheckin = (roundEntryId: string, checkin_status: string) =>
-    act(() =>
-      authedFetch(`/api/admin/comps/rounds/${roundId}/checkin`, {
-        method: "POST",
-        body: JSON.stringify({ round_entry_id: roundEntryId, checkin_status }),
-      })
-    );
+  const setCheckin = (
+    roundEntryId: string,
+    checkin_status: CheckinStatus
+  ) => {
+    checkinSync.enqueue({
+      roundId,
+      roundEntryId,
+      checkin_status,
+      onOptimistic: () => {
+        checkinSync.bumpGeneration(roundId);
+        setDetail((prev) =>
+          prev
+            ? {
+                ...prev,
+                entries: patchEntryCheckinStatus(
+                  prev.entries,
+                  roundEntryId,
+                  checkin_status
+                ),
+              }
+            : prev
+        );
+        setError(null);
+      },
+      onError: setError,
+      reloadRound: guardedLoad,
+      onSyncComplete: onChanged,
+    });
+  };
 
-  const promoteAlternate = () =>
-    act(() =>
-      authedFetch(`/api/admin/comps/rounds/${roundId}/checkin`, {
-        method: "POST",
-        body: JSON.stringify({ action: "promote_alternate" }),
-      })
-    );
+  const promoteAlternate = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await authedFetch(`/api/admin/comps/rounds/${roundId}/checkin`, {
+      method: "POST",
+      body: JSON.stringify({ action: "promote_alternate" }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    checkinSync.scheduleSyncAfterChange(roundId, {
+      onOptimistic: () => {},
+      onError: setError,
+      reloadRound: guardedLoad,
+      onSyncComplete: onChanged,
+    });
+  };
 
   const submitRotation = async () => {
     setBusy(true);
@@ -211,7 +344,66 @@ export default function RoundPanel({
     }
     const data = await res.json();
     setPairPreview(data.preview ?? []);
-    await load();
+    setPairingMode("rotation");
+    await load({ force: true });
+    onChanged();
+  };
+
+  const switchPairingMode = async (mode: "rotation" | "manual") => {
+    setBusy(true);
+    setError(null);
+    const res = await authedFetch(`/api/admin/comps/rounds/${roundId}/pairings`, {
+      method: "POST",
+      body: JSON.stringify({ action: "set_mode", pairing_mode: mode }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    const data = await res.json();
+    setPairingMode(data.pairing_mode ?? mode);
+    setPairPreview(data.preview ?? []);
+    if (mode === "manual") {
+      setRotationInput("");
+    } else {
+      setManualFollowByLead({});
+    }
+    await load({ force: true });
+    onChanged();
+  };
+
+  const saveManualPairings = async () => {
+    const leads = pairingLeads;
+    if (leads.length === 0) {
+      setError("No checked-in leads to pair");
+      return;
+    }
+    const pairs = leads
+      .filter((l) => manualFollowByLead[l.roundEntryId])
+      .map((l) => ({
+        lead_round_entry_id: l.roundEntryId,
+        follow_round_entry_id: manualFollowByLead[l.roundEntryId],
+      }));
+    if (pairs.length !== leads.length) {
+      setError("Select a follow for every lead before saving");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const res = await authedFetch(`/api/admin/comps/rounds/${roundId}/pairings`, {
+      method: "POST",
+      body: JSON.stringify({ action: "save_manual", pairs }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    const data = await res.json();
+    setPairPreview(data.preview ?? []);
+    setPairingMode("manual");
+    await load({ force: true });
     onChanged();
   };
 
@@ -240,11 +432,13 @@ export default function RoundPanel({
       })
     );
 
-  const randomizeHeats = () =>
+  const setupHeats = () =>
     act(() =>
       authedFetch(`/api/admin/comps/rounds/${roundId}/heats`, {
         method: "POST",
-        body: JSON.stringify({ heat_count: heatCount }),
+        body: JSON.stringify({
+          heat_count: heatOverrideEnabled ? heatOverrideCount : null,
+        }),
       })
     );
 
@@ -303,7 +497,7 @@ export default function RoundPanel({
     }
     setTies(null);
     setPreviewTabulation(null);
-    await load();
+    await load({ force: true });
     onChanged();
   };
 
@@ -346,6 +540,22 @@ export default function RoundPanel({
       })
     );
 
+  const clearScores = (judgeAssignmentId: string, judgeName: string) => {
+    if (
+      !confirm(
+        `Are you sure you want to clear ${judgeName}'s scores for this round? This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    return act(() =>
+      authedFetch(`/api/admin/comps/rounds/${roundId}/sheets`, {
+        method: "DELETE",
+        body: JSON.stringify({ judge_assignment_id: judgeAssignmentId }),
+      })
+    );
+  };
+
   const moveInTie = (groupIndex: number, from: number, to: number) => {
     setTieOrders((prev) => {
       const next = prev.map((g) => [...g]);
@@ -366,7 +576,7 @@ export default function RoundPanel({
     return <p className="py-4 text-sm text-neutral-400">{error ?? "Loading round…"}</p>;
   }
 
-  const { round, judges, heats, finalsMeta, competition } = detail;
+  const { round, judges, heats, heatSizes, heatSlotSizes, heatPreview, finalsMeta, competition } = detail;
   const status = round.status;
   const isJnJFinalsPrePairing =
     competition.comp_type === "jack_and_jill" &&
@@ -409,6 +619,27 @@ export default function RoundPanel({
     leadPresent === followPresent;
   const pairingsConfirmed = finalsMeta?.pairings_confirmed_at != null;
   const rotationMax = Math.max(0, leadPresent - 1);
+  const pairingsDraftReady =
+    pairingMode === "manual"
+      ? (finalsMeta?.manual_pairings?.length ?? 0) === leadPresent &&
+        leadPresent > 0
+      : finalsMeta?.rotation_offset != null;
+  const manualLeads =
+    pairingLeads.length > 0
+      ? pairingLeads
+      : leadEntries.map((e) => ({
+          roundEntryId: e.id,
+          bibNumber: e.display.bibNumber,
+          displayName: e.display.displayName,
+        }));
+  const manualFollowOptions =
+    pairingFollows.length > 0
+      ? pairingFollows
+      : followEntries.map((e) => ({
+          roundEntryId: e.id,
+          bibNumber: e.display.bibNumber,
+          displayName: e.display.displayName,
+        }));
   const heatNumber = (heatId: string | null) =>
     heats.find((h) => h.id === heatId)?.heat_number ?? null;
 
@@ -426,7 +657,8 @@ export default function RoundPanel({
           {e.promoted_alternate && (
             <span className="ml-1 text-xs text-amber-400">(alt)</span>
           )}
-          {heatNumber(e.heat_id) != null && (
+          {e.checkin_status === "checked_in" &&
+            heatNumber(e.heat_id) != null && (
             <span className="ml-1 text-xs text-neutral-500">
               H{heatNumber(e.heat_id)}
             </span>
@@ -474,6 +706,11 @@ export default function RoundPanel({
         )
       : null;
 
+  const maxFloorCouples =
+    heatPreview?.maxFloorCouples ?? competition.max_floor_couples ?? null;
+  const maxFloorConfigured = maxFloorCouples != null;
+  const canSetupHeatsAuto = maxFloorConfigured || heatOverrideEnabled;
+
   return (
     <div className="mt-3 rounded-lg border border-neutral-700 bg-neutral-900/60 p-4">
       {testComp && playbook && (
@@ -494,24 +731,81 @@ export default function RoundPanel({
           {error}
         </div>
       )}
+      {status === "checkin" &&
+        (heatPreview?.heatReturnCount ?? round.heat_return_count) > 0 && (
+        <div className="mb-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-200">
+          {heatPreview?.heatReturnCount ?? round.heat_return_count}{" "}
+          {(heatPreview?.heatReturnRole ?? round.heat_return_role) === "follow"
+            ? "follows"
+            : "leads"}{" "}
+          will need to dance in an additional heat.
+        </div>
+      )}
 
       {/* Actions per state */}
       <div className="mb-4 flex flex-wrap items-center gap-2 max-sm:[&_.round-action-primary]:w-full">
-        {status === "pending" && (
-          <>
-            <div className="flex items-center gap-2 text-sm text-neutral-300">
-              <span>Heats:</span>
+        {(status === "pending" || status === "checkin") && (
+          <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-800 pb-3 text-sm text-neutral-300">
+            <span>
+              Max floor:{" "}
+              {maxFloorConfigured ? `${maxFloorCouples} couples` : "Not set"}
+            </span>
+            <span>
+              Auto heats:{" "}
+              {heatPreview?.autoHeatCount ??
+                (maxFloorConfigured ? "—" : "Set max floor first")}
+              {heatPreview != null && (
+                <span className="ml-1 text-xs text-neutral-500">
+                  ({heatPreview.leadCount}L / {heatPreview.followCount}F)
+                </span>
+              )}
+            </span>
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={heatOverrideEnabled}
+                onChange={(e) => setHeatOverrideEnabled(e.target.checked)}
+                className="rounded border-neutral-600"
+              />
+              Override heat count
+            </label>
+            {heatOverrideEnabled && (
               <input
                 type="number"
                 min={1}
-                value={heatCount}
-                onChange={(e) => setHeatCount(Math.max(1, Number(e.target.value)))}
+                value={heatOverrideCount}
+                onChange={(e) =>
+                  setHeatOverrideCount(Math.max(1, Number(e.target.value)))
+                }
                 className="w-16 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-1 text-sm text-white"
               />
-              <button onClick={randomizeHeats} disabled={busy} className={compBtnSecondary}>
-                Randomize heats
-              </button>
-            </div>
+            )}
+            <button
+              onClick={setupHeats}
+              disabled={busy || !canSetupHeatsAuto}
+              title={
+                !canSetupHeatsAuto
+                  ? "Set max couples on floor in competition settings, or enable heat count override"
+                  : undefined
+              }
+              className={compBtnSecondary}
+            >
+              Setup heats
+            </button>
+            {heats.length > 0 && (
+              <span className="text-xs text-neutral-500">
+                {heats.map((h, i) => (
+                  <span key={h.id} className="ml-2">
+                    H{h.heat_number}:{" "}
+                    {heatSlotSizes?.[i] ?? heatSizes?.[i] ?? 0}
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
+        )}
+        {status === "pending" && (
+          <>
             <button
               onClick={() => transition("checkin")}
               disabled={busy}
@@ -541,7 +835,7 @@ export default function RoundPanel({
               className={`round-action-primary ${compBtnOutline}`}
               title={
                 isJnJFinalsPrePairing && !pairingsConfirmed
-                  ? "Confirm rotation pairings before opening scoring"
+                  ? "Confirm pairings before opening scoring"
                   : unresolvedCheckin > 0
                     ? `${unresolvedCheckin} entries still unresolved`
                     : undefined
@@ -760,36 +1054,129 @@ export default function RoundPanel({
               {rotationReady && (
                 <div className="rounded-xl border border-primary/40 bg-neutral-800/60 p-4">
                   <h4 className="mb-2 font-semibold text-white">
-                    Rotation pairing
+                    Finals pairing
                   </h4>
-                  <p className="mb-3 text-sm text-neutral-400">
-                    Enter a rotation from 1 to {rotationMax}. Lead bib order
-                    pairs with follows shifted by that amount.
-                  </p>
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={rotationMax || 1}
-                      value={rotationInput}
-                      onChange={(e) => setRotationInput(e.target.value)}
-                      className="w-20 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-2 text-sm text-white"
-                    />
-                    <button
-                      onClick={generateRandomRotation}
-                      disabled={busy || rotationMax < 1}
-                      className={compBtnSecondary}
-                    >
-                      Generate random
-                    </button>
-                    <button
-                      onClick={submitRotation}
-                      disabled={busy || !rotationInput || rotationMax < 1}
-                      className={compBtnOutline}
-                    >
-                      Submit rotation
-                    </button>
-                    {finalsMeta?.rotation_offset != null && !pairingsConfirmed && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {(["rotation", "manual"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => switchPairingMode(mode)}
+                        disabled={busy || pairingsConfirmed}
+                        className={
+                          "rounded-md px-3 py-1.5 text-sm min-h-11 " +
+                          (pairingMode === mode
+                            ? "bg-primary text-white"
+                            : "border border-neutral-600 text-neutral-300 hover:border-primary/60")
+                        }
+                      >
+                        {mode === "rotation" ? "Rotation" : "Manual pairing"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {pairingMode === "rotation" ? (
+                    <>
+                      <p className="mb-3 text-sm text-neutral-400">
+                        Enter a rotation from 1 to {rotationMax}. Lead bib order
+                        pairs with follows shifted by that amount.
+                      </p>
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={rotationMax || 1}
+                          value={rotationInput}
+                          onChange={(e) => setRotationInput(e.target.value)}
+                          className="w-20 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-2 text-sm text-white"
+                        />
+                        <button
+                          onClick={generateRandomRotation}
+                          disabled={busy || rotationMax < 1}
+                          className={compBtnSecondary}
+                        >
+                          Generate random
+                        </button>
+                        <button
+                          onClick={submitRotation}
+                          disabled={busy || !rotationInput || rotationMax < 1}
+                          className={compBtnOutline}
+                        >
+                          Submit rotation
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mb-3 text-sm text-neutral-400">
+                        Choose the follow paired with each lead by bib number.
+                      </p>
+                      <div className="mb-3 overflow-x-auto">
+                        <table className="w-full min-w-[24rem] text-sm">
+                          <thead>
+                            <tr className="text-left text-neutral-500">
+                              <th className="pb-2 pr-4">Lead</th>
+                              <th className="pb-2">Follow</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {manualLeads.map((lead) => (
+                              <tr
+                                key={lead.roundEntryId}
+                                className="border-t border-neutral-800"
+                              >
+                                <td className="py-2 pr-4">
+                                  <span className="font-mono text-white">
+                                    #{lead.bibNumber ?? "—"}
+                                  </span>
+                                  <span className="ml-2 text-neutral-300">
+                                    {lead.displayName}
+                                  </span>
+                                </td>
+                                <td className="py-2">
+                                  <select
+                                    value={
+                                      manualFollowByLead[lead.roundEntryId] ??
+                                      ""
+                                    }
+                                    onChange={(e) =>
+                                      setManualFollowByLead((prev) => ({
+                                        ...prev,
+                                        [lead.roundEntryId]: e.target.value,
+                                      }))
+                                    }
+                                    disabled={busy || pairingsConfirmed}
+                                    className="w-full max-w-xs rounded-md border border-neutral-600 bg-neutral-900 px-2 py-2 text-sm text-white"
+                                  >
+                                    <option value="">Select follow…</option>
+                                    {manualFollowOptions.map((follow) => (
+                                      <option
+                                        key={follow.roundEntryId}
+                                        value={follow.roundEntryId}
+                                      >
+                                        #{follow.bibNumber ?? "—"}{" "}
+                                        {follow.displayName}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <button
+                        onClick={saveManualPairings}
+                        disabled={busy || pairingsConfirmed}
+                        className={compBtnOutline}
+                      >
+                        Save manual pairings
+                      </button>
+                    </>
+                  )}
+
+                  {pairingsDraftReady && !pairingsConfirmed && (
+                    <div className="mt-3">
                       <button
                         onClick={confirmPairings}
                         disabled={busy}
@@ -797,10 +1184,14 @@ export default function RoundPanel({
                       >
                         Confirm pairings
                       </button>
-                    )}
-                  </div>
+                    </div>
+                  )}
+
                   {pairPreview.length > 0 && (
-                    <div className="overflow-x-auto">
+                    <div className="mt-4 overflow-x-auto">
+                      <p className="mb-2 text-xs uppercase tracking-wide text-neutral-500">
+                        Preview
+                      </p>
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-left text-neutral-500">
@@ -839,8 +1230,8 @@ export default function RoundPanel({
         </div>
       )}
 
-      {/* Judge progress */}
-      {["open", "closed"].includes(status) && (
+      {/* Judge progress (single-round; hidden when slot-wide progress is shown) */}
+      {!hideJudgeProgress && ["open", "closed"].includes(status) && (
         <div className="mb-4">
           <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
             Judge progress
@@ -884,6 +1275,18 @@ export default function RoundPanel({
                     Scoring…
                   </span>
                 )}
+                {!["tabulated", "published"].includes(status) &&
+                  (j.scored > 0 || j.sheetStatus === "submitted") && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        clearScores(j.id, `${j.first_name} ${j.last_name}`)
+                      }
+                      className="text-xs text-neutral-500 hover:text-red-400"
+                    >
+                      Clear scores
+                    </button>
+                  )}
                 {status === "open" && (
                   <Link
                     href={`/judge/${roundId}?as=${j.id}`}

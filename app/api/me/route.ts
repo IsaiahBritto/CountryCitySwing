@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { resolveFinanceAccess } from "@/lib/financeAuth";
+import { loadCompStaffEventsForUser } from "@/lib/compStaffAuth";
 import {
   resolveRegistrationAccess,
   showRegistrationForEvents,
@@ -113,6 +114,11 @@ export async function GET(req: NextRequest) {
       showRegistration = true;
     }
 
+    const compStaffEvents =
+      roleLower === "admin"
+        ? []
+        : await loadCompStaffEventsForUser(profile.id);
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -128,6 +134,7 @@ export async function GET(req: NextRequest) {
       finance_access: financeAccess,
       registration_access: registrationAccess,
       show_registration: showRegistration,
+      comp_staff_events: compStaffEvents,
       ...(events_near_today !== undefined && { events_near_today }),
     });
   } catch (err) {

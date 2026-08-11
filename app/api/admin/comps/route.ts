@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   let query = supabaseServer
     .from("competitions")
     .select(
-      "*, event:events(id, title, starts_at), entries:comp_entries(count), judges:comp_judge_assignments(count), rounds:comp_rounds(count)"
+      "*, event:events(id, title, starts_at, ends_at, time_zone, type), entries:comp_entries(count), judges:comp_judge_assignments(count), rounds:comp_rounds(count)"
     )
     .order("created_at", { ascending: false });
   if (eventId) query = query.eq("event_id", eventId);

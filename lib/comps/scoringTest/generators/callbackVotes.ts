@@ -47,11 +47,13 @@ function fillJudgeQuotas(
   slots: EntrySlot[],
   callbackCount: number,
   alternateCount: number,
-  skipSlots: Set<EntrySlot>
+  skipSlots: Set<EntrySlot>,
+  skipPerJudge?: Set<EntrySlot>[]
 ) {
-  const tail = slots.filter((s) => !skipSlots.has(s));
   for (let j = 0; j < sheets.length; j++) {
     const sheet = sheets[j];
+    const skip = skipPerJudge?.[j] ?? skipSlots;
+    const tail = slots.filter((s) => !skip.has(s));
     let yesCount = slots.filter((s) => sheet[s] === "yes").length;
     let altIdx = 0;
     for (const s of slots) {
@@ -84,19 +86,143 @@ function fillSingleJudgeQuotas(
   fillJudgeQuotas([sheet], slots, callbackCount, alternateCount, skipSlots);
 }
 
+function minEntriesForAdvanceBoundaryTie(
+  callbackCount: number,
+  alternateCount: number
+): number {
+  return alternateCount > 0
+    ? callbackCount + alternateCount + 1
+    : callbackCount + 1;
+}
+
+/** Assign alt1…altN on slots immediately after the advance-boundary tie pair. */
+function assignAdvanceBoundaryAltSlots(
+  sheets: JudgeVoteSheet[],
+  slots: EntrySlot[],
+  callbackCount: number,
+  alternateCount: number,
+  perJudgeSkip: Set<EntrySlot>[]
+) {
+  if (alternateCount === 0) return;
+
+  const pool = slots.slice(callbackCount + 1);
+  if (pool.length < alternateCount) {
+    throw new Error(
+      `advance_boundary_tie needs at least ${callbackCount + alternateCount + 1} entries`
+    );
+  }
+
+  for (let j = 0; j < sheets.length; j++) {
+    for (let a = 0; a < alternateCount; a++) {
+      const slot = pool[(j * alternateCount + a) % pool.length];
+      perJudgeSkip[j].add(slot);
+      sheets[j][slot] = ALT_RANKS[Math.min(a, 2)];
+    }
+  }
+}
+
+function assignAdvanceBoundaryCjAlts(
+  sheet: JudgeVoteSheet,
+  slots: EntrySlot[],
+  callbackCount: number,
+  alternateCount: number,
+  skipSlots: Set<EntrySlot>
+) {
+  if (alternateCount === 0) return;
+
+  const pool = slots.slice(callbackCount + 1);
+  if (pool.length < alternateCount) {
+    throw new Error(
+      `advance_boundary_tie needs at least ${callbackCount + alternateCount + 1} entries`
+    );
+  }
+
+  for (let a = 0; a < alternateCount; a++) {
+    const slot = pool[a];
+    skipSlots.add(slot);
+    sheet[slot] = ALT_RANKS[Math.min(a, 2)];
+  }
+}
+
+/** Mirrors judge submit validation in scores/route.ts. */
+export function assertCallbackSheetQuotas(
+  sheet: JudgeVoteSheet,
+  slots: EntrySlot[],
+  callbackCount: number,
+  alternateCount: number
+) {
+  let yes = 0;
+  const altRanks = new Map<string, number>();
+  for (const slot of slots) {
+    const value = sheet[slot] ?? "no";
+    if (value === "yes") {
+      yes++;
+    } else if (value === "alt1" || value === "alt2" || value === "alt3") {
+      altRanks.set(value, (altRanks.get(value) ?? 0) + 1);
+    } else if (value !== "no") {
+      throw new Error(`Invalid callback value ${value} on slot ${slot}`);
+    }
+  }
+  if (yes !== callbackCount) {
+    throw new Error(
+      `Expected exactly ${callbackCount} Yes votes (got ${yes})`
+    );
+  }
+  const totalAlts = [...altRanks.values()].reduce((a, b) => a + b, 0);
+  if (totalAlts !== alternateCount) {
+    throw new Error(
+      `Expected exactly ${alternateCount} alternate${alternateCount === 1 ? "" : "s"} (got ${totalAlts})`
+    );
+  }
+  for (const [rank, count] of altRanks) {
+    if (count > 1) {
+      throw new Error(
+        `Alternate rank ${rank.replace("alt", "")} is used more than once`
+      );
+    }
+  }
+  for (let i = 1; i <= alternateCount; i++) {
+    if (!altRanks.has(`alt${i}`)) {
+      throw new Error(`Alternate ${i} has not been assigned`);
+    }
+  }
+}
+
+function assertAllSheetsMeetQuotas(
+  panelSheets: JudgeVoteSheet[],
+  cjSheet: JudgeVoteSheet,
+  slots: EntrySlot[],
+  callbackCount: number,
+  alternateCount: number
+) {
+  for (const sheet of panelSheets) {
+    assertCallbackSheetQuotas(sheet, slots, callbackCount, alternateCount);
+  }
+  assertCallbackSheetQuotas(cjSheet, slots, callbackCount, alternateCount);
+}
+
 /** Advance-boundary tie between slots K and K+1 (0-indexed K-1 and K). */
 function applyAdvanceBoundaryTie(
   sheets: JudgeVoteSheet[],
   slots: EntrySlot[],
-  callbackCount: number
+  callbackCount: number,
+  alternateCount: number
 ) {
+  const minEntries = minEntriesForAdvanceBoundaryTie(
+    callbackCount,
+    alternateCount
+  );
   const leader = slots[0];
   const tieA = slots[callbackCount - 1];
   const tieB = slots[callbackCount];
   if (!leader || !tieA || !tieB) {
-    throw new Error(
-      `advance_boundary_tie needs at least ${callbackCount + 1} entries`
-    );
+    throw new Error(`advance_boundary_tie needs at least ${minEntries} entries`);
+  }
+  if (
+    alternateCount > 0 &&
+    slots.slice(callbackCount + 1).length < alternateCount
+  ) {
+    throw new Error(`advance_boundary_tie needs at least ${minEntries} entries`);
   }
 
   for (let j = 0; j < sheets.length; j++) {
@@ -116,12 +242,22 @@ function applyAdvanceBoundaryTie(
     sheets[j][tieB] = b;
   }
 
+  const baseSkip = new Set<EntrySlot>([leader, tieA, tieB]);
+  const perJudgeSkip = sheets.map(() => new Set(baseSkip));
+  assignAdvanceBoundaryAltSlots(
+    sheets,
+    slots,
+    callbackCount,
+    alternateCount,
+    perJudgeSkip
+  );
   fillJudgeQuotas(
     sheets,
     slots,
     callbackCount,
-    0,
-    new Set([leader, tieA, tieB])
+    alternateCount,
+    baseSkip,
+    perJudgeSkip
   );
 }
 
@@ -161,17 +297,18 @@ function applyAlternateBoundaryTie(
     skipSlots.add(slot);
   }
 
-  const altPatterns: [CallbackValue, CallbackValue][] = [
-    ["alt1", "alt2"],
-    ["alt2", "alt1"],
-    ["alt1", "alt2"],
-    ["alt2", "alt1"],
-    ["alt1", "alt1"],
-  ];
+  const lastRank = ALT_RANKS[Math.min(alternateCount - 1, 2)];
+  const balanceLimit =
+    sheets.length % 2 === 0 ? sheets.length : sheets.length - 1;
   for (let j = 0; j < sheets.length; j++) {
-    const [a, b] = altPatterns[j % altPatterns.length];
-    sheets[j][tieA] = a;
-    sheets[j][tieB] = b;
+    if (j < balanceLimit) {
+      const onA = j % 2 === 0;
+      sheets[j][tieA] = onA ? lastRank : "no";
+      sheets[j][tieB] = onA ? "no" : lastRank;
+    } else {
+      sheets[j][tieA] = "no";
+      sheets[j][tieB] = "no";
+    }
   }
   skipSlots.add(tieA);
   skipSlots.add(tieB);
@@ -237,7 +374,14 @@ function buildCjSheetForBoundaryTie(
       sheet[tieB] = "no";
       skip.add(tieB);
     }
-    fillSingleJudgeQuotas(sheet, slots, callbackCount, 0, skip);
+    assignAdvanceBoundaryCjAlts(
+      sheet,
+      slots,
+      callbackCount,
+      alternateCount,
+      skip
+    );
+    fillSingleJudgeQuotas(sheet, slots, callbackCount, alternateCount, skip);
   } else {
     for (let k = 0; k < callbackCount && k < slots.length; k++) {
       sheet[slots[k]] = "yes";
@@ -253,11 +397,11 @@ function buildCjSheetForBoundaryTie(
     const tieA = slots[callbackCount + alternateCount - 1];
     const tieB = slots[callbackCount + alternateCount];
     if (tieA) {
-      sheet[tieA] = "alt1";
+      sheet[tieA] = "no";
       skip.add(tieA);
     }
     if (tieB) {
-      sheet[tieB] = "alt1";
+      sheet[tieB] = "no";
       skip.add(tieB);
     }
     fillSingleJudgeQuotas(sheet, slots, callbackCount, alternateCount, skip);
@@ -279,7 +423,8 @@ function buildCjSheetClean(
 /** CJ sheet that breaks an advance-boundary panel tie (for auto-tabulate tests). */
 export function buildCjSheetAdvanceBreak(
   slots: EntrySlot[],
-  callbackCount: number
+  callbackCount: number,
+  alternateCount: number
 ): JudgeVoteSheet {
   const sheet = emptySheet(slots);
   const leader = slots[0];
@@ -298,7 +443,14 @@ export function buildCjSheetAdvanceBreak(
     sheet[tieB] = "no";
     skip.add(tieB);
   }
-  fillSingleJudgeQuotas(sheet, slots, callbackCount, 0, skip);
+  assignAdvanceBoundaryCjAlts(
+    sheet,
+    slots,
+    callbackCount,
+    alternateCount,
+    skip
+  );
+  fillSingleJudgeQuotas(sheet, slots, callbackCount, alternateCount, skip);
   return sheet;
 }
 
@@ -317,10 +469,16 @@ export function generateCallbackVotes(
   const slots = slotsForCount(entryCount, providedSlots);
   const panelSheets = emptySheets(judgeCount, slots);
 
+  let result: CallbackGeneratorResult;
   switch (edgeCase) {
     case "advance_boundary_tie":
-      applyAdvanceBoundaryTie(panelSheets, slots, callbackCount);
-      return {
+      applyAdvanceBoundaryTie(
+        panelSheets,
+        slots,
+        callbackCount,
+        alternateCount
+      );
+      result = {
         panelSheets,
         cjSheet: buildCjSheetForBoundaryTie(
           slots,
@@ -329,6 +487,7 @@ export function generateCallbackVotes(
           "advance_boundary_tie"
         ),
       };
+      break;
     case "alternate_boundary_tie":
       applyAlternateBoundaryTie(
         panelSheets,
@@ -336,7 +495,7 @@ export function generateCallbackVotes(
         callbackCount,
         alternateCount
       );
-      return {
+      result = {
         panelSheets,
         cjSheet: buildCjSheetForBoundaryTie(
           slots,
@@ -345,16 +504,27 @@ export function generateCallbackVotes(
           "alternate_boundary_tie"
         ),
       };
+      break;
     case "clean_callback":
     case "jnj_scope_smoke":
       applyCleanCallback(panelSheets, slots, callbackCount, alternateCount);
-      return {
+      result = {
         panelSheets,
         cjSheet: buildCjSheetClean(slots, callbackCount, alternateCount),
       };
+      break;
     default:
       throw new Error(`Not a callback edge case: ${edgeCase}`);
   }
+
+  assertAllSheetsMeetQuotas(
+    result.panelSheets,
+    result.cjSheet,
+    slots,
+    callbackCount,
+    alternateCount
+  );
+  return result;
 }
 
 /** Validate generator output against scoreCallbacks. */

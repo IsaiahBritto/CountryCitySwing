@@ -294,6 +294,7 @@ export async function tabulateRound(
     judgeLabels,
     scoresByJudge,
     manualTieResolutions,
+    manualTieUsedCjScores,
   });
 }
 

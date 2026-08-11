@@ -5,7 +5,6 @@ import type {
   ScoringScope,
 } from "@/lib/comps/types";
 import type { JudgeWithProfile } from "@/lib/comps/roundData";
-import { panelJudgesForRound } from "@/lib/comps/judgeScope";
 
 const OPEN_OR_LATER = new Set([
   "open",

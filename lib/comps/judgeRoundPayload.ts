@@ -58,7 +58,7 @@ export class JudgeRoundAccessError extends Error {
 /** Scoring context for one judged role (lead or follow round). */
 export async function buildJudgeRoundViewPayload(
   roundId: string,
-  assignment: Pick<JudgeWithProfile, "id" | "scoring_scope" | "drops_finals">
+  assignment: Pick<JudgeWithProfile, "id" | "judge_role" | "scoring_scope" | "drops_finals">
 ): Promise<JudgeRoundViewPayload> {
   let ctx;
   try {

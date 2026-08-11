@@ -6,7 +6,7 @@ import {
 } from "@/lib/scoring/relativePlacement";
 import { scoreCallbacks, type CallbackValue } from "@/lib/scoring/callbacks";
 import { sortByBib } from "@/lib/comps/entrySort";
-import { panelJudgesForRound } from "@/lib/comps/judgeScope";
+import { panelJudgesForRound, headJudgeForCallbackRound, judgeScoresRound } from "@/lib/comps/judgeScope";
 import type {
   CompetitionRow,
   CompEntryRow,
@@ -17,6 +17,9 @@ import type {
   CompScoreRow,
   EntryDisplay,
   RoundTabulation,
+  TieBreakJudgeLabel,
+  FallbackChiefJudgeLabel,
+  ChiefJudgeVotesForReview,
 } from "@/lib/comps/types";
 
 export interface JudgeWithProfile extends CompJudgeAssignmentRow {
@@ -194,6 +197,7 @@ export interface TabulateOutcome {
 
 export interface TabulateOptions {
   manualTieResolutions?: string[][];
+  manualTieUsedCjScores?: boolean[];
   callbackCount?: number;
   alternateCount?: number;
 }
@@ -208,6 +212,7 @@ export async function tabulateRound(
   options: TabulateOptions = {}
 ): Promise<TabulateOutcome> {
   const manualTieResolutions = options.manualTieResolutions ?? [];
+  const manualTieUsedCjScores = options.manualTieUsedCjScores ?? [];
   const ctx = await loadRoundContext(roundId);
   const { round, competition } = ctx;
 
@@ -236,6 +241,15 @@ export async function tabulateRound(
   const missing = panel.filter(
     (j) => sheetsByJudge.get(j.id)?.status !== "submitted"
   );
+  const cjForSheets = chiefJudge(ctx);
+  if (
+    cjForSheets &&
+    !panel.some((j) => j.id === cjForSheets.id) &&
+    judgeScoresRound(cjForSheets, round) &&
+    sheetsByJudge.get(cjForSheets.id)?.status !== "submitted"
+  ) {
+    missing.push(cjForSheets);
+  }
   if (missing.length > 0) {
     throw new RoundDataError(
       `Waiting on submitted sheets from: ${missing
@@ -268,6 +282,7 @@ export async function tabulateRound(
       judgeLabels,
       scoresByJudge,
       manualTieResolutions,
+      manualTieUsedCjScores,
       callbackCount: options.callbackCount,
       alternateCount: options.alternateCount,
     });
@@ -289,8 +304,27 @@ interface TabulateContext {
   judgeLabels: { assignmentId: string; label: string; name: string }[];
   scoresByJudge: Map<string, Map<string, CompScoreRow>>;
   manualTieResolutions: string[][];
+  manualTieUsedCjScores: boolean[];
   callbackCount?: number;
   alternateCount?: number;
+}
+
+function loadCallbackVoteSheet(
+  scoresByJudge: Map<string, Map<string, CompScoreRow>>,
+  judgeId: string,
+  active: RoundEntryWithEntry[]
+): Record<string, CallbackValue | undefined> {
+  const judgeScores = scoresByJudge.get(judgeId);
+  const sheet: Record<string, CallbackValue | undefined> = {};
+  for (const re of active) {
+    const value = judgeScores?.get(re.id)?.callback_value;
+    if (value != null) {
+      sheet[re.id] = value as CallbackValue;
+    } else {
+      sheet[re.id] = "no";
+    }
+  }
+  return sheet;
 }
 
 function buildCallbackTabulation(
@@ -299,13 +333,30 @@ function buildCallbackTabulation(
   votes: Record<string, Record<string, CallbackValue | undefined>>,
   callbackCount: number,
   alternateCount: number,
-  cjLabel: { assignmentId: string; label: string; name: string } | null,
-  chiefJudgeVotes: Record<string, CallbackValue | undefined> | null
+  tieBreakJudge: TieBreakJudgeLabel | null,
+  fallbackChiefJudge: FallbackChiefJudgeLabel | null,
+  headJudgeVotes: Record<string, CallbackValue | undefined> | null,
+  chiefJudgeVotes: Record<string, CallbackValue | undefined> | null,
+  chiefJudgeVotesForReview: ChiefJudgeVotesForReview | null,
+  includeCjReview: boolean
 ): RoundTabulation {
+  const legacyChiefJudge = tieBreakJudge
+    ? {
+        assignmentId: tieBreakJudge.assignmentId,
+        label: tieBreakJudge.label,
+        name: tieBreakJudge.name,
+      }
+    : null;
+
   return {
     mode: "callback",
     judges: t.judgeLabels,
-    chiefJudge: cjLabel,
+    chiefJudge: legacyChiefJudge,
+    tieBreakJudge,
+    fallbackChiefJudge,
+    ...(includeCjReview && chiefJudgeVotesForReview
+      ? { chiefJudgeVotesForReview }
+      : {}),
     callbackCount,
     alternateCount,
     entries: t.active.map((re) => t.displays.get(re.id)!),
@@ -316,11 +367,16 @@ function buildCallbackTabulation(
       advanced: r.advanced,
       alternateRank: r.alternateRank,
       resolvedByDecision: r.resolvedByDecision,
+      resolvedByDecisionWithCjScores: r.resolvedByDecisionWithCjScores,
+      resolvedByHeadJudge: r.resolvedByHeadJudge,
       resolvedByChiefJudge: r.resolvedByChiefJudge,
       tieBreakNote: r.tieBreakNote,
       votes: t.panel.map(
         (j) => (votes[j.id]?.[r.entryId] ?? "no") as CallbackValue
       ),
+      headJudgeVote: headJudgeVotes
+        ? ((headJudgeVotes[r.entryId] ?? "no") as CallbackValue | "no")
+        : null,
       chiefJudgeVote: chiefJudgeVotes
         ? ((chiefJudgeVotes[r.entryId] ?? "no") as CallbackValue | "no")
         : null,
@@ -332,7 +388,7 @@ async function tabulateCallbackRound(
   ctx: RoundContext,
   t: TabulateContext
 ): Promise<TabulateOutcome> {
-  const { round } = ctx;
+  const { round, competition } = ctx;
   const callbackCount = t.callbackCount ?? round.callback_count ?? 0;
   const alternateCount = t.alternateCount ?? round.alternate_count ?? 0;
   if (callbackCount <= 0) {
@@ -341,32 +397,64 @@ async function tabulateCallbackRound(
 
   const votes: Record<string, Record<string, CallbackValue | undefined>> = {};
   for (const judge of t.panel) {
-    const judgeScores = t.scoresByJudge.get(judge.id);
-    const sheet: Record<string, CallbackValue | undefined> = {};
-    for (const re of t.active) {
-      sheet[re.id] = (judgeScores?.get(re.id)?.callback_value ?? "no") as CallbackValue;
-    }
-    votes[judge.id] = sheet;
+    votes[judge.id] = loadCallbackVoteSheet(t.scoresByJudge, judge.id, t.active);
   }
 
   const cj = chiefJudge(ctx);
+  const hj = headJudgeForCallbackRound(
+    competition,
+    round,
+    ctx.judges,
+    competition.cj_in_panel
+  );
+
+  let headJudgeVotes: Record<string, CallbackValue | undefined> | null = null;
   let chiefJudgeVotes: Record<string, CallbackValue | undefined> | null = null;
-  let cjLabel: { assignmentId: string; label: string; name: string } | null =
-    null;
+  let tieBreakJudge: TieBreakJudgeLabel | null = null;
+  let fallbackChiefJudge: FallbackChiefJudgeLabel | null = null;
+  let chiefJudgeVotesForReview: ChiefJudgeVotesForReview | null = null;
+
   if (cj) {
-    const cjScores = t.scoresByJudge.get(cj.id);
-    const sheet: Record<string, CallbackValue | undefined> = {};
-    for (const re of t.active) {
-      const value = cjScores?.get(re.id)?.callback_value;
-      if (value != null) {
-        sheet[re.id] = value as CallbackValue;
-      }
-    }
-    chiefJudgeVotes = sheet;
-    cjLabel = {
+    chiefJudgeVotes = loadCallbackVoteSheet(t.scoresByJudge, cj.id, t.active);
+    chiefJudgeVotesForReview = {
       assignmentId: cj.id,
       label: "CJ",
       name: personName(cj.first_name, cj.last_name),
+      votes: Object.fromEntries(
+        t.active.map((re) => [
+          re.id,
+          (chiefJudgeVotes![re.id] ?? "no") as CallbackValue | "no",
+        ])
+      ),
+    };
+  }
+
+  if (hj) {
+    headJudgeVotes = loadCallbackVoteSheet(t.scoresByJudge, hj.id, t.active);
+    const panelLabel =
+      t.judgeLabels.find((l) => l.assignmentId === hj.id)?.label ?? "J?";
+    const hjName = personName(hj.first_name, hj.last_name);
+    tieBreakJudge = {
+      assignmentId: hj.id,
+      label: panelLabel,
+      name: hjName,
+      kind: "head_judge",
+      displayLabel: `HJ: ${panelLabel} ${hjName}`,
+    };
+    if (cj) {
+      fallbackChiefJudge = {
+        assignmentId: cj.id,
+        label: "CJ",
+        name: personName(cj.first_name, cj.last_name),
+      };
+    }
+  } else if (cj) {
+    tieBreakJudge = {
+      assignmentId: cj.id,
+      label: "CJ",
+      name: personName(cj.first_name, cj.last_name),
+      kind: "chief_judge",
+      displayLabel: "CJ",
     };
   }
 
@@ -376,8 +464,10 @@ async function tabulateCallbackRound(
     votes,
     callbackCount,
     alternateCount,
+    headJudgeVotes: headJudgeVotes ?? undefined,
     chiefJudgeVotes: chiefJudgeVotes ?? undefined,
     manualTieResolutions: t.manualTieResolutions,
+    manualTieUsedCjScores: t.manualTieUsedCjScores,
   });
 
   const tabulation = buildCallbackTabulation(
@@ -386,8 +476,12 @@ async function tabulateCallbackRound(
     votes,
     callbackCount,
     alternateCount,
-    cjLabel,
-    chiefJudgeVotes
+    tieBreakJudge,
+    fallbackChiefJudge,
+    headJudgeVotes,
+    chiefJudgeVotes,
+    chiefJudgeVotesForReview,
+    true
   );
 
   if (result.unresolvedTies.length > 0) {
@@ -404,6 +498,20 @@ async function tabulateCallbackRound(
     };
   }
 
+  const persistedTabulation = buildCallbackTabulation(
+    t,
+    result,
+    votes,
+    callbackCount,
+    alternateCount,
+    tieBreakJudge,
+    fallbackChiefJudge,
+    headJudgeVotes,
+    chiefJudgeVotes,
+    chiefJudgeVotesForReview,
+    false
+  );
+
   const resultRows = result.ranked.map((r) => ({
     round_id: round.id,
     round_entry_id: r.entryId,
@@ -414,15 +522,17 @@ async function tabulateCallbackRound(
     cj_decision:
       r.tieBreakNote ??
       (r.resolvedByDecision
-        ? "Boundary tie resolved by coordinator/chief judge decision"
+        ? r.resolvedByDecisionWithCjScores
+          ? "Manual decision factoring in CJ scores"
+          : "Boundary tie resolved by coordinator/chief judge decision"
         : null),
   }));
 
-  await persistTabulation(round.id, resultRows, tabulation, {
+  await persistTabulation(round.id, resultRows, persistedTabulation, {
     callback_count: callbackCount,
     alternate_count: alternateCount,
   });
-  return { ok: true, tabulation };
+  return { ok: true, tabulation: persistedTabulation };
 }
 
 async function tabulateRelativePlacementRound(

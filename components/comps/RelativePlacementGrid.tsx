@@ -77,7 +77,7 @@ export default function RelativePlacementGrid({
       ? (a.placement ?? 999) - (b.placement ?? 999)
       : bibKey(a.roundEntryId) - bibKey(b.roundEntryId)
   );
-  const { panelJudges, showPanelJudgeColumns, showCjColumn, cjInPanel } =
+  const { panelJudges, showPanelJudgeColumns, showTieBreakColumn, tieBreakInPanel } =
     panelScoresLayout(tabulation.judges, tabulation.chiefJudge, showJudgeDetail);
   const panelJudgeIndices = panelJudges.map((j) =>
     tabulation.judges.findIndex((p) => p.assignmentId === j.assignmentId)
@@ -99,7 +99,7 @@ export default function RelativePlacementGrid({
                   name={j.name}
                 />
               ))}
-            {showCjColumn && (
+            {showTieBreakColumn && (
               <JudgeColumnHeader
                 label="CJ"
                 name={tabulation.chiefJudge!.name}
@@ -141,7 +141,7 @@ export default function RelativePlacementGrid({
                       {row.ordinals[idx]}
                     </td>
                   ))}
-                {showCjColumn && (
+                {showTieBreakColumn && (
                   <td className={cjColumnCellClass}>
                     {row.chiefJudgeOrdinal ?? "—"}
                   </td>
@@ -187,7 +187,7 @@ export default function RelativePlacementGrid({
           })}
         </tbody>
       </table>
-      {(showJudgeDetail || showCjColumn || showPanelJudgeColumns) && (
+      {(showJudgeDetail || showTieBreakColumn || showPanelJudgeColumns) && (
         <JudgeSheetLegend
           judges={showJudgeDetail ? tabulation.judges : panelJudges}
           chiefJudge={tabulation.chiefJudge}
@@ -201,13 +201,13 @@ export default function RelativePlacementGrid({
             {tabulation.judges.length === 1 ? "" : "s"}; majority{" "}
             {tabulation.majority}. Highlighted cell marks where each couple
             earned its placement.
-            {showCjColumn &&
-              (cjInPanel
+            {showTieBreakColumn &&
+              (tieBreakInPanel
                 ? " CJ column also shows the chief judge's scores."
                 : " CJ column is tie-break only.")}
           </>
-        ) : showCjColumn || showPanelJudgeColumns ? (
-          cjInPanel
+        ) : showTieBreakColumn || showPanelJudgeColumns ? (
+          tieBreakInPanel
             ? "Chief judge placements are shown in their panel column and the CJ column. Full panel scores will be posted once the competition is marked complete."
             : "Chief judge placements are shown. Full panel scores will be posted once the competition is marked complete."
         ) : (

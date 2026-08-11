@@ -5,7 +5,10 @@
  * alternates. Votes are weighted (Yes = 10, Alt1 = 4.5, Alt2 = 4.3,
  * Alt3 = 4.2), summed, and ranked. Ties at the advance or alternate
  * boundary resolve in order: (1) manual coordinator/CJ decision,
- * (2) chief judge callback vote weights, (3) unresolved for manual UI.
+ * (2) head judge callback vote weights (when configured),
+ * (3) chief judge callback vote weights (fallback when HJ configured, or
+ *     primary when no HJ),
+ * (4) unresolved for manual UI.
  *
  * Pure functions, no I/O.
  */
@@ -23,7 +26,10 @@ export const CALLBACK_WEIGHTS: Record<CallbackValue, number> = {
   no: 0,
 };
 
+export const HJ_TIE_BREAK_NOTE = "Tie broken by head judge's vote";
 export const CJ_TIE_BREAK_NOTE = "Tie broken by chief judge's vote";
+export const CJ_FALLBACK_TIE_BREAK_NOTE =
+  "Tie broken by chief judge's vote (fallback)";
 
 export interface CallbackInput {
   judgeIds: JudgeId[];
@@ -34,9 +40,11 @@ export interface CallbackInput {
   callbackCount: number;
   /** How many non-advancing entries are designated ranked alternates. */
   alternateCount: number;
+  /** Head judge callback votes (primary tie-break when configured). */
+  headJudgeVotes?: Record<EntryId, CallbackValue | undefined>;
   /**
-   * Chief judge callback votes (tie-break only; excluded from panel point math
-   * when cj_in_panel is false, but always used to break boundary ties).
+   * Chief judge callback votes (fallback after HJ, or primary when no HJ).
+   * Excluded from panel point math when cj_in_panel is false.
    */
   chiefJudgeVotes?: Record<EntryId, CallbackValue | undefined>;
   /**
@@ -44,6 +52,8 @@ export interface CallbackInput {
    * for groups of entries whose points tied across a boundary.
    */
   manualTieResolutions?: EntryId[][];
+  /** Parallel to manualTieResolutions — admin attested CJ scores were used. */
+  manualTieUsedCjScores?: boolean[];
 }
 
 export interface CallbackRanked {
@@ -54,6 +64,8 @@ export interface CallbackRanked {
   /** 1-based alternate order for the first `alternateCount` non-advancers. */
   alternateRank: number | null;
   resolvedByDecision: boolean;
+  resolvedByDecisionWithCjScores: boolean;
+  resolvedByHeadJudge: boolean;
   resolvedByChiefJudge: boolean;
   tieBreakNote: string | null;
 }
@@ -70,11 +82,11 @@ export interface CallbackResult {
   unresolvedTies: CallbackUnresolvedTie[];
 }
 
-function cjWeight(
-  cjVotes: Record<EntryId, CallbackValue | undefined>,
+function tieBreakWeight(
+  tieBreakVotes: Record<EntryId, CallbackValue | undefined>,
   entryId: EntryId
 ): number {
-  const vote = cjVotes[entryId];
+  const vote = tieBreakVotes[entryId];
   if (vote == null) return NaN;
   return CALLBACK_WEIGHTS[vote];
 }
@@ -113,32 +125,31 @@ function needsBoundaryResolution(
   return crossesAdvance || crossesAlternate || withinAlternateZone;
 }
 
-export interface CjGroupResolution {
+export interface TieBreakGroupResolution {
   ordered: EntryId[];
-  /** Subgroups still tied after CJ ordering (need manual resolution). */
+  /** Subgroups still tied after tie-break ordering (need manual resolution). */
   unresolvedSubgroups: EntryId[][];
 }
 
 /**
- * Order a tied group by chief judge vote weight. Returns null when CJ votes
- * are incomplete, or when the entire group shares one CJ weight and still
- * spans a boundary. Partial resolution returns the CJ sort plus any equal-CJ
- * subgroups that still need manual ordering.
+ * Order a tied group by tie-break vote weight. Returns null when votes
+ * are incomplete, or when the entire group shares one weight and still
+ * spans a boundary.
  */
-export function orderGroupByChiefJudgeVotes(
+export function orderGroupByTieBreakVotes(
   group: EntryId[],
   startRank: number,
   callbackCount: number,
   alternateCount: number,
-  cjVotes: Record<EntryId, CallbackValue | undefined>
-): CjGroupResolution | null {
-  if (!group.every((e) => cjVotes[e] != null)) {
+  tieBreakVotes: Record<EntryId, CallbackValue | undefined>
+): TieBreakGroupResolution | null {
+  if (!group.every((e) => tieBreakVotes[e] != null)) {
     return null;
   }
 
   const sorted = [...group].sort((a, b) => {
-    const wa = cjWeight(cjVotes, a);
-    const wb = cjWeight(cjVotes, b);
+    const wa = tieBreakWeight(tieBreakVotes, a);
+    const wb = tieBreakWeight(tieBreakVotes, b);
     if (wb !== wa) return wb - wa;
     return a.localeCompare(b);
   });
@@ -146,9 +157,9 @@ export function orderGroupByChiefJudgeVotes(
   const unresolvedSubgroups: EntryId[][] = [];
   let i = 0;
   while (i < sorted.length) {
-    const weight = cjWeight(cjVotes, sorted[i]);
+    const weight = tieBreakWeight(tieBreakVotes, sorted[i]);
     let j = i + 1;
-    while (j < sorted.length && cjWeight(cjVotes, sorted[j]) === weight) {
+    while (j < sorted.length && tieBreakWeight(tieBreakVotes, sorted[j]) === weight) {
       j++;
     }
     const run = sorted.slice(i, j);
@@ -178,10 +189,235 @@ export function orderGroupByChiefJudgeVotes(
   return { ordered: sorted, unresolvedSubgroups };
 }
 
+/** @deprecated Use orderGroupByTieBreakVotes */
+export function orderGroupByChiefJudgeVotes(
+  group: EntryId[],
+  startRank: number,
+  callbackCount: number,
+  alternateCount: number,
+  cjVotes: Record<EntryId, CallbackValue | undefined>
+): TieBreakGroupResolution | null {
+  return orderGroupByTieBreakVotes(
+    group,
+    startRank,
+    callbackCount,
+    alternateCount,
+    cjVotes
+  );
+}
+
+interface GroupResolutionResult {
+  orderedGroup: EntryId[];
+  resolvedByDecision: boolean;
+  resolvedByDecisionWithCjScores: boolean;
+  hjResolvedEntries: Set<EntryId>;
+  cjResolvedEntries: Set<EntryId>;
+  newUnresolved: CallbackUnresolvedTie[];
+}
+
+function resolveBoundaryGroup(
+  group: EntryId[],
+  start: number,
+  p: number,
+  callbackCount: number,
+  alternateCount: number,
+  crossesAdvance: boolean,
+  crossesAlternate: boolean,
+  withinAlternateZone: boolean,
+  findManualResolution: (group: EntryId[]) => {
+    ordered: EntryId[];
+    usedCjScores: boolean;
+  } | null,
+  headJudgeVotes: Record<EntryId, CallbackValue | undefined> | undefined,
+  chiefJudgeVotes: Record<EntryId, CallbackValue | undefined> | undefined,
+  hasHeadJudge: boolean
+): GroupResolutionResult {
+  const empty: GroupResolutionResult = {
+    orderedGroup: group,
+    resolvedByDecision: false,
+    resolvedByDecisionWithCjScores: false,
+    hjResolvedEntries: new Set(),
+    cjResolvedEntries: new Set(),
+    newUnresolved: [],
+  };
+
+  if (
+    group.length <= 1 ||
+    !(crossesAdvance || crossesAlternate || withinAlternateZone)
+  ) {
+    return empty;
+  }
+
+  const manual = findManualResolution(group);
+  if (manual) {
+    return {
+      ...empty,
+      orderedGroup: manual.ordered,
+      resolvedByDecision: true,
+      resolvedByDecisionWithCjScores: manual.usedCjScores,
+    };
+  }
+
+  const applyTieBreak = (
+    votes: Record<EntryId, CallbackValue | undefined> | undefined,
+    targetSet: Set<EntryId>,
+    currentGroup: EntryId[]
+  ): {
+    ordered: EntryId[];
+    unresolvedSubgroups: EntryId[][];
+  } | null => {
+    if (!votes) return null;
+    const result = orderGroupByTieBreakVotes(
+      currentGroup,
+      start,
+      callbackCount,
+      alternateCount,
+      votes
+    );
+    if (!result) return null;
+
+    const stillTied = new Set(result.unresolvedSubgroups.flat());
+    for (const entryId of currentGroup) {
+      if (!stillTied.has(entryId)) {
+        targetSet.add(entryId);
+      }
+    }
+    return result;
+  };
+
+  const hjResolvedEntries = new Set<EntryId>();
+  const cjResolvedEntries = new Set<EntryId>();
+  const newUnresolved: CallbackUnresolvedTie[] = [];
+
+  if (hasHeadJudge && headJudgeVotes) {
+    const hjResult = applyTieBreak(headJudgeVotes, hjResolvedEntries, group);
+    if (hjResult) {
+      for (const subgroup of hjResult.unresolvedSubgroups) {
+        if (chiefJudgeVotes) {
+          const subStart = start + hjResult.ordered.indexOf(subgroup[0]);
+          const cjResult = orderGroupByTieBreakVotes(
+            subgroup,
+            subStart,
+            callbackCount,
+            alternateCount,
+            chiefJudgeVotes
+          );
+          if (cjResult) {
+            const stillTied = new Set(cjResult.unresolvedSubgroups.flat());
+            for (const entryId of subgroup) {
+              if (!stillTied.has(entryId)) {
+                cjResolvedEntries.add(entryId);
+              }
+            }
+            for (const sub of cjResult.unresolvedSubgroups) {
+              const subSubStart = subStart + cjResult.ordered.indexOf(sub[0]);
+              const subSubStop = subSubStart + sub.length;
+              const { crossesAdvance: ca } = groupCrossesBoundary(
+                subSubStart,
+                subSubStop,
+                callbackCount,
+                alternateCount
+              );
+              newUnresolved.push({
+                entryIds: [...sub],
+                points: p,
+                boundary: ca ? "advance" : "alternate",
+              });
+            }
+          } else {
+            const subStart = start + hjResult.ordered.indexOf(subgroup[0]);
+            const subStop = subStart + subgroup.length;
+            const { crossesAdvance: ca } = groupCrossesBoundary(
+              subStart,
+              subStop,
+              callbackCount,
+              alternateCount
+            );
+            newUnresolved.push({
+              entryIds: [...subgroup],
+              points: p,
+              boundary: ca ? "advance" : "alternate",
+            });
+          }
+        } else {
+          const subStart = start + hjResult.ordered.indexOf(subgroup[0]);
+          const subStop = subStart + subgroup.length;
+          const { crossesAdvance: ca } = groupCrossesBoundary(
+            subStart,
+            subStop,
+            callbackCount,
+            alternateCount
+          );
+          newUnresolved.push({
+            entryIds: [...subgroup],
+            points: p,
+            boundary: ca ? "advance" : "alternate",
+          });
+        }
+      }
+      return {
+        orderedGroup: hjResult.ordered,
+        resolvedByDecision: false,
+        resolvedByDecisionWithCjScores: false,
+        hjResolvedEntries,
+        cjResolvedEntries,
+        newUnresolved,
+      };
+    }
+    // HJ couldn't resolve — fall through to CJ on full group
+  }
+
+  if (chiefJudgeVotes) {
+    const cjResult = applyTieBreak(chiefJudgeVotes, cjResolvedEntries, group);
+    if (cjResult) {
+      for (const subgroup of cjResult.unresolvedSubgroups) {
+        const subStart = start + cjResult.ordered.indexOf(subgroup[0]);
+        const subStop = subStart + subgroup.length;
+        const { crossesAdvance: ca } = groupCrossesBoundary(
+          subStart,
+          subStop,
+          callbackCount,
+          alternateCount
+        );
+        newUnresolved.push({
+          entryIds: [...subgroup],
+          points: p,
+          boundary: ca ? "advance" : "alternate",
+        });
+      }
+      return {
+        orderedGroup: cjResult.ordered,
+        resolvedByDecision: false,
+        resolvedByDecisionWithCjScores: false,
+        hjResolvedEntries,
+        cjResolvedEntries,
+        newUnresolved,
+      };
+    }
+  }
+
+  newUnresolved.push({
+    entryIds: [...group],
+    points: p,
+    boundary: crossesAdvance ? "advance" : "alternate",
+  });
+  return {
+    orderedGroup: group,
+    resolvedByDecision: false,
+    resolvedByDecisionWithCjScores: false,
+    hjResolvedEntries,
+    cjResolvedEntries,
+    newUnresolved,
+  };
+}
+
 export function scoreCallbacks(input: CallbackInput): CallbackResult {
   const { judgeIds, entryIds, votes, callbackCount, alternateCount } = input;
   const manualResolutions = input.manualTieResolutions ?? [];
-  const cjVotes = input.chiefJudgeVotes;
+  const manualUsedCjScores = input.manualTieUsedCjScores ?? [];
+  const headJudgeVotes = input.headJudgeVotes;
+  const chiefJudgeVotes = input.chiefJudgeVotes;
+  const hasHeadJudge = headJudgeVotes != null;
 
   const points = new Map<EntryId, number>();
   for (const entryId of entryIds) {
@@ -193,14 +429,20 @@ export function scoreCallbacks(input: CallbackInput): CallbackResult {
     points.set(entryId, Math.round(total * 10) / 10);
   }
 
-  const findManualResolution = (group: EntryId[]): EntryId[] | null => {
+  const findManualResolution = (
+    group: EntryId[]
+  ): { ordered: EntryId[]; usedCjScores: boolean } | null => {
     const set = new Set(group);
-    for (const resolution of manualResolutions) {
+    for (let i = 0; i < manualResolutions.length; i++) {
+      const resolution = manualResolutions[i];
       if (
         resolution.length === group.length &&
         resolution.every((e) => set.has(e))
       ) {
-        return resolution;
+        return {
+          ordered: resolution,
+          usedCjScores: manualUsedCjScores[i] === true,
+        };
       }
     }
     return null;
@@ -216,6 +458,8 @@ export function scoreCallbacks(input: CallbackInput): CallbackResult {
   const ordered: {
     entryId: EntryId;
     resolvedByDecision: boolean;
+    resolvedByDecisionWithCjScores: boolean;
+    resolvedByHeadJudge: boolean;
     resolvedByChiefJudge: boolean;
   }[] = [];
   const unresolvedTies: CallbackUnresolvedTie[] = [];
@@ -228,72 +472,33 @@ export function scoreCallbacks(input: CallbackInput): CallbackResult {
     const { crossesAdvance, crossesAlternate, withinAlternateZone } =
       groupCrossesBoundary(start, stop, callbackCount, alternateCount);
 
-    let resolvedByDecision = false;
-    let orderedGroup = group;
-    const cjResolvedEntries = new Set<EntryId>();
+    const resolution = resolveBoundaryGroup(
+      group,
+      start,
+      p,
+      callbackCount,
+      alternateCount,
+      crossesAdvance,
+      crossesAlternate,
+      withinAlternateZone,
+      findManualResolution,
+      headJudgeVotes,
+      chiefJudgeVotes,
+      hasHeadJudge
+    );
 
-    if (
-      group.length > 1 &&
-      (crossesAdvance || crossesAlternate || withinAlternateZone)
-    ) {
-      const manual = findManualResolution(group);
-      if (manual) {
-        orderedGroup = manual;
-        resolvedByDecision = true;
-      } else if (cjVotes) {
-        const cjResult = orderGroupByChiefJudgeVotes(
-          group,
-          start,
-          callbackCount,
-          alternateCount,
-          cjVotes
-        );
-        if (cjResult) {
-          orderedGroup = cjResult.ordered;
-          const stillTied = new Set(
-            cjResult.unresolvedSubgroups.flat()
-          );
-          for (const entryId of group) {
-            if (!stillTied.has(entryId)) {
-              cjResolvedEntries.add(entryId);
-            }
-          }
-          for (const subgroup of cjResult.unresolvedSubgroups) {
-            const subStart = start + cjResult.ordered.indexOf(subgroup[0]);
-            const subStop = subStart + subgroup.length;
-            const { crossesAdvance } = groupCrossesBoundary(
-              subStart,
-              subStop,
-              callbackCount,
-              alternateCount
-            );
-            unresolvedTies.push({
-              entryIds: [...subgroup],
-              points: p,
-              boundary: crossesAdvance ? "advance" : "alternate",
-            });
-          }
-        } else {
-          unresolvedTies.push({
-            entryIds: [...group],
-            points: p,
-            boundary: crossesAdvance ? "advance" : "alternate",
-          });
-        }
-      } else {
-        unresolvedTies.push({
-          entryIds: [...group],
-          points: p,
-          boundary: crossesAdvance ? "advance" : "alternate",
-        });
-      }
-    }
+    unresolvedTies.push(...resolution.newUnresolved);
 
-    for (const entryId of orderedGroup) {
+    for (const entryId of resolution.orderedGroup) {
+      const resolvedByHeadJudge = resolution.hjResolvedEntries.has(entryId);
+      const resolvedByChiefJudge = resolution.cjResolvedEntries.has(entryId);
       ordered.push({
         entryId,
-        resolvedByDecision,
-        resolvedByChiefJudge: cjResolvedEntries.has(entryId),
+        resolvedByDecision: resolution.resolvedByDecision,
+        resolvedByDecisionWithCjScores:
+          resolution.resolvedByDecisionWithCjScores,
+        resolvedByHeadJudge,
+        resolvedByChiefJudge,
       });
     }
     position = stop;
@@ -306,6 +511,14 @@ export function scoreCallbacks(input: CallbackInput): CallbackResult {
       !advanced && rank <= callbackCount + alternateCount
         ? rank - callbackCount
         : null;
+    let tieBreakNote: string | null = null;
+    if (item.resolvedByHeadJudge) {
+      tieBreakNote = HJ_TIE_BREAK_NOTE;
+    } else if (item.resolvedByChiefJudge) {
+      tieBreakNote = hasHeadJudge
+        ? CJ_FALLBACK_TIE_BREAK_NOTE
+        : CJ_TIE_BREAK_NOTE;
+    }
     return {
       entryId: item.entryId,
       points: points.get(item.entryId)!,
@@ -313,8 +526,10 @@ export function scoreCallbacks(input: CallbackInput): CallbackResult {
       advanced,
       alternateRank,
       resolvedByDecision: item.resolvedByDecision,
+      resolvedByDecisionWithCjScores: item.resolvedByDecisionWithCjScores,
+      resolvedByHeadJudge: item.resolvedByHeadJudge,
       resolvedByChiefJudge: item.resolvedByChiefJudge,
-      tieBreakNote: item.resolvedByChiefJudge ? CJ_TIE_BREAK_NOTE : null,
+      tieBreakNote,
     };
   });
 

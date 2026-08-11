@@ -281,7 +281,14 @@ export default function CompetitionConsolePage({
           competitionId={competitionId}
           compType={competition.comp_type}
           judges={judges}
+          rounds={rounds}
           cjInPanel={competition.cj_in_panel}
+          leadHeadJudgeAssignmentId={
+            competition.lead_head_judge_assignment_id ?? null
+          }
+          followHeadJudgeAssignmentId={
+            competition.follow_head_judge_assignment_id ?? null
+          }
           onChanged={load}
         />
       )}

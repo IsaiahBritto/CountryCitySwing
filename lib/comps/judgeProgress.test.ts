@@ -111,11 +111,14 @@ function roundCtx(
     round,
     competition: {
       id: "comp-1",
+      event_id: "evt-1",
       name: "Test",
       comp_type: "jack_and_jill",
       status: "in_progress",
-      event_id: null,
       cj_in_panel: false,
+      lead_head_judge_assignment_id: null,
+      follow_head_judge_assignment_id: null,
+      max_floor_couples: null,
       test_comp: true,
       created_at: "",
       updated_at: "",
@@ -234,6 +237,27 @@ describe("buildSlotJudgeProgress", () => {
 
     expect(result.judges[0].leads?.sheetStatus).toBe("none");
     expect(result.judges[0].aggregateStatus).toBe("waiting");
+  });
+
+  it("marks head judge assignment on lead and follow rows", () => {
+    const leadCtx = roundCtx("lead", "open");
+    const followCtx = roundCtx("follow", "open");
+    const hj = judge("j-hj");
+
+    const result = buildSlotJudgeProgress(
+      "prelims",
+      [hj, leadJudge],
+      leadCtx,
+      followCtx,
+      false,
+      "j-hj",
+      null
+    );
+
+    const row = result.judges.find((r) => r.assignmentId === "j-hj")!;
+    expect(row.isHeadJudgeLead).toBe(true);
+    expect(row.isHeadJudgeFollow).toBe(false);
+    expect(result.summary.leadHeadJudgeLabel).toContain("j-hj");
   });
 });
 

@@ -161,6 +161,18 @@ export default function JudgeProgressSlot({
             CJ {summary.chiefJudgeComplete ? "✓" : "pending"}
           </>
         )}
+        {summary.leadHeadJudgeLabel && (
+          <>
+            {" · "}
+            HJ leads: {summary.leadHeadJudgeLabel}
+          </>
+        )}
+        {summary.followHeadJudgeLabel && (
+          <>
+            {" · "}
+            HJ follows: {summary.followHeadJudgeLabel}
+          </>
+        )}
       </p>
 
       <div className="overflow-x-auto">
@@ -194,6 +206,12 @@ export default function JudgeProgressSlot({
                     <span className="ml-1 text-xs text-neutral-500">
                       ({row.scopeLabel})
                     </span>
+                  )}
+                  {row.isHeadJudgeLead && (
+                    <span className="ml-1 text-xs text-primary">HJ leads</span>
+                  )}
+                  {row.isHeadJudgeFollow && (
+                    <span className="ml-1 text-xs text-primary">HJ follows</span>
                   )}
                 </td>
                 {hasLeads && (

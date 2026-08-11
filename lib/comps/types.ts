@@ -26,6 +26,27 @@ export interface ManualPairingRow {
   follow_round_entry_id: string;
 }
 
+export interface TieBreakJudgeLabel {
+  assignmentId: string;
+  label: string;
+  name: string;
+  kind: "head_judge" | "chief_judge";
+  displayLabel: string;
+}
+
+export interface FallbackChiefJudgeLabel {
+  assignmentId: string;
+  label: string;
+  name: string;
+}
+
+export interface ChiefJudgeVotesForReview {
+  assignmentId: string;
+  label: string;
+  name: string;
+  votes: Record<string, CallbackValue | "no">;
+}
+
 export interface CompetitionRow {
   id: string;
   event_id: string;
@@ -33,6 +54,8 @@ export interface CompetitionRow {
   name: string;
   status: CompStatus;
   cj_in_panel: boolean;
+  lead_head_judge_assignment_id: string | null;
+  follow_head_judge_assignment_id: string | null;
   max_floor_couples: number | null;
   test_comp?: boolean;
   created_at: string;
@@ -221,7 +244,12 @@ export type RoundTabulation =
   | {
       mode: "callback";
       judges: { assignmentId: string; label: string; name: string }[];
+      /** @deprecated Use tieBreakJudge; kept for legacy published tabulations. */
       chiefJudge: { assignmentId: string; label: string; name: string } | null;
+      tieBreakJudge?: TieBreakJudgeLabel | null;
+      fallbackChiefJudge?: FallbackChiefJudgeLabel | null;
+      /** Admin-only; omitted from public results payloads. */
+      chiefJudgeVotesForReview?: ChiefJudgeVotesForReview | null;
       callbackCount: number;
       alternateCount: number;
       entries: EntryDisplay[];
@@ -232,9 +260,12 @@ export type RoundTabulation =
         advanced: boolean;
         alternateRank: number | null;
         resolvedByDecision: boolean;
+        resolvedByDecisionWithCjScores?: boolean;
+        resolvedByHeadJudge?: boolean;
         resolvedByChiefJudge: boolean;
         tieBreakNote: string | null;
         votes: (CallbackValue | "no")[];
+        headJudgeVote?: CallbackValue | "no" | null;
         chiefJudgeVote: CallbackValue | "no" | null;
       }[];
     };

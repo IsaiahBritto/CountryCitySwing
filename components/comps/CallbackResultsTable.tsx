@@ -7,13 +7,20 @@ import {
   JudgeSheetLegend,
   cjColumnCellClass,
   panelScoresLayout,
+  resolveTieBreakJudge,
 } from "@/components/comps/JudgeSheetLegend";
 import { orderCallbackRowsForDisplay } from "@/lib/comps/callbackDisplayOrder";
+import type {
+  FallbackChiefJudgeLabel,
+  TieBreakJudgeLabel,
+} from "@/lib/comps/types";
 
 export interface CallbackTabulation {
   mode: "callback";
   judges: { assignmentId: string; label: string; name: string }[];
   chiefJudge?: { assignmentId: string; label: string; name: string } | null;
+  tieBreakJudge?: TieBreakJudgeLabel | null;
+  fallbackChiefJudge?: FallbackChiefJudgeLabel | null;
   callbackCount: number;
   alternateCount: number;
   entries: {
@@ -28,9 +35,12 @@ export interface CallbackTabulation {
     advanced: boolean;
     alternateRank: number | null;
     resolvedByDecision: boolean;
+    resolvedByDecisionWithCjScores?: boolean;
+    resolvedByHeadJudge?: boolean;
     resolvedByChiefJudge?: boolean;
     tieBreakNote?: string | null;
     votes: string[];
+    headJudgeVote?: string | null;
     chiefJudgeVote?: string | null;
   }[];
 }
@@ -73,13 +83,35 @@ export default function CallbackResultsTable({
   );
   const advanceCut = tabulation.callbackCount;
   const alternateCut = tabulation.callbackCount + tabulation.alternateCount;
-  const { panelJudges, showPanelJudgeColumns, showCjColumn, cjInPanel } =
-    panelScoresLayout(tabulation.judges, tabulation.chiefJudge, showVotes);
+
+  const tieBreak = resolveTieBreakJudge(
+    tabulation.tieBreakJudge,
+    tabulation.chiefJudge
+  );
+  const isHeadJudge = tieBreak?.kind === "head_judge";
+  const tieBreakHeaderLabel =
+    tieBreak?.displayLabel ??
+    (isHeadJudge ? `HJ: ${tieBreak?.label}` : tieBreak?.label ?? "CJ");
+
+  const { panelJudges, showPanelJudgeColumns, showTieBreakColumn, tieBreakInPanel } =
+    panelScoresLayout(tabulation.judges, tieBreak, showVotes);
+
+  const showCjFallbackColumn =
+    isHeadJudge &&
+    tabulation.ranked.some((r) => r.resolvedByChiefJudge) &&
+    tabulation.fallbackChiefJudge != null;
+
   const judgeVoteIndex = new Map(
     tabulation.judges.map((j, i) => [j.assignmentId, i])
   );
-  const hasCjTieBreak = tabulation.ranked.some((r) => r.resolvedByChiefJudge);
+  const hasHjTieBreak = tabulation.ranked.some((r) => r.resolvedByHeadJudge);
+  const hasCjFallbackTieBreak = tabulation.ranked.some(
+    (r) => r.resolvedByChiefJudge
+  );
   const hasManualDecision = tabulation.ranked.some((r) => r.resolvedByDecision);
+  const hasManualWithCj = tabulation.ranked.some(
+    (r) => r.resolvedByDecisionWithCjScores
+  );
 
   return (
     <div className="overflow-x-auto">
@@ -97,10 +129,18 @@ export default function CallbackResultsTable({
                   name={j.name}
                 />
               ))}
-            {showCjColumn && (
+            {showTieBreakColumn && tieBreak && (
               <JudgeColumnHeader
-                label={tabulation.chiefJudge!.label}
-                name={tabulation.chiefJudge!.name}
+                label={tieBreakHeaderLabel}
+                name={tieBreak.name}
+                muted
+                separated
+              />
+            )}
+            {showCjFallbackColumn && tabulation.fallbackChiefJudge && (
+              <JudgeColumnHeader
+                label="CJ"
+                name={tabulation.fallbackChiefJudge.name}
                 muted
                 separated
               />
@@ -120,7 +160,8 @@ export default function CallbackResultsTable({
               showVotes &&
               tabulation.alternateCount > 0 &&
               row.rank === alternateCut;
-            const cjVote = row.chiefJudgeVote ?? "no";
+            const hjVote = row.headJudgeVote ?? row.chiefJudgeVote ?? "no";
+            const cjFallbackVote = row.chiefJudgeVote ?? "no";
             return (
               <tr
                 key={row.roundEntryId}
@@ -153,16 +194,27 @@ export default function CallbackResultsTable({
                       </td>
                     );
                   })}
-                {showCjColumn && (
+                {showTieBreakColumn && tieBreak && (
                   <td
                     className={
                       cjColumnCellClass +
                       " " +
-                      voteCellClass(cjVote) +
+                      voteCellClass(hjVote) +
                       (highlighted ? " ring-1 ring-inset ring-amber-400/50" : "")
                     }
                   >
-                    {VOTE_LABEL[cjVote] ?? cjVote}
+                    {VOTE_LABEL[hjVote] ?? hjVote}
+                  </td>
+                )}
+                {showCjFallbackColumn && (
+                  <td
+                    className={
+                      cjColumnCellClass +
+                      " " +
+                      voteCellClass(cjFallbackVote)
+                    }
+                  >
+                    {VOTE_LABEL[cjFallbackVote] ?? cjFallbackVote}
                   </td>
                 )}
                 {showVotes && (
@@ -180,18 +232,30 @@ export default function CallbackResultsTable({
                   ) : (
                     <span className="text-xs text-neutral-500">—</span>
                   )}
+                  {row.resolvedByHeadJudge && (
+                    <span
+                      className="ml-1 text-xs text-neutral-500"
+                      title="Tie broken by head judge's vote"
+                    >
+                      †
+                    </span>
+                  )}
                   {row.resolvedByChiefJudge && (
                     <span
                       className="ml-1 text-xs text-neutral-500"
-                      title={row.tieBreakNote ?? "Tie broken by chief judge's vote"}
+                      title="Tie broken by chief judge (fallback)"
                     >
-                      †
+                      ‡
                     </span>
                   )}
                   {row.resolvedByDecision && (
                     <span
                       className="ml-1 text-xs text-neutral-500"
-                      title="Boundary tie resolved by coordinator/chief judge decision"
+                      title={
+                        row.resolvedByDecisionWithCjScores
+                          ? "Manual decision factoring in CJ scores"
+                          : "Boundary tie resolved by coordinator/chief judge decision"
+                      }
                     >
                       *
                     </span>
@@ -202,10 +266,12 @@ export default function CallbackResultsTable({
           })}
         </tbody>
       </table>
-      {(showVotes || showCjColumn || showPanelJudgeColumns) && (
+      {(showVotes || showTieBreakColumn || showPanelJudgeColumns) && (
         <JudgeSheetLegend
           judges={showVotes ? tabulation.judges : panelJudges}
+          tieBreakJudge={tabulation.tieBreakJudge}
           chiefJudge={tabulation.chiefJudge}
+          fallbackChiefJudge={tabulation.fallbackChiefJudge}
           cjOnly={!showVotes}
         />
       )}
@@ -216,12 +282,17 @@ export default function CallbackResultsTable({
             {tabulation.alternateCount > 0 &&
               `, ${tabulation.alternateCount} ranked alternate${tabulation.alternateCount === 1 ? "" : "s"}`}
             . Y = 10, A1 = 4.5, A2 = 4.3, A3 = 4.2 points.
-            {showCjColumn &&
-              (cjInPanel
-                ? " CJ column also shows the chief judge's scores."
-                : " CJ column is tie-break only.")}
-            {hasCjTieBreak && " † = tie broken by chief judge's vote."}
-            {hasManualDecision && " * = coordinator/CJ manual decision."}
+            {showTieBreakColumn &&
+              (isHeadJudge
+                ? " HJ column is primary tie-break."
+                : tieBreakInPanel
+                  ? " CJ column also shows the chief judge's scores."
+                  : " CJ column is tie-break only.")}
+            {hasHjTieBreak && " † = tie broken by head judge's vote."}
+            {hasCjFallbackTieBreak && " ‡ = tie broken by chief judge (fallback)."}
+            {hasManualWithCj &&
+              " * = manual decision factoring in CJ scores."}
+            {hasManualDecision && !hasManualWithCj && " * = manual decision."}
           </>
         ) : (
           <>
@@ -229,11 +300,16 @@ export default function CallbackResultsTable({
             {tabulation.alternateCount > 0 &&
               `, ${tabulation.alternateCount} ranked alternate${tabulation.alternateCount === 1 ? "" : "s"}`}
             .{" "}
-            {cjInPanel
-              ? "Chief judge scores are shown in their panel column and the CJ column; full panel scores will be posted once the competition is marked complete."
-              : "Chief judge scores are shown; full panel scores will be posted once the competition is marked complete."}
-            {hasCjTieBreak && " † = tie broken by chief judge's vote."}
-            {hasManualDecision && " * = coordinator/CJ manual decision."}
+            {isHeadJudge
+              ? "Head judge tie-break scores are shown; full panel scores will be posted once the competition is marked complete."
+              : tieBreakInPanel
+                ? "Chief judge scores are shown in their panel column and the CJ column; full panel scores will be posted once the competition is marked complete."
+                : "Chief judge scores are shown; full panel scores will be posted once the competition is marked complete."}
+            {hasHjTieBreak && " † = tie broken by head judge's vote."}
+            {hasCjFallbackTieBreak && " ‡ = tie broken by chief judge (fallback)."}
+            {hasManualWithCj &&
+              " * = manual decision factoring in CJ scores."}
+            {hasManualDecision && !hasManualWithCj && " * = manual decision."}
           </>
         )}
       </p>

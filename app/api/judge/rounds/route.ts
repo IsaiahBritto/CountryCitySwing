@@ -16,6 +16,7 @@ interface JudgeRoundPayload {
   sheetStatus: string | null;
   readyToJudge: boolean;
   siblingRound: { id: string; judged_role: string } | null;
+  headJudgeRole: "lead" | "follow" | null;
 }
 
 /** GET: the logged-in judge's assignments with nested round status. */
@@ -30,7 +31,9 @@ export async function GET(req: NextRequest) {
 
   const { data: competitions, error: competitionError } = await supabaseServer
     .from("competitions")
-    .select("id, name, comp_type, event:events(title, starts_at)")
+    .select(
+      "id, name, comp_type, lead_head_judge_assignment_id, follow_head_judge_assignment_id, event:events(title, starts_at)"
+    )
     .in("id", competitionIds);
   if (competitionError) {
     return NextResponse.json(
@@ -88,6 +91,22 @@ export async function GET(req: NextRequest) {
         s.round_id === round.id && s.judge_assignment_id === assignment.id
     );
     const sheetStatus = sheet?.status ?? null;
+    const comp = competitionById.get(round.competition_id) as {
+      lead_head_judge_assignment_id?: string | null;
+      follow_head_judge_assignment_id?: string | null;
+    } | undefined;
+    let headJudgeRole: "lead" | "follow" | null = null;
+    if (
+      assignment.id === comp?.lead_head_judge_assignment_id &&
+      round.judged_role === "lead"
+    ) {
+      headJudgeRole = "lead";
+    } else if (
+      assignment.id === comp?.follow_head_judge_assignment_id &&
+      round.judged_role === "follow"
+    ) {
+      headJudgeRole = "follow";
+    }
     const roundPayload: JudgeRoundPayload = {
       id: round.id,
       round_type: round.round_type,
@@ -101,6 +120,7 @@ export async function GET(req: NextRequest) {
       sheetStatus,
       readyToJudge: round.status === "open" && sheetStatus !== "submitted",
       siblingRound: sibling,
+      headJudgeRole,
     };
     const list = roundsByCompetitionPayload.get(round.competition_id) ?? [];
     list.push(roundPayload);

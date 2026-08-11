@@ -30,7 +30,7 @@ export async function GET(
 
   const { data: competition, error: compError } = await supabaseServer
     .from("competitions")
-    .select("id, comp_type, cj_in_panel")
+    .select("id, comp_type, cj_in_panel, lead_head_judge_assignment_id, follow_head_judge_assignment_id")
     .eq("id", competitionId)
     .maybeSingle();
 
@@ -76,6 +76,8 @@ export async function GET(
         followsPanelSubmitted: 0,
         followsPanelTotal: 0,
         chiefJudgeComplete: true,
+        leadHeadJudgeLabel: null,
+        followHeadJudgeLabel: null,
       },
     });
   }
@@ -92,7 +94,9 @@ export async function GET(
       judges,
       leadCtx,
       followCtx,
-      competition.cj_in_panel ?? false
+      competition.cj_in_panel ?? false,
+      competition.lead_head_judge_assignment_id ?? null,
+      competition.follow_head_judge_assignment_id ?? null
     );
 
     return NextResponse.json(result);

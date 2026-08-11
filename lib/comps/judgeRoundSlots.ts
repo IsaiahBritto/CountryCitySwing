@@ -10,6 +10,7 @@ export interface JudgeRoundRow {
   sheetStatus: "draft" | "submitted" | null;
   readyToJudge: boolean;
   siblingRound?: { id: string; judged_role: DanceRole } | null;
+  headJudgeRole?: "lead" | "follow" | null;
 }
 
 export interface JudgeRoundSlot {
@@ -63,7 +64,7 @@ export function groupJudgeRoundSlots(
       key: r.id,
       label:
         r.judged_role != null
-          ? `${getSlotLabel(r.round_type as RoundType)} — ${r.judged_role === "lead" ? "Leads" : "Follows"}`
+          ? `${getSlotLabel(r.round_type as RoundType)} — ${r.judged_role === "lead" ? "Leads" : "Follows"}${r.headJudgeRole ? " (Head judge)" : ""}`
           : getSlotLabel(r.round_type as RoundType),
       roundId: r.id,
       readyToJudge: r.readyToJudge,

@@ -21,6 +21,8 @@ export interface JudgeProgressRow {
   leads: JudgeRoleProgress | null;
   follows: JudgeRoleProgress | null;
   tieBreakOnly: boolean;
+  isHeadJudgeLead: boolean;
+  isHeadJudgeFollow: boolean;
   aggregateStatus: JudgeAggregateStatus;
   scopeLabel: string | null;
 }
@@ -41,6 +43,8 @@ export interface SlotJudgeProgressSummary {
   followsPanelSubmitted: number;
   followsPanelTotal: number;
   chiefJudgeComplete: boolean;
+  leadHeadJudgeLabel: string | null;
+  followHeadJudgeLabel: string | null;
 }
 
 const SCORING_PHASE: RoundStatus[] = ["open", "closed", "tabulated"];
@@ -189,8 +193,17 @@ export function buildSlotJudgeProgress(
   judges: JudgeWithProfile[],
   leadCtx: RoundContext | null,
   followCtx: RoundContext | null,
-  cjInPanel: boolean
+  cjInPanel: boolean,
+  leadHeadJudgeId: string | null = null,
+  followHeadJudgeId: string | null = null
 ): SlotJudgeProgressResult {
+  const labelFor = (id: string | null) => {
+    if (!id) return null;
+    const j = judges.find((x) => x.id === id);
+    if (!j) return null;
+    return `${j.first_name} ${j.last_name}`.trim() || "Unknown";
+  };
+
   const rows: JudgeProgressRow[] = judges.map((judge) => {
     const leads = buildRoleProgress(judge, leadCtx, cjInPanel);
     const follows = buildRoleProgress(judge, followCtx, cjInPanel);
@@ -204,6 +217,8 @@ export function buildSlotJudgeProgress(
       leads,
       follows,
       tieBreakOnly: judge.judge_role === "chief_judge" && !cjInPanel,
+      isHeadJudgeLead: judge.id === leadHeadJudgeId,
+      isHeadJudgeFollow: judge.id === followHeadJudgeId,
       aggregateStatus: aggregateStatusForRow(leads, follows),
       scopeLabel: scopeLabelForJudge(judge),
     };
@@ -224,6 +239,8 @@ export function buildSlotJudgeProgress(
       followsPanelSubmitted: followPanel.submitted,
       followsPanelTotal: followPanel.total,
       chiefJudgeComplete: chiefJudgeComplete(cj, leadCtx, followCtx, cjInPanel),
+      leadHeadJudgeLabel: labelFor(leadHeadJudgeId),
+      followHeadJudgeLabel: labelFor(followHeadJudgeId),
     },
   };
 }

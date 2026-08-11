@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
+import {
+  isHeadJudgeLockedForRole,
+  validateHeadJudgeAssignment,
+} from "@/lib/comps/headJudgeValidation";
+import type { CompetitionRow } from "@/lib/comps/types";
 
 /** GET: full director-console detail for one competition. */
 export async function GET(
@@ -97,6 +102,83 @@ export async function PATCH(
       );
     }
     update.max_floor_couples = Math.floor(n);
+  }
+
+  const headJudgeFields =
+    body.lead_head_judge_assignment_id !== undefined ||
+    body.follow_head_judge_assignment_id !== undefined;
+
+  if (headJudgeFields) {
+    const { data: competition } = await supabaseServer
+      .from("competitions")
+      .select("*")
+      .eq("id", competitionId)
+      .maybeSingle();
+    if (!competition) {
+      return NextResponse.json({ error: "Competition not found" }, { status: 404 });
+    }
+    if (competition.comp_type !== "jack_and_jill") {
+      return NextResponse.json(
+        { error: "Head judges are only supported for Jack & Jill competitions" },
+        { status: 400 }
+      );
+    }
+
+    const { data: judges } = await supabaseServer
+      .from("comp_judge_assignments")
+      .select("id, judge_role, scoring_scope")
+      .eq("competition_id", competitionId);
+    const { data: rounds } = await supabaseServer
+      .from("comp_rounds")
+      .select("round_type, judged_role, status")
+      .eq("competition_id", competitionId);
+
+    const judgeList = judges ?? [];
+    const roundList = rounds ?? [];
+
+    if (body.lead_head_judge_assignment_id !== undefined) {
+      if (isHeadJudgeLockedForRole(roundList, "lead")) {
+        return NextResponse.json(
+          { error: "Lead head judge cannot be changed after lead callback scoring has opened" },
+          { status: 409 }
+        );
+      }
+      const leadId =
+        body.lead_head_judge_assignment_id === null ||
+        body.lead_head_judge_assignment_id === ""
+          ? null
+          : String(body.lead_head_judge_assignment_id);
+      const err = validateHeadJudgeAssignment(
+        competition as CompetitionRow,
+        leadId,
+        "lead",
+        judgeList
+      );
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+      update.lead_head_judge_assignment_id = leadId;
+    }
+
+    if (body.follow_head_judge_assignment_id !== undefined) {
+      if (isHeadJudgeLockedForRole(roundList, "follow")) {
+        return NextResponse.json(
+          { error: "Follow head judge cannot be changed after follow callback scoring has opened" },
+          { status: 409 }
+        );
+      }
+      const followId =
+        body.follow_head_judge_assignment_id === null ||
+        body.follow_head_judge_assignment_id === ""
+          ? null
+          : String(body.follow_head_judge_assignment_id);
+      const err = validateHeadJudgeAssignment(
+        competition as CompetitionRow,
+        followId,
+        "follow",
+        judgeList
+      );
+      if (err) return NextResponse.json({ error: err }, { status: 400 });
+      update.follow_head_judge_assignment_id = followId;
+    }
   }
 
   const { data, error } = await supabaseServer

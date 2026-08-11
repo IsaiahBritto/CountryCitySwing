@@ -113,6 +113,8 @@ export default function RoundPanel({
   const [previewTabulation, setPreviewTabulation] = useState<any>(null);
   const [tieCallbacks, setTieCallbacks] = useState<number>(0);
   const [tieAlternates, setTieAlternates] = useState<number>(0);
+  const [showCjScores, setShowCjScores] = useState(false);
+  const [usedCjScoresForManual, setUsedCjScoresForManual] = useState(false);
   const [rotationInput, setRotationInput] = useState("");
   const [pairingMode, setPairingMode] = useState<"rotation" | "manual">(
     "rotation"
@@ -444,17 +446,29 @@ export default function RoundPanel({
 
   const tabulate = async (
     resolutions: string[][] = [],
-    options?: { callbackCount?: number; alternateCount?: number; previewOnly?: boolean }
+    options?: {
+      callbackCount?: number;
+      alternateCount?: number;
+      previewOnly?: boolean;
+      usedCjScores?: boolean;
+    }
   ) => {
     setBusy(true);
     setError(null);
     if (!options?.previewOnly) {
       setTies(null);
       setPreviewTabulation(null);
+      setShowCjScores(false);
+      setUsedCjScoresForManual(false);
     }
     const payload: Record<string, unknown> = {
       manual_tie_resolutions: resolutions,
     };
+    if (resolutions.length > 0) {
+      payload.manual_tie_used_cj_scores = resolutions.map(
+        () => options?.usedCjScores ?? usedCjScoresForManual
+      );
+    }
     const cb = options?.callbackCount ?? tieCallbacks;
     const alt = options?.alternateCount ?? tieAlternates;
     const scoringMode = detailRef.current?.round.scoring_mode;
@@ -925,11 +939,61 @@ export default function RoundPanel({
             </h4>
             {previewTabulation?.mode === "callback" && (
               <p className="mb-3 text-sm text-amber-200/90">
-                Panel scores are tied at a cut line. The chief judge&apos;s votes
-                were checked but could not break this tie (missing sheet, identical
-                votes, or still tied after CJ ordering). Set the final order below.
+                Panel scores are tied at a cut line. Head judge and chief judge
+                votes were checked but could not break this tie. Set the final
+                order below.
               </p>
             )}
+            {previewTabulation?.mode === "callback" &&
+              previewTabulation.chiefJudgeVotesForReview && (
+                <div className="mb-4">
+                  <label className="mb-2 flex items-center gap-2 text-sm text-neutral-300">
+                    <input
+                      type="checkbox"
+                      checked={showCjScores}
+                      onChange={(e) => setShowCjScores(e.target.checked)}
+                    />
+                    See CJ scores
+                  </label>
+                  {showCjScores && (
+                    <div className="overflow-x-auto rounded-md border border-neutral-700 bg-neutral-900/80 p-3">
+                      <p className="mb-2 text-xs text-neutral-500">
+                        CJ {previewTabulation.chiefJudgeVotesForReview.name}{" "}
+                        (advisory — not used if HJ already applied)
+                      </p>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-neutral-500">
+                            <th className="px-2 py-1 text-left">Bib</th>
+                            <th className="px-2 py-1 text-left">Competitor</th>
+                            <th className="px-2 py-1 text-center">CJ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {previewTabulation.entries.map(
+                            (entry: {
+                              roundEntryId: string;
+                              bibNumber: number | null;
+                              displayName: string;
+                            }) => (
+                              <tr key={entry.roundEntryId}>
+                                <td className="px-2 py-1 font-mono">
+                                  {entry.bibNumber ?? "—"}
+                                </td>
+                                <td className="px-2 py-1">{entry.displayName}</td>
+                                <td className="px-2 py-1 text-center">
+                                  {previewTabulation.chiefJudgeVotesForReview
+                                    .votes[entry.roundEntryId] ?? "—"}
+                                </td>
+                              </tr>
+                            )
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             {previewTabulation?.mode === "callback" && (
               <div className="mb-4 rounded-md border border-neutral-700 bg-neutral-900/50 p-3">
                 <p className="mb-2 text-xs text-neutral-400">
@@ -1015,9 +1079,21 @@ export default function RoundPanel({
                 </div>
               </div>
             ))}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-neutral-300">
+                <input
+                  type="checkbox"
+                  checked={usedCjScoresForManual}
+                  onChange={(e) => setUsedCjScoresForManual(e.target.checked)}
+                />
+                Used CJ scores to inform this decision
+              </label>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
               <button
-                onClick={() => tabulate(tieOrders)}
+                onClick={() =>
+                  tabulate(tieOrders, { usedCjScores: usedCjScoresForManual })
+                }
                 disabled={busy}
                 className={compBtnOutline}
               >

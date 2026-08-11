@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { parseScoringScope } from "@/lib/comps/judgeScope";
-import type { ScoringScope } from "@/lib/comps/types";
+import {
+  headJudgeRoleConflictMessage,
+  isJudgeDesignatedHeadJudge,
+} from "@/lib/comps/headJudgeValidation";
+import type { ScoringScope, CompetitionRow } from "@/lib/comps/types";
 
 /** GET: search profiles to assign as judges (?q=). */
 export async function GET(
@@ -29,10 +33,10 @@ export async function GET(
 async function loadCompetition(competitionId: string) {
   const { data } = await supabaseServer
     .from("competitions")
-    .select("id, comp_type")
+    .select("*")
     .eq("id", competitionId)
     .maybeSingle();
-  return data;
+  return data as CompetitionRow | null;
 }
 
 async function enforceSingleDropsFinals(
@@ -84,7 +88,10 @@ export async function POST(
   if (!competition) {
     return NextResponse.json({ error: "Competition not found" }, { status: 404 });
   }
-  const scoringScope = resolveScoringScope(competition.comp_type, body.scoring_scope);
+  const scoringScope =
+    judgeRole === "chief_judge" && competition.comp_type === "jack_and_jill"
+      ? "both"
+      : resolveScoringScope(competition.comp_type, body.scoring_scope);
 
   const dropsError = await enforceSingleDropsFinals(competitionId, dropsFinals);
   if (dropsError) {
@@ -176,12 +183,34 @@ export async function PATCH(
     return NextResponse.json({ error: "Competition not found" }, { status: 404 });
   }
 
+  const { data: existingAssignment } = await supabaseServer
+    .from("comp_judge_assignments")
+    .select("judge_role")
+    .eq("id", assignmentId)
+    .eq("competition_id", competitionId)
+    .maybeSingle();
+
   const update: Record<string, unknown> = {};
   if (body.scoring_scope !== undefined) {
-    update.scoring_scope = resolveScoringScope(
+    const newScope = resolveScoringScope(
       competition.comp_type,
       body.scoring_scope
     );
+    const conflict = headJudgeRoleConflictMessage(
+      competition,
+      assignmentId,
+      newScope
+    );
+    if (conflict) {
+      return NextResponse.json({ error: conflict }, { status: 409 });
+    }
+    update.scoring_scope = newScope;
+  }
+  if (
+    existingAssignment?.judge_role === "chief_judge" &&
+    competition.comp_type === "jack_and_jill"
+  ) {
+    update.scoring_scope = "both";
   }
   if (body.drops_finals !== undefined) {
     const dropsFinals = body.drops_finals === true;
@@ -228,6 +257,18 @@ export async function DELETE(
     return NextResponse.json(
       { error: "assignment_id is required" },
       { status: 400 }
+    );
+  }
+
+  const competition = await loadCompetition(competitionId);
+  if (!competition) {
+    return NextResponse.json({ error: "Competition not found" }, { status: 404 });
+  }
+
+  if (isJudgeDesignatedHeadJudge(competition, assignmentId)) {
+    return NextResponse.json(
+      { error: "Clear head judge designation before removing this assignment" },
+      { status: 409 }
     );
   }
 

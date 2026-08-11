@@ -40,12 +40,16 @@ export async function POST(
   if (!auth.ok) return auth.response;
 
   let manualTieResolutions: string[][] = [];
+  let manualTieUsedCjScores: boolean[] = [];
   let callbackCount: number | undefined;
   let alternateCount: number | undefined;
   try {
     const body = await req.json();
     if (Array.isArray(body?.manual_tie_resolutions)) {
       manualTieResolutions = body.manual_tie_resolutions;
+    }
+    if (Array.isArray(body?.manual_tie_used_cj_scores)) {
+      manualTieUsedCjScores = body.manual_tie_used_cj_scores;
     }
     if (body?.callback_count != null) {
       callbackCount = Number(body.callback_count) || undefined;
@@ -60,6 +64,7 @@ export async function POST(
   try {
     const outcome = await tabulateRound(roundId, {
       manualTieResolutions,
+      manualTieUsedCjScores,
       callbackCount,
       alternateCount,
     });

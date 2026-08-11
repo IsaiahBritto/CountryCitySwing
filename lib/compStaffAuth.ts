@@ -166,6 +166,20 @@ export async function requireCompCheckinAuth(
   return { ...auth, eventId };
 }
 
+type StaffEventRow = {
+  id: string;
+  title: string;
+  starts_at: string;
+  type?: string;
+};
+
+function joinedEvent(
+  event: StaffEventRow | StaffEventRow[] | null | undefined
+): StaffEventRow | null {
+  if (event == null) return null;
+  return Array.isArray(event) ? (event[0] ?? null) : event;
+}
+
 export async function loadCompStaffEventsForUser(userId: string) {
   const { data } = await supabaseServer
     .from("comp_event_staff")
@@ -174,8 +188,9 @@ export async function loadCompStaffEventsForUser(userId: string) {
   const events: { id: string; title: string; starts_at: string }[] = [];
   const seen = new Set<string>();
   for (const row of data ?? []) {
-    const event = (row as { event?: { id: string; title: string; starts_at: string; type?: string } })
-      .event;
+    const event = joinedEvent(
+      (row as { event?: StaffEventRow | StaffEventRow[] | null }).event
+    );
     if (!event?.id || seen.has(event.id)) continue;
     seen.add(event.id);
     events.push({

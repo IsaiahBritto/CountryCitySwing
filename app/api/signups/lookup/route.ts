@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       const { data, error } = await supabaseServer
         .from("signups")
         .select(
-          "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,amount_owed,amount_due,amount_paid,is_ccs_team,refunded_or_cancelled"
+          "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,amount_owed,amount_due,amount_paid,is_ccs_team,refunded_or_cancelled,planned_class_level"
         )
         .eq("id", parsed.id)
         .single();

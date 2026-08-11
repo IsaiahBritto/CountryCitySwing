@@ -28,7 +28,16 @@ import {
   type PriceChange,
 } from "@/lib/utils/workshopPricing";
 import CompLevelBadge from "@/components/CompLevelBadge";
+import PlannedClassLevelBadge from "@/components/PlannedClassLevelBadge";
 import { hasCompDivisionPrice } from "@/lib/compLevels";
+import {
+  type ClassLevelSummary,
+  type PlannedClassLevel,
+  PLANNED_CLASS_LEVELS,
+  PLANNED_CLASS_LEVEL_LABELS,
+  plannedClassLevelBadgeClass,
+  plannedClassLevelModalClass,
+} from "@/lib/classLevels";
 
 type RegistrationAccessLevel = "admin" | "instructor" | "social_viewer";
 
@@ -44,6 +53,7 @@ interface Event {
   jnj_price?: number | null;
   strictly_level?: string | null;
   jnj_level?: string | null;
+  all_three_classes?: boolean;
 }
 
 interface EventPricing {
@@ -81,6 +91,7 @@ interface Signup {
   stripe_payment_intent_id?: string | null;
   free_via_promotion_code?: boolean | null;
   used_promotion_code?: boolean | null;
+  planned_class_level?: string | null;
 }
 
 interface CompSignup {
@@ -167,6 +178,12 @@ export default function RegistrationPage() {
     isComp: boolean;
     displayName: string;
   } | null>(null);
+  const [classLevelSummary, setClassLevelSummary] = useState<ClassLevelSummary | null>(
+    null
+  );
+  const [classLevelModal, setClassLevelModal] = useState<PlannedClassLevel | null>(
+    null
+  );
 
   useEffect(() => {
     const loadUser = async () => {
@@ -223,7 +240,7 @@ export default function RegistrationPage() {
     try {
       const { data, error } = await supabaseBrowser
         .from("events")
-        .select("id,title,starts_at,ends_at,location,type,time_zone,strictly_price,jnj_price,strictly_level,jnj_level")
+        .select("id,title,starts_at,ends_at,location,type,time_zone,strictly_price,jnj_price,strictly_level,jnj_level,all_three_classes")
         .order("starts_at", { ascending: true });
 
       if (error) {
@@ -278,6 +295,7 @@ export default function RegistrationPage() {
     if (selectedEvent) {
       loadSignups(selectedEvent.id);
     }
+    setClassLevelModal(null);
   }, [selectedEvent, filter]);
 
   // Set up real-time subscription for signups or comp_signups changes
@@ -384,12 +402,20 @@ export default function RegistrationPage() {
         setTotalCount(0);
         setCheckedInCount(0);
         setArrivalBuckets({ ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS });
+        setClassLevelSummary(null);
         return;
       }
 
       const data = await response.json();
       const isComp = !!data.isComp;
       setIsCompEvent(isComp);
+      if (isComp) {
+        setClassLevelSummary(null);
+      } else if (data.all_three_classes && data.class_level_summary) {
+        setClassLevelSummary(data.class_level_summary as ClassLevelSummary);
+      } else {
+        setClassLevelSummary(null);
+      }
       if (data.eventPricing) {
         setEventPricing(data.eventPricing as EventPricing);
       } else if (!isComp) {
@@ -442,6 +468,7 @@ export default function RegistrationPage() {
       setTotalCount(0);
       setCheckedInCount(0);
       setArrivalBuckets({ ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS });
+      setClassLevelSummary(null);
     }
   };
 
@@ -580,6 +607,9 @@ export default function RegistrationPage() {
           ends_at: selectedEvent.ends_at ?? null,
           time_zone: selectedEvent.time_zone,
         })));
+  const showAllThreeClasses =
+    !isCompEvent &&
+    (selectedEvent?.all_three_classes === true || classLevelSummary != null);
 
   const scheduleDueForSignup = (signup: Signup): number => {
     if (!eventPricing) return Number(signup.amount_owed) || 0;
@@ -1028,6 +1058,35 @@ export default function RegistrationPage() {
             {isCompEvent ? `${totalCount} comp registration(s) · ${checkedInCount} checked in` : `${totalCount} signed up · ${checkedInCount} checked in`}
           </p>
 
+          {showAllThreeClasses && classLevelSummary && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {PLANNED_CLASS_LEVELS.map((level) => {
+                const { total, checked_in } = classLevelSummary.counts[level];
+                return (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => total > 0 && setClassLevelModal(level)}
+                    disabled={total === 0}
+                    className={`rounded-lg border px-3 py-2 text-left transition-colors ${plannedClassLevelBadgeClass(level)} ${
+                      total > 0
+                        ? "hover:brightness-110 cursor-pointer"
+                        : "opacity-50 cursor-default"
+                    }`}
+                  >
+                    <div className="text-xs font-medium opacity-90">
+                      {PLANNED_CLASS_LEVEL_LABELS[level]}
+                    </div>
+                    <div className="text-sm font-semibold tabular-nums">
+                      {total} signed up
+                      <span className="font-normal opacity-80"> · {checked_in} checked in</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {checkedInCount > 0 && (
             <div className="mb-4 rounded-lg border border-neutral-600 bg-neutral-900/50 p-4">
               <h3 className="text-sm font-semibold text-white mb-1">Check-in timing vs. start</h3>
@@ -1257,7 +1316,7 @@ export default function RegistrationPage() {
                 >
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-white text-sm md:text-base">
+                      <h3 className="font-semibold text-white text-sm md:text-base flex flex-wrap items-center gap-2">
                         {isAdmin ? (
                           <button
                             type="button"
@@ -1276,6 +1335,9 @@ export default function RegistrationPage() {
                           <>
                             {signup.first_name} {signup.last_name}
                           </>
+                        )}
+                        {isAdmin && showAllThreeClasses && (
+                          <PlannedClassLevelBadge level={signup.planned_class_level} />
                         )}
                       </h3>
                       {isAdmin && signup.refunded_or_cancelled === "partial" && (
@@ -1395,8 +1457,14 @@ export default function RegistrationPage() {
                   </>
                 ) : (
                   <>
-                    <h3 className="font-semibold text-white">
-                      {(scannedResult.signup as Signup).first_name} {(scannedResult.signup as Signup).last_name}
+                    <h3 className="font-semibold text-white flex flex-wrap items-center gap-2">
+                      {(scannedResult.signup as Signup).first_name}{" "}
+                      {(scannedResult.signup as Signup).last_name}
+                      {isAdmin && showAllThreeClasses && (
+                        <PlannedClassLevelBadge
+                          level={(scannedResult.signup as Signup).planned_class_level}
+                        />
+                      )}
                     </h3>
                     <p className="text-gray-400 truncate">{(scannedResult.signup as Signup).email}</p>
                     <p className="text-gray-400">
@@ -1688,6 +1756,62 @@ export default function RegistrationPage() {
           setScannedResult({ signup, isComp: result.isComp });
         }}
       />
+      {classLevelModal && classLevelSummary && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div
+            className={`w-full max-w-md rounded-xl border-2 p-5 shadow-xl ${plannedClassLevelModalClass(classLevelModal)}`}
+          >
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-white">
+                  {PLANNED_CLASS_LEVEL_LABELS[classLevelModal]}
+                </h3>
+                <p className="text-sm text-gray-400 tabular-nums">
+                  {classLevelSummary.counts[classLevelModal].total} signed up ·{" "}
+                  {classLevelSummary.counts[classLevelModal].checked_in} checked in
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setClassLevelModal(null)}
+                className="text-sm text-gray-400 hover:text-white shrink-0"
+              >
+                Close
+              </button>
+            </div>
+            {classLevelSummary.roster[classLevelModal].length === 0 ? (
+              <p className="text-sm text-gray-400">No signups for this level.</p>
+            ) : (
+              <ul className="space-y-2 max-h-[min(60vh,24rem)] overflow-y-auto pr-1">
+                {classLevelSummary.roster[classLevelModal].map((entry) => (
+                  <li
+                    key={entry.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-neutral-700 bg-neutral-800 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-medium text-white block">
+                        {entry.first_name} {entry.last_name}
+                      </span>
+                      <span className="text-xs text-gray-400 tabular-nums">
+                        {(entry.class_signup_count ?? 0) === 1
+                          ? "1 class signup"
+                          : `${entry.class_signup_count ?? 0} class signups`}
+                      </span>
+                    </div>
+                    <span
+                      className={`text-xs font-semibold shrink-0 ${
+                        entry.checked_in ? "text-green-400" : "text-gray-500"
+                      }`}
+                    >
+                      {entry.checked_in ? "Checked in" : "Not checked in"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
       {refundModal && sessionToken && (
         <RegistrationRefundModal
           open={!!refundModal}

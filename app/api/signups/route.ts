@@ -15,15 +15,17 @@ import {
 } from "@/lib/utils/workshopPricing";
 import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
 import { roundCurrency } from "@/lib/utils/paymentHelpers";
+import { computeClassLevelSummary, PLANNED_CLASS_LEVELS, applyClassSignupCounts } from "@/lib/classLevels";
+import { loadClassSignupCountsByEmail } from "@/lib/utils/classCheckInCounts";
 
 const COMP_SIGNUPS_SELECT =
   "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled";
 
 const SIGNUPS_SELECT =
-  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code";
+  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code,planned_class_level";
 
 const EVENT_PRICING_SELECT =
-  "id,type,starts_at,ends_at,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes";
+  "id,type,starts_at,ends_at,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,all_three_classes";
 
 const EVENT_META_CACHE_TTL_MS = 60_000; // 60 seconds
 const eventMetaCache = new Map<
@@ -224,6 +226,19 @@ export async function GET(req: NextRequest) {
       signups = enrichedList.filter((s) => s.checked_in === true);
     }
 
+    const eventPricing = await loadEventPricing(eventId);
+    const allThreeClasses = eventPricing?.all_three_classes === true;
+    let classLevelSummary = allThreeClasses
+      ? computeClassLevelSummary(enrichedList)
+      : null;
+    if (classLevelSummary) {
+      const rosterEmails = PLANNED_CLASS_LEVELS.flatMap((level) =>
+        classLevelSummary!.roster[level].map((entry) => entry.email)
+      );
+      const classSignupCounts = await loadClassSignupCountsByEmail(rosterEmails);
+      classLevelSummary = applyClassSignupCounts(classLevelSummary, classSignupCounts);
+    }
+
     return NextResponse.json({
       signups,
       compSignups: [],
@@ -231,7 +246,9 @@ export async function GET(req: NextRequest) {
       total,
       checked_in,
       check_in_arrival_buckets,
-      eventPricing: await loadEventPricing(eventId),
+      eventPricing,
+      all_three_classes: allThreeClasses,
+      class_level_summary: classLevelSummary,
     });
   } catch (error: any) {
     console.error("Error:", error);
@@ -259,6 +276,7 @@ async function loadEventPricing(eventId: string) {
     price_changes: normalizePriceChanges(data.price_changes),
     ccs_team_price: data.ccs_team_price != null ? Number(data.ccs_team_price) : null,
     ccs_team_price_changes: normalizePriceChanges(data.ccs_team_price_changes),
+    all_three_classes: data.all_three_classes === true,
   };
 }
 

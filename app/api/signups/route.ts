@@ -17,6 +17,7 @@ import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
 import { roundCurrency } from "@/lib/utils/paymentHelpers";
 import { computeClassLevelSummary, PLANNED_CLASS_LEVELS, applyClassSignupCounts } from "@/lib/classLevels";
 import { loadClassSignupCountsByEmail } from "@/lib/utils/classCheckInCounts";
+import { canViewClassLevelBreakdown } from "@/lib/classLevelRegistrationAccess";
 
 const COMP_SIGNUPS_SELECT =
   "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled";
@@ -228,9 +229,15 @@ export async function GET(req: NextRequest) {
 
     const eventPricing = await loadEventPricing(eventId);
     const allThreeClasses = eventPricing?.all_three_classes === true;
-    let classLevelSummary = allThreeClasses
-      ? computeClassLevelSummary(enrichedList)
-      : null;
+    const showClassLevelBreakdown = canViewClassLevelBreakdown(
+      auth.access.userId,
+      auth.access.level,
+      eventMeta
+    );
+    let classLevelSummary =
+      allThreeClasses && showClassLevelBreakdown
+        ? computeClassLevelSummary(enrichedList)
+        : null;
     if (classLevelSummary) {
       const rosterEmails = PLANNED_CLASS_LEVELS.flatMap((level) =>
         classLevelSummary!.roster[level].map((entry) => entry.email)

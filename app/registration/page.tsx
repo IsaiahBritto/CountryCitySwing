@@ -15,6 +15,7 @@ import {
 } from "@/lib/utils/dateHelpers";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { canMutateRegistrationEvent } from "@/lib/registrationAuthPolicy";
+import { canViewClassLevelBreakdown } from "@/lib/classLevelRegistrationAccess";
 import {
   type CheckInArrivalBuckets,
   EMPTY_CHECK_IN_ARRIVAL_BUCKETS,
@@ -142,6 +143,7 @@ export default function RegistrationPage() {
   const fadingOutRef = useRef<Set<string>>(fadingOut);
   fadingOutRef.current = fadingOut;
   const [userEmail, setUserEmail] = useState<string>("");
+  const [userId, setUserId] = useState<string>("");
   const [userRole, setUserRole] = useState<string>("");
   const [registrationAccess, setRegistrationAccess] =
     useState<RegistrationAccessLevel | null>(null);
@@ -192,6 +194,7 @@ export default function RegistrationPage() {
       setSessionToken(session?.access_token ?? null);
       if (!session?.access_token) {
         setUserEmail("");
+        setUserId("");
         setUserRole("");
         setRegistrationAccess(null);
         setIsInstructor(false);
@@ -200,6 +203,7 @@ export default function RegistrationPage() {
         return;
       }
       setUserEmail(session.user?.email || "");
+      setUserId(session.user?.id || "");
       try {
         const res = await fetch("/api/me", {
           headers: { Authorization: `Bearer ${session!.access_token}` },
@@ -610,6 +614,16 @@ export default function RegistrationPage() {
   const showAllThreeClasses =
     !isCompEvent &&
     (selectedEvent?.all_three_classes === true || classLevelSummary != null);
+  const canShowClassLevelBreakdown =
+    showAllThreeClasses &&
+    selectedEvent != null &&
+    registrationAccess != null &&
+    canViewClassLevelBreakdown(userId, registrationAccess, {
+      type: selectedEvent.type,
+      starts_at: selectedEvent.starts_at,
+      ends_at: selectedEvent.ends_at ?? null,
+      time_zone: selectedEvent.time_zone,
+    });
 
   const scheduleDueForSignup = (signup: Signup): number => {
     if (!eventPricing) return Number(signup.amount_owed) || 0;
@@ -1058,7 +1072,7 @@ export default function RegistrationPage() {
             {isCompEvent ? `${totalCount} comp registration(s) · ${checkedInCount} checked in` : `${totalCount} signed up · ${checkedInCount} checked in`}
           </p>
 
-          {showAllThreeClasses && classLevelSummary && (
+          {canShowClassLevelBreakdown && classLevelSummary && (
             <div className="mb-4 flex flex-wrap gap-2">
               {PLANNED_CLASS_LEVELS.map((level) => {
                 const { total, checked_in } = classLevelSummary.counts[level];
@@ -1336,7 +1350,7 @@ export default function RegistrationPage() {
                             {signup.first_name} {signup.last_name}
                           </>
                         )}
-                        {isAdmin && showAllThreeClasses && (
+                        {canShowClassLevelBreakdown && (
                           <PlannedClassLevelBadge level={signup.planned_class_level} />
                         )}
                       </h3>
@@ -1460,7 +1474,7 @@ export default function RegistrationPage() {
                     <h3 className="font-semibold text-white flex flex-wrap items-center gap-2">
                       {(scannedResult.signup as Signup).first_name}{" "}
                       {(scannedResult.signup as Signup).last_name}
-                      {isAdmin && showAllThreeClasses && (
+                      {canShowClassLevelBreakdown && (
                         <PlannedClassLevelBadge
                           level={(scannedResult.signup as Signup).planned_class_level}
                         />

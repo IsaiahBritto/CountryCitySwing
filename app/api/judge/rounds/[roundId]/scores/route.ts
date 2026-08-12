@@ -134,6 +134,16 @@ export async function PUT(
           ? Math.round(raw * 10) / 10
           : null;
     }
+    if (s.thumbs_up_count !== undefined) {
+      const n = Number(s.thumbs_up_count);
+      row.thumbs_up_count =
+        Number.isInteger(n) && n >= 0 ? n : 0;
+    }
+    if (s.thumbs_down_count !== undefined) {
+      const n = Number(s.thumbs_down_count);
+      row.thumbs_down_count =
+        Number.isInteger(n) && n >= 0 ? n : 0;
+    }
     rows.push(row);
   }
   if (rows.length === 0) {

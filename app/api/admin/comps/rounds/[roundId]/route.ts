@@ -28,6 +28,7 @@ import {
   setupRoundHeats,
 } from "@/lib/comps/heatSetup";
 import { previewAutoHeatCount } from "@/lib/comps/heatPlan";
+import { repairPromotedAlternateRoles } from "@/lib/comps/promoteAlternate";
 
 /** GET: round detail for the director console (entries, judges, progress). */
 export async function GET(
@@ -39,6 +40,7 @@ export async function GET(
   const { roundId } = await params;
 
   try {
+    await repairPromotedAlternateRoles(roundId);
     const ctx = await loadRoundContext(roundId);
     const { data: heats } = await supabaseServer
       .from("comp_heats")

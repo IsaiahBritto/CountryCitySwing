@@ -7,6 +7,7 @@ import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import {
   CheckinEntryList,
   PromoteAlternateButton,
+  PromoteAlternateButtons,
   type CheckinEntryRow,
 } from "@/components/comps/admin/CheckinEntryList";
 import {
@@ -167,12 +168,15 @@ export default function EventCheckinPage({
     });
   };
 
-  const promoteAlternate = async (roundId: string) => {
+  const promoteAlternate = async (roundId: string, role?: "lead" | "follow") => {
     setBusyRound(roundId);
     setError(null);
     const res = await authedFetch(`/api/admin/comps/rounds/${roundId}/checkin`, {
       method: "POST",
-      body: JSON.stringify({ action: "promote_alternate" }),
+      body: JSON.stringify({
+        action: "promote_alternate",
+        ...(role ? { role } : {}),
+      }),
     });
     setBusyRound(null);
     if (!res.ok) {
@@ -274,11 +278,23 @@ export default function EventCheckinPage({
                         · status: {round.status}
                       </p>
 
-                      {round.sourceRoundId && (
-                        <PromoteAlternateButton
+                      {round.prePairing ? (
+                        <PromoteAlternateButtons
                           busy={busy}
-                          onClick={() => promoteAlternate(round.roundId)}
+                          onPromoteLead={() =>
+                            promoteAlternate(round.roundId, "lead")
+                          }
+                          onPromoteFollow={() =>
+                            promoteAlternate(round.roundId, "follow")
+                          }
                         />
+                      ) : (
+                        round.sourceRoundId && (
+                          <PromoteAlternateButton
+                            busy={busy}
+                            onClick={() => promoteAlternate(round.roundId)}
+                          />
+                        )
                       )}
 
                       {round.prePairing ? (

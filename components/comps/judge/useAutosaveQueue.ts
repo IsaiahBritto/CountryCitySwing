@@ -9,6 +9,8 @@ export interface ScorePatch {
   callback_value?: string | null;
   ordinal?: number | null;
   raw_score?: number | null;
+  thumbs_up_count?: number;
+  thumbs_down_count?: number;
 }
 
 export type SaveState = "idle" | "saving" | "offline";

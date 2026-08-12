@@ -43,6 +43,8 @@ export interface JudgeRoundViewPayload {
     callback_value: string | null;
     ordinal: number | null;
     raw_score: number | null;
+    thumbs_up_count: number;
+    thumbs_down_count: number;
     updated_at: string;
   }[];
 }
@@ -133,6 +135,8 @@ export async function buildJudgeRoundViewPayload(
       callback_value: s.callback_value,
       ordinal: s.ordinal,
       raw_score: s.raw_score != null ? Number(s.raw_score) : null,
+      thumbs_up_count: s.thumbs_up_count ?? 0,
+      thumbs_down_count: s.thumbs_down_count ?? 0,
       updated_at: s.updated_at,
     })),
   };

@@ -192,6 +192,8 @@ export interface CompScoreRow {
   callback_value: CallbackValue | null;
   ordinal: number | null;
   raw_score: number | null;
+  thumbs_up_count: number;
+  thumbs_down_count: number;
   entered_by: string | null;
   updated_at: string;
 }

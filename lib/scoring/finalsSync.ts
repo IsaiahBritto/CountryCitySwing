@@ -1,29 +1,18 @@
 /**
- * Bidirectional sync between placement mode (drag-to-rank) and raw-score mode
- * (0-100 slider) in the finals judging UI.
- *
- * Invariants: items are kept in placement order (index 0 = 1st place), raw
- * scores are strictly descending, and every raw score is a multiple of 0.1
- * between 0 and 100.
- *
- * Rules (agreed in the plan):
- * - Seeding from placements: 100, 99.9, 99.8, ...
- * - Editing a raw score re-sorts and recomputes every placement instantly;
- *   the edited entry wins ties against the entry it just matched so movement
- *   is deterministic while the judge keeps adjusting.
- * - Drag-to-reorder uses inherit-and-nudge: the moved entry takes the raw
- *   score of the slot it moved into, and displaced entries cascade 0.1 below
- *   as needed to keep a unique descending order (e.g. bib 23 holds 100 in
- *   1st; drag bib 45 to 1st -> 45 gets 100, 23 gets 99.9).
+ * Finals judging sync: raw scores drive partial ordinals during scoring;
+ * verify step finalizes full 1..N ranking and reseeds raw on reorder.
  */
 
 export interface FinalsScoreItem {
   entryId: string;
-  /** Raw score 0-100, one decimal; null until the judge sets it. */
+  /** Placement 1..N; null until ranked (partial during scoring). */
+  ordinal: number | null;
+  /** Raw score 0-100, one decimal; null until set. */
   raw: number | null;
 }
 
-const STEP = 0.1;
+const RAW_FLOOR = 20;
+const RAW_CEILING = 100;
 
 export function roundScore(value: number): number {
   return Math.round(value * 10) / 10;
@@ -33,64 +22,102 @@ export function clampScore(value: number): number {
   return roundScore(Math.min(100, Math.max(0, value)));
 }
 
-/** Initial raw scores for a placement-first judge: 100, 99.9, 99.8, ... */
-export function seedRawFromPlacements(entryIds: string[]): FinalsScoreItem[] {
-  return entryIds.map((entryId, i) => ({
-    entryId,
-    raw: clampScore(100 - i * STEP),
-  }));
-}
-
-/**
- * Walks the list top-down and pushes any entry that is not strictly below the
- * one above it down to (above - 0.1). Preserves order, fixes uniqueness.
- */
-function cascadeDown(items: FinalsScoreItem[]): FinalsScoreItem[] {
-  const out = items.map((i) => ({ ...i }));
-  for (let i = 1; i < out.length; i++) {
-    const prev = out[i - 1].raw;
-    const curr = out[i].raw;
-    if (prev == null || curr == null) continue;
-    const maxAllowed = roundScore(prev - STEP);
-    if (curr > maxAllowed) {
-      out[i].raw = Math.max(0, maxAllowed);
-    }
+/** Assigns raw 100→floor for every id in rank order (all receive a score). */
+export function seedRawFromRankOrder(
+  orderedEntryIds: string[],
+  options?: { floor?: number; ceiling?: number }
+): Map<string, number> {
+  const floor = options?.floor ?? RAW_FLOOR;
+  const ceiling = options?.ceiling ?? RAW_CEILING;
+  const out = new Map<string, number>();
+  const n = orderedEntryIds.length;
+  if (n === 0) return out;
+  if (n === 1) {
+    out.set(orderedEntryIds[0], clampScore(ceiling));
+    return out;
+  }
+  const span = ceiling - floor;
+  for (let i = 0; i < n; i++) {
+    out.set(
+      orderedEntryIds[i],
+      clampScore(ceiling - (i * span) / (n - 1))
+    );
   }
   return out;
 }
 
-/**
- * Applies a drag from `fromIndex` to `toIndex` (indexes into the current
- * placement order). Returns the new placement-ordered list.
- */
-export function applyReorder(
-  items: FinalsScoreItem[],
-  fromIndex: number,
-  toIndex: number
-): FinalsScoreItem[] {
-  if (
-    fromIndex === toIndex ||
-    fromIndex < 0 ||
-    toIndex < 0 ||
-    fromIndex >= items.length ||
-    toIndex >= items.length
-  ) {
-    return items;
-  }
-  const inheritedRaw = items[toIndex].raw;
-  const next = items.map((i) => ({ ...i }));
-  const [moved] = next.splice(fromIndex, 1);
-  if (inheritedRaw != null) {
-    moved.raw = inheritedRaw;
-  }
-  next.splice(toIndex, 0, moved);
-  return cascadeDown(next);
+export function allScored(items: FinalsScoreItem[]): boolean {
+  return items.length > 0 && items.every((i) => i.raw != null);
+}
+
+export function canOpenVerify(items: FinalsScoreItem[]): boolean {
+  return allScored(items) && tiedEntryIds(items).length === 0;
 }
 
 /**
- * Applies a raw-score edit and re-sorts into the new placement order. The
- * edited entry places above any entry it now ties with, so the judge sees a
- * deterministic order and an explicit tie to fix if they stop there.
+ * Assigns ordinals 1..N by raw desc when every entry is scored with no ties.
+ * Returns null if prerequisites fail.
+ */
+export function finalizeAllRankings(
+  items: FinalsScoreItem[]
+): FinalsScoreItem[] | null {
+  if (!canOpenVerify(items)) return null;
+
+  const ranked = [...items]
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const aRaw = a.item.raw!;
+      const bRaw = b.item.raw!;
+      if (aRaw !== bRaw) return bRaw - aRaw;
+      return a.index - b.index;
+    });
+
+  const rankById = new Map(
+    ranked.map(({ item }, i) => [item.entryId, i + 1] as const)
+  );
+
+  return items.map((i) => ({
+    ...i,
+    ordinal: rankById.get(i.entryId)!,
+  }));
+}
+
+/** Swap two fully-ranked entries and reseed raw for all N couples. */
+export function reorderRankedAndSeedAll(
+  items: FinalsScoreItem[],
+  entryIdA: string,
+  entryIdB: string
+): FinalsScoreItem[] {
+  const next = items.map((i) => ({ ...i }));
+  const a = next.find((i) => i.entryId === entryIdA);
+  const b = next.find((i) => i.entryId === entryIdB);
+  if (!a || !b || a.ordinal == null || b.ordinal == null) return items;
+
+  const tmp = a.ordinal;
+  a.ordinal = b.ordinal;
+  b.ordinal = tmp;
+
+  return reseedAllRawFromOrdinals(next);
+}
+
+/** Reseed raw 100→20 for every entry with an ordinal (expects full N at verify). */
+export function reseedAllRawFromOrdinals(
+  items: FinalsScoreItem[]
+): FinalsScoreItem[] {
+  const ranked = [...items]
+    .filter((i) => i.ordinal != null)
+    .sort((a, b) => a.ordinal! - b.ordinal!);
+  const seeds = seedRawFromRankOrder(ranked.map((i) => i.entryId));
+  return items.map((i) =>
+    i.ordinal != null
+      ? { ...i, raw: seeds.get(i.entryId) ?? i.raw }
+      : i
+  );
+}
+
+/**
+ * Applies a raw-score edit and reassigns ordinals by raw desc (edited entry
+ * wins ties). Entries without raw lose their ordinal.
  */
 export function applyRawChange(
   items: FinalsScoreItem[],
@@ -101,21 +128,31 @@ export function applyRawChange(
   const next = items.map((i) =>
     i.entryId === entryId ? { ...i, raw: value } : { ...i }
   );
-  // Stable sort by raw desc; the edited entry wins exact ties.
-  return next
+
+  const ranked = next
+    .filter((i) => i.raw != null)
     .map((item, index) => ({ item, index }))
     .sort((a, b) => {
-      const aRaw = a.item.raw ?? -1;
-      const bRaw = b.item.raw ?? -1;
+      const aRaw = a.item.raw!;
+      const bRaw = b.item.raw!;
       if (aRaw !== bRaw) return bRaw - aRaw;
       if (a.item.entryId === entryId) return -1;
       if (b.item.entryId === entryId) return 1;
       return a.index - b.index;
     })
     .map(({ item }) => item);
+
+  const rankById = new Map(
+    ranked.map((item, i) => [item.entryId, i + 1] as const)
+  );
+
+  return next.map((i) => ({
+    ...i,
+    ordinal: rankById.get(i.entryId) ?? null,
+  }));
 }
 
-/** Entry ids involved in any exact raw-score tie (blocks sheet submission). */
+/** Entry ids involved in any exact raw-score tie (blocks verify/submit). */
 export function tiedEntryIds(items: FinalsScoreItem[]): string[] {
   const byRaw = new Map<number, string[]>();
   for (const item of items) {
@@ -129,11 +166,69 @@ export function tiedEntryIds(items: FinalsScoreItem[]): string[] {
   return tied;
 }
 
-/** Placement-ordered items -> { entryId: ordinal } map for submission. */
 export function toOrdinals(items: FinalsScoreItem[]): Record<string, number> {
   const out: Record<string, number> = {};
-  items.forEach((item, i) => {
-    out[item.entryId] = i + 1;
-  });
+  for (const item of items) {
+    if (item.ordinal != null) out[item.entryId] = item.ordinal;
+  }
   return out;
+}
+
+/**
+ * Evenly respreads non-null raw scores from ceiling down to floor in the given
+ * rank order. Null scores stay null.
+ */
+export function respreadRawScores(
+  orderedEntryIds: string[],
+  rawByEntryId: Map<string, number | null>,
+  options?: { floor?: number; ceiling?: number }
+): Map<string, number | null> {
+  const floor = options?.floor ?? RAW_FLOOR;
+  const ceiling = options?.ceiling ?? RAW_CEILING;
+  const out = new Map(rawByEntryId);
+  const scoredIds = orderedEntryIds.filter(
+    (id) => rawByEntryId.get(id) != null
+  );
+  const n = scoredIds.length;
+  if (n === 0) return out;
+  const seeds = seedRawFromRankOrder(scoredIds, { floor, ceiling });
+  for (const [id, raw] of seeds) {
+    out.set(id, raw);
+  }
+  return out;
+}
+
+/** Read-only ordinals 1..k for scored entries (raw desc, stable index tie-break). */
+export function partialOrdinalsFromItems(
+  items: FinalsScoreItem[]
+): Map<string, number> {
+  const ranked = items
+    .filter((i) => i.raw != null)
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const aRaw = a.item.raw!;
+      const bRaw = b.item.raw!;
+      if (aRaw !== bRaw) return bRaw - aRaw;
+      return a.index - b.index;
+    });
+  const out = new Map<string, number>();
+  ranked.forEach(({ item }, i) => out.set(item.entryId, i + 1));
+  return out;
+}
+
+export function rankedEntryIds(items: FinalsScoreItem[]): string[] {
+  return [...items]
+    .filter((i) => i.ordinal != null)
+    .sort((a, b) => a.ordinal! - b.ordinal!)
+    .map((i) => i.entryId);
+}
+
+export function itemsInRankOrder(items: FinalsScoreItem[]): FinalsScoreItem[] {
+  return [...items]
+    .filter((i) => i.ordinal != null)
+    .sort((a, b) => a.ordinal! - b.ordinal!);
+}
+
+export function ordinalLabel(n: number): string {
+  return `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
 }

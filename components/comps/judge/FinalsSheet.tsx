@@ -1,19 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnOutlineLg, compBtnTabActive, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import { compBtnOutlineLg, compBtnOutlineSm, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
 import HeatSectionDivider from "@/components/comps/judge/HeatSectionDivider";
+import JudgeConfirmDialog from "@/components/comps/judge/JudgeConfirmDialog";
+import JudgeSheetHeader from "@/components/comps/judge/JudgeSheetHeader";
+import JudgeRawScoreControls, {
+  JudgeRawScoreNudgeButtons,
+} from "@/components/comps/judge/JudgeRawScoreControls";
+import FinalsVerifyPlacementsModal from "@/components/comps/judge/FinalsVerifyPlacementsModal";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 import {
   applyRawChange,
-  applyReorder,
+  canOpenVerify,
   clampScore,
+  finalizeAllRankings,
+  ordinalLabel,
+  partialOrdinalsFromItems,
   roundScore,
-  seedRawFromPlacements,
+  respreadRawScores,
+  rankedEntryIds,
   tiedEntryIds,
   type FinalsScoreItem,
 } from "@/lib/scoring/finalsSync";
+import {
+  type DisplayOrder,
+  sortForDisplayOrder,
+} from "@/lib/scoring/displayOrder";
 
 interface SheetEntry {
   roundEntryId: string;
@@ -25,7 +39,10 @@ interface SheetEntry {
   heatNumber?: number | null;
 }
 
-type Mode = "placement" | "raw";
+interface ThumbsState {
+  up: number;
+  down: number;
+}
 
 export default function FinalsSheet({
   roundId,
@@ -45,6 +62,8 @@ export default function FinalsSheet({
     round_entry_id: string;
     ordinal: number | null;
     raw_score: number | null;
+    thumbs_up_count?: number;
+    thumbs_down_count?: number;
   }[];
   sheetStatus: "draft" | "submitted";
   onSubmitted: () => void;
@@ -58,29 +77,16 @@ export default function FinalsSheet({
   const [items, setItems] = useState<FinalsScoreItem[]>(() =>
     buildInitialItems(entries, initialScores)
   );
-
-  const heatSections = useMemo(() => {
-    const rows = items.map((item, index) => ({
-      item,
-      index,
-      heatNumber: entryById.get(item.entryId)?.heatNumber ?? null,
-    }));
-    const hasHeat = rows.some((r) => r.heatNumber != null);
-    if (!hasHeat) {
-      return [[null, rows] as const];
-    }
-    const map = new Map<number | null, typeof rows>();
-    for (const row of rows) {
-      map.set(row.heatNumber, [...(map.get(row.heatNumber) ?? []), row]);
-    }
-    return [...map.entries()].sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0));
-  }, [items, entryById]);
-
-  const [mode, setMode] = useState<Mode>("placement");
+  const [thumbs, setThumbs] = useState<Map<string, ThumbsState>>(() =>
+    buildInitialThumbs(initialScores)
+  );
+  const [displayOrder, setDisplayOrder] = useState<DisplayOrder>("bib");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [verifyOpen, setVerifyOpen] = useState(false);
   const [sliderDraft, setSliderDraft] = useState<Map<string, number>>(new Map());
+  const [spreadConfirmOpen, setSpreadConfirmOpen] = useState(false);
   const locked = sheetStatus === "submitted";
 
   const autosave = useAutosaveQueue({
@@ -89,24 +95,69 @@ export default function FinalsSheet({
     sendAssignmentId: isOverride,
   });
 
+  const displayRows = useMemo(() => {
+    const enriched = items.map((item) => ({
+      item,
+      bibNumber: entryById.get(item.entryId)?.bibNumber ?? null,
+      danceOrder: null as number | null,
+      raw: item.raw,
+      ordinal: item.ordinal,
+      entryId: item.entryId,
+    }));
+    return sortForDisplayOrder(enriched, displayOrder, "raw");
+  }, [items, entryById, displayOrder]);
+
+  const heatSections = useMemo(() => {
+    if (displayOrder !== "bib") {
+      return [[null, displayRows] as const];
+    }
+    const hasHeat = displayRows.some(
+      (r) => entryById.get(r.entryId)?.heatNumber != null
+    );
+    if (!hasHeat) {
+      return [[null, displayRows] as const];
+    }
+    const map = new Map<number | null, typeof displayRows>();
+    for (const row of displayRows) {
+      const heatNumber = entryById.get(row.entryId)?.heatNumber ?? null;
+      map.set(heatNumber, [...(map.get(heatNumber) ?? []), row]);
+    }
+    return [...map.entries()].sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0));
+  }, [displayRows, displayOrder, entryById]);
+
   useEffect(() => {
     const restored = autosave.restoreUnsent();
     if (restored.length > 0 && !locked) {
       setItems((prev) => {
-        const byId = new Map(prev.map((i) => [i.entryId, i]));
         const patched = prev.map((i) => ({ ...i }));
         for (const patch of restored) {
-          const item = byId.get(patch.round_entry_id);
-          if (item && typeof patch.raw_score === "number") {
-            const target = patched.find((p) => p.entryId === patch.round_entry_id);
-            if (target) target.raw = clampScore(patch.raw_score);
+          const target = patched.find((p) => p.entryId === patch.round_entry_id);
+          if (!target) continue;
+          if (patch.ordinal !== undefined) {
+            target.ordinal =
+              patch.ordinal != null && patch.ordinal > 0 ? patch.ordinal : null;
+          }
+          if (typeof patch.raw_score === "number") {
+            target.raw = clampScore(patch.raw_score);
           }
         }
-        return [...patched].sort((a, b) => {
-          const aRaw = a.raw ?? -1;
-          const bRaw = b.raw ?? -1;
-          return bRaw - aRaw;
-        });
+        return patched;
+      });
+      setThumbs((prev) => {
+        const next = new Map(prev);
+        for (const patch of restored) {
+          if (
+            patch.thumbs_up_count !== undefined ||
+            patch.thumbs_down_count !== undefined
+          ) {
+            const existing = next.get(patch.round_entry_id) ?? { up: 0, down: 0 };
+            next.set(patch.round_entry_id, {
+              up: patch.thumbs_up_count ?? existing.up,
+              down: patch.thumbs_down_count ?? existing.down,
+            });
+          }
+        }
+        return next;
       });
       setNotice("Draft restored from this device");
     }
@@ -115,12 +166,15 @@ export default function FinalsSheet({
 
   const saveAll = (next: FinalsScoreItem[]) => {
     autosave.queue(
-      next.map((item, i) => ({
+      next.map((item) => ({
         round_entry_id: item.entryId,
-        ordinal: i + 1,
+        ordinal: item.ordinal,
         ...(item.raw != null ? { raw_score: item.raw } : {}),
       })),
-      { scored: next.length, total: next.length }
+      {
+        scored: next.filter((i) => i.raw != null).length,
+        total: next.length,
+      }
     );
   };
 
@@ -130,80 +184,36 @@ export default function FinalsSheet({
     saveAll(next);
   };
 
+  const saveThumbs = (entryId: string, patch: Partial<ThumbsState>) => {
+    setThumbs((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(entryId) ?? { up: 0, down: 0 };
+      const merged = { ...existing, ...patch };
+      next.set(entryId, merged);
+      autosave.queue([
+        {
+          round_entry_id: entryId,
+          thumbs_up_count: merged.up,
+          thumbs_down_count: merged.down,
+        },
+      ]);
+      return next;
+    });
+  };
+
   const tied = new Set(tiedEntryIds(items));
+  const scoredCount = items.filter((i) => i.raw != null).length;
+  const readyForVerify = canOpenVerify(items);
 
-  // --- Drag to reorder (pointer events; works for touch and mouse) ---
-  const listRef = useRef<HTMLDivElement | null>(null);
-  const [drag, setDrag] = useState<{
-    index: number;
-    over: number;
-    startY: number;
-    dy: number;
-    rowHeight: number;
-  } | null>(null);
-  const dragRef = useRef(drag);
-  dragRef.current = drag;
-  const itemsRef = useRef(items);
-  itemsRef.current = items;
-
-  const startDrag = (index: number, clientY: number) => {
-    if (locked) return;
-    const first = listRef.current?.querySelector("[data-fs-row]");
-    const rowHeight = first
-      ? (first as HTMLElement).getBoundingClientRect().height + 8
-      : 72;
-    setDrag({ index, over: index, startY: clientY, dy: 0, rowHeight });
-  };
-
-  useEffect(() => {
-    if (!drag) return;
-    const onMove = (e: PointerEvent) => {
-      const d = dragRef.current;
-      if (!d) return;
-      const dy = e.clientY - d.startY;
-      const shift = Math.round(dy / d.rowHeight);
-      const over = Math.min(
-        itemsRef.current.length - 1,
-        Math.max(0, d.index + shift)
-      );
-      setDrag({ ...d, dy, over });
-    };
-    const onUp = () => {
-      const d = dragRef.current;
-      if (d && d.over !== d.index) {
-        update(applyReorder(itemsRef.current, d.index, d.over));
-      }
-      setDrag(null);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag !== null]);
-
-  /** Visual row offset while dragging (dragged row follows the pointer). */
-  const rowStyle = (index: number): React.CSSProperties => {
-    if (!drag) return {};
-    if (index === drag.index) {
-      return {
-        transform: `translateY(${drag.dy}px)`,
-        zIndex: 10,
-        position: "relative",
-      };
-    }
-    if (drag.over >= drag.index && index > drag.index && index <= drag.over) {
-      return { transform: `translateY(-${drag.rowHeight}px)`, transition: "transform 120ms" };
-    }
-    if (drag.over <= drag.index && index < drag.index && index >= drag.over) {
-      return { transform: `translateY(${drag.rowHeight}px)`, transition: "transform 120ms" };
-    }
-    return { transition: "transform 120ms" };
-  };
+  const displayOrdinals = useMemo(() => {
+    const effective = items.map((item) => ({
+      ...item,
+      raw: sliderDraft.has(item.entryId)
+        ? clampScore(sliderDraft.get(item.entryId)!)
+        : item.raw,
+    }));
+    return partialOrdinalsFromItems(effective);
+  }, [items, sliderDraft]);
 
   const nudge = (entryId: string, delta: number) => {
     if (locked) return;
@@ -221,14 +231,43 @@ export default function FinalsSheet({
     });
   };
 
-  const moveTo = (index: number, target: number) => {
-    if (locked || target < 0 || target >= items.length) return;
-    update(applyReorder(items, index, target));
+  const applySpread = () => {
+    const order = rankedEntryIds(items);
+    const rawMap = new Map(items.map((i) => [i.entryId, i.raw]));
+    const nextRaw = respreadRawScores(order, rawMap, { floor: 20 });
+    update(
+      items.map((i) => ({
+        ...i,
+        raw: nextRaw.get(i.entryId) ?? i.raw,
+      }))
+    );
+    setSpreadConfirmOpen(false);
+    setSliderDraft(new Map());
   };
 
-  const submit = async () => {
-    if (tied.size > 0) {
-      setError("Two entries share the same raw score — adjust before submitting");
+  const openVerify = async () => {
+    if (!readyForVerify) {
+      if (tied.size > 0) {
+        setError("Two entries share the same raw score — adjust before reviewing");
+      } else if (scoredCount < items.length) {
+        setError("Score every couple before reviewing placements");
+      }
+      return;
+    }
+    setError(null);
+    const finalized = finalizeAllRankings(items);
+    if (!finalized) {
+      setError("Cannot review placements — resolve ties and score all couples");
+      return;
+    }
+    update(finalized);
+    await autosave.flushNow();
+    setVerifyOpen(true);
+  };
+
+  const finalSubmit = async () => {
+    if (!canOpenVerify(items)) {
+      setError("Cannot submit — resolve ties and ensure all couples are scored");
       return;
     }
     setSubmitting(true);
@@ -246,49 +285,28 @@ export default function FinalsSheet({
       return;
     }
     autosave.clearDraft();
+    setVerifyOpen(false);
     onSubmitted();
   };
 
-  const ordinalLabel = (n: number) =>
-    `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
+  const reviewButtonLabel = () => {
+    if (tied.size > 0) return "Resolve tied scores to review";
+    if (scoredCount < items.length) return `Score all couples (${scoredCount}/${items.length})`;
+    return "Review placements";
+  };
 
   return (
     <div>
-      {/* Sticky header: role toggle, mode toggle + save state */}
       <div className={judgeSheetStickyTop}>
-        {stickyHeaderExtra && (
-          <div className="mb-2 w-full">{stickyHeaderExtra}</div>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex w-full rounded-lg border border-neutral-700 p-0.5 sm:w-auto">
-            {(
-              [
-                ["placement", "Placements"],
-                ["raw", "Raw scores"],
-              ] as [Mode, string][]
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setMode(key)}
-                className={
-                  "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition min-h-11 sm:flex-none " +
-                  (mode === key
-                    ? compBtnTabActive
-                    : "border border-transparent text-neutral-400 hover:text-white")
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <span className="text-xs text-neutral-500 max-sm:w-full">
-            {autosave.saveState === "saving"
-              ? "Saving…"
-              : autosave.saveState === "offline"
-                ? "Offline — will retry"
-                : "Saved"}
-          </span>
-        </div>
+        <JudgeSheetHeader
+          stickyHeaderExtra={stickyHeaderExtra}
+          displayOrder={displayOrder}
+          onDisplayOrderChange={setDisplayOrder}
+          mode="raw"
+          onModeChange={() => {}}
+          saveState={autosave.saveState}
+          showModeTabs={false}
+        />
       </div>
 
       {notice && (
@@ -307,186 +325,146 @@ export default function FinalsSheet({
           change is needed.
         </div>
       )}
-      {mode === "placement" && !locked && (
-        <p className="mb-3 text-xs text-neutral-500">
-          Drag the handle (or use the arrows) to rank couples — 1st place at the
-          top. Raw scores follow automatically.
-        </p>
+      {!locked && (
+        <>
+          <p className="mb-2 text-xs text-neutral-500">
+            Score each couple with the slider. Placement updates as you score; review before submitting.
+          </p>
+          <button
+            type="button"
+            onClick={() => setSpreadConfirmOpen(true)}
+            disabled={scoredCount === 0}
+            className={compBtnOutlineSm + " mb-3 min-h-11"}
+          >
+            Spread scores evenly
+          </button>
+        </>
       )}
 
-      <div ref={listRef} className="space-y-2 overflow-x-auto">
+      <JudgeConfirmDialog
+        open={spreadConfirmOpen}
+        title="Spread scores evenly?"
+        message="Spread assigned raw scores evenly from 100 to 20 by current rank? Unscored competitors stay unscored."
+        confirmLabel="Spread scores"
+        onConfirm={applySpread}
+        onCancel={() => setSpreadConfirmOpen(false)}
+      />
+
+      <FinalsVerifyPlacementsModal
+        open={verifyOpen}
+        items={items}
+        entries={entries}
+        submitting={submitting}
+        onItemsChange={update}
+        onClose={() => setVerifyOpen(false)}
+        onFinalSubmit={finalSubmit}
+      />
+
+      <div className="space-y-2 overflow-x-auto">
         {heatSections.map(([heatNumber, rows]) => (
           <div key={heatNumber ?? "all"}>
-            {heatNumber != null && (
+            {heatNumber != null && displayOrder === "bib" && (
               <HeatSectionDivider
                 heatNumber={heatNumber}
                 entryCount={rows.length}
               />
             )}
-            {rows.map(({ item, index }) => {
-          const entry = entryById.get(item.entryId);
-          const isTied = tied.has(item.entryId);
-          return (
-            <div
-              key={item.entryId}
-              data-fs-row
-              style={rowStyle(index)}
-              className={
-                "mb-2 flex min-w-0 items-center gap-3 rounded-xl border bg-neutral-800/60 p-3 " +
-                (isTied
-                  ? "border-amber-500/70"
-                  : drag?.index === index
-                    ? "border-primary shadow-lg"
-                    : "border-neutral-700")
-              }
-            >
-              {/* Lead bib primary; follow secondary for JnJ couples */}
-              <div className="w-14 shrink-0 text-center">
-                <div className="text-2xl font-bold text-white">
-                  {entry?.bibNumber ?? "—"}
-                </div>
-                {entry?.followBibNumber != null && (
-                  <div className="font-mono text-xs text-neutral-500">
-                    +{entry.followBibNumber}
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-lg font-bold text-primary">
-                  {ordinalLabel(index + 1)}
-                </div>
-                {entry?.followDisplayName ? (
-                  <>
-                    <div className="truncate text-sm text-neutral-300">
-                      {entry.leadDisplayName ?? entry.displayName.split(" & ")[0]}
-                    </div>
-                    <div className="truncate text-xs text-neutral-500">
-                      {entry.followDisplayName}
-                    </div>
-                  </>
-                ) : (
-                  <div className="truncate text-sm text-white">
-                    {entry?.displayName}
-                  </div>
-                )}
-                <div className="text-xs text-neutral-400">
-                  Raw{" "}
-                  <span className="font-mono text-neutral-200">
-                    {item.raw != null ? item.raw.toFixed(1) : "—"}
-                  </span>
-                  {isTied && (
-                    <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
-                      tied — adjust
-                    </span>
-                  )}
-                </div>
-                {mode === "raw" && (
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={Math.round(
-                      sliderDraft.get(item.entryId) ?? item.raw ?? 0
-                    )}
-                    disabled={locked}
-                    onChange={(e) =>
-                      setSliderDraft((prev) => {
-                        const next = new Map(prev);
-                        next.set(item.entryId, Number(e.target.value));
-                        return next;
-                      })
-                    }
-                    onPointerUp={(e) =>
-                      commitSlider(item.entryId, Number(e.currentTarget.value))
-                    }
-                    onKeyUp={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        commitSlider(
-                          item.entryId,
-                          Number((e.target as HTMLInputElement).value)
-                        );
-                      }
-                    }}
-                    className="mt-2 h-8 w-full touch-manipulation accent-primary"
-                  />
-                )}
-              </div>
+            {rows.map((row) => {
+              const { item } = row;
+              const entry = entryById.get(item.entryId);
+              const isTied = tied.has(item.entryId);
+              const thumbState = thumbs.get(item.entryId) ?? { up: 0, down: 0 };
 
-              {mode === "raw" ? (
-                <div className="flex flex-col items-center gap-1">
-                  <button
-                    onClick={() => nudge(item.entryId, 0.1)}
-                    disabled={locked}
-                    className="flex h-11 w-11 items-center justify-center rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
-                    aria-label="Raise 0.1"
-                  >
-                    +
-                  </button>
-                  <button
-                    onClick={() => nudge(item.entryId, -0.1)}
-                    disabled={locked}
-                    className="flex h-11 w-11 items-center justify-center rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
-                    aria-label="Lower 0.1"
-                  >
-                    −
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1">
-                  <div className="flex flex-col gap-1">
-                    <button
-                      onClick={() => moveTo(index, index - 1)}
-                      disabled={locked || index === 0}
-                      className="flex h-9 w-10 items-center justify-center rounded-md border border-neutral-600 text-xs text-neutral-300 disabled:opacity-30"
-                      aria-label="Move up"
-                    >
-                      ▲
-                    </button>
-                    <button
-                      onClick={() => moveTo(index, index + 1)}
-                      disabled={locked || index === items.length - 1}
-                      className="flex h-9 w-10 items-center justify-center rounded-md border border-neutral-600 text-xs text-neutral-300 disabled:opacity-30"
-                      aria-label="Move down"
-                    >
-                      ▼
-                    </button>
+              return (
+                <div
+                  key={item.entryId}
+                  className={
+                    "mb-2 flex min-w-0 items-center gap-3 rounded-xl border bg-neutral-800/60 p-3 " +
+                    (isTied ? "border-amber-500/70" : "border-neutral-700")
+                  }
+                >
+                  <div className="w-14 shrink-0 text-center">
+                    <div className="text-2xl font-bold text-white">
+                      {entry?.bibNumber ?? "—"}
+                    </div>
+                    {entry?.followBibNumber != null && (
+                      <div className="font-mono text-xs text-neutral-500">
+                        +{entry.followBibNumber}
+                      </div>
+                    )}
                   </div>
-                  <div
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      startDrag(index, e.clientY);
-                    }}
-                    className={
-                      "flex h-14 w-10 cursor-grab touch-none select-none items-center justify-center rounded-md border border-neutral-600 text-neutral-400 " +
-                      (locked ? "opacity-40" : "active:cursor-grabbing")
-                    }
-                    aria-label="Drag to reorder"
-                  >
-                    ⠿
+                  <div className="min-w-0 flex-1">
+                    <div className="text-lg font-bold text-primary">
+                      {displayOrdinals.has(item.entryId)
+                        ? ordinalLabel(displayOrdinals.get(item.entryId)!)
+                        : "—"}
+                    </div>
+                    {entry?.followDisplayName ? (
+                      <>
+                        <div className="truncate text-sm text-neutral-300">
+                          {entry.leadDisplayName ??
+                            entry.displayName.split(" & ")[0]}
+                        </div>
+                        <div className="truncate text-xs text-neutral-500">
+                          {entry.followDisplayName}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="truncate text-sm text-white">
+                        {entry?.displayName}
+                      </div>
+                    )}
+                    <JudgeRawScoreControls
+                      entryId={item.entryId}
+                      raw={item.raw}
+                      sliderDraftValue={sliderDraft.get(item.entryId)}
+                      locked={locked}
+                      isTied={isTied}
+                      thumbsUp={thumbState.up}
+                      thumbsDown={thumbState.down}
+                      onSliderDraft={(id, value) =>
+                        setSliderDraft((prev) => {
+                          const next = new Map(prev);
+                          next.set(id, value);
+                          return next;
+                        })
+                      }
+                      onSliderCommit={commitSlider}
+                      onThumbsUp={(id) =>
+                        saveThumbs(id, {
+                          up: (thumbs.get(id)?.up ?? 0) + 1,
+                        })
+                      }
+                      onThumbsDown={(id) =>
+                        saveThumbs(id, {
+                          down: (thumbs.get(id)?.down ?? 0) + 1,
+                        })
+                      }
+                    />
                   </div>
+
+                  <JudgeRawScoreNudgeButtons
+                    entryId={item.entryId}
+                    locked={locked}
+                    onNudge={nudge}
+                  />
                 </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
           </div>
         ))}
       </div>
 
       {!locked && (
         <div className="sticky bottom-0 -mx-4 mt-4 border-t border-neutral-800 bg-neutral-900/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
-        <button
-          onClick={submit}
-          disabled={submitting || tied.size > 0}
-          className={compBtnOutlineLg}
-        >
-          {submitting
-            ? "Submitting…"
-            : tied.size > 0
-              ? "Resolve tied scores to submit"
-              : "Submit sheet"}
-        </button>
+          <button
+            type="button"
+            onClick={openVerify}
+            disabled={!readyForVerify}
+            className={compBtnOutlineLg}
+          >
+            {reviewButtonLabel()}
+          </button>
         </div>
       )}
     </div>
@@ -502,27 +480,31 @@ function buildInitialItems(
   }[]
 ): FinalsScoreItem[] {
   const scoreById = new Map(initialScores.map((s) => [s.round_entry_id, s]));
-  const withOrdinals = entries.filter(
-    (e) => scoreById.get(e.roundEntryId)?.ordinal != null
-  );
+  return entries.map((e) => {
+    const saved = scoreById.get(e.roundEntryId);
+    return {
+      entryId: e.roundEntryId,
+      ordinal:
+        saved?.ordinal != null && saved.ordinal > 0 ? saved.ordinal : null,
+      raw:
+        saved?.raw_score != null ? clampScore(Number(saved.raw_score)) : null,
+    };
+  });
+}
 
-  // Full draft on the server: restore its order and raws.
-  if (withOrdinals.length === entries.length && entries.length > 0) {
-    const ordered = [...entries].sort(
-      (a, b) =>
-        (scoreById.get(a.roundEntryId)!.ordinal ?? 0) -
-        (scoreById.get(b.roundEntryId)!.ordinal ?? 0)
-    );
-    const seeded = seedRawFromPlacements(ordered.map((e) => e.roundEntryId));
-    return ordered.map((e, i) => {
-      const raw = scoreById.get(e.roundEntryId)?.raw_score;
-      return {
-        entryId: e.roundEntryId,
-        raw: raw != null ? clampScore(raw) : seeded[i].raw,
-      };
+function buildInitialThumbs(
+  initialScores: {
+    round_entry_id: string;
+    thumbs_up_count?: number;
+    thumbs_down_count?: number;
+  }[]
+): Map<string, ThumbsState> {
+  const map = new Map<string, ThumbsState>();
+  for (const s of initialScores) {
+    map.set(s.round_entry_id, {
+      up: s.thumbs_up_count ?? 0,
+      down: s.thumbs_down_count ?? 0,
     });
   }
-
-  // Fresh sheet: dance order with no prefilled raw scores.
-  return entries.map((e) => ({ entryId: e.roundEntryId, raw: null }));
+  return map;
 }

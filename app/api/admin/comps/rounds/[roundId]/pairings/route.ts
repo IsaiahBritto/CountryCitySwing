@@ -14,12 +14,14 @@ import {
   loadRoundContext,
   RoundDataError,
 } from "@/lib/comps/roundData";
+import { effectiveCheckinRole } from "@/lib/comps/checkinRole";
+import { repairPromotedAlternateRoles } from "@/lib/comps/promoteAlternate";
 import type { ManualPairingRow, PairingMode } from "@/lib/comps/types";
 
 function finalsPairEntries(ctx: Awaited<ReturnType<typeof loadRoundContext>>) {
   const active = activeRoundEntries(ctx);
   const leads = active
-    .filter((re) => re.checkin_role === "lead")
+    .filter((re) => effectiveCheckinRole(re) === "lead")
     .map((re) => {
       const d = entryDisplay(re);
       return {
@@ -31,7 +33,7 @@ function finalsPairEntries(ctx: Awaited<ReturnType<typeof loadRoundContext>>) {
       };
     });
   const follows = active
-    .filter((re) => re.checkin_role === "follow")
+    .filter((re) => effectiveCheckinRole(re) === "follow")
     .map((re) => {
       const d = entryDisplay(re);
       return {
@@ -121,6 +123,7 @@ export async function POST(
   const body = await req.json();
 
   try {
+    await repairPromotedAlternateRoles(roundId);
     const gate = await assertPrePairingRound(roundId);
     if ("error" in gate) return gate.error;
     const { ctx } = gate;
@@ -220,7 +223,11 @@ export async function POST(
       })
       .eq("id", roundId);
     if (error) {
-      return NextResponse.json({ error: "Failed to save rotation" }, { status: 500 });
+      console.error("[pairings] save rotation failed", error);
+      return NextResponse.json(
+        { error: error.message || "Failed to save rotation" },
+        { status: 500 }
+      );
     }
 
     const pairs = computeRotatedPairs(leads, follows, offset);
@@ -247,6 +254,7 @@ export async function GET(
   const { roundId } = await params;
 
   try {
+    await repairPromotedAlternateRoles(roundId);
     const ctx = await loadRoundContext(roundId);
     return NextResponse.json(pairingPayload(ctx));
   } catch (err) {

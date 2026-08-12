@@ -9,6 +9,10 @@ import {
   compBtnSecondary,
 } from "@/lib/comps/buttonStyles";
 import { sortRoundEntriesByBib } from "@/lib/comps/entrySort";
+import {
+  isFollowCheckinEntry,
+  isLeadCheckinEntry,
+} from "@/lib/comps/checkinRole";
 import { patchEntryCheckinStatus } from "@/lib/comps/checkinOptimistic";
 import { checkinSync, type CheckinReloadOptions } from "@/lib/comps/checkinSync";
 import type { CheckinStatus } from "@/lib/comps/types";
@@ -67,6 +71,7 @@ interface RoundDetail {
     checkin_role: "lead" | "follow" | null;
     scratched: boolean;
     promoted_alternate: boolean;
+    entry?: { role?: "lead" | "follow" | null };
     display: {
       roundEntryId: string;
       bibNumber: number | null;
@@ -312,12 +317,15 @@ export default function RoundPanel({
     });
   };
 
-  const promoteAlternate = async () => {
+  const promoteAlternate = async (role?: "lead" | "follow") => {
     setBusy(true);
     setError(null);
     const res = await authedFetch(`/api/admin/comps/rounds/${roundId}/checkin`, {
       method: "POST",
-      body: JSON.stringify({ action: "promote_alternate" }),
+      body: JSON.stringify({
+        action: "promote_alternate",
+        ...(role ? { role } : {}),
+      }),
     });
     setBusy(false);
     if (!res.ok) {
@@ -599,10 +607,10 @@ export default function RoundPanel({
 
   const activeEntries = entries.filter((e) => !e.scratched);
   const leadEntries = isJnJFinalsPrePairing
-    ? activeEntries.filter((e) => e.checkin_role === "lead")
+    ? activeEntries.filter(isLeadCheckinEntry)
     : [];
   const followEntries = isJnJFinalsPrePairing
-    ? activeEntries.filter((e) => e.checkin_role === "follow")
+    ? activeEntries.filter(isFollowCheckinEntry)
     : [];
 
   const unresolvedCheckin = activeEntries.filter(
@@ -834,8 +842,8 @@ export default function RoundPanel({
             <button onClick={() => transition("pending")} disabled={busy} className={compBtnSecondary}>
               Back
             </button>
-            {round.source_round_id && (
-              <button onClick={promoteAlternate} disabled={busy} className={compBtnSecondary}>
+            {round.source_round_id && !isJnJFinalsPrePairing && (
+              <button onClick={() => promoteAlternate()} disabled={busy} className={compBtnSecondary}>
                 Promote next alternate
               </button>
             )}
@@ -1112,6 +1120,22 @@ export default function RoundPanel({
         <div className="mb-4">
           {isJnJFinalsPrePairing ? (
             <>
+              <div className="mb-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => promoteAlternate("lead")}
+                  disabled={busy}
+                  className={compBtnSecondary}
+                >
+                  Promote next lead alternate
+                </button>
+                <button
+                  onClick={() => promoteAlternate("follow")}
+                  disabled={busy}
+                  className={compBtnSecondary}
+                >
+                  Promote next follow alternate
+                </button>
+              </div>
               <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
                 Finals check-in — leads ({leadPresent} in / {leadUnresolved}{" "}
                 pending)

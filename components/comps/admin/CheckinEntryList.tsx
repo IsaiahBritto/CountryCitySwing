@@ -82,19 +82,62 @@ export function PromoteAlternateButton({
   disabled,
   busy,
   onClick,
+  label = "Promote next alternate",
+  className = "mb-3",
 }: {
   disabled?: boolean;
   busy?: boolean;
   onClick: () => void;
+  label?: string;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled || busy}
-      className={compBtnSecondary + " mb-3"}
+      className={compBtnSecondary + " " + className}
     >
-      {busy ? "Promoting…" : "Promote next alternate"}
+      {busy ? "Promoting…" : label}
     </button>
+  );
+}
+
+export function PromoteAlternateButtons({
+  disabled,
+  busy,
+  onPromoteLead,
+  onPromoteFollow,
+  showLead = true,
+  showFollow = true,
+}: {
+  disabled?: boolean;
+  busy?: boolean;
+  onPromoteLead: () => void;
+  onPromoteFollow: () => void;
+  showLead?: boolean;
+  showFollow?: boolean;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap gap-2">
+      {showLead && (
+        <PromoteAlternateButton
+          disabled={disabled}
+          busy={busy}
+          className="mb-0"
+          label="Promote next lead alternate"
+          onClick={onPromoteLead}
+        />
+      )}
+      {showFollow && (
+        <PromoteAlternateButton
+          disabled={disabled}
+          busy={busy}
+          className="mb-0"
+          label="Promote next follow alternate"
+          onClick={onPromoteFollow}
+        />
+      )}
+    </div>
   );
 }

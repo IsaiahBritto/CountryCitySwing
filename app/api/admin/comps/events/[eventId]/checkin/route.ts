@@ -9,6 +9,11 @@ import {
 } from "@/lib/comps/roundData";
 import { sortRoundEntriesByBib } from "@/lib/comps/entrySort";
 import { isJnJFinalsPrePairing } from "@/lib/comps/finalsPairing";
+import {
+  isFollowCheckinEntry,
+  isLeadCheckinEntry,
+} from "@/lib/comps/checkinRole";
+import { repairPromotedAlternateRoles } from "@/lib/comps/promoteAlternate";
 
 /** GET: check-in view for all divisions on this event (staff-safe payload). */
 export async function GET(
@@ -76,6 +81,7 @@ export async function GET(
     const roundPayloads = [];
     for (const round of rounds ?? []) {
       try {
+        await repairPromotedAlternateRoles(round.id);
         const ctx = await loadRoundContext(round.id);
         const prePairing =
           comp.comp_type === "jack_and_jill" &&
@@ -94,16 +100,17 @@ export async function GET(
             checkin_role: re.checkin_role,
             scratched: re.scratched,
             promoted_alternate: re.promoted_alternate,
+            entry: re.entry,
             display: entryDisplay(re),
           }))
         );
 
         const active = sorted.filter((e) => !e.scratched);
         const leadEntries = prePairing
-          ? active.filter((e) => e.checkin_role === "lead")
+          ? active.filter(isLeadCheckinEntry)
           : [];
         const followEntries = prePairing
-          ? active.filter((e) => e.checkin_role === "follow")
+          ? active.filter(isFollowCheckinEntry)
           : [];
 
         roundPayloads.push({
@@ -128,6 +135,7 @@ export async function GET(
             id: e.id,
             checkin_status: e.checkin_status,
             checkin_role: e.checkin_role,
+            promoted_alternate: e.promoted_alternate,
             display: {
               bibNumber: e.display.bibNumber,
               displayName: e.display.displayName,

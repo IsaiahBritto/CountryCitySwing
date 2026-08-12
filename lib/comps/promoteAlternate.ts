@@ -88,8 +88,13 @@ export async function promoteNextAlternate(
     );
   }
 
-  const compType = (round.competition as { comp_type: CompType } | null)
-    ?.comp_type;
+  const competitionRel = round.competition as
+    | { comp_type: CompType }
+    | { comp_type: CompType }[]
+    | null;
+  const compType = Array.isArray(competitionRel)
+    ? competitionRel[0]?.comp_type
+    : competitionRel?.comp_type;
   if (!compType) {
     throw new PromoteAlternateError("Competition not found", 404);
   }

@@ -21,6 +21,7 @@ import {
   EMPTY_CHECK_IN_ARRIVAL_BUCKETS,
 } from "@/lib/utils/checkInArrivalBuckets";
 import QRCheckInScanner from "@/components/QRCheckInScanner";
+import RegistrationBroadcastPanel from "@/components/RegistrationBroadcastPanel";
 import RegistrationRefundModal from "@/components/RegistrationRefundModal";
 import {
   resolveDueNowForSignup,
@@ -1410,6 +1411,17 @@ export default function RegistrationPage() {
                 </div>
               ))}
             </div>
+          )}
+
+          {isAdmin && selectedEvent && (
+            <RegistrationBroadcastPanel
+              eventId={selectedEvent.id}
+              eventTitle={selectedEvent.title}
+              isCompEvent={isCompEvent}
+              signups={signups}
+              compSignups={compSignups}
+              sessionToken={sessionToken}
+            />
           )}
         </div>
       )}

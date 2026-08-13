@@ -116,7 +116,7 @@ export default function EntriesTab({
       const data = await res.json();
       rows = data.rows ?? [];
     }
-    const ids = importableSignupIdsFromRows(rows);
+    const ids = importableSignupIdsFromRows(rows ?? []);
     if (ids.length === 0) {
       setError("No signups left to import.");
       return;

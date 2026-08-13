@@ -113,6 +113,37 @@ describe("callbackRawSync", () => {
     expect(next.rawById.get("C")).toBe(75);
   });
 
+  it("does nothing when re-selecting the same callback vote", () => {
+    const entryIds = ["A", "B"];
+    const votes = new Map([
+      ["A", "yes" as const],
+      ["B", "alt1" as const],
+    ]);
+    const raw = seedRawFromCallbacks(entryIds, votes);
+
+    const yesAgain = applyCallbackVote(
+      entryIds,
+      votes,
+      raw,
+      "A",
+      "yes",
+      { callbackCount: 1, alternateCount: 1 }
+    );
+    expect(yesAgain.votes).toBe(votes);
+    expect(yesAgain.rawById).toBe(raw);
+
+    const altAgain = applyCallbackVote(
+      entryIds,
+      votes,
+      raw,
+      "B",
+      "alt1",
+      { callbackCount: 1, alternateCount: 1 }
+    );
+    expect(altAgain.votes).toBe(votes);
+    expect(altAgain.rawById).toBe(raw);
+  });
+
   describe("callbackPlacementConflicts", () => {
     it("flags all yes voters on yes overflow", () => {
       const votes = new Map([
@@ -156,10 +187,31 @@ describe("callbackRawSync", () => {
         ["B", "yes" as const],
       ]);
       expect(
-        canSubmitCallbackPlacements(votes, {
-          callbackCount: 1,
-          alternateCount: 0,
-        })
+        canSubmitCallbackPlacements(
+          votes,
+          {
+            callbackCount: 1,
+            alternateCount: 0,
+          },
+          ["A", "B"]
+        )
+      ).toBe(false);
+    });
+
+    it("is false when any entry is unknown", () => {
+      const votes = new Map([
+        ["A", "yes" as const],
+        ["B", "alt1" as const],
+      ]);
+      expect(
+        canSubmitCallbackPlacements(
+          votes,
+          {
+            callbackCount: 1,
+            alternateCount: 1,
+          },
+          ["A", "B", "C"]
+        )
       ).toBe(false);
     });
 
@@ -170,10 +222,14 @@ describe("callbackRawSync", () => {
         ["C", "no" as const],
       ]);
       expect(
-        canSubmitCallbackPlacements(votes, {
-          callbackCount: 1,
-          alternateCount: 1,
-        })
+        canSubmitCallbackPlacements(
+          votes,
+          {
+            callbackCount: 1,
+            alternateCount: 1,
+          },
+          ["A", "B", "C"]
+        )
       ).toBe(true);
     });
   });

@@ -75,7 +75,7 @@ export async function GET(
         "id, round_type, judged_role, status, source_round_id, pairings_confirmed_at"
       )
       .eq("competition_id", comp.id)
-      .in("status", ["checkin", "open"])
+      .eq("status", "checkin")
       .order("round_order");
 
     const roundPayloads = [];

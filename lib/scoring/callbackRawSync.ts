@@ -126,11 +126,15 @@ export function conflictedCallbackEntryIds(
   return [...ids];
 }
 
-/** Submit gate: exact quotas, no vote-level ties. */
+/** Submit gate: every entry voted, exact quotas, no vote-level ties. */
 export function canSubmitCallbackPlacements(
   votes: Map<string, CallbackVote>,
-  limits: CallbackLimits
+  limits: CallbackLimits,
+  entryIds: string[] = []
 ): boolean {
+  if (entryIds.length > 0 && entryIds.some((id) => !votes.has(id))) {
+    return false;
+  }
   if (callbackPlacementConflicts(votes, limits).length > 0) return false;
   const yesCount = [...votes.values()].filter((v) => v === "yes").length;
   if (yesCount !== limits.callbackCount) return false;
@@ -154,13 +158,15 @@ export function applyCallbackVote(
   _limits: CallbackLimits
 ): { votes: Map<string, CallbackVote>; rawById: Map<string, number | null> } {
   void entryIds;
+  const current = votes.get(entryId);
+  if (current === vote) {
+    return { votes, rawById };
+  }
+
   const nextVotes = new Map(votes);
   const nextRaw = new Map(rawById);
-  const current = nextVotes.get(entryId) ?? "no";
-  const target = current === vote ? "no" : vote;
-
-  nextVotes.set(entryId, target);
-  nextRaw.set(entryId, rawScoreForCallback(target));
+  nextVotes.set(entryId, vote);
+  nextRaw.set(entryId, rawScoreForCallback(vote));
 
   return { votes: nextVotes, rawById: nextRaw };
 }

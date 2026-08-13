@@ -1,6 +1,7 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import { resolveJnJFinalsSourceRounds } from "@/lib/comps/roundChain";
-import type { CompType, DanceRole } from "@/lib/comps/types";
+import { canEditCheckin } from "@/lib/comps/roundState";
+import type { CompType, DanceRole, RoundStatus } from "@/lib/comps/types";
 import {
   PromoteAlternateError,
   requireFinalsPromoteRole,
@@ -82,7 +83,7 @@ export async function promoteNextAlternate(
   if (roundError || !round) {
     throw new PromoteAlternateError("Round not found", 404);
   }
-  if (!["checkin", "open"].includes(round.status)) {
+  if (!canEditCheckin(round.status as RoundStatus)) {
     throw new PromoteAlternateError(
       `Check-in is not active for this round (status ${round.status})`
     );

@@ -243,7 +243,7 @@ export default function EventCheckinPage({
 
       {divisions.length === 0 ? (
         <p className="py-12 text-center text-neutral-500">
-          No rounds in check-in or scoring yet.
+          No rounds in check-in yet.
           {isAdmin && " Begin check-in from the competition admin console."}
         </p>
       ) : (

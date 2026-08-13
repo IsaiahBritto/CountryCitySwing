@@ -1,4 +1,4 @@
-import { panelJudgesForRound } from "@/lib/comps/judgeScope";
+import { judgeScoresRound, panelJudgesForRound } from "@/lib/comps/judgeScope";
 import type { JudgeWithProfile } from "@/lib/comps/roundData";
 import type { CompRoundRow, CompType, DanceRole } from "@/lib/comps/types";
 
@@ -82,7 +82,7 @@ function buildCallbackPreview(
     if (cj) {
       fallbackNote = `CJ ${personName(cj.first_name, cj.last_name)} — fallback tie-break`;
     }
-  } else if (cj) {
+  } else if (cj && !cjInPanel) {
     tieBreakColumn = {
       label: "CJ",
       name: personName(cj.first_name, cj.last_name),
@@ -91,12 +91,12 @@ function buildCallbackPreview(
     if (headJudgeId && !hj) {
       warnings.push("Designated head judge is not on the panel for this role");
     }
-  } else {
+  } else if (!cj) {
     warnings.push("No chief judge assigned");
   }
 
   const scoringJudges: { name: string; note: string }[] = [];
-  if (cj && !cjInPanel && judgeScoresRoundForPreview(cj, round)) {
+  if (cj && !cjInPanel && judgeScoresRound(cj, round)) {
     scoringJudges.push({
       name: personName(cj.first_name, cj.last_name),
       note: "Scores sheet; tie-break only (not in panel)",
@@ -149,19 +149,6 @@ function fixPanelLabels(
       name: personName(j.first_name, j.last_name),
     };
   });
-}
-
-function judgeScoresRoundForPreview(
-  assignment: Pick<JudgeWithProfile, "judge_role" | "scoring_scope" | "drops_finals">,
-  round: Pick<CompRoundRow, "round_type" | "judged_role">
-): boolean {
-  if (assignment.judge_role === "chief_judge" && round.round_type !== "final") {
-    return round.judged_role != null;
-  }
-  if (round.round_type === "final") return !assignment.drops_finals;
-  if (round.judged_role == null) return true;
-  if (assignment.scoring_scope === "both") return true;
-  return assignment.scoring_scope === round.judged_role;
 }
 
 function buildFinalsPreview(

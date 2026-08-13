@@ -30,6 +30,16 @@ interface ImportRow {
   alreadyImported: boolean;
 }
 
+function importableSignupIdsFromRows(rows: ImportRow[]): string[] {
+  return rows
+    .filter(
+      (r) =>
+        !r.alreadyImported &&
+        !r.warnings.some((w) => w.includes("is a judge"))
+    )
+    .map((r) => r.signupId);
+}
+
 export default function EntriesTab({
   competitionId,
   compType,
@@ -73,23 +83,17 @@ export default function EntriesTab({
       const data = await res.json();
       const rows: ImportRow[] = data.rows ?? [];
       setImportRows(rows);
-      // Preselect clean, not-yet-imported rows.
-      setSelected(
-        new Set(
-          rows
-            .filter((r) => !r.alreadyImported && r.warnings.length === 0)
-            .map((r) => r.signupId)
-        )
-      );
+      setSelected(new Set(importableSignupIdsFromRows(rows)));
     })();
   }, [importOpen, competitionId]);
 
-  const runImport = async () => {
+  const runImport = async (signupIds: string[]) => {
+    if (signupIds.length === 0) return;
     setImporting(true);
     setError(null);
     const res = await authedFetch(`/api/admin/comps/${competitionId}/import`, {
       method: "POST",
-      body: JSON.stringify({ signup_ids: [...selected] }),
+      body: JSON.stringify({ signup_ids: signupIds }),
     });
     setImporting(false);
     if (!res.ok) {
@@ -97,6 +101,44 @@ export default function EntriesTab({
       return;
     }
     setImportOpen(false);
+    onChanged();
+  };
+
+  const importAll = async (closePreview = false) => {
+    setError(null);
+    let rows = importRows;
+    if (rows === null) {
+      const res = await authedFetch(`/api/admin/comps/${competitionId}/import`);
+      if (!res.ok) {
+        setError(await apiError(res));
+        return;
+      }
+      const data = await res.json();
+      rows = data.rows ?? [];
+    }
+    const ids = importableSignupIdsFromRows(rows);
+    if (ids.length === 0) {
+      setError("No signups left to import.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Import all ${ids.length} signup${ids.length === 1 ? "" : "s"}? Already-imported and judge signups are skipped.`
+      )
+    ) {
+      return;
+    }
+    setImporting(true);
+    const res = await authedFetch(`/api/admin/comps/${competitionId}/import`, {
+      method: "POST",
+      body: JSON.stringify({ import_all: true }),
+    });
+    setImporting(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    if (closePreview) setImportOpen(false);
     onChanged();
   };
 
@@ -196,6 +238,13 @@ export default function EntriesTab({
           Import from signups
         </button>
         <button
+          onClick={() => void importAll(false)}
+          disabled={importing}
+          className={compBtnOutline}
+        >
+          {importing ? "Importing…" : "Import all"}
+        </button>
+        <button
           onClick={() => setWalkupOpen((v) => !v)}
           className="rounded-md border border-neutral-600 px-4 py-2 text-sm text-neutral-200 hover:border-primary/60"
         >
@@ -266,6 +315,27 @@ export default function EntriesTab({
             </p>
           ) : (
             <>
+              <div className="mb-2 flex flex-wrap items-center gap-3 text-xs text-neutral-400">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelected(new Set(importableSignupIdsFromRows(importRows)))
+                  }
+                  className="hover:text-white"
+                >
+                  Select all importable
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set())}
+                  className="hover:text-white"
+                >
+                  Deselect all
+                </button>
+                <span>
+                  {importableSignupIdsFromRows(importRows).length} importable
+                </span>
+              </div>
               <div className="max-h-80 overflow-x-auto overflow-y-auto">
                 <table className="w-full min-w-[28rem] text-sm">
                   <thead>
@@ -306,13 +376,26 @@ export default function EntriesTab({
                   </tbody>
                 </table>
               </div>
-              <button
-                onClick={runImport}
-                disabled={importing || selected.size === 0}
-                className={"mt-3 " + compBtnOutline}
-              >
-                {importing ? "Importing…" : `Import ${selected.size} selected`}
-              </button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  onClick={() => void runImport([...selected])}
+                  disabled={importing || selected.size === 0}
+                  className={compBtnOutline}
+                >
+                  {importing ? "Importing…" : `Import ${selected.size} selected`}
+                </button>
+                <button
+                  onClick={() => void importAll(true)}
+                  disabled={
+                    importing ||
+                    importableSignupIdsFromRows(importRows).length === 0
+                  }
+                  className={compBtnOutline}
+                >
+                  Import all (
+                  {importableSignupIdsFromRows(importRows).length})
+                </button>
+              </div>
             </>
           )}
         </div>

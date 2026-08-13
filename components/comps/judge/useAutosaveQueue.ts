@@ -1,19 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, startTransition } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch } from "@/lib/comps/clientAuth";
+import {
+  FLUSH_DEBOUNCE_MS,
+  followUpFlushDelayMs,
+  mergeScorePatch,
+  pruneAckedPending,
+  type ScorePatch,
+} from "@/lib/comps/autosaveHelpers";
 
-export interface ScorePatch {
-  round_entry_id: string;
-  callback_value?: string | null;
-  ordinal?: number | null;
-  raw_score?: number | null;
-  thumbs_up_count?: number;
-  thumbs_down_count?: number;
-}
+export type { ScorePatch } from "@/lib/comps/autosaveHelpers";
 
 export type SaveState = "idle" | "saving" | "offline";
+
+const PERSIST_DEBOUNCE_MS = 500;
 
 /**
  * Silent autosave for judge sheets: every change is queued, debounced to the
@@ -31,7 +33,9 @@ export function useAutosaveQueue(opts: {
   const pending = useRef<Map<string, ScorePatch>>(new Map());
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
+  const lastFailed = useRef(false);
   const channelRef = useRef<ReturnType<typeof supabaseBrowser.channel> | null>(
     null
   );
@@ -48,7 +52,11 @@ export function useAutosaveQueue(opts: {
     };
   }, [roundId]);
 
-  const persist = useCallback(() => {
+  const updateSaveState = useCallback((next: SaveState) => {
+    startTransition(() => setSaveState(next));
+  }, []);
+
+  const persistNow = useCallback(() => {
     try {
       localStorage.setItem(
         storageKey,
@@ -58,6 +66,11 @@ export function useAutosaveQueue(opts: {
       // Storage full/unavailable; the in-memory queue still retries.
     }
   }, [storageKey]);
+
+  const persist = useCallback(() => {
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(persistNow, PERSIST_DEBOUNCE_MS);
+  }, [persistNow]);
 
   const broadcastProgress = useCallback(
     (scored: number, total: number) => {
@@ -70,10 +83,19 @@ export function useAutosaveQueue(opts: {
     [judgeAssignmentId]
   );
 
-  const flush = useCallback(async () => {
+  const scheduleFlush = useCallback((delayMs: number) => {
+    if (flushTimer.current) clearTimeout(flushTimer.current);
+    flushTimer.current = setTimeout(() => {
+      void flushRef.current();
+    }, delayMs);
+  }, []);
+
+  const flushRef = useRef<() => Promise<void>>(async () => {});
+
+  flushRef.current = async () => {
     if (inFlight.current || pending.current.size === 0) return;
     inFlight.current = true;
-    setSaveState("saving");
+    if (pending.current.size > 0) updateSaveState("saving");
     const snapshot = [...pending.current.entries()];
     try {
       const res = await authedFetch(`/api/judge/rounds/${roundId}/scores`, {
@@ -84,48 +106,55 @@ export function useAutosaveQueue(opts: {
         }),
       });
       if (res.ok) {
-        // Drop only entries that did not change while the request was out.
-        for (const [key, patch] of snapshot) {
-          if (pending.current.get(key) === patch) pending.current.delete(key);
-        }
-        persist();
-        setSaveState(pending.current.size > 0 ? "saving" : "idle");
+        lastFailed.current = false;
+        pruneAckedPending(pending.current, snapshot);
+        persistNow();
+        updateSaveState(pending.current.size > 0 ? "saving" : "idle");
       } else if (res.status === 409) {
-        // Sheet locked or round closed: stop retrying, surface the reason.
         const body = await res.json().catch(() => ({}));
         setLockedMessage(body?.error ?? "Scoring is locked for this round");
         pending.current.clear();
-        persist();
-        setSaveState("idle");
+        persistNow();
+        updateSaveState("idle");
       } else {
-        setSaveState("offline");
+        lastFailed.current = true;
+        updateSaveState("offline");
       }
     } catch {
-      setSaveState("offline");
+      lastFailed.current = true;
+      updateSaveState("offline");
     } finally {
       inFlight.current = false;
       if (pending.current.size > 0) {
         if (retryTimer.current) clearTimeout(retryTimer.current);
-        retryTimer.current = setTimeout(flush, 4000);
+        const delay = followUpFlushDelayMs(lastFailed.current);
+        retryTimer.current = setTimeout(() => {
+          void flushRef.current();
+        }, delay);
       }
     }
-  }, [roundId, judgeAssignmentId, sendAssignmentId, persist]);
+  };
+
+  const flush = useCallback(async () => {
+    await flushRef.current();
+  }, []);
 
   const queue = useCallback(
     (patches: ScorePatch[], progress?: { scored: number; total: number }) => {
       for (const patch of patches) {
         const existing = pending.current.get(patch.round_entry_id);
-        pending.current.set(patch.round_entry_id, { ...existing, ...patch });
+        pending.current.set(
+          patch.round_entry_id,
+          mergeScorePatch(existing, patch)
+        );
       }
       persist();
-      if (flushTimer.current) clearTimeout(flushTimer.current);
-      flushTimer.current = setTimeout(flush, 700);
+      scheduleFlush(FLUSH_DEBOUNCE_MS);
       if (progress) broadcastProgress(progress.scored, progress.total);
     },
-    [flush, persist, broadcastProgress]
+    [persist, scheduleFlush, broadcastProgress]
   );
 
-  /** Unsent changes from a previous session (crash/refresh recovery). */
   const restoreUnsent = useCallback((): ScorePatch[] => {
     try {
       const raw = localStorage.getItem(storageKey);
@@ -135,15 +164,14 @@ export function useAutosaveQueue(opts: {
         for (const patch of patches) {
           pending.current.set(patch.round_entry_id, patch);
         }
-        if (flushTimer.current) clearTimeout(flushTimer.current);
-        flushTimer.current = setTimeout(flush, 500);
+        scheduleFlush(500);
         return patches;
       }
     } catch {
       // Corrupt draft; ignore.
     }
     return [];
-  }, [storageKey, flush]);
+  }, [storageKey, scheduleFlush]);
 
   const clearDraft = useCallback(() => {
     pending.current.clear();
@@ -158,6 +186,7 @@ export function useAutosaveQueue(opts: {
     () => () => {
       if (flushTimer.current) clearTimeout(flushTimer.current);
       if (retryTimer.current) clearTimeout(retryTimer.current);
+      if (persistTimer.current) clearTimeout(persistTimer.current);
     },
     []
   );

@@ -66,4 +66,46 @@ describe("buildJudgeColumnPreviews", () => {
       true
     );
   });
+
+  it("Strictly callback: CJ-only panel when cj_in_panel", () => {
+    const isaiah = judge("cj", {
+      judge_role: "chief_judge",
+      first_name: "Isaiah",
+      last_name: "Britto",
+    });
+
+    const previews = buildJudgeColumnPreviews({
+      compType: "strictly",
+      judges: [isaiah],
+      cjInPanel: true,
+      leadHeadJudgeId: null,
+      followHeadJudgeId: null,
+    });
+
+    const callback = previews.find((p) => p.title === "Callback")!;
+    expect(callback.panelColumns.map((c) => c.label)).toEqual(["CJ"]);
+    expect(callback.tieBreakColumn).toBeNull();
+    expect(callback.warnings).not.toContain("No panel judges for this round");
+  });
+
+  it("Strictly finals: CJ-only panel when cj_in_panel", () => {
+    const isaiah = judge("cj", {
+      judge_role: "chief_judge",
+      first_name: "Isaiah",
+      last_name: "Britto",
+    });
+
+    const previews = buildJudgeColumnPreviews({
+      compType: "strictly",
+      judges: [isaiah],
+      cjInPanel: true,
+      leadHeadJudgeId: null,
+      followHeadJudgeId: null,
+    });
+
+    const finals = previews.find((p) => p.title === "Finals")!;
+    expect(finals.panelColumns.map((c) => c.label)).toEqual(["CJ"]);
+    expect(finals.tieBreakColumn).toBeNull();
+    expect(finals.warnings).not.toContain("No judges score finals");
+  });
 });

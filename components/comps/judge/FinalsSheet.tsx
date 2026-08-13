@@ -1,22 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnOutlineLg, compBtnOutlineSm, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import { compBtnOutlineLg, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
 import HeatSectionDivider from "@/components/comps/judge/HeatSectionDivider";
 import JudgeConfirmDialog from "@/components/comps/judge/JudgeConfirmDialog";
+import JudgeFinalsRow from "@/components/comps/judge/JudgeFinalsRow";
 import JudgeSheetHeader from "@/components/comps/judge/JudgeSheetHeader";
-import JudgeRawScoreControls, {
-  JudgeRawScoreNudgeButtons,
-} from "@/components/comps/judge/JudgeRawScoreControls";
 import FinalsVerifyPlacementsModal from "@/components/comps/judge/FinalsVerifyPlacementsModal";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
+import { useJudgeShowThumbs } from "@/lib/comps/useJudgeShowThumbs";
 import {
   applyRawChange,
   canOpenVerify,
   clampScore,
   finalizeAllRankings,
-  ordinalLabel,
   partialOrdinalsFromItems,
   roundScore,
   respreadRawScores,
@@ -28,6 +26,8 @@ import {
   type DisplayOrder,
   sortForDisplayOrder,
 } from "@/lib/scoring/displayOrder";
+
+const SHOW_SPREAD_SCORES_UI = false;
 
 interface SheetEntry {
   roundEntryId: string;
@@ -87,7 +87,13 @@ export default function FinalsSheet({
   const [verifyOpen, setVerifyOpen] = useState(false);
   const [sliderDraft, setSliderDraft] = useState<Map<string, number>>(new Map());
   const [spreadConfirmOpen, setSpreadConfirmOpen] = useState(false);
+  const { showThumbs, setShowThumbs } = useJudgeShowThumbs();
   const locked = sheetStatus === "submitted";
+
+  const itemsRef = useRef(items);
+  const thumbsRef = useRef(thumbs);
+  itemsRef.current = items;
+  thumbsRef.current = thumbs;
 
   const autosave = useAutosaveQueue({
     roundId,
@@ -164,44 +170,77 @@ export default function FinalsSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const saveAll = (next: FinalsScoreItem[]) => {
-    autosave.queue(
-      next.map((item) => ({
-        round_entry_id: item.entryId,
-        ordinal: item.ordinal,
-        ...(item.raw != null ? { raw_score: item.raw } : {}),
-      })),
-      {
-        scored: next.filter((i) => i.raw != null).length,
-        total: next.length,
-      }
-    );
-  };
-
-  const update = (next: FinalsScoreItem[]) => {
-    setItems(next);
-    setError(null);
-    saveAll(next);
-  };
-
-  const saveThumbs = (entryId: string, patch: Partial<ThumbsState>) => {
-    setThumbs((prev) => {
-      const next = new Map(prev);
-      const existing = next.get(entryId) ?? { up: 0, down: 0 };
-      const merged = { ...existing, ...patch };
-      next.set(entryId, merged);
-      autosave.queue([
+  const saveAll = useCallback(
+    (next: FinalsScoreItem[]) => {
+      autosave.queue(
+        next.map((item) => ({
+          round_entry_id: item.entryId,
+          ordinal: item.ordinal,
+          ...(item.raw != null ? { raw_score: item.raw } : {}),
+        })),
         {
-          round_entry_id: entryId,
-          thumbs_up_count: merged.up,
-          thumbs_down_count: merged.down,
-        },
-      ]);
+          scored: next.filter((i) => i.raw != null).length,
+          total: next.length,
+        }
+      );
+    },
+    [autosave]
+  );
+
+  const update = useCallback(
+    (next: FinalsScoreItem[]) => {
+      setItems(next);
+      setError(null);
+      saveAll(next);
+    },
+    [saveAll]
+  );
+
+  const saveThumbs = useCallback(
+    (entryId: string, patch: Partial<ThumbsState>) => {
+      setThumbs((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(entryId) ?? { up: 0, down: 0 };
+        const merged = { ...existing, ...patch };
+        next.set(entryId, merged);
+        autosave.queue([
+          {
+            round_entry_id: entryId,
+            thumbs_up_count: merged.up,
+            thumbs_down_count: merged.down,
+          },
+        ]);
+        return next;
+      });
+    },
+    [autosave]
+  );
+
+  const handleThumbsUp = useCallback(
+    (entryId: string) => {
+      saveThumbs(entryId, { up: (thumbsRef.current.get(entryId)?.up ?? 0) + 1 });
+    },
+    [saveThumbs]
+  );
+
+  const handleThumbsDown = useCallback(
+    (entryId: string) => {
+      saveThumbs(entryId, {
+        down: (thumbsRef.current.get(entryId)?.down ?? 0) + 1,
+      });
+    },
+    [saveThumbs]
+  );
+
+  const handleSliderDraft = useCallback((entryId: string, value: number) => {
+    setSliderDraft((prev) => {
+      const next = new Map(prev);
+      next.set(entryId, value);
       return next;
     });
-  };
+  }, []);
 
-  const tied = new Set(tiedEntryIds(items));
+  const tied = useMemo(() => new Set(tiedEntryIds(items)), [items]);
   const scoredCount = items.filter((i) => i.raw != null).length;
   const readyForVerify = canOpenVerify(items);
 
@@ -215,28 +254,36 @@ export default function FinalsSheet({
     return partialOrdinalsFromItems(effective);
   }, [items, sliderDraft]);
 
-  const nudge = (entryId: string, delta: number) => {
-    if (locked) return;
-    const item = items.find((i) => i.entryId === entryId);
-    if (!item) return;
-    update(applyRawChange(items, entryId, roundScore((item.raw ?? 0) + delta)));
-  };
+  const nudge = useCallback(
+    (entryId: string, delta: number) => {
+      if (locked) return;
+      const currentItems = itemsRef.current;
+      const item = currentItems.find((i) => i.entryId === entryId);
+      if (!item) return;
+      update(applyRawChange(currentItems, entryId, roundScore((item.raw ?? 0) + delta)));
+    },
+    [locked, update]
+  );
 
-  const commitSlider = (entryId: string, value: number) => {
-    update(applyRawChange(items, entryId, value));
-    setSliderDraft((prev) => {
-      const next = new Map(prev);
-      next.delete(entryId);
-      return next;
-    });
-  };
+  const commitSlider = useCallback(
+    (entryId: string, value: number) => {
+      update(applyRawChange(itemsRef.current, entryId, value));
+      setSliderDraft((prev) => {
+        const next = new Map(prev);
+        next.delete(entryId);
+        return next;
+      });
+    },
+    [update]
+  );
 
   const applySpread = () => {
-    const order = rankedEntryIds(items);
-    const rawMap = new Map(items.map((i) => [i.entryId, i.raw]));
+    const currentItems = itemsRef.current;
+    const order = rankedEntryIds(currentItems);
+    const rawMap = new Map(currentItems.map((i) => [i.entryId, i.raw]));
     const nextRaw = respreadRawScores(order, rawMap, { floor: 20 });
     update(
-      items.map((i) => ({
+      currentItems.map((i) => ({
         ...i,
         raw: nextRaw.get(i.entryId) ?? i.raw,
       }))
@@ -295,6 +342,18 @@ export default function FinalsSheet({
     return "Review placements";
   };
 
+  const thumbsToggle = (
+    <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-400">
+      <input
+        type="checkbox"
+        checked={showThumbs}
+        onChange={(e) => setShowThumbs(e.target.checked)}
+        className="rounded border-neutral-600"
+      />
+      Thumbs
+    </label>
+  );
+
   return (
     <div>
       <div className={judgeSheetStickyTop}>
@@ -306,6 +365,7 @@ export default function FinalsSheet({
           onModeChange={() => {}}
           saveState={autosave.saveState}
           showModeTabs={false}
+          headerControls={thumbsToggle}
         />
       </div>
 
@@ -326,19 +386,19 @@ export default function FinalsSheet({
         </div>
       )}
       {!locked && (
-        <>
-          <p className="mb-2 text-xs text-neutral-500">
-            Score each couple with the slider. Placement updates as you score; review before submitting.
-          </p>
-          <button
-            type="button"
-            onClick={() => setSpreadConfirmOpen(true)}
-            disabled={scoredCount === 0}
-            className={compBtnOutlineSm + " mb-3 min-h-11"}
-          >
-            Spread scores evenly
-          </button>
-        </>
+        <p className="mb-2 text-xs text-neutral-500">
+          Score each couple with the slider. Placement updates as you score; review before submitting.
+        </p>
+      )}
+      {SHOW_SPREAD_SCORES_UI && !locked && (
+        <button
+          type="button"
+          onClick={() => setSpreadConfirmOpen(true)}
+          disabled={scoredCount === 0}
+          className="mb-3 min-h-11 rounded-md border border-neutral-600 px-3 py-2 text-sm text-neutral-300"
+        >
+          Spread scores evenly
+        </button>
       )}
 
       <JudgeConfirmDialog
@@ -360,7 +420,7 @@ export default function FinalsSheet({
         onFinalSubmit={finalSubmit}
       />
 
-      <div className="space-y-2 overflow-x-auto">
+      <div className="space-y-1 overflow-x-auto">
         {heatSections.map(([heatNumber, rows]) => (
           <div key={heatNumber ?? "all"}>
             {heatNumber != null && displayOrder === "bib" && (
@@ -376,79 +436,27 @@ export default function FinalsSheet({
               const thumbState = thumbs.get(item.entryId) ?? { up: 0, down: 0 };
 
               return (
-                <div
+                <JudgeFinalsRow
                   key={item.entryId}
-                  className={
-                    "mb-2 flex min-w-0 items-center gap-3 rounded-xl border bg-neutral-800/60 p-3 " +
-                    (isTied ? "border-amber-500/70" : "border-neutral-700")
+                  entry={entry}
+                  raw={item.raw}
+                  displayOrdinal={
+                    displayOrdinals.has(item.entryId)
+                      ? displayOrdinals.get(item.entryId)!
+                      : null
                   }
-                >
-                  <div className="w-14 shrink-0 text-center">
-                    <div className="text-2xl font-bold text-white">
-                      {entry?.bibNumber ?? "—"}
-                    </div>
-                    {entry?.followBibNumber != null && (
-                      <div className="font-mono text-xs text-neutral-500">
-                        +{entry.followBibNumber}
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-lg font-bold text-primary">
-                      {displayOrdinals.has(item.entryId)
-                        ? ordinalLabel(displayOrdinals.get(item.entryId)!)
-                        : "—"}
-                    </div>
-                    {entry?.followDisplayName ? (
-                      <>
-                        <div className="truncate text-sm text-neutral-300">
-                          {entry.leadDisplayName ??
-                            entry.displayName.split(" & ")[0]}
-                        </div>
-                        <div className="truncate text-xs text-neutral-500">
-                          {entry.followDisplayName}
-                        </div>
-                      </>
-                    ) : (
-                      <div className="truncate text-sm text-white">
-                        {entry?.displayName}
-                      </div>
-                    )}
-                    <JudgeRawScoreControls
-                      entryId={item.entryId}
-                      raw={item.raw}
-                      sliderDraftValue={sliderDraft.get(item.entryId)}
-                      locked={locked}
-                      isTied={isTied}
-                      thumbsUp={thumbState.up}
-                      thumbsDown={thumbState.down}
-                      onSliderDraft={(id, value) =>
-                        setSliderDraft((prev) => {
-                          const next = new Map(prev);
-                          next.set(id, value);
-                          return next;
-                        })
-                      }
-                      onSliderCommit={commitSlider}
-                      onThumbsUp={(id) =>
-                        saveThumbs(id, {
-                          up: (thumbs.get(id)?.up ?? 0) + 1,
-                        })
-                      }
-                      onThumbsDown={(id) =>
-                        saveThumbs(id, {
-                          down: (thumbs.get(id)?.down ?? 0) + 1,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <JudgeRawScoreNudgeButtons
-                    entryId={item.entryId}
-                    locked={locked}
-                    onNudge={nudge}
-                  />
-                </div>
+                  isTied={isTied}
+                  locked={locked}
+                  showThumbs={showThumbs}
+                  thumbUp={thumbState.up}
+                  thumbDown={thumbState.down}
+                  sliderDraftValue={sliderDraft.get(item.entryId)}
+                  onSliderDraft={handleSliderDraft}
+                  onSliderCommit={commitSlider}
+                  onNudge={nudge}
+                  onThumbsUp={handleThumbsUp}
+                  onThumbsDown={handleThumbsDown}
+                />
               );
             })}
           </div>

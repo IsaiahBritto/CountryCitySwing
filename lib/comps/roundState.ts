@@ -28,3 +28,8 @@ export function isDirectTransition(from: RoundStatus, to: RoundStatus): boolean 
   if (from === "tabulated" || from === "published") return false;
   return true;
 }
+
+/** Roster check-in edits are only allowed before scoring opens. */
+export function canEditCheckin(status: RoundStatus): boolean {
+  return status === "checkin";
+}

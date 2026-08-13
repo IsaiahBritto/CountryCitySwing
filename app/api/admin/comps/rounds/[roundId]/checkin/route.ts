@@ -5,7 +5,8 @@ import {
   promoteNextAlternate,
   PromoteAlternateError,
 } from "@/lib/comps/promoteAlternate";
-import type { DanceRole } from "@/lib/comps/types";
+import { canEditCheckin } from "@/lib/comps/roundState";
+import type { DanceRole, RoundStatus } from "@/lib/comps/types";
 
 /**
  * POST: round check-in actions.
@@ -22,6 +23,22 @@ export async function POST(
   const { roundId } = await params;
   const auth = await requireCompCheckinAuth(req, roundId);
   if (!auth.ok) return auth.response;
+
+  const { data: round } = await supabaseServer
+    .from("comp_rounds")
+    .select("status")
+    .eq("id", roundId)
+    .maybeSingle();
+  if (!round || !canEditCheckin(round.status as RoundStatus)) {
+    return NextResponse.json(
+      {
+        error:
+          "Check-in is closed while scoring is open. Backtrack the round to check-in to make changes.",
+      },
+      { status: 409 }
+    );
+  }
+
   const body = await req.json();
 
   if (body.action === "promote_alternate") {

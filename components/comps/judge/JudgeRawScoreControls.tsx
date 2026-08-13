@@ -1,11 +1,15 @@
 "use client";
 
-export default function JudgeRawScoreControls({
+import { memo } from "react";
+import { judgeTieBadgeClass } from "@/lib/comps/judgeStyles";
+
+function JudgeRawScoreControlsInner({
   entryId,
   raw,
   sliderDraftValue,
   locked,
   isTied,
+  showThumbs = true,
   thumbsUp,
   thumbsDown,
   onSliderDraft,
@@ -18,6 +22,7 @@ export default function JudgeRawScoreControls({
   sliderDraftValue: number | undefined;
   locked: boolean;
   isTied?: boolean;
+  showThumbs?: boolean;
   thumbsUp: number;
   thumbsDown: number;
   onSliderDraft: (entryId: string, value: number) => void;
@@ -30,15 +35,15 @@ export default function JudgeRawScoreControls({
 
   return (
     <>
-      <div className="text-xs text-neutral-400">
-        Raw{" "}
-        <span className="font-mono text-neutral-200">
-          {displayedRaw != null ? displayedRaw.toFixed(1) : "—"}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-neutral-400">
+        <span>
+          Raw{" "}
+          <span className="font-mono text-neutral-200">
+            {displayedRaw != null ? displayedRaw.toFixed(1) : "—"}
+          </span>
         </span>
         {isTied && (
-          <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
-            tied — adjust
-          </span>
+          <span className={judgeTieBadgeClass}>tied — adjust</span>
         )}
       </div>
       <input
@@ -63,45 +68,52 @@ export default function JudgeRawScoreControls({
             );
           }
         }}
-        className="mt-2 h-8 w-full touch-manipulation accent-primary"
+        className="mt-1 h-6 w-full touch-manipulation accent-primary"
       />
-      <div className="mt-2 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onThumbsUp(entryId)}
-          disabled={locked}
-          className="flex min-h-9 items-center gap-1 rounded-md border border-neutral-600 px-2 py-1 text-sm text-neutral-200 active:bg-neutral-700 disabled:opacity-40"
-          aria-label="Thumbs up"
-        >
-          👍
-          {thumbsUp > 0 && (
-            <span className="font-mono text-xs text-neutral-400">{thumbsUp}</span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => onThumbsDown(entryId)}
-          disabled={locked}
-          className="flex min-h-9 items-center gap-1 rounded-md border border-neutral-600 px-2 py-1 text-sm text-neutral-200 active:bg-neutral-700 disabled:opacity-40"
-          aria-label="Thumbs down"
-        >
-          👎
-          {thumbsDown > 0 && (
-            <span className="font-mono text-xs text-neutral-400">
-              {thumbsDown}
-            </span>
-          )}
-        </button>
-      </div>
+      {showThumbs && (
+        <div className="mt-1 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onThumbsUp(entryId)}
+            disabled={locked}
+            className="flex min-h-8 items-center gap-1 rounded-md border border-neutral-600 px-2 py-0.5 text-sm text-neutral-200 active:bg-neutral-700 disabled:opacity-40"
+            aria-label="Thumbs up"
+          >
+            👍
+            {thumbsUp > 0 && (
+              <span className="font-mono text-xs text-neutral-400">
+                {thumbsUp}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => onThumbsDown(entryId)}
+            disabled={locked}
+            className="flex min-h-8 items-center gap-1 rounded-md border border-neutral-600 px-2 py-0.5 text-sm text-neutral-200 active:bg-neutral-700 disabled:opacity-40"
+            aria-label="Thumbs down"
+          >
+            👎
+            {thumbsDown > 0 && (
+              <span className="font-mono text-xs text-neutral-400">
+                {thumbsDown}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
     </>
   );
 }
+
+const JudgeRawScoreControls = memo(JudgeRawScoreControlsInner);
+export default JudgeRawScoreControls;
 
 export function JudgeRawScoreNudgeButtons({
   entryId,
   locked,
   onNudge,
-  className = "flex flex-col items-center gap-1",
+  className = "flex shrink-0 flex-col items-center gap-0.5",
 }: {
   entryId: string;
   locked: boolean;
@@ -114,7 +126,7 @@ export function JudgeRawScoreNudgeButtons({
         type="button"
         onClick={() => onNudge(entryId, 0.1)}
         disabled={locked}
-        className="flex h-11 w-11 items-center justify-center rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
+        className="flex h-9 w-9 items-center justify-center rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
         aria-label="Raise 0.1"
       >
         +
@@ -123,7 +135,7 @@ export function JudgeRawScoreNudgeButtons({
         type="button"
         onClick={() => onNudge(entryId, -0.1)}
         disabled={locked}
-        className="flex h-11 w-11 items-center justify-center rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
+        className="flex h-9 w-9 items-center justify-center rounded-md border border-neutral-600 text-sm font-bold text-neutral-200 active:bg-neutral-700"
         aria-label="Lower 0.1"
       >
         −

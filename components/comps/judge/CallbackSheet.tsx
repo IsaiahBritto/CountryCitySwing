@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnOutlineLg, compBtnOutlineSm, judgeSheetStickyBottom, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import { compBtnOutlineLg, judgeSheetStickyBottom, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
 import HeatSectionDivider from "@/components/comps/judge/HeatSectionDivider";
+import JudgeCallbackRow from "@/components/comps/judge/JudgeCallbackRow";
 import JudgeConfirmDialog from "@/components/comps/judge/JudgeConfirmDialog";
 import JudgeSheetHeader from "@/components/comps/judge/JudgeSheetHeader";
-import JudgeRawScoreControls, {
-  JudgeRawScoreNudgeButtons,
-} from "@/components/comps/judge/JudgeRawScoreControls";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
+import { useJudgeShowThumbs } from "@/lib/comps/useJudgeShowThumbs";
 import {
   applyCallbackVote,
   applyRawChangeForCallback,
@@ -24,6 +23,8 @@ import {
   type DisplayOrder,
   sortForDisplayOrder,
 } from "@/lib/scoring/displayOrder";
+
+const SHOW_SPREAD_SCORES_UI = false;
 
 interface SheetEntry {
   roundEntryId: string;
@@ -91,7 +92,15 @@ export default function CallbackSheet({
   const [submitting, setSubmitting] = useState(false);
   const [sliderDraft, setSliderDraft] = useState<Map<string, number>>(new Map());
   const [spreadConfirmOpen, setSpreadConfirmOpen] = useState(false);
+  const { showThumbs, setShowThumbs } = useJudgeShowThumbs();
   const locked = sheetStatus === "submitted";
+
+  const votesRef = useRef(votes);
+  const rawByIdRef = useRef(rawById);
+  const thumbsRef = useRef(thumbs);
+  votesRef.current = votes;
+  rawByIdRef.current = rawById;
+  thumbsRef.current = thumbs;
 
   const autosave = useAutosaveQueue({
     roundId,
@@ -111,6 +120,8 @@ export default function CallbackSheet({
     }),
     [effectiveCallbacks, effectiveAlternates]
   );
+  const limitsRef = useRef(limits);
+  limitsRef.current = limits;
 
   const altOptions = useMemo(
     () =>
@@ -189,77 +200,99 @@ export default function CallbackSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const queueScorePatches = (
-    nextVotes: Map<string, CallbackVote>,
-    nextRaw: Map<string, number | null>,
-    changedIds: string[]
-  ) => {
-    const patches = changedIds.map((id) => ({
-      round_entry_id: id,
-      callback_value: nextVotes.get(id) ?? "no",
-      raw_score: nextRaw.get(id) ?? null,
-    }));
-    const scored = entryIds.filter((id) => nextVotes.has(id)).length;
-    autosave.queue(patches, { scored, total: entries.length });
-  };
+  const queueScorePatches = useCallback(
+    (
+      nextVotes: Map<string, CallbackVote>,
+      nextRaw: Map<string, number | null>,
+      changedIds: string[]
+    ) => {
+      const patches = changedIds.map((id) => ({
+        round_entry_id: id,
+        callback_value: nextVotes.get(id) ?? "no",
+        raw_score: nextRaw.get(id) ?? null,
+      }));
+      const scored = entryIds.filter((id) => nextVotes.has(id)).length;
+      autosave.queue(patches, { scored, total: entries.length });
+    },
+    [autosave, entryIds, entries.length]
+  );
 
-  const applyVoteAndRaw = (
-    nextVotes: Map<string, CallbackVote>,
-    nextRaw: Map<string, number | null>,
-    changedIds: string[]
-  ) => {
-    setVotes(nextVotes);
-    setRawById(nextRaw);
-    setError(null);
-    queueScorePatches(nextVotes, nextRaw, changedIds);
-  };
+  const applyVoteAndRaw = useCallback(
+    (
+      nextVotes: Map<string, CallbackVote>,
+      nextRaw: Map<string, number | null>,
+      changedIds: string[]
+    ) => {
+      setVotes(nextVotes);
+      setRawById(nextRaw);
+      setError(null);
+      queueScorePatches(nextVotes, nextRaw, changedIds);
+    },
+    [queueScorePatches]
+  );
 
-  const setVote = (roundEntryId: string, vote: CallbackVote) => {
-    if (locked) return;
+  const setVote = useCallback(
+    (roundEntryId: string, vote: CallbackVote) => {
+      if (locked) return;
+      const currentVotes = votesRef.current;
+      if (currentVotes.get(roundEntryId) === vote) return;
 
-    const result = applyCallbackVote(
-      entryIds,
-      votes,
-      rawById,
-      roundEntryId,
-      vote,
-      limits
-    );
+      const result = applyCallbackVote(
+        entryIds,
+        currentVotes,
+        rawByIdRef.current,
+        roundEntryId,
+        vote,
+        limitsRef.current
+      );
 
-    const changed = new Set<string>([roundEntryId]);
-    for (const [id, v] of result.votes) {
-      if (votes.get(id) !== v) changed.add(id);
-    }
-    applyVoteAndRaw(result.votes, result.rawById, [...changed]);
-  };
+      const changed = new Set<string>([roundEntryId]);
+      for (const [id, v] of result.votes) {
+        if (currentVotes.get(id) !== v) changed.add(id);
+      }
+      applyVoteAndRaw(result.votes, result.rawById, [...changed]);
+    },
+    [locked, entryIds, applyVoteAndRaw]
+  );
 
-  const commitRaw = (entryId: string, value: number) => {
-    if (locked) return;
-    const result = applyRawChangeForCallback(
-      entryIds,
-      votes,
-      rawById,
-      entryId,
-      value,
-      limits
-    );
-    const changed = new Set<string>([entryId]);
-    for (const id of entryIds) {
-      if (votes.get(id) !== result.votes.get(id)) changed.add(id);
-    }
-    applyVoteAndRaw(result.votes, result.rawById, [...changed]);
-    setSliderDraft((prev) => {
-      const next = new Map(prev);
-      next.delete(entryId);
-      return next;
-    });
-  };
+  const commitRaw = useCallback(
+    (entryId: string, value: number) => {
+      if (locked) return;
+      const currentVotes = votesRef.current;
+      const result = applyRawChangeForCallback(
+        entryIds,
+        currentVotes,
+        rawByIdRef.current,
+        entryId,
+        value,
+        limitsRef.current
+      );
+      const changed = new Set<string>([entryId]);
+      for (const id of entryIds) {
+        if (currentVotes.get(id) !== result.votes.get(id)) changed.add(id);
+      }
+      applyVoteAndRaw(result.votes, result.rawById, [...changed]);
+      setSliderDraft((prev) => {
+        const next = new Map(prev);
+        next.delete(entryId);
+        return next;
+      });
+    },
+    [locked, entryIds, applyVoteAndRaw]
+  );
 
-  const nudgeRaw = (entryId: string, delta: number) => {
-    if (locked) return;
-    const current = rawById.get(entryId) ?? rawScoreForCallback(votes.get(entryId) ?? "no");
-    commitRaw(entryId, roundScore(current + delta));
-  };
+  const nudgeRaw = useCallback(
+    (entryId: string, delta: number) => {
+      if (locked) return;
+      const currentVotes = votesRef.current;
+      const currentRaw = rawByIdRef.current;
+      const current =
+        currentRaw.get(entryId) ??
+        rawScoreForCallback(currentVotes.get(entryId) ?? "no");
+      commitRaw(entryId, roundScore(current + delta));
+    },
+    [locked, commitRaw]
+  );
 
   const applySpread = () => {
     const order = sortForDisplayOrder(
@@ -304,25 +337,51 @@ export default function CallbackSheet({
     setMode(nextMode);
   };
 
-  const saveThumbs = (entryId: string, patch: Partial<ThumbsState>) => {
-    setThumbs((prev) => {
+  const saveThumbs = useCallback(
+    (entryId: string, patch: Partial<ThumbsState>) => {
+      setThumbs((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(entryId) ?? { up: 0, down: 0 };
+        const merged = { ...existing, ...patch };
+        next.set(entryId, merged);
+        autosave.queue([
+          {
+            round_entry_id: entryId,
+            thumbs_up_count: merged.up,
+            thumbs_down_count: merged.down,
+          },
+        ]);
+        return next;
+      });
+    },
+    [autosave]
+  );
+
+  const handleThumbsUp = useCallback(
+    (entryId: string) => {
+      saveThumbs(entryId, { up: (thumbsRef.current.get(entryId)?.up ?? 0) + 1 });
+    },
+    [saveThumbs]
+  );
+
+  const handleThumbsDown = useCallback(
+    (entryId: string) => {
+      saveThumbs(entryId, {
+        down: (thumbsRef.current.get(entryId)?.down ?? 0) + 1,
+      });
+    },
+    [saveThumbs]
+  );
+
+  const handleSliderDraft = useCallback((entryId: string, value: number) => {
+    setSliderDraft((prev) => {
       const next = new Map(prev);
-      const existing = next.get(entryId) ?? { up: 0, down: 0 };
-      const merged = { ...existing, ...patch };
-      next.set(entryId, merged);
-      autosave.queue([
-        {
-          round_entry_id: entryId,
-          thumbs_up_count: merged.up,
-          thumbs_down_count: merged.down,
-        },
-      ]);
+      next.set(entryId, value);
       return next;
     });
-  };
+  }, []);
 
   const yesCount = [...votes.values()].filter((v) => v === "yes").length;
-  const scoredCount = [...rawById.values()].filter((r) => r != null).length;
   const unknownCount = entries.filter(
     (e) => votes.get(e.roundEntryId) == null
   ).length;
@@ -333,7 +392,7 @@ export default function CallbackSheet({
     [votes, limits]
   );
   const hasTies = conflictedIds.size > 0;
-  const canSubmit = canSubmitCallbackPlacements(votes, limits);
+  const canSubmit = canSubmitCallbackPlacements(votes, limits, entryIds);
 
   const submit = async () => {
     setSubmitting(true);
@@ -354,15 +413,18 @@ export default function CallbackSheet({
     onSubmitted();
   };
 
-  const voteBtnLocked = locked ? " opacity-60" : "";
-  const voteBtnNeutral =
-    "min-h-9 rounded-md border border-neutral-600 px-1 py-1.5 text-xs font-semibold text-neutral-400 active:bg-neutral-700 sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
-  const voteBtnNeutralActiveYes =
-    "min-h-9 rounded-md border border-green-600 bg-green-600 px-1 py-1.5 text-xs font-semibold text-white sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
-  const voteBtnNeutralActiveAlt =
-    "min-h-9 rounded-md border border-amber-500 bg-amber-500 px-1 py-1.5 text-xs font-semibold text-neutral-900 sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
-  const voteBtnNeutralActiveNo =
-    "min-h-9 rounded-md border border-red-600 bg-red-600 px-1 py-1.5 text-xs font-semibold text-white sm:min-h-11 sm:px-2.5 sm:py-2 sm:text-sm";
+  const thumbsToggle =
+    mode === "raw" ? (
+      <label className="flex cursor-pointer items-center gap-2 text-xs text-neutral-400">
+        <input
+          type="checkbox"
+          checked={showThumbs}
+          onChange={(e) => setShowThumbs(e.target.checked)}
+          className="rounded border-neutral-600"
+        />
+        Thumbs
+      </label>
+    ) : null;
 
   const summary = (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -408,6 +470,7 @@ export default function CallbackSheet({
           onModeChange={handleModeChange}
           saveState={autosave.saveState}
           extraSummary={summary}
+          headerControls={thumbsToggle}
         />
       </div>
 
@@ -428,29 +491,29 @@ export default function CallbackSheet({
         </div>
       )}
       {hasTies && !locked && (
-        <p className="mb-3 text-xs text-blue-400">
+        <p className="mb-2 text-xs text-blue-400">
           Tied votes — adjust before submitting.
         </p>
       )}
       {mode === "raw" && !locked && (
-        <>
-          <p className="mb-2 text-xs text-neutral-500">
-            Yes and alternates update from score order (top {effectiveCallbacks}{" "}
-            Yes
-            {effectiveAlternates > 0
-              ? `, next ${effectiveAlternates} alternate${effectiveAlternates === 1 ? "" : "s"}`
-              : ""}
-            ).
-          </p>
-          <button
-            type="button"
-            onClick={() => setSpreadConfirmOpen(true)}
-            disabled={scoredCount === 0}
-            className={compBtnOutlineSm + " mb-3 min-h-11"}
-          >
-            Spread scores evenly
-          </button>
-        </>
+        <p className="mb-2 text-xs text-neutral-500">
+          Yes and alternates update from score order (top {effectiveCallbacks}{" "}
+          Yes
+          {effectiveAlternates > 0
+            ? `, next ${effectiveAlternates} alternate${effectiveAlternates === 1 ? "" : "s"}`
+            : ""}
+          ).
+        </p>
+      )}
+      {SHOW_SPREAD_SCORES_UI && mode === "raw" && !locked && (
+        <button
+          type="button"
+          onClick={() => setSpreadConfirmOpen(true)}
+          disabled={[...rawById.values()].filter((r) => r != null).length === 0}
+          className="mb-3 min-h-11 rounded-md border border-neutral-600 px-3 py-2 text-sm text-neutral-300"
+        >
+          Spread scores evenly
+        </button>
       )}
 
       <JudgeConfirmDialog
@@ -463,151 +526,42 @@ export default function CallbackSheet({
       />
 
       {heatSections.map(([heatNumber, rows]) => (
-        <div key={heatNumber ?? "all"} className="mb-6">
+        <div key={heatNumber ?? "all"} className="mb-4">
           {heatNumber != null && displayOrder === "bib" && (
             <HeatSectionDivider
               heatNumber={heatNumber}
               entryCount={rows.length}
             />
           )}
-          <div className="space-y-2">
+          <div className="space-y-1">
             {rows.map(({ entry: e }) => {
               const vote = votes.get(e.roundEntryId);
               const raw = rawById.get(e.roundEntryId) ?? null;
               const thumbState = thumbs.get(e.roundEntryId) ?? { up: 0, down: 0 };
               const isConflicted = conflictedIds.has(e.roundEntryId);
-              const rowTone = callbackRowTone(vote, isConflicted);
-              const voteBtnCount = 2 + altOptions.length;
 
               return (
-                <div
+                <JudgeCallbackRow
                   key={e.roundEntryId}
-                  className={
-                    mode === "raw"
-                      ? `flex min-w-0 items-center gap-3 rounded-xl border p-3 ${rowTone}`
-                      : `flex flex-col gap-3 rounded-xl border p-3 ${rowTone}`
-                  }
-                >
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <div
-                      className={
-                        mode === "raw"
-                          ? "w-14 shrink-0 text-center"
-                          : "flex h-10 w-12 shrink-0 items-center justify-center rounded-md bg-neutral-900/80 font-mono text-lg font-bold text-white"
-                      }
-                    >
-                      {mode === "raw" ? (
-                        <div className="text-2xl font-bold text-white">
-                          {e.bibNumber ?? "—"}
-                        </div>
-                      ) : (
-                        (e.bibNumber ?? "—")
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm text-neutral-300">{e.displayName}</div>
-                      {isConflicted && (
-                        <span className="mt-1 inline-block rounded bg-blue-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-blue-400">
-                          tied — resolve
-                        </span>
-                      )}
-                      {mode === "raw" && vote && (
-                        <div className="mt-0.5 text-xs text-neutral-500">
-                          {vote === "yes"
-                            ? "Yes"
-                            : vote.startsWith("alt")
-                              ? vote.replace("alt", "A").toUpperCase()
-                              : vote === "no"
-                                ? "No"
-                                : ""}
-                        </div>
-                      )}
-                      {mode === "raw" && (
-                        <JudgeRawScoreControls
-                          entryId={e.roundEntryId}
-                          raw={raw}
-                          sliderDraftValue={sliderDraft.get(e.roundEntryId)}
-                          locked={locked}
-                          thumbsUp={thumbState.up}
-                          thumbsDown={thumbState.down}
-                          onSliderDraft={(id, value) =>
-                            setSliderDraft((prev) => {
-                              const next = new Map(prev);
-                              next.set(id, value);
-                              return next;
-                            })
-                          }
-                          onSliderCommit={commitRaw}
-                          onThumbsUp={(id) =>
-                            saveThumbs(id, {
-                              up: (thumbs.get(id)?.up ?? 0) + 1,
-                            })
-                          }
-                          onThumbsDown={(id) =>
-                            saveThumbs(id, {
-                              down: (thumbs.get(id)?.down ?? 0) + 1,
-                            })
-                          }
-                        />
-                      )}
-                    </div>
-                  </div>
-
-                  {mode === "raw" ? (
-                    <JudgeRawScoreNudgeButtons
-                      entryId={e.roundEntryId}
-                      locked={locked}
-                      onNudge={nudgeRaw}
-                    />
-                  ) : (
-                    <div
-                      className={
-                        "grid w-full gap-1 " +
-                        (voteBtnCount === 4 ? "grid-cols-4" : "grid-cols-5")
-                      }
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setVote(e.roundEntryId, "yes")}
-                        disabled={locked}
-                        className={
-                          (vote === "yes"
-                            ? voteBtnNeutralActiveYes
-                            : voteBtnNeutral) + voteBtnLocked
-                        }
-                      >
-                        Yes
-                      </button>
-                      {altOptions.map((rank) => (
-                        <button
-                          key={rank}
-                          type="button"
-                          onClick={() => setVote(e.roundEntryId, rank)}
-                          disabled={locked}
-                          className={
-                            (vote === rank
-                              ? voteBtnNeutralActiveAlt
-                              : voteBtnNeutral) + voteBtnLocked
-                          }
-                        >
-                          {rank.replace("alt", "A")}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setVote(e.roundEntryId, "no")}
-                        disabled={locked}
-                        className={
-                          (vote === "no"
-                            ? voteBtnNeutralActiveNo
-                            : voteBtnNeutral) + voteBtnLocked
-                        }
-                      >
-                        No
-                      </button>
-                    </div>
-                  )}
-                </div>
+                  entry={e}
+                  mode={mode}
+                  vote={vote}
+                  raw={raw}
+                  isConflicted={isConflicted}
+                  rowTone={callbackRowTone(vote, isConflicted)}
+                  locked={locked}
+                  showThumbs={showThumbs}
+                  thumbUp={thumbState.up}
+                  thumbDown={thumbState.down}
+                  sliderDraftValue={sliderDraft.get(e.roundEntryId)}
+                  altOptions={altOptions}
+                  onSetVote={setVote}
+                  onSliderDraft={handleSliderDraft}
+                  onSliderCommit={commitRaw}
+                  onNudgeRaw={nudgeRaw}
+                  onThumbsUp={handleThumbsUp}
+                  onThumbsDown={handleThumbsDown}
+                />
               );
             })}
           </div>
@@ -626,11 +580,13 @@ export default function CallbackSheet({
               ? "Submitting…"
               : canSubmit
                 ? "Submit sheet"
-                : hasTies
-                  ? "Resolve tied votes to submit"
-                  : yesCount !== effectiveCallbacks
-                    ? `Select ${effectiveCallbacks - yesCount} more Yes`
-                    : "Assign all alternate ranks to submit"}
+                : unknownCount > 0
+                  ? `Mark ${unknownCount} unknown${unknownCount === 1 ? "" : "s"} to submit`
+                  : hasTies
+                    ? "Resolve tied votes to submit"
+                    : yesCount !== effectiveCallbacks
+                      ? `Select ${effectiveCallbacks - yesCount} more Yes`
+                      : "Assign all alternate ranks to submit"}
           </button>
         </div>
       )}

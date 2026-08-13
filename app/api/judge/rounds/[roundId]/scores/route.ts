@@ -215,12 +215,25 @@ export async function POST(
     );
     let yes = 0;
     const altRanks = new Map<string, number>();
+    let unknown = 0;
     for (const re of active) {
-      const value = byEntry.get(re.id)?.callback_value ?? "no";
+      const value = byEntry.get(re.id)?.callback_value;
+      if (value == null) {
+        unknown++;
+        continue;
+      }
       if (value === "yes") yes++;
       if (value === "alt1" || value === "alt2" || value === "alt3") {
         altRanks.set(value, (altRanks.get(value) ?? 0) + 1);
       }
+    }
+    if (unknown > 0) {
+      return NextResponse.json(
+        {
+          error: `Every competitor must be marked Yes, alternate, or No (${unknown} unknown)`,
+        },
+        { status: 422 }
+      );
     }
     if (yes !== callbackCount) {
       return NextResponse.json(

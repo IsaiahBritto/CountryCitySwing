@@ -12,7 +12,7 @@ import { compBtnOutlineLg, compBtnOutlineSm } from "@/lib/comps/buttonStyles";
 import {
   itemsInRankOrder,
   ordinalLabel,
-  reorderRankedAndSeedAll,
+  reorderMovedEntry,
   type FinalsScoreItem,
 } from "@/lib/scoring/finalsSync";
 
@@ -98,7 +98,7 @@ export default function FinalsVerifyPlacementsModal({
         const rows = rankedRef.current;
         const fromId = rows[d.index].entryId;
         const toId = rows[d.over].entryId;
-        onItemsChange(reorderRankedAndSeedAll(itemsRef.current, fromId, toId));
+        onItemsChange(reorderMovedEntry(itemsRef.current, fromId, toId));
       }
       setDrag(null);
     };
@@ -140,7 +140,7 @@ export default function FinalsVerifyPlacementsModal({
     if (target < 0 || target >= rankedRows.length) return;
     const fromId = rankedRows[index].entryId;
     const toId = rankedRows[target].entryId;
-    onItemsChange(reorderRankedAndSeedAll(items, fromId, toId));
+    onItemsChange(reorderMovedEntry(items, fromId, toId));
   };
 
   const startDrag = (index: number, clientY: number) => {
@@ -170,7 +170,8 @@ export default function FinalsVerifyPlacementsModal({
             Verify Placements
           </h2>
           <p className="mt-1 text-sm text-neutral-400">
-            Confirm rank order before submitting. Reordering updates raw scores.
+            Confirm rank order before submitting. Reordering adjusts only the
+            moved couple&apos;s raw score to fit between neighbors.
           </p>
         </header>
 

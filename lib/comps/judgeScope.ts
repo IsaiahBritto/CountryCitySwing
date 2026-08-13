@@ -18,8 +18,12 @@ export function judgeScoresRound(
   assignment: Pick<JudgeWithProfile, "judge_role" | "scoring_scope" | "drops_finals">,
   round: Pick<CompRoundRow, "round_type" | "judged_role">
 ): boolean {
-  if (assignment.judge_role === "chief_judge" && round.round_type !== "final") {
-    return round.judged_role != null;
+  if (assignment.judge_role === "chief_judge") {
+    if (round.round_type === "final") {
+      return !assignment.drops_finals;
+    }
+    // Non-final: JnJ role-split callbacks and Strictly unified callbacks (judged_role null).
+    return true;
   }
   if (round.round_type === "final") {
     return !assignment.drops_finals;

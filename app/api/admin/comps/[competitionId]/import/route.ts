@@ -125,6 +125,17 @@ async function buildPreview(competitionId: string): Promise<
   return { competition, rows };
 }
 
+/** Signups that can still be imported (skips already imported and judges). */
+function importableSignupIds(rows: PreviewRow[]): string[] {
+  return rows
+    .filter(
+      (r) =>
+        !r.alreadyImported &&
+        !r.warnings.some((w) => w.includes("is a judge"))
+    )
+    .map((r) => r.signupId);
+}
+
 /** GET: import preview with per-row warnings; nothing is written. */
 export async function GET(
   req: NextRequest,
@@ -150,20 +161,24 @@ export async function POST(
   if (!auth.ok) return auth.response;
   const { competitionId } = await params;
   const body = await req.json();
-  const signupIds: string[] = Array.isArray(body.signup_ids)
-    ? body.signup_ids
-    : [];
-  if (signupIds.length === 0) {
-    return NextResponse.json(
-      { error: "signup_ids is required" },
-      { status: 400 }
-    );
-  }
-
   const preview = await buildPreview(competitionId);
   if ("error" in preview) {
     return NextResponse.json({ error: preview.error }, { status: preview.status });
   }
+
+  let signupIds: string[] = [];
+  if (body.import_all === true) {
+    signupIds = importableSignupIds(preview.rows);
+  } else if (Array.isArray(body.signup_ids)) {
+    signupIds = body.signup_ids;
+  }
+  if (signupIds.length === 0) {
+    return NextResponse.json(
+      { error: "No signups to import" },
+      { status: 400 }
+    );
+  }
+
   const { competition } = preview;
   const isJnJ = competition.comp_type === "jack_and_jill";
   const prefix = isJnJ ? "jnj" : "strictly";

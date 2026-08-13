@@ -6,7 +6,8 @@ import {
   type HeatPlanEntry,
   type HeatPlanResult,
 } from "@/lib/comps/heatPlan";
-import type { CompType, DanceRole } from "@/lib/comps/types";
+import { canEditCheckin } from "@/lib/comps/roundState";
+import type { CompType, DanceRole, RoundStatus } from "@/lib/comps/types";
 
 interface RoundEntryRow {
   id: string;
@@ -332,7 +333,7 @@ async function refreshSingleRoundHeatsIfConfigured(
     .select("id, status")
     .eq("id", roundId)
     .maybeSingle();
-  if (!round || !["checkin", "open"].includes(round.status)) return null;
+  if (!round || !canEditCheckin(round.status as RoundStatus)) return null;
 
   const { count } = await supabaseServer
     .from("comp_heats")
@@ -354,7 +355,7 @@ export async function refreshRoundHeatsIfConfigured(roundId: string) {
     .select("id, status, competition_id, round_type, judged_role")
     .eq("id", roundId)
     .maybeSingle();
-  if (!round || !["checkin", "open"].includes(round.status)) return null;
+  if (!round || !canEditCheckin(round.status as RoundStatus)) return null;
 
   const roundIds = [roundId];
   if (round.judged_role != null) {

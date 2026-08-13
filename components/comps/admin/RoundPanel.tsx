@@ -1116,7 +1116,7 @@ export default function RoundPanel({
       )}
 
       {/* Check-in list */}
-      {(status === "checkin" || status === "open") && (
+      {status === "checkin" && (
         <div className="mb-4">
           {isJnJFinalsPrePairing ? (
             <>

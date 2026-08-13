@@ -18,8 +18,8 @@ ${message}
     await sendMail(
       "New Prayer Request - Country City Swing",
       emailBody,
-      "prayer@countrycityswing.dance",
-      "prayer@countrycityswing.dance" // from address
+      "prayers@countrycityswing.dance",
+      "prayers@countrycityswing.dance" // from address
     );
 
     return NextResponse.json({ success: true });

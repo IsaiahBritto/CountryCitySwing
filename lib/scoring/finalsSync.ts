@@ -81,13 +81,13 @@ export function fitRawInSlot(
     const roomBelow = below - SLOT_MIN_RAW;
     if (roomAbove >= roomBelow && above + NUDGE_STEP <= RAW_CEILING) {
       nudgeAbove = clampScore(above + NUDGE_STEP);
+      used.delete(above);
       above = nudgeAbove;
-      used.delete(aboveRaw);
       used.add(nudgeAbove);
     } else if (below - NUDGE_STEP >= SLOT_MIN_RAW) {
       nudgeBelow = clampScore(below - NUDGE_STEP);
+      used.delete(below);
       below = nudgeBelow;
-      used.delete(belowRaw);
       used.add(nudgeBelow);
     }
   }
@@ -99,7 +99,7 @@ export function fitRawInSlot(
     raw = Math.max(raw, below + NUDGE_STEP);
     if (used.has(RAW_CEILING) || raw <= below) {
       nudgeBelow = clampScore(below - NUDGE_STEP);
-      used.delete(belowRaw);
+      used.delete(below);
       used.add(nudgeBelow);
       raw = RAW_CEILING;
     }
@@ -108,8 +108,8 @@ export function fitRawInSlot(
     raw = Math.max(raw, SLOT_MIN_RAW);
     if (raw >= above) {
       nudgeAbove = clampScore(above + NUDGE_STEP);
+      used.delete(above);
       above = nudgeAbove;
-      used.delete(aboveRaw);
       used.add(nudgeAbove);
       raw = SLOT_MIN_RAW;
     }

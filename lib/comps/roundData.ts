@@ -400,7 +400,7 @@ async function tabulateCallbackRound(
     return scored;
   }
 
-  await persistTabulation(ctx.round.id, scored.resultRows, scored.tabulation!, {
+  await persistTabulation(ctx.round.id, scored.resultRows!, scored.tabulation!, {
     callback_count: scored.callbackCount,
     alternate_count: scored.alternateCount,
   });

@@ -16,6 +16,7 @@ import {
 } from "@/lib/utils/workshopPricing";
 import SignupModalShell from "@/components/SignupModalShell";
 import ChoiceCards from "@/components/ChoiceCards";
+import { profileHasCompleteName } from "@/lib/profileUtils";
 import {
   PLANNED_CLASS_LEVELS,
   PLANNED_CLASS_LEVEL_DESCRIPTIONS,
@@ -148,6 +149,7 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   const [loadingUser, setLoadingUser] = useState(false);
   const [userRole, setUserRole] = useState<string>("");
   const [hasLoggedInUser, setHasLoggedInUser] = useState(false);
+  const [profileNeedsName, setProfileNeedsName] = useState(false);
   const [alreadySubscribedToNewsletter, setAlreadySubscribedToNewsletter] = useState(false);
   const [newsletterOptIn, setNewsletterOptIn] = useState(false);
   const [promoCodeInput, setPromoCodeInput] = useState("");
@@ -207,6 +209,12 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
 
             setUserRole(profile?.role ?? "");
             setAlreadySubscribedToNewsletter(profile?.newsletter_opt_in === true);
+            setProfileNeedsName(
+              !profileHasCompleteName({
+                first_name: profile?.first_name,
+                last_name: profile?.last_name,
+              })
+            );
 
             // Build default values object
             const defaultValues: any = {};
@@ -241,6 +249,7 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     } else {
       setUserRole("");
       setHasLoggedInUser(false);
+      setProfileNeedsName(false);
       setAlreadySubscribedToNewsletter(false);
       setNewsletterOptIn(false);
       // Reset form and promo state when modal closes
@@ -415,6 +424,34 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
         throw new Error(errorMsg);
       }
 
+      // Save name to profile when account was missing it
+      if (hasLoggedInUser && data.firstName?.trim() && data.lastName?.trim()) {
+        try {
+          const { data: sessionData } = await supabaseBrowser.auth.getSession();
+          const token = sessionData.session?.access_token;
+          if (token) {
+            const profileRes = await fetch("/api/profile", {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                first_name: data.firstName.trim(),
+                last_name: data.lastName.trim(),
+              }),
+            });
+            if (!profileRes.ok && profileNeedsName) {
+              console.warn("Signup succeeded but profile name was not saved");
+            }
+          }
+        } catch {
+          if (profileNeedsName) {
+            console.warn("Signup succeeded but profile name was not saved");
+          }
+        }
+      }
+
       // If user opted into newsletter, update profile (fire-and-forget)
       if (newsletterOptIn && hasLoggedInUser) {
         supabaseBrowser.auth.getSession().then(({ data }) => {
@@ -523,6 +560,12 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
           )}
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+            {profileNeedsName && (
+              <p className="rounded-lg border border-amber-600/50 bg-amber-950/40 px-3 py-2 text-sm text-amber-100">
+                Your account is missing a name — enter it below. We&apos;ll save it to
+                your profile when you submit.
+              </p>
+            )}
             {/* Hidden fields for instructors so validation receives values (no visible "Been before?" / "Payment" sections) */}
             {isInstructor && (
               <>

@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import {
   DEFAULT_TIME_ZONE,
   isEventPast,
-  isRegistrationWindowOpen,
+  isEventActiveOnCalendarDay,
   formatEventScheduleSubtitle,
   formatDateInTimeZone,
   formatTimeInTimeZone,
@@ -23,6 +23,10 @@ import {
 import QRCheckInScanner from "@/components/QRCheckInScanner";
 import RegistrationBroadcastPanel from "@/components/RegistrationBroadcastPanel";
 import RegistrationRefundModal from "@/components/RegistrationRefundModal";
+import {
+  formatCompSignupLabel,
+  formatSocialSignupLabel,
+} from "@/lib/utils/signupDisplayName";
 import {
   resolveDueNowForSignup,
   resolvePaidAmountOptions,
@@ -268,7 +272,11 @@ export default function RegistrationPage() {
         } else if (isInstructor && !isAdmin && !isSocialViewer) {
           list = allEvents.filter((e) => {
             const tz = e.time_zone || DEFAULT_TIME_ZONE;
-            return isRegistrationWindowOpen(e.starts_at, e.ends_at ?? undefined, tz);
+            return isEventActiveOnCalendarDay(
+              e.starts_at,
+              e.ends_at ?? undefined,
+              tz
+            );
           });
         } else if (isSocialViewer && !isAdmin) {
           list = allEvents.filter(
@@ -453,7 +461,9 @@ export default function RegistrationPage() {
           data.check_in_arrival_buckets ?? { ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS }
         );
         const sorted = signupsList.sort((a: Signup, b: Signup) =>
-          a.first_name.localeCompare(b.first_name, undefined, { sensitivity: "base" })
+          (a.first_name ?? "").localeCompare(b.first_name ?? "", undefined, {
+            sensitivity: "base",
+          })
         );
         // Keep rows mid fade-out so realtime reload doesn't yank them mid-animation
         setSignups((prev) => {
@@ -594,6 +604,14 @@ export default function RegistrationPage() {
     } finally {
       setUpdating(null);
     }
+  };
+
+  const openRefundModal = (
+    signupId: string,
+    isComp: boolean,
+    displayName: string
+  ) => {
+    setRefundModal({ signupId, isComp, displayName });
   };
 
   const isViewingPastMonth = (isAdmin || isSocialViewer) && eventsView === "past";
@@ -956,7 +974,7 @@ export default function RegistrationPage() {
               : isSocialViewer && !isAdmin
                 ? "No upcoming Social events"
                 : isInstructor && !isAdmin
-                  ? "No events in the registration window"
+                  ? "No events today"
                   : "No upcoming events"}
           </p>
         ) : (
@@ -1155,7 +1173,29 @@ export default function RegistrationPage() {
               <p className="text-gray-400">No comp signups found for this event.</p>
             ) : (
               <div className="space-y-3">
-                {compSignups.map((c) => (
+                {compSignups.map((c) => {
+                  const compLabel = formatCompSignupLabel(c);
+                  const strictlyNames =
+                    [
+                      [c.strictly_lead_first_name, c.strictly_lead_last_name]
+                        .filter(Boolean)
+                        .join(" "),
+                      [c.strictly_follow_first_name, c.strictly_follow_last_name]
+                        .filter(Boolean)
+                        .join(" "),
+                    ]
+                      .filter(Boolean)
+                      .join(" / ") || compLabel;
+                  const jnjNames =
+                    [c.jnj_lead_first_name, c.jnj_lead_last_name]
+                      .filter(Boolean)
+                      .join(" ") ||
+                    [c.jnj_follow_first_name, c.jnj_follow_last_name]
+                      .filter(Boolean)
+                      .join(" ") ||
+                    compLabel;
+
+                  return (
                   <div
                     key={c.id}
                     className={`p-3 md:p-4 rounded-lg border-2 transition-opacity duration-2000 ease-out ${
@@ -1174,55 +1214,13 @@ export default function RegistrationPage() {
                                 type="button"
                                 className="underline decoration-primary/60 underline-offset-2 hover:text-primary text-left"
                                 onClick={() =>
-                                  setRefundModal({
-                                    signupId: c.id,
-                                    isComp: true,
-                                    displayName:
-                                      [
-                                        [c.strictly_lead_first_name, c.strictly_lead_last_name]
-                                          .filter(Boolean)
-                                          .join(" "),
-                                        [c.strictly_follow_first_name, c.strictly_follow_last_name]
-                                          .filter(Boolean)
-                                          .join(" "),
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" / ") || "Comp registration",
-                                  })
+                                  openRefundModal(c.id, true, compLabel)
                                 }
                               >
-                                {[c.strictly_lead_first_name, c.strictly_lead_last_name]
-                                  .filter(Boolean)
-                                  .join(" ")}
-                                {([c.strictly_lead_first_name, c.strictly_lead_last_name].some(
-                                  Boolean
-                                ) &&
-                                [c.strictly_follow_first_name, c.strictly_follow_last_name].some(
-                                  Boolean
-                                )
-                                  ? " / "
-                                  : "") +
-                                  [c.strictly_follow_first_name, c.strictly_follow_last_name]
-                                    .filter(Boolean)
-                                    .join(" ")}
+                                {strictlyNames}
                               </button>
                             ) : (
-                              <>
-                                {[c.strictly_lead_first_name, c.strictly_lead_last_name]
-                                  .filter(Boolean)
-                                  .join(" ")}
-                                {([c.strictly_lead_first_name, c.strictly_lead_last_name].some(
-                                  Boolean
-                                ) &&
-                                [c.strictly_follow_first_name, c.strictly_follow_last_name].some(
-                                  Boolean
-                                )
-                                  ? " / "
-                                  : "")}
-                                {[c.strictly_follow_first_name, c.strictly_follow_last_name]
-                                  .filter(Boolean)
-                                  .join(" ")}
-                              </>
+                              <>{strictlyNames}</>
                             )}
                             </span>
                           </p>
@@ -1237,42 +1235,13 @@ export default function RegistrationPage() {
                                 type="button"
                                 className="underline decoration-primary/60 underline-offset-2 hover:text-primary text-left"
                                 onClick={() =>
-                                  setRefundModal({
-                                    signupId: c.id,
-                                    isComp: true,
-                                    displayName:
-                                      [
-                                        c.jnj_lead_first_name,
-                                        c.jnj_lead_last_name,
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" ") ||
-                                      [
-                                        c.jnj_follow_first_name,
-                                        c.jnj_follow_last_name,
-                                      ]
-                                        .filter(Boolean)
-                                        .join(" ") ||
-                                      "Comp registration",
-                                  })
+                                  openRefundModal(c.id, true, compLabel)
                                 }
                               >
-                                {[c.jnj_lead_first_name, c.jnj_lead_last_name]
-                                  .filter(Boolean)
-                                  .join(" ") ||
-                                  [c.jnj_follow_first_name, c.jnj_follow_last_name]
-                                    .filter(Boolean)
-                                    .join(" ")}
+                                {jnjNames}
                               </button>
                             ) : (
-                              <>
-                                {[c.jnj_lead_first_name, c.jnj_lead_last_name]
-                                  .filter(Boolean)
-                                  .join(" ") ||
-                                  [c.jnj_follow_first_name, c.jnj_follow_last_name]
-                                    .filter(Boolean)
-                                    .join(" ")}
-                              </>
+                              <>{jnjNames}</>
                             )}
                             </span>
                           </p>
@@ -1288,6 +1257,16 @@ export default function RegistrationPage() {
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+                        {isAdmin && c.refunded_or_cancelled !== "cancelled" && (
+                          <button
+                            type="button"
+                            onClick={() => openRefundModal(c.id, true, compLabel)}
+                            disabled={updating === c.id}
+                            className="px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap bg-neutral-700 text-red-300 hover:bg-neutral-600 hover:text-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Cancel
+                          </button>
+                        )}
                         <button
                           onClick={() => updateCompSignupPaid(c.id, !c.paid)}
                           disabled={readOnlyRegistration || updating === c.id || !!c.checked_in}
@@ -1315,14 +1294,17 @@ export default function RegistrationPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )
           ) : signups.length === 0 ? (
             <p className="text-gray-400">No signups found for this event.</p>
           ) : (
             <div className="space-y-3">
-              {signups.map((signup) => (
+              {signups.map((signup) => {
+                const signupLabel = formatSocialSignupLabel(signup);
+                return (
                 <div
                   key={signup.id}
                   className={`p-3 md:p-4 rounded-lg border-2 transition-opacity duration-[2000ms] ease-out ${
@@ -1337,19 +1319,13 @@ export default function RegistrationPage() {
                             type="button"
                             className="underline decoration-primary/60 underline-offset-2 hover:text-primary text-left"
                             onClick={() =>
-                              setRefundModal({
-                                signupId: signup.id,
-                                isComp: false,
-                                displayName: `${signup.first_name} ${signup.last_name}`.trim(),
-                              })
+                              openRefundModal(signup.id, false, signupLabel)
                             }
                           >
-                            {signup.first_name} {signup.last_name}
+                            {signupLabel}
                           </button>
                         ) : (
-                          <>
-                            {signup.first_name} {signup.last_name}
-                          </>
+                          <>{signupLabel}</>
                         )}
                         {canShowClassLevelBreakdown && (
                           <PlannedClassLevelBadge level={signup.planned_class_level} />
@@ -1372,6 +1348,16 @@ export default function RegistrationPage() {
                         )}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+                      {isAdmin && signup.refunded_or_cancelled !== "cancelled" && (
+                        <button
+                          type="button"
+                          onClick={() => openRefundModal(signup.id, false, signupLabel)}
+                          disabled={updating === signup.id}
+                          className="px-4 py-2 md:px-5 md:py-2.5 rounded-md text-sm md:text-base font-medium transition-all duration-200 whitespace-nowrap bg-neutral-700 text-red-300 hover:bg-neutral-600 hover:text-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Cancel
+                        </button>
+                      )}
                       <button
                         onClick={() => handlePaidClick(signup)}
                         disabled={
@@ -1409,7 +1395,8 @@ export default function RegistrationPage() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

@@ -8,11 +8,60 @@ import { getEventTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxC
 import { compSignupToken } from "@/lib/utils/qrCheckIn";
 import { formatEventDateInChicago } from "@/lib/utils/dateHelpers";
 import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
-import { requireCompSignupAuth } from "@/lib/compSignupAuth";
+import { requireCompSignupAuth, type CompSignupProfile } from "@/lib/compSignupAuth";
 import {
   checkDuplicateCompSignup,
   resolveCompSignupProfiles,
 } from "@/lib/compSignupPayload";
+import { profileHasCompleteName } from "@/lib/profileUtils";
+
+async function ensureAuthProfileNames(
+  profile: CompSignupProfile,
+  body: Record<string, unknown>
+): Promise<
+  | { ok: true; profile: CompSignupProfile }
+  | { ok: false; error: string; status: number }
+> {
+  if (profileHasCompleteName(profile)) {
+    return { ok: true, profile };
+  }
+
+  const first =
+    typeof body.profile_first_name === "string"
+      ? body.profile_first_name.trim()
+      : "";
+  const last =
+    typeof body.profile_last_name === "string"
+      ? body.profile_last_name.trim()
+      : "";
+
+  if (!first || !last) {
+    return {
+      ok: false,
+      error: "First and last name are required on your account",
+      status: 400,
+    };
+  }
+
+  const { error } = await supabaseServer
+    .from("profiles")
+    .update({ first_name: first, last_name: last })
+    .eq("id", profile.id);
+
+  if (error) {
+    console.error("[comp-signup] profile name update failed", error);
+    return {
+      ok: false,
+      error: "Failed to update profile name",
+      status: 500,
+    };
+  }
+
+  return {
+    ok: true,
+    profile: { ...profile, first_name: first, last_name: last },
+  };
+}
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -92,7 +141,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const resolved = await resolveCompSignupProfiles(auth.profile, data, {
+  const nameResult = await ensureAuthProfileNames(auth.profile, data);
+  if (!nameResult.ok) {
+    return NextResponse.json(
+      { error: nameResult.error },
+      { status: nameResult.status }
+    );
+  }
+  const authProfile = nameResult.profile;
+
+  const resolved = await resolveCompSignupProfiles(authProfile, data, {
     strictlySelected,
     jnjSelected,
   });

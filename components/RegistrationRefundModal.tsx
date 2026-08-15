@@ -78,6 +78,7 @@ export default function RegistrationRefundModal({
 
   const signup = detail?.signup;
   const status = String(signup?.refunded_or_cancelled || "active");
+  const modalTitle = displayName.trim() || "Unknown registrant";
   const pm = String(signup?.payment_method || "");
   const paid = signup?.paid === true;
   const piId = typeof signup?.stripe_payment_intent_id === "string"
@@ -168,7 +169,7 @@ export default function RegistrationRefundModal({
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl border border-neutral-600 bg-neutral-900 p-5 text-neutral-200 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-white">{displayName}</h2>
+            <h2 className="text-lg font-semibold text-white">{modalTitle}</h2>
             <p className="text-sm text-neutral-400">Refund / cancel registration</p>
           </div>
           <button

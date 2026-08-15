@@ -54,14 +54,47 @@ describe("canViewRegistrationEvent", () => {
     ).toBe(false);
   });
 
-  it("allows instructor only during registration window", () => {
-    const workshop = { type: "workshop", starts_at: socialStart, ends_at: socialEnd, time_zone: TZ };
+  it("allows instructor on event calendar day including after ends_at", () => {
+    const workshop = {
+      type: "workshop",
+      starts_at: socialStart,
+      ends_at: socialEnd,
+      time_zone: TZ,
+    };
+    const comp = {
+      type: "comp",
+      starts_at: dayjs.tz("2026-05-29 14:00", TZ).toISOString(),
+      ends_at: dayjs.tz("2026-05-29 18:00", TZ).toISOString(),
+      time_zone: TZ,
+    };
     const before = dayjs.tz("2026-05-28 12:00", TZ).toDate();
     const during = dayjs.tz("2026-05-29 10:00", TZ).toDate();
+    const afterOvernightEnd = dayjs.tz("2026-05-30 10:00", TZ).toDate();
     expect(canViewRegistrationEvent("instructor", workshop, before)).toBe(false);
     expect(canMutateRegistrationEvent("instructor", workshop, before)).toBe(false);
     expect(canViewRegistrationEvent("instructor", workshop, during)).toBe(true);
     expect(canMutateRegistrationEvent("instructor", workshop, during)).toBe(true);
+    expect(canViewRegistrationEvent("instructor", comp, during)).toBe(true);
+    expect(canMutateRegistrationEvent("instructor", comp, during)).toBe(true);
+    expect(canViewRegistrationEvent("instructor", workshop, afterOvernightEnd)).toBe(
+      true
+    );
+    expect(canMutateRegistrationEvent("instructor", workshop, afterOvernightEnd)).toBe(
+      true
+    );
+  });
+
+  it("blocks instructor from events starting tomorrow", () => {
+    const tomorrowWorkshop = {
+      type: "workshop",
+      starts_at: dayjs.tz("2026-05-30 10:00", TZ).toISOString(),
+      ends_at: null,
+      time_zone: TZ,
+    };
+    const today = dayjs.tz("2026-05-29 10:00", TZ).toDate();
+    expect(canViewRegistrationEvent("instructor", tomorrowWorkshop, today)).toBe(
+      false
+    );
   });
 });
 

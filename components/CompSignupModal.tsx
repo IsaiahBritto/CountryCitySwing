@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch } from "@/lib/comps/clientAuth";
-import { profileDisplayName } from "@/lib/profileUtils";
+import { profileDisplayName, profileHasCompleteName } from "@/lib/profileUtils";
 import { DEFAULT_TIME_ZONE, formatEventDate, formatEventTime, getTimeZoneAbbreviation } from "@/lib/utils/dateHelpers";
 import SignupModalShell from "@/components/SignupModalShell";
 import ChoiceCards from "@/components/ChoiceCards";
@@ -72,6 +72,8 @@ export default function CompSignupModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
+  const [profileFirstName, setProfileFirstName] = useState("");
+  const [profileLastName, setProfileLastName] = useState("");
   const [alreadyRegistered, setAlreadyRegistered] = useState<{
     eventTitle: string;
     eventDate: string;
@@ -106,6 +108,8 @@ export default function CompSignupModal({
           return;
         }
         setSelfProfile(profile as ProfileResult);
+        setProfileFirstName(profile.first_name?.trim() ?? "");
+        setProfileLastName(profile.last_name?.trim() ?? "");
         setAuthState("ready");
       } catch {
         if (!cancelled) {
@@ -130,6 +134,8 @@ export default function CompSignupModal({
       setAcceptRefund(false);
       setSubmitError("");
       setSubmitSuccess("");
+      setProfileFirstName("");
+      setProfileLastName("");
       setAlreadyRegistered(null);
     }
   }, [open, embedded]);
@@ -144,9 +150,16 @@ export default function CompSignupModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const profileNeedsName =
+    selfProfile != null && !profileHasCompleteName(selfProfile);
+
   const validate = (): string | null => {
     if (authState !== "ready" || !selfProfile) {
       return "Sign in with a CCS account to register.";
+    }
+    if (profileNeedsName) {
+      if (!profileFirstName.trim()) return "First name is required on your account.";
+      if (!profileLastName.trim()) return "Last name is required on your account.";
     }
     if (!strictlySelected && !jnjSelected) return "Please select at least one: Strictly or JnJ.";
     if (strictlySelected && hasStrictly) {
@@ -206,6 +219,28 @@ export default function CompSignupModal({
     }
     setIsSubmitting(true);
     try {
+      if (profileNeedsName) {
+        const profileRes = await authedFetch("/api/profile", {
+          method: "PATCH",
+          body: JSON.stringify({
+            first_name: profileFirstName.trim(),
+            last_name: profileLastName.trim(),
+          }),
+        });
+        if (!profileRes.ok) {
+          const profileData = await profileRes.json().catch(() => ({}));
+          setSubmitError(
+            profileData.error || "Failed to save your name to your profile."
+          );
+          return;
+        }
+        setSelfProfile({
+          ...selfProfile!,
+          first_name: profileFirstName.trim(),
+          last_name: profileLastName.trim(),
+        });
+      }
+
       const body = {
         event: {
           id: event!.id,
@@ -220,6 +255,8 @@ export default function CompSignupModal({
         jnj_selected: jnjSelected,
         jnj_price: hasJnJ ? event!.jnj_price : null,
         ...buildProfilePayload(),
+        profile_first_name: profileNeedsName ? profileFirstName.trim() : undefined,
+        profile_last_name: profileNeedsName ? profileLastName.trim() : undefined,
         payment_method: paymentMethod,
         amount_owed: total,
         accept_liability: acceptLiability,
@@ -328,7 +365,15 @@ export default function CompSignupModal({
   const selfCard = selfProfile && authState === "ready" && (
     <div className="p-3 rounded-lg bg-neutral-800 border border-primary/40">
       <p className="text-xs uppercase tracking-wide text-primary mb-1">Competing as</p>
-      <p className="text-white font-medium">{profileDisplayName(selfProfile)}</p>
+      <p className="text-white font-medium">
+        {profileNeedsName
+          ? profileDisplayName({
+              first_name: profileFirstName,
+              last_name: profileLastName,
+              email: selfProfile.email,
+            })
+          : profileDisplayName(selfProfile)}
+      </p>
       {selfProfile.email && (
         <p className="text-gray-400 text-sm mt-0.5">{selfProfile.email}</p>
       )}
@@ -339,6 +384,33 @@ export default function CompSignupModal({
     <form onSubmit={onSubmit} className="space-y-4">
       <p className="font-medium text-gray-200">Comp registration — at least one division required</p>
       {selfCard}
+
+      {profileNeedsName && (
+        <div className="space-y-3 rounded-lg border border-amber-600/50 bg-amber-950/40 p-3">
+          <p className="text-sm text-amber-100">
+            Your account is missing a name — enter it below. We&apos;ll save it to your
+            profile when you submit.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={profileFirstName}
+              onChange={(e) => setProfileFirstName(e.target.value)}
+              placeholder="First name"
+              className="w-1/2 px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
+              required
+            />
+            <input
+              type="text"
+              value={profileLastName}
+              onChange={(e) => setProfileLastName(e.target.value)}
+              placeholder="Last name"
+              className="w-1/2 px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
+              required
+            />
+          </div>
+        </div>
+      )}
 
       {hasStrictly && (
         <div className="space-y-3">

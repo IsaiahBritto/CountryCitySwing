@@ -2,6 +2,7 @@ import { isSocialFinanceViewer } from "@/lib/socialFinanceAccess";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import {
   DEFAULT_TIME_ZONE,
+  isEventActiveOnCalendarDay,
   isRegistrationWindowOpen,
 } from "@/lib/utils/dateHelpers";
 
@@ -39,8 +40,11 @@ export function canViewRegistrationEvent(
   if (access === "social_viewer") {
     return isSocialEventType(event.type);
   }
-  const tz = event.time_zone || DEFAULT_TIME_ZONE;
-  return isRegistrationWindowOpen(event.starts_at, event.ends_at, tz, now);
+  if (access === "instructor") {
+    const tz = event.time_zone || DEFAULT_TIME_ZONE;
+    return isEventActiveOnCalendarDay(event.starts_at, event.ends_at, tz, now);
+  }
+  return false;
 }
 
 export function canMutateRegistrationEvent(
@@ -50,13 +54,17 @@ export function canMutateRegistrationEvent(
 ): boolean {
   if (access === "admin") return true;
   const tz = event.time_zone || DEFAULT_TIME_ZONE;
-  if (!isRegistrationWindowOpen(event.starts_at, event.ends_at, tz, now)) {
-    return false;
+  if (access === "instructor") {
+    const tz = event.time_zone || DEFAULT_TIME_ZONE;
+    return isEventActiveOnCalendarDay(event.starts_at, event.ends_at, tz, now);
   }
   if (access === "social_viewer") {
+    if (!isRegistrationWindowOpen(event.starts_at, event.ends_at, tz, now)) {
+      return false;
+    }
     return isSocialEventType(event.type);
   }
-  return true;
+  return false;
 }
 
 /** @deprecated Use canViewRegistrationEvent */

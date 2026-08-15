@@ -224,6 +224,21 @@ export function eventSpansDateInTimeZone(
 }
 
 /**
+ * True when today's calendar date (in `timeZone`) falls within the event schedule.
+ * Used for CCS Team registration access for the full event day.
+ */
+export function isEventActiveOnCalendarDay(
+  startsAt: string,
+  endsAt: string | null | undefined,
+  timeZone: string = DEFAULT_TIME_ZONE,
+  now: Date = new Date()
+): boolean {
+  const tz = timeZone || DEFAULT_TIME_ZONE;
+  const today = getDateStringInTimeZone(now.toISOString(), tz);
+  return today ? eventSpansDateInTimeZone(startsAt, endsAt, today, tz) : false;
+}
+
+/**
  * True when `now` is within the registration window for check-in staff.
  * Open from the event start calendar day through `ends_at` (including after midnight).
  * Without `ends_at`, open only on the start calendar day (full day).

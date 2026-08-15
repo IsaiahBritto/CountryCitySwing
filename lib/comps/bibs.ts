@@ -8,6 +8,7 @@ import {
 export type { BibAssignment, BibPerson } from "@/lib/comps/eventRegistrants";
 export {
   collectEventRegistrants,
+  formatRegistrantCompLabels,
   personKeyFromFields,
   ROLE_LABEL,
   validateBibNumberAssignments,

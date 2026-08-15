@@ -110,6 +110,10 @@ export default function Navbar() {
     { name: "About", href: "/about" },
   ];
 
+  const hasExpandedNav = showRegistration || showSchedule || showFinances;
+  const desktopNavVisibleClass = hasExpandedNav ? "xl:flex" : "lg:flex";
+  const hamburgerVisibleClass = hasExpandedNav ? "xl:hidden" : "lg:hidden";
+
   const navClassName = [
     "sticky top-0 z-50 w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md",
     isDnaPage ? "nav-dna" : "",
@@ -125,9 +129,12 @@ export default function Navbar() {
     : "text-gray-300 hover:text-primary transition-colors";
   const logoClass = useAccentNav
     ? isEventPageTest
-      ? "text-2xl font-bold whitespace-nowrap nav-ep-accent-logo"
-      : "text-2xl font-bold whitespace-nowrap transition-colors"
-    : "text-2xl font-bold text-primary whitespace-nowrap";
+      ? "text-sm leading-tight sm:text-lg md:text-2xl font-bold min-w-0 shrink-0 nav-ep-accent-logo"
+      : "text-sm leading-tight sm:text-lg md:text-2xl font-bold min-w-0 shrink-0 transition-colors"
+    : "text-sm leading-tight sm:text-lg md:text-2xl font-bold text-primary min-w-0 shrink-0";
+  const logoWidthClass = hasExpandedNav
+    ? "max-w-[calc(100%-2.75rem)] xl:max-w-none"
+    : "max-w-[calc(100%-2.75rem)] lg:max-w-none";
   const signInClass = isDnaPage
     ? "btn-signup nav-dna-signup text-sm px-4 py-2 rounded-md"
     : isEventPageTest
@@ -143,24 +150,25 @@ export default function Navbar() {
 
   return (
     <nav className={navClassName} style={dnaNavStyle}>
-      <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
         {/* Logo */}
         <Link
           href="/"
-          className={logoClass}
+          className={`${logoClass} ${logoWidthClass}`}
           style={isDnaPage ? { color: DNA_GREEN } : undefined}
         >
           Country City Swing
         </Link>
 
-        {/* Hamburger (mobile) */}
+        {/* Hamburger (compact / mobile) */}
         <button
           className={
-            isEventPageTest
-              ? "md:hidden nav-ep-accent-link transition-colors"
+            (isEventPageTest
+              ? "nav-ep-accent-link transition-colors"
               : isDnaPage
-                ? "md:hidden text-gray-300 hover:text-[#2BC929] transition-colors"
-                : "md:hidden text-gray-300 hover:text-primary transition-colors"
+                ? "text-gray-300 hover:text-[#2BC929] transition-colors"
+                : "text-gray-300 hover:text-primary transition-colors") +
+            ` ml-auto shrink-0 ${hamburgerVisibleClass}`
           }
           onClick={() => setMenuOpen(!menuOpen)}
           aria-label="Toggle menu"
@@ -173,7 +181,9 @@ export default function Navbar() {
         </button>
 
         {/* Desktop menu */}
-        <div className="hidden md:flex items-center space-x-6">
+        <div
+          className={`hidden min-w-0 flex-1 flex-wrap items-center justify-end gap-x-3 gap-y-2 text-sm xl:text-base ${desktopNavVisibleClass}`}
+        >
           {navLinks.map((link) => (
             <Link
               key={link.name}
@@ -213,7 +223,7 @@ export default function Navbar() {
 
       {/* Mobile dropdown */}
       {menuOpen && (
-        <div className="md:hidden bg-neutral-900 border-t border-neutral-800 px-6 py-4 space-y-4">
+        <div className={`bg-neutral-900 border-t border-neutral-800 px-6 py-4 space-y-4 ${hamburgerVisibleClass}`}>
           {navLinks.map((link) => (
             <Link
               key={link.name}

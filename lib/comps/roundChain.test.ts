@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertCanAdjustCutLines,
   canOpenRound,
   findNextEnabledRound,
   findPreviousEnabledRound,
@@ -66,6 +67,33 @@ describe("roundChain", () => {
       r("s", "semifinal", "pending"),
     ];
     expect(findNextEnabledRound(rounds, "prelims")?.id).toBe("s");
+  });
+
+  it("assertCanAdjustCutLines allows when next round is pending", () => {
+    const rounds = [
+      r("p", "prelims", "tabulated"),
+      r("s", "semifinal", "pending"),
+    ];
+    expect(() =>
+      assertCanAdjustCutLines(rounds, { round_type: "prelims", judged_role: null })
+    ).not.toThrow();
+  });
+
+  it("assertCanAdjustCutLines blocks when next round has started check-in", () => {
+    const rounds = [
+      r("p", "prelims", "tabulated"),
+      r("s", "semifinal", "checkin"),
+    ];
+    expect(() =>
+      assertCanAdjustCutLines(rounds, { round_type: "prelims", judged_role: null })
+    ).toThrow(/already started check-in/i);
+  });
+
+  it("assertCanAdjustCutLines allows when there is no next round", () => {
+    const rounds = [r("f", "final", "tabulated")];
+    expect(() =>
+      assertCanAdjustCutLines(rounds, { round_type: "final", judged_role: null })
+    ).not.toThrow();
   });
 
   it("JnJ findPreviousEnabledRound matches judged_role", () => {

@@ -1,8 +1,15 @@
 import "./globals.css";
+import type { Viewport } from "next";
 import { ReactNode } from "react";
 import CartProviderWrapper from "../components/CartProviderWrapper";
 import CcsToastHost from "../components/CcsToastHost";
 import SiteShell from "../components/SiteShell";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata = {
   title: "Country City Swing",

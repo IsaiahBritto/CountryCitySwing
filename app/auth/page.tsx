@@ -166,7 +166,7 @@ function AuthPageContent() {
   // Show confirmation message after successful forgot-password request
   if (showForgotConfirmation) {
     return (
-      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+      <div className="max-w-sm mx-auto mt-10 sm:mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
         <div className="mb-4">
           <svg
             className="mx-auto h-16 w-16 text-primary"
@@ -201,7 +201,7 @@ function AuthPageContent() {
   // Show confirmation after sending magic link
   if (showMagicLinkConfirmation) {
     return (
-      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+      <div className="max-w-sm mx-auto mt-10 sm:mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
         <div className="mb-4">
           <svg
             className="mx-auto h-16 w-16 text-primary"
@@ -236,7 +236,7 @@ function AuthPageContent() {
   // Show confirmation message after successful signup
   if (showConfirmation) {
     return (
-      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+      <div className="max-w-sm mx-auto mt-10 sm:mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
         <div className="mb-4">
           <svg
             className="mx-auto h-16 w-16 text-primary"
@@ -272,7 +272,7 @@ function AuthPageContent() {
   }
 
   return (
-    <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg">
+    <div className="max-w-sm mx-auto mt-10 sm:mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg">
       <h2 className="text-2xl font-bold mb-4 text-primary">
         {mode === "signin" ? "Sign In" : mode === "forgot" ? "Reset password" : "Create Account"}
       </h2>
@@ -447,7 +447,7 @@ function AuthPageContent() {
 export default function AuthPage() {
   return (
     <Suspense fallback={
-      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+      <div className="max-w-sm mx-auto mt-10 sm:mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
         <p>Loading…</p>
       </div>
     }>

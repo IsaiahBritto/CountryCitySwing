@@ -4,7 +4,7 @@ import { memo } from "react";
 import JudgeRawScoreControls, {
   JudgeRawScoreNudgeButtons,
 } from "@/components/comps/judge/JudgeRawScoreControls";
-import { judgeTieRowClass } from "@/lib/comps/judgeStyles";
+import { judgeTieRowClass, judgeRowReorderFadeClass } from "@/lib/comps/judgeStyles";
 import { ordinalLabel } from "@/lib/scoring/finalsSync";
 
 interface SheetEntry {
@@ -31,6 +31,7 @@ function JudgeFinalsRowInner({
   onNudge,
   onThumbsUp,
   onThumbsDown,
+  reorderFading = false,
 }: {
   entry: SheetEntry | undefined;
   raw: number | null;
@@ -46,6 +47,7 @@ function JudgeFinalsRowInner({
   onNudge: (entryId: string, delta: number) => void;
   onThumbsUp: (entryId: string) => void;
   onThumbsDown: (entryId: string) => void;
+  reorderFading?: boolean;
 }) {
   const entryId = entry?.roundEntryId ?? "";
 
@@ -53,7 +55,8 @@ function JudgeFinalsRowInner({
     <div
       className={
         "mb-1 flex min-w-0 items-center gap-2 rounded-xl border bg-neutral-800/60 p-2 " +
-        (isTied ? judgeTieRowClass : "border-neutral-700")
+        (isTied ? judgeTieRowClass : "border-neutral-700") +
+        (reorderFading ? ` ${judgeRowReorderFadeClass}` : "")
       }
     >
       <div className="w-10 shrink-0 text-center">

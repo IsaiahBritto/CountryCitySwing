@@ -139,7 +139,7 @@ export default function CompetitionConsolePage({
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-12">
+      <div className="py-12">
         <p className="text-center text-neutral-400">Checking access…</p>
       </div>
     );
@@ -154,7 +154,7 @@ export default function CompetitionConsolePage({
   }
   if (!detail) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-12">
+      <div className="py-12">
         <p className="text-center text-red-300">{error ?? "Loading…"}</p>
       </div>
     );
@@ -169,7 +169,7 @@ export default function CompetitionConsolePage({
     ["prizes", "Prizes"],
   ];
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
+    <div className="w-full py-8">
       <Link href="/admin/comps" className="text-sm text-neutral-400 hover:text-primary">
         ← All competitions
       </Link>

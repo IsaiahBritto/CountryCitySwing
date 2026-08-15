@@ -98,6 +98,25 @@ export default function AdminUsersPage() {
     );
   };
 
+  const renderNonCCSToggle = (p: ProfileRow) => {
+    const isNonCCS = (p.role ?? "").toLowerCase() === "non-ccs-instructor";
+    const busy = togglingId === p.id;
+    return (
+      <button
+        type="button"
+        onClick={() => setNonCCSInstructor(p.id, !isNonCCS)}
+        disabled={busy}
+        className={`min-h-11 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+          isNonCCS
+            ? "bg-primary/20 text-primary ring-1 ring-primary/40 hover:bg-primary/30"
+            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600 hover:text-neutral-200"
+        } ${busy ? "opacity-60 cursor-not-allowed" : ""}`}
+      >
+        {busy ? "Updating…" : isNonCCS ? "On" : "Off"}
+      </button>
+    );
+  };
+
   if (loading) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-12">
@@ -122,7 +141,7 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8">
+    <div className="w-full py-8">
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-primary">User roles</h1>
@@ -152,7 +171,31 @@ export default function AdminUsersPage() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800/30">
+      <div className="md:hidden space-y-3">
+        {profiles.map((p) => (
+          <div
+            key={p.id}
+            className="rounded-lg border border-neutral-700 bg-neutral-800/30 p-4 space-y-3"
+          >
+            <div>
+              <p className="font-medium text-neutral-200">
+                {[p.first_name, p.last_name].filter(Boolean).join(" ") || "—"}
+              </p>
+              <p className="text-sm text-neutral-400 break-all">{p.email ?? "—"}</p>
+              <p className="mt-1 text-sm text-neutral-300">Role: {p.role ?? "—"}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-neutral-400">Non-CCS-Instructor</span>
+              {renderNonCCSToggle(p)}
+            </div>
+          </div>
+        ))}
+        {profiles.length === 0 && !error && (
+          <p className="py-8 text-center text-neutral-500">No profiles found.</p>
+        )}
+      </div>
+
+      <div className="hidden md:block overflow-hidden rounded-xl border border-neutral-700 bg-neutral-800/30">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
@@ -164,36 +207,19 @@ export default function AdminUsersPage() {
               </tr>
             </thead>
             <tbody>
-              {profiles.map((p) => {
-                const isNonCCS = (p.role ?? "").toLowerCase() === "non-ccs-instructor";
-                const busy = togglingId === p.id;
-                return (
-                  <tr
-                    key={p.id}
-                    className="border-b border-neutral-700/80 last:border-0 hover:bg-neutral-800/50"
-                  >
-                    <td className="px-4 py-3 text-neutral-200">
-                      {[p.first_name, p.last_name].filter(Boolean).join(" ") || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-neutral-400">{p.email ?? "—"}</td>
-                    <td className="px-4 py-3 text-neutral-300">{p.role ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => setNonCCSInstructor(p.id, !isNonCCS)}
-                        disabled={busy}
-                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                          isNonCCS
-                            ? "bg-primary/20 text-primary ring-1 ring-primary/40 hover:bg-primary/30"
-                            : "bg-neutral-700 text-neutral-400 hover:bg-neutral-600 hover:text-neutral-200"
-                        } ${busy ? "opacity-60 cursor-not-allowed" : ""}`}
-                      >
-                        {busy ? "Updating…" : isNonCCS ? "On" : "Off"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {profiles.map((p) => (
+                <tr
+                  key={p.id}
+                  className="border-b border-neutral-700/80 last:border-0 hover:bg-neutral-800/50"
+                >
+                  <td className="px-4 py-3 text-neutral-200">
+                    {[p.first_name, p.last_name].filter(Boolean).join(" ") || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-neutral-400">{p.email ?? "—"}</td>
+                  <td className="px-4 py-3 text-neutral-300">{p.role ?? "—"}</td>
+                  <td className="px-4 py-3">{renderNonCCSToggle(p)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

@@ -6,6 +6,8 @@ import {
 } from "@/lib/scoring/relativePlacement";
 import { scoreCallbacks, type CallbackValue } from "@/lib/scoring/callbacks";
 import { sortByBib } from "@/lib/comps/entrySort";
+import { assertCanAdjustCutLines } from "@/lib/comps/roundChain";
+import type { RoundSlotRef } from "@/lib/comps/roundChain";
 import { panelJudgesForRound, headJudgeForCallbackRound, judgeScoresRound } from "@/lib/comps/judgeScope";
 import type {
   CompetitionRow,
@@ -202,6 +204,10 @@ export interface TabulateOptions {
   alternateCount?: number;
 }
 
+export interface AdjustTabulationOptions extends TabulateOptions {
+  previewOnly?: boolean;
+}
+
 /**
  * Tabulates a closed round and persists results + the tabulation snapshot.
  * When ties need an external decision, nothing is persisted and the
@@ -389,6 +395,26 @@ async function tabulateCallbackRound(
   ctx: RoundContext,
   t: TabulateContext
 ): Promise<TabulateOutcome> {
+  const scored = computeCallbackScoring(ctx, t);
+  if (!scored.ok) {
+    return scored;
+  }
+
+  await persistTabulation(ctx.round.id, scored.resultRows, scored.tabulation!, {
+    callback_count: scored.callbackCount,
+    alternate_count: scored.alternateCount,
+  });
+  return { ok: true, tabulation: scored.tabulation };
+}
+
+function computeCallbackScoring(
+  ctx: RoundContext,
+  t: TabulateContext
+): TabulateOutcome & {
+  resultRows?: Record<string, unknown>[];
+  callbackCount?: number;
+  alternateCount?: number;
+} {
   const { round, competition } = ctx;
   const callbackCount = t.callbackCount ?? round.callback_count ?? 0;
   const alternateCount = t.alternateCount ?? round.alternate_count ?? 0;
@@ -471,7 +497,7 @@ async function tabulateCallbackRound(
     manualTieUsedCjScores: t.manualTieUsedCjScores,
   });
 
-  const tabulation = buildCallbackTabulation(
+  const previewTabulation = buildCallbackTabulation(
     t,
     result,
     votes,
@@ -488,7 +514,7 @@ async function tabulateCallbackRound(
   if (result.unresolvedTies.length > 0) {
     return {
       ok: false,
-      previewTabulation: tabulation,
+      previewTabulation,
       unresolvedTies: result.unresolvedTies.map((tie) => ({
         entryIds: tie.entryIds,
         roundEntryIds: tie.entryIds,
@@ -529,11 +555,123 @@ async function tabulateCallbackRound(
         : null),
   }));
 
-  await persistTabulation(round.id, resultRows, persistedTabulation, {
-    callback_count: callbackCount,
-    alternate_count: alternateCount,
+  return {
+    ok: true,
+    tabulation: persistedTabulation,
+    resultRows,
+    callbackCount,
+    alternateCount,
+  };
+}
+
+function buildCallbackTabulateContext(
+  ctx: RoundContext,
+  options: TabulateOptions
+): TabulateContext {
+  const manualTieResolutions = options.manualTieResolutions ?? [];
+  const manualTieUsedCjScores = options.manualTieUsedCjScores ?? [];
+  const panel = panelJudges(ctx);
+  const active = activeRoundEntries(ctx);
+  const displays = new Map(active.map((re) => [re.id, entryDisplay(re)]));
+  const judgeLabels = panel.map((j, i) => ({
+    assignmentId: j.id,
+    label: `J${i + 1}`,
+    name: personName(j.first_name, j.last_name),
+  }));
+  const scoresByJudge = new Map<string, Map<string, CompScoreRow>>();
+  for (const score of ctx.scores) {
+    if (!scoresByJudge.has(score.judge_assignment_id)) {
+      scoresByJudge.set(score.judge_assignment_id, new Map());
+    }
+    scoresByJudge.get(score.judge_assignment_id)!.set(score.round_entry_id, score);
+  }
+  return {
+    active,
+    panel,
+    displays,
+    judgeLabels,
+    scoresByJudge,
+    manualTieResolutions,
+    manualTieUsedCjScores,
+    callbackCount: options.callbackCount,
+    alternateCount: options.alternateCount,
+  };
+}
+
+/**
+ * Re-score a tabulated callback round with new cut lines (call back / alternates).
+ * When ties need an external decision, nothing is persisted unless previewOnly.
+ */
+export async function adjustCallbackTabulation(
+  roundId: string,
+  options: AdjustTabulationOptions = {}
+): Promise<TabulateOutcome> {
+  const ctx = await loadRoundContext(roundId);
+  const { round } = ctx;
+
+  if (round.status !== "tabulated" && round.status !== "published") {
+    throw new RoundDataError(
+      `Round must be tabulated or published to adjust cut lines (currently ${round.status})`,
+      409
+    );
+  }
+  if (round.scoring_mode !== "callback") {
+    throw new RoundDataError(
+      "Cut lines can only be adjusted on callback rounds",
+      409
+    );
+  }
+  if (!round.tabulation) {
+    throw new RoundDataError("Round has no tabulation to adjust", 409);
+  }
+
+  const panel = panelJudges(ctx);
+  if (panel.length === 0) {
+    throw new RoundDataError("No judges assigned to this competition", 409);
+  }
+
+  const active = activeRoundEntries(ctx);
+  if (active.length === 0) {
+    throw new RoundDataError("No checked-in entries in this round", 409);
+  }
+
+  if (!options.previewOnly) {
+    const { data: allRoundsData } = await supabaseServer
+      .from("comp_rounds")
+      .select("id, round_type, judged_role, status, round_order")
+      .eq("competition_id", round.competition_id);
+    try {
+      assertCanAdjustCutLines(
+        (allRoundsData ?? []) as RoundSlotRef[],
+        round as RoundSlotRef
+      );
+    } catch (err) {
+      throw new RoundDataError(
+        err instanceof Error ? err.message : "Cannot adjust cut lines",
+        409
+      );
+    }
+  }
+
+  const t = buildCallbackTabulateContext(ctx, options);
+  const scored = computeCallbackScoring(ctx, t);
+  if (options.previewOnly) {
+    return {
+      ok: scored.ok,
+      previewTabulation: scored.previewTabulation ?? scored.tabulation,
+      unresolvedTies: scored.unresolvedTies,
+    };
+  }
+  if (!scored.ok) {
+    return scored;
+  }
+
+  await persistTabulation(round.id, scored.resultRows!, scored.tabulation!, {
+    callback_count: scored.callbackCount,
+    alternate_count: scored.alternateCount,
+    preserveStatus: round.status === "published",
   });
-  return { ok: true, tabulation: persistedTabulation };
+  return { ok: true, tabulation: scored.tabulation };
 }
 
 async function tabulateRelativePlacementRound(
@@ -717,7 +855,11 @@ async function persistTabulation(
   roundId: string,
   resultRows: Record<string, unknown>[],
   tabulation: RoundTabulation,
-  roundConfig?: { callback_count?: number; alternate_count?: number }
+  roundConfig?: {
+    callback_count?: number;
+    alternate_count?: number;
+    preserveStatus?: boolean;
+  }
 ) {
   const { error: deleteError } = await supabaseServer
     .from("comp_round_results")
@@ -735,11 +877,13 @@ async function persistTabulation(
   }
 
   const roundUpdate: Record<string, unknown> = {
-    status: "tabulated",
     tabulation,
     tabulated_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
+  if (!roundConfig?.preserveStatus) {
+    roundUpdate.status = "tabulated";
+  }
   if (roundConfig?.callback_count != null) {
     roundUpdate.callback_count = roundConfig.callback_count;
   }

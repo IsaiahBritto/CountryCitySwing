@@ -19,6 +19,7 @@ import type { CheckinStatus } from "@/lib/comps/types";
 import { lookupPlaybookEntry } from "@/lib/comps/scoringTest/playbook";
 import RelativePlacementGrid from "@/components/comps/RelativePlacementGrid";
 import CallbackResultsTable from "@/components/comps/CallbackResultsTable";
+import CallbackCutLineEditor from "@/components/comps/admin/CallbackCutLineEditor";
 
 interface RoundDetail {
   round: {
@@ -120,6 +121,13 @@ export default function RoundPanel({
   const [tieAlternates, setTieAlternates] = useState<number>(0);
   const [showCjScores, setShowCjScores] = useState(false);
   const [usedCjScoresForManual, setUsedCjScoresForManual] = useState(false);
+  const [tieResolutionMode, setTieResolutionMode] = useState<
+    "tabulate" | "adjust"
+  >("tabulate");
+  const [cutLineEditing, setCutLineEditing] = useState(false);
+  const [adjustCallbacks, setAdjustCallbacks] = useState(0);
+  const [adjustAlternates, setAdjustAlternates] = useState(0);
+  const [adjustPreview, setAdjustPreview] = useState<any>(null);
   const [rotationInput, setRotationInput] = useState("");
   const [pairingMode, setPairingMode] = useState<"rotation" | "manual">(
     "rotation"
@@ -469,6 +477,7 @@ export default function RoundPanel({
       setShowCjScores(false);
       setUsedCjScoresForManual(false);
     }
+    setTieResolutionMode("tabulate");
     const payload: Record<string, unknown> = {
       manual_tie_resolutions: resolutions,
     };
@@ -492,6 +501,7 @@ export default function RoundPanel({
     if (res.status === 409) {
       const body = await res.json().catch(() => ({}));
       if (body.unresolvedTies) {
+        setTieResolutionMode("tabulate");
         setTies(body.unresolvedTies);
         setTieOrders(
           resolutions.length > 0
@@ -523,14 +533,112 @@ export default function RoundPanel({
     onChanged();
   };
 
+  const adjustCutLines = async (
+    resolutions: string[][] = [],
+    options?: {
+      previewOnly?: boolean;
+      usedCjScores?: boolean;
+    }
+  ) => {
+    setBusy(true);
+    setError(null);
+    if (!options?.previewOnly) {
+      setTies(null);
+      setPreviewTabulation(null);
+      setShowCjScores(false);
+      setUsedCjScoresForManual(false);
+    }
+    setTieResolutionMode("adjust");
+    const useTieCounts = ties != null || resolutions.length > 0;
+    const payload: Record<string, unknown> = {
+      manual_tie_resolutions: resolutions,
+      callback_count: useTieCounts ? tieCallbacks : adjustCallbacks,
+      alternate_count: useTieCounts ? tieAlternates : adjustAlternates,
+      preview_only: options?.previewOnly ?? false,
+    };
+    if (resolutions.length > 0) {
+      payload.manual_tie_used_cj_scores = resolutions.map(
+        () => options?.usedCjScores ?? usedCjScoresForManual
+      );
+    }
+    const res = await authedFetch(`/api/admin/comps/rounds/${roundId}/tabulate`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    setBusy(false);
+    if (res.status === 409) {
+      const body = await res.json().catch(() => ({}));
+      if (body.unresolvedTies) {
+        setTieResolutionMode("adjust");
+        setTies(body.unresolvedTies);
+        setTieOrders(
+          resolutions.length > 0
+            ? resolutions
+            : body.unresolvedTies.map((t: UnresolvedTie) => t.roundEntryIds)
+        );
+        if (body.previewTabulation) {
+          setPreviewTabulation(body.previewTabulation);
+          setAdjustCallbacks(body.previewTabulation.callbackCount);
+          setAdjustAlternates(body.previewTabulation.alternateCount);
+          setTieCallbacks(body.previewTabulation.callbackCount);
+          setTieAlternates(body.previewTabulation.alternateCount);
+        }
+        return;
+      }
+      setError(body.error ?? "Cut line adjustment blocked");
+      return;
+    }
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    const body = await res.json().catch(() => ({}));
+    if (options?.previewOnly) {
+      if (body.previewTabulation) {
+        setAdjustPreview(body.previewTabulation);
+      }
+      return;
+    }
+    setTies(null);
+    setPreviewTabulation(null);
+    setAdjustPreview(null);
+    setCutLineEditing(false);
+    await load({ force: true });
+    onChanged();
+  };
+
   const refreshTiePreview = () => {
     if (!ties) return;
+    if (tieResolutionMode === "adjust") {
+      adjustCutLines([], { previewOnly: true });
+      return;
+    }
     tabulate([], { previewOnly: true });
+  };
+
+  const openCutLineEditor = () => {
+    const round = detailRef.current?.round;
+    if (!round) return;
+    setAdjustCallbacks(round.callback_count ?? round.tabulation?.callbackCount ?? 0);
+    setAdjustAlternates(round.alternate_count ?? round.tabulation?.alternateCount ?? 0);
+    setAdjustPreview(null);
+    setCutLineEditing(true);
+    setError(null);
+  };
+
+  const cancelCutLineEditing = () => {
+    setCutLineEditing(false);
+    setAdjustPreview(null);
+    setTies(null);
+    setPreviewTabulation(null);
   };
 
   const cancelTieResolution = () => {
     setTies(null);
     setPreviewTabulation(null);
+    if (tieResolutionMode === "adjust") {
+      setCutLineEditing(true);
+    }
   };
 
   const tiedEntryIds = useMemo(() => {
@@ -1003,43 +1111,15 @@ export default function RoundPanel({
                 </div>
               )}
             {previewTabulation?.mode === "callback" && (
-              <div className="mb-4 rounded-md border border-neutral-700 bg-neutral-900/50 p-3">
-                <p className="mb-2 text-xs text-neutral-400">
-                  Adjust call back or alternates if you need to advance more or
-                  fewer competitors than configured. Changes persist when you
-                  confirm tabulate.
-                </p>
-                <div className="flex flex-wrap items-end gap-3">
-                  <label className="flex items-center gap-2 text-sm text-neutral-300">
-                    Call back
-                    <input
-                      type="number"
-                      min={1}
-                      value={tieCallbacks}
-                      onChange={(e) => setTieCallbacks(Number(e.target.value))}
-                      className="w-20 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-1 text-sm text-white"
-                    />
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-neutral-300">
-                    Alternates
-                    <input
-                      type="number"
-                      min={0}
-                      max={3}
-                      value={tieAlternates}
-                      onChange={(e) => setTieAlternates(Number(e.target.value))}
-                      className="w-20 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-1 text-sm text-white"
-                    />
-                  </label>
-                  <button
-                    onClick={refreshTiePreview}
-                    disabled={busy}
-                    className={compBtnSecondary + " text-sm"}
-                  >
-                    Update preview
-                  </button>
-                </div>
-              </div>
+              <CallbackCutLineEditor
+                callbackCount={tieCallbacks}
+                alternateCount={tieAlternates}
+                onCallbackCountChange={setTieCallbacks}
+                onAlternateCountChange={setTieAlternates}
+                onPreview={refreshTiePreview}
+                busy={busy}
+                helperText="Adjust call back or alternates if you need to advance more or fewer competitors than configured. Changes persist when you confirm."
+              />
             )}
             {ties.map((tie, gi) => (
               <div key={gi} className="mb-3">
@@ -1100,12 +1180,20 @@ export default function RoundPanel({
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 onClick={() =>
-                  tabulate(tieOrders, { usedCjScores: usedCjScoresForManual })
+                  tieResolutionMode === "adjust"
+                    ? adjustCutLines(tieOrders, {
+                        usedCjScores: usedCjScoresForManual,
+                      })
+                    : tabulate(tieOrders, {
+                        usedCjScores: usedCjScoresForManual,
+                      })
                 }
                 disabled={busy}
                 className={compBtnOutline}
               >
-                Confirm order &amp; tabulate
+                {tieResolutionMode === "adjust"
+                  ? "Confirm order & apply"
+                  : "Confirm order & tabulate"}
               </button>
               <button onClick={cancelTieResolution} className={compBtnSecondary}>
                 Cancel
@@ -1401,6 +1489,79 @@ export default function RoundPanel({
           </div>
         </div>
       )}
+
+      {/* Adjust cut lines (tabulated callback rounds) */}
+      {["tabulated", "published"].includes(status) &&
+        round.scoring_mode === "callback" &&
+        !ties && (
+          <div className="mb-4 rounded-lg border border-neutral-700 bg-neutral-900/60 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">
+                Cut lines
+              </h4>
+              {!cutLineEditing && (
+                <button
+                  type="button"
+                  onClick={openCutLineEditor}
+                  disabled={busy}
+                  className={compBtnSecondary + " text-sm"}
+                >
+                  Adjust cut lines
+                </button>
+              )}
+            </div>
+            {!cutLineEditing ? (
+              <p className="text-sm text-neutral-400">
+                Top {round.callback_count ?? round.tabulation?.callbackCount}{" "}
+                advance
+                {(round.alternate_count ?? round.tabulation?.alternateCount ?? 0) >
+                  0 &&
+                  `, ${round.alternate_count ?? round.tabulation?.alternateCount} ranked alternate${
+                    (round.alternate_count ?? round.tabulation?.alternateCount) === 1
+                      ? ""
+                      : "s"
+                  }`}
+                .
+              </p>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-neutral-300">
+                  Change how many competitors advance or are ranked as alternates.
+                  Use this for floor capacity, scratches, or other director/CJ
+                  discretion — ties are not required.
+                  {status === "published" &&
+                    " Public results will update on the next load."}
+                </p>
+                <CallbackCutLineEditor
+                  callbackCount={adjustCallbacks}
+                  alternateCount={adjustAlternates}
+                  onCallbackCountChange={setAdjustCallbacks}
+                  onAlternateCountChange={setAdjustAlternates}
+                  onPreview={() => adjustCutLines([], { previewOnly: true })}
+                  onApply={() => adjustCutLines([])}
+                  showApply
+                  busy={busy}
+                  helperText="Preview shows how the new cut lines affect who advances."
+                />
+                {adjustPreview && (
+                  <div className="overflow-x-auto -mx-2 px-2">
+                    <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                      Preview
+                    </h5>
+                    <CallbackResultsTable tabulation={adjustPreview} />
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={cancelCutLineEditing}
+                  className={compBtnSecondary + " text-sm"}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
       {/* Results grid */}
       {["tabulated", "published"].includes(status) && round.tabulation && (

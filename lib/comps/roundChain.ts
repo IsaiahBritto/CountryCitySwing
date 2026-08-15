@@ -153,6 +153,23 @@ export function isFirstEnabledSlot(
   return true;
 }
 
+/** Block cut-line edits when the next enabled round has left pending. */
+export function assertCanAdjustCutLines(
+  rounds: RoundSlotRef[],
+  round: Pick<RoundSlotRef, "round_type" | "judged_role">
+): void {
+  const next = findNextEnabledRound(
+    rounds,
+    round.round_type,
+    round.judged_role
+  );
+  if (next && next.status !== "pending") {
+    throw new Error(
+      "Next round has already started check-in; cannot adjust cut lines"
+    );
+  }
+}
+
 export function canOpenRound(
   rounds: RoundSlotRef[],
   target: RoundSlotRef

@@ -119,7 +119,7 @@ function InstructorCard({
   title: string;
 }) {
   return (
-    <div className="text-center bg-neutral-800 rounded-lg p-6 shadow-[0_0_20px_rgba(242,201,76,0.25)] hover:shadow-[0_0_25px_rgba(242,201,76,0.5)] transition-all duration-300 w-56 h-[22rem] flex flex-col items-center justify-start">
+    <div className="text-center bg-neutral-800 rounded-lg p-6 shadow-[0_0_20px_rgba(242,201,76,0.25)] hover:shadow-[0_0_25px_rgba(242,201,76,0.5)] transition-all duration-300 w-full max-w-[14rem] sm:w-56 h-auto min-h-[22rem] flex flex-col items-center justify-start">
       <div className="relative w-36 h-36 mb-4">
         {member.photo_url ? (
           <img

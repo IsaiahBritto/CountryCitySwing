@@ -1,11 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { collectEventRegistrants, ROLE_LABEL } from "@/lib/comps/eventRegistrants";
+import {
+  collectEventRegistrants,
+  formatRegistrantCompLabels,
+  ROLE_LABEL,
+} from "@/lib/comps/eventRegistrants";
 import type { CompSignupRow } from "@/lib/comps/types";
 
 describe("eventRegistrants re-export", () => {
   it("exposes role labels", () => {
     expect(ROLE_LABEL.jnj_lead).toBe("JnJ L");
     expect(ROLE_LABEL.strictly_follow).toBe("Strictly F");
+  });
+
+  it("formats division labels for bib confirmation", () => {
+    expect(formatRegistrantCompLabels(["jnj_lead"])).toEqual([
+      "Jack & Jill — Lead",
+    ]);
+    expect(
+      formatRegistrantCompLabels(["jnj_lead", "strictly_lead"])
+    ).toEqual(["Jack & Jill — Lead", "Strictly — Lead"]);
+    expect(formatRegistrantCompLabels([])).toEqual(["Walk-up"]);
   });
 
   it("assigns role badges per division slot", () => {

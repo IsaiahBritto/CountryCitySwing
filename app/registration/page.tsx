@@ -1287,7 +1287,7 @@ export default function RegistrationPage() {
                           Date: {formatSignupCreatedAt(c.created_at)}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
                         <button
                           onClick={() => updateCompSignupPaid(c.id, !c.paid)}
                           disabled={readOnlyRegistration || updating === c.id || !!c.checked_in}
@@ -1371,7 +1371,7 @@ export default function RegistrationPage() {
                           <p className="text-red-500 font-medium text-sm">Signed Up Today</p>
                         )}
                     </div>
-                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
                       <button
                         onClick={() => handlePaidClick(signup)}
                         disabled={

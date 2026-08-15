@@ -1907,7 +1907,7 @@ export default function AdminFinancesPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto w-full">
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-primary">
@@ -1952,8 +1952,60 @@ export default function AdminFinancesPage() {
           {isSocialViewer ? "No Social events found." : "No events found."}
         </div>
       ) : (
+        <>
+          {!skipsEventDetailView(eventsView) && (
+            <div className="sticky top-[4.5rem] z-40 mb-4 rounded-xl border border-neutral-700 bg-neutral-900/95 p-3 backdrop-blur-sm lg:hidden">
+              {isYearOrAggregateView(eventsView) ? (
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-neutral-500">
+                    Year
+                  </span>
+                  <select
+                    value={selectedYear ?? ""}
+                    onChange={(e) =>
+                      setSelectedYear(e.target.value ? Number(e.target.value) : null)
+                    }
+                    className="w-full rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-2.5 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">Select a year…</option>
+                    {(eventsView === "social_overview" ? socialYears : years).map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-neutral-500">
+                    Event
+                  </span>
+                  <select
+                    value={selectedEvent?.id ?? ""}
+                    onChange={(e) => {
+                      const ev = filteredEvents.find((item) => item.id === e.target.value);
+                      if (ev) setSelectedEvent(ev);
+                    }}
+                    className="w-full rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-2.5 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    {filteredEvents.length === 0 ? (
+                      <option value="">
+                        {eventsView === "upcoming" ? "No upcoming events" : "No past events"}
+                      </option>
+                    ) : (
+                      filteredEvents.map((ev) => (
+                        <option key={ev.id} value={ev.id}>
+                          {ev.title} — {dayjs(ev.starts_at).format("MMM D, YYYY")}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
+              )}
+            </div>
+          )}
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
-          <div className="rounded-xl border border-neutral-700 bg-neutral-800/30 p-2">
+          <div className="hidden rounded-xl border border-neutral-700 bg-neutral-800/30 p-2 lg:block">
             <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-neutral-500">
               {isYearOrAggregateView(eventsView)
                 ? "Year"
@@ -2114,7 +2166,7 @@ export default function AdminFinancesPage() {
             )}
           </div>
 
-          <div className="rounded-xl border border-neutral-700 bg-neutral-800/30 p-6">
+          <div className="min-w-0 rounded-xl border border-neutral-700 bg-neutral-800/30 p-4 sm:p-6">
             {eventsView === "payments_due" ? (
               <PaymentsDuePanel
                 events={paymentsDueEvents}
@@ -3206,6 +3258,7 @@ export default function AdminFinancesPage() {
             )}
           </div>
         </div>
+        </>
       )}
     </div>
   );

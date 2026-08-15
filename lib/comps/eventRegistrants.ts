@@ -278,3 +278,18 @@ export const ROLE_LABEL: Record<EventRegistrantRole, string> = {
   strictly_lead: "Strictly L",
   strictly_follow: "Strictly F",
 };
+
+export const COMP_DIVISION_LABEL: Record<EventRegistrantRole, string> = {
+  jnj_lead: "Jack & Jill — Lead",
+  jnj_follow: "Jack & Jill — Follow",
+  strictly_lead: "Strictly — Lead",
+  strictly_follow: "Strictly — Follow",
+};
+
+/** Human-readable division labels for bib assignment confirmation. */
+export function formatRegistrantCompLabels(
+  roles: EventRegistrantRole[]
+): string[] {
+  if (roles.length === 0) return ["Walk-up"];
+  return roles.map((role) => COMP_DIVISION_LABEL[role]);
+}

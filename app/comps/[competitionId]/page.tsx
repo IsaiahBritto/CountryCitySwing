@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import RelativePlacementGrid from "@/components/comps/RelativePlacementGrid";
 import CallbackResultsTable from "@/components/comps/CallbackResultsTable";
 import JudgeRoleToggle from "@/components/comps/judge/JudgeRoleToggle";
-import { compBtnTabActiveSm } from "@/lib/comps/buttonStyles";
 import type { DanceRole } from "@/lib/comps/types";
 
 const ROUND_LABEL: Record<string, string> = {
@@ -190,7 +189,7 @@ function PublicCompetitionInner({
             </p>
           )}
 
-          <div className="mb-4 flex w-full flex-wrap gap-1 rounded-md border border-neutral-700 p-1">
+          <div className="mb-4 flex gap-1 overflow-x-auto border-b border-neutral-800 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {roundTypes.map((type) => {
               const active = type === selectedRoundType;
               return (
@@ -207,10 +206,10 @@ function PublicCompetitionInner({
                     syncUrl(type, hasBoth ? selectedRole : null);
                   }}
                   className={
-                    "min-h-9 flex-1 rounded-[5px] px-2.5 py-1.5 text-center text-xs font-medium leading-tight transition sm:text-sm " +
+                    "shrink-0 whitespace-nowrap px-4 py-2 text-xs sm:text-sm font-medium transition " +
                     (active
-                      ? compBtnTabActiveSm
-                      : "border border-transparent text-neutral-400 hover:text-white")
+                      ? "border-b-2 border-primary text-primary"
+                      : "text-neutral-400 hover:text-white")
                   }
                 >
                   {ROUND_LABEL[type] ?? type}

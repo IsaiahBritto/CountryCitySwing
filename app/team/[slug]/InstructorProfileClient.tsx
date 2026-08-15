@@ -76,14 +76,14 @@ export default function InstructorProfileClient({
 
   return (
     <div
-      className="fixed inset-0 flex items-center justify-center z-50 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
       onClick={handleClose}
     >
       <section
-        className="max-w-3xl mx-auto text-center px-6 py-12 text-white"
+        className="w-full max-w-3xl mx-4 text-white"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="bg-neutral-800 rounded-lg p-8 shadow-[0_0_25px_rgba(242,201,76,0.25)] text-left sm:text-center space-y-6 break-words relative max-h-[90vh] overflow-y-auto scrollbar-black">
+        <div className="relative max-h-[90vh] overflow-y-auto rounded-t-2xl bg-neutral-800 p-6 sm:rounded-lg sm:p-8 shadow-[0_0_25px_rgba(242,201,76,0.25)] text-left sm:text-center space-y-6 break-words scrollbar-black">
           {/* Close button */}
           <button
             className="absolute top-4 right-4 text-neutral-400 hover:text-primary transition-colors z-10"

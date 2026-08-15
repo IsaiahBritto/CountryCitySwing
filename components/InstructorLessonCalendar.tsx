@@ -376,7 +376,7 @@ export default function InstructorLessonCalendar({
                   <div
                     key={`${wi}-${di}`}
                     onClick={() => hasSlots && openDayView(day!)}
-                    className={`group h-16 flex flex-col justify-center items-center rounded-md transition cursor-pointer overflow-hidden
+                    className={`group h-12 sm:h-16 flex flex-col justify-center items-center rounded-md transition cursor-pointer overflow-hidden
                       ${
                         hasSlots
                           ? available > 0

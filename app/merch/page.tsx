@@ -157,11 +157,11 @@ export default function MerchPage() {
 
   return (
     <section className="max-w-6xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="gold-wave text-4xl font-extrabold pb-2">
+      <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-8">
+        <h1 className="gold-wave page-title font-extrabold pb-2">
           Country City Swing Merch
         </h1>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           {isSignedIn && (
             <Link
               href="/merch/orders"

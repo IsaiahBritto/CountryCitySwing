@@ -8,7 +8,7 @@ export default function MediaPage() {
   return (
     <section className="max-w-5xl mx-auto text-center">
       <div className="mb-16">
-        <h3 className="gold-wave text-4xl font-extrabold mb-4 pb-2">
+        <h3 className="gold-wave page-title font-extrabold mb-4 pb-2">
           Weekly Class Photos
         </h3>
         <p className="text-gray-400 text-sm mb-6 max-w-2xl mx-auto">
@@ -18,7 +18,7 @@ export default function MediaPage() {
       </div>
 
       <div className="mb-16 pt-12 border-t border-neutral-700">
-        <h3 className="gold-wave text-3xl font-extrabold mb-4 pb-2">
+        <h3 className="gold-wave text-2xl sm:text-3xl font-extrabold mb-4 pb-2">
           Photos by Date
         </h3>
         <p className="text-gray-400 text-sm mb-6 max-w-2xl mx-auto">

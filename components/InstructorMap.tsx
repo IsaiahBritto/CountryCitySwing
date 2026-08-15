@@ -248,7 +248,7 @@ export default function InstructorMap({
             Click a highlighted state to zoom and see instructors
           </p>
         </div>
-        <div style={{ width: "100%", height: 360 }} className="bg-neutral-800/50" />
+        <div className="h-[min(360px,50vh)] w-full bg-neutral-800/50" />
       </div>
     );
   }
@@ -274,7 +274,7 @@ export default function InstructorMap({
       <ComposableMap
         projection="geoAlbersUsa"
         projectionConfig={{ scale: 850 }}
-        style={{ width: "100%", height: 360 }}
+        style={{ width: "100%", height: "min(360px, 50vh)" }}
       >
         {/* onMoveEnd is supported at runtime; types are incomplete in @types/react-simple-maps */}
         <ZoomableGroup

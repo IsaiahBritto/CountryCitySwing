@@ -115,7 +115,7 @@ export default function ResetPasswordPage() {
 
   if (status === "error") {
     return (
-      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+      <div className="max-w-sm mx-auto mt-10 sm:mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
         <h2 className="text-2xl font-bold mb-4 text-red-500">Reset link invalid</h2>
         <p className="text-gray-300 mb-6">{message}</p>
         <Link href="/auth" className="block w-full btn-signup py-3 text-center font-semibold">
@@ -130,7 +130,7 @@ export default function ResetPasswordPage() {
 
   if (status === "success") {
     return (
-      <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
+      <div className="max-w-sm mx-auto mt-10 sm:mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg text-center">
         <h2 className="text-2xl font-bold mb-4 text-primary">Password updated</h2>
         <p className="text-gray-300 mb-4">You can now sign in with your new password.</p>
         <p className="text-sm text-gray-500">Redirecting to home...</p>
@@ -142,7 +142,7 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="max-w-sm mx-auto mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg">
+    <div className="max-w-sm mx-auto mt-10 sm:mt-20 bg-neutral-800 p-6 rounded-lg text-white shadow-lg">
       <h2 className="text-2xl font-bold mb-4 text-primary">Set new password</h2>
       <form onSubmit={handleSubmit} className="space-y-3">
         <input

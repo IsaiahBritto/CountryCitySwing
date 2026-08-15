@@ -9,6 +9,7 @@ import JudgeFinalsRow from "@/components/comps/judge/JudgeFinalsRow";
 import JudgeSheetHeader from "@/components/comps/judge/JudgeSheetHeader";
 import FinalsVerifyPlacementsModal from "@/components/comps/judge/FinalsVerifyPlacementsModal";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
+import { useScoringOrderMoveFade } from "@/components/comps/judge/useScoringOrderMoveFade";
 import { useJudgeShowThumbs } from "@/lib/comps/useJudgeShowThumbs";
 import {
   applyRawChange,
@@ -113,23 +114,26 @@ export default function FinalsSheet({
     return sortForDisplayOrder(enriched, displayOrder, "raw");
   }, [items, entryById, displayOrder]);
 
+  const { rows: visibleDisplayRows, isFading: isReorderFading } =
+    useScoringOrderMoveFade(displayRows, displayOrder);
+
   const heatSections = useMemo(() => {
     if (displayOrder !== "bib") {
-      return [[null, displayRows] as const];
+      return [[null, visibleDisplayRows] as const];
     }
-    const hasHeat = displayRows.some(
+    const hasHeat = visibleDisplayRows.some(
       (r) => entryById.get(r.entryId)?.heatNumber != null
     );
     if (!hasHeat) {
-      return [[null, displayRows] as const];
+      return [[null, visibleDisplayRows] as const];
     }
-    const map = new Map<number | null, typeof displayRows>();
-    for (const row of displayRows) {
+    const map = new Map<number | null, typeof visibleDisplayRows>();
+    for (const row of visibleDisplayRows) {
       const heatNumber = entryById.get(row.entryId)?.heatNumber ?? null;
       map.set(heatNumber, [...(map.get(heatNumber) ?? []), row]);
     }
     return [...map.entries()].sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0));
-  }, [displayRows, displayOrder, entryById]);
+  }, [visibleDisplayRows, displayOrder, entryById]);
 
   useEffect(() => {
     const restored = autosave.restoreUnsent();
@@ -456,6 +460,7 @@ export default function FinalsSheet({
                   onNudge={nudge}
                   onThumbsUp={handleThumbsUp}
                   onThumbsDown={handleThumbsDown}
+                  reorderFading={isReorderFading(item.entryId)}
                 />
               );
             })}

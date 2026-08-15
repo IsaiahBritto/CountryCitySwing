@@ -4,7 +4,7 @@ import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { ROLE_LABEL, type EventRegistrantPerson } from "@/lib/comps/eventRegistrants";
+import { formatRegistrantCompLabels, type EventRegistrantPerson } from "@/lib/comps/eventRegistrants";
 import EventStaffSection from "@/components/comps/admin/EventStaffSection";
 import {
   canAccessCompEventOps,
@@ -224,9 +224,66 @@ export default function EventBibsPage({
   const inputCls =
     "w-24 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-1.5 font-mono text-sm text-white";
 
+  const renderBibField = (person: EventRegistrantPerson) => {
+    const val = draft[person.personKey] ?? "";
+    const num = val.trim() ? Number(val) : null;
+    const invalid =
+      val.trim() !== "" &&
+      (!Number.isInteger(num) || (num ?? 0) <= 0);
+    const dupe =
+      num != null &&
+      Number.isInteger(num) &&
+      duplicateNumbers.has(String(num));
+    const isSaving = savingKeys.has(person.personKey);
+    const isSaved =
+      savedKeys.has(person.personKey) &&
+      savedDraftRef.current[person.personKey] === val.trim() &&
+      val.trim() !== "";
+
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={1}
+          className={
+            inputCls +
+            (invalid || dupe ? " border-red-500/70" : "")
+          }
+          value={val}
+          onChange={(e) => {
+            const next = e.target.value;
+            setDraft((d) => ({
+              ...d,
+              [person.personKey]: next,
+            }));
+            setSavedKeys((prev) => {
+              const s = new Set(prev);
+              s.delete(person.personKey);
+              return s;
+            });
+            scheduleSave(person.personKey, next);
+          }}
+          onBlur={(e) => flushSave(person.personKey, e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
+            }
+          }}
+          placeholder="—"
+        />
+        {isSaving && (
+          <span className="text-xs text-neutral-500">…</span>
+        )}
+        {!isSaving && isSaved && !invalid && !dupe && (
+          <span className="text-xs text-green-400">Saved</span>
+        )}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
-      <main className="mx-auto max-w-4xl px-4 py-10 text-neutral-400">
+      <main className="w-full py-10 text-neutral-400">
         Loading…
       </main>
     );
@@ -234,7 +291,7 @@ export default function EventBibsPage({
 
   if (!canAccess) {
     return (
-      <main className="mx-auto max-w-4xl px-4 py-10">
+      <main className="w-full py-10">
         <p className="text-red-300">You don&apos;t have access to this event.</p>
       </main>
     );
@@ -246,7 +303,7 @@ export default function EventBibsPage({
   const anySaving = savingKeys.size > 0;
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-10">
+    <main className="w-full py-10">
       <Link
         href={isAdmin ? "/admin/comps" : `/admin/comps/events/${eventId}/ops`}
         className="mb-4 inline-block text-sm text-neutral-400 hover:text-white"
@@ -282,10 +339,11 @@ export default function EventBibsPage({
       )}
 
       <p className="mt-3 text-sm text-neutral-400">
-        One bib per competitor for this comp event. Judges and Strictly-only
-        follows are not listed. The same number applies across Jack &amp; Jill
-        and Strictly divisions; Strictly couples display the lead&apos;s bib.
-        Bib numbers save automatically when you enter them.
+        One bib per competitor for this comp event. Confirm each person&apos;s
+        name and divisions before entering their bib number. Judges and
+        Strictly-only follows are not listed. The same number applies across
+        Jack &amp; Jill and Strictly divisions; Strictly couples display the
+        lead&apos;s bib. Bib numbers save automatically when you enter them.
       </p>
 
       {anySaving && (
@@ -306,98 +364,57 @@ export default function EventBibsPage({
         </p>
       ) : (
         <>
-          <div className="mt-6 overflow-x-auto">
-            <table className="w-full min-w-[36rem] text-sm">
+          <div className="mt-6 md:hidden space-y-3">
+            {roster.map((person) => {
+              const compLabels = formatRegistrantCompLabels(person.roles);
+              return (
+              <div
+                key={person.personKey}
+                className="rounded-lg border border-neutral-700 bg-neutral-800/30 p-4 space-y-3"
+              >
+                <div>
+                  <p className="font-medium text-white">
+                    {person.firstName} {person.lastName}
+                  </p>
+                  <p className="mt-2 text-sm text-neutral-300">
+                    <span className="text-xs font-medium uppercase text-neutral-500">
+                      Competing in:{" "}
+                    </span>
+                    {compLabels.join(", ")}
+                  </p>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-neutral-500">
+                    Bib #
+                  </label>
+                  {renderBibField(person)}
+                </div>
+              </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-6 hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[28rem] text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase text-neutral-500">
                   <th className="py-2 pr-4">Name</th>
-                  <th className="py-2 pr-4">Email</th>
-                  <th className="py-2 pr-4">Roles</th>
+                  <th className="py-2 pr-4">Competing in</th>
                   <th className="py-2">Bib #</th>
                 </tr>
               </thead>
               <tbody>
-                {roster.map((person) => {
-                  const val = draft[person.personKey] ?? "";
-                  const num = val.trim() ? Number(val) : null;
-                  const invalid =
-                    val.trim() !== "" &&
-                    (!Number.isInteger(num) || (num ?? 0) <= 0);
-                  const dupe =
-                    num != null &&
-                    Number.isInteger(num) &&
-                    duplicateNumbers.has(String(num));
-                  const isSaving = savingKeys.has(person.personKey);
-                  const isSaved =
-                    savedKeys.has(person.personKey) &&
-                    savedDraftRef.current[person.personKey] === val.trim() &&
-                    val.trim() !== "";
-                  return (
-                    <tr key={person.personKey} className="border-t border-neutral-800">
-                      <td className="py-2.5 pr-4 text-white">
-                        {person.firstName} {person.lastName}
-                      </td>
-                      <td className="py-2.5 pr-4 text-neutral-400">
-                        {person.email ?? "—"}
-                      </td>
-                      <td className="py-2.5 pr-4">
-                        <div className="flex flex-wrap gap-1">
-                          {person.roles.length === 0 ? (
-                            <span className="text-xs text-neutral-500">Walk-up</span>
-                          ) : (
-                            person.roles.map((role) => (
-                              <span
-                                key={role}
-                                className="rounded bg-neutral-700 px-1.5 py-0.5 text-xs text-neutral-200"
-                              >
-                                {ROLE_LABEL[role]}
-                              </span>
-                            ))
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2.5">
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min={1}
-                            className={
-                              inputCls +
-                              (invalid || dupe ? " border-red-500/70" : "")
-                            }
-                            value={val}
-                            onChange={(e) => {
-                              const next = e.target.value;
-                              setDraft((d) => ({
-                                ...d,
-                                [person.personKey]: next,
-                              }));
-                              setSavedKeys((prev) => {
-                                const s = new Set(prev);
-                                s.delete(person.personKey);
-                                return s;
-                              });
-                              scheduleSave(person.personKey, next);
-                            }}
-                            onBlur={(e) => flushSave(person.personKey, e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.currentTarget.blur();
-                              }
-                            }}
-                            placeholder="—"
-                          />
-                          {isSaving && (
-                            <span className="text-xs text-neutral-500">…</span>
-                          )}
-                          {!isSaving && isSaved && !invalid && !dupe && (
-                            <span className="text-xs text-green-400">Saved</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {roster.map((person) => (
+                  <tr key={person.personKey} className="border-t border-neutral-800">
+                    <td className="py-2.5 pr-4 text-white">
+                      {person.firstName} {person.lastName}
+                    </td>
+                    <td className="py-2.5 pr-4 text-neutral-300">
+                      {formatRegistrantCompLabels(person.roles).join(", ")}
+                    </td>
+                    <td className="py-2.5">{renderBibField(person)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

@@ -284,7 +284,7 @@ export default function SocialRequestPageClient() {
           <label htmlFor="song-search" className="text-sm text-gray-400">
             Search Spotify
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <input
               id="song-search"
               type="text"

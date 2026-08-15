@@ -44,7 +44,7 @@ export function CheckinEntryList({
               )}
             </span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <button
               type="button"
               onClick={() => onSetStatus(e.id, "checked_in")}
@@ -96,7 +96,7 @@ export function PromoteAlternateButton({
       type="button"
       onClick={onClick}
       disabled={disabled || busy}
-      className={compBtnSecondary + " " + className}
+          className={compBtnSecondary + " max-sm:w-full " + className}
     >
       {busy ? "Promoting…" : label}
     </button>
@@ -119,7 +119,7 @@ export function PromoteAlternateButtons({
   showFollow?: boolean;
 }) {
   return (
-    <div className="mb-3 flex flex-wrap gap-2">
+    <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       {showLead && (
         <PromoteAlternateButton
           disabled={disabled}

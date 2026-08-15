@@ -400,7 +400,7 @@ export default function ScheduleCalendar({
                 <div
                   key={`${wi}-${di}`}
                   onClick={() => hasActivity && day && handleDayClick(day)}
-                  className={`group h-16 flex flex-col justify-center items-center rounded-md transition overflow-hidden
+                  className={`group h-12 sm:h-16 flex flex-col justify-center items-center rounded-md transition overflow-hidden
                     ${hasActivity ? "cursor-pointer" : ""}
                     ${
                       isConventionDay

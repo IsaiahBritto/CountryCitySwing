@@ -179,7 +179,7 @@ export default function Home() {
           className="mx-auto mb-6 drop-shadow-[0_0_12px_rgba(242,201,76,0.45)]"
         />
 
-        <h1 className="gold-wave text-4xl font-extrabold mb-6 pb-2">
+        <h1 className="gold-wave text-3xl sm:text-4xl font-extrabold mb-6 pb-2">
           Welcome to Country City Swing
         </h1>
 
@@ -238,7 +238,7 @@ export default function Home() {
         </div>
 
         {/* --- View Switcher --- */}
-        <div className="flex justify-center mb-8 space-x-3">
+        <div className="flex flex-wrap justify-center gap-2 mb-8">
           <button
             onClick={() => setView("dynamic")}
             className={`px-4 py-2 rounded-md font-semibold transition-all duration-200 ${

@@ -136,7 +136,7 @@ function ConfirmationContent() {
 
   return (
     <div className="min-h-screen bg-neutral-900 text-white flex items-center justify-center px-4">
-      <div className="max-w-2xl w-full bg-neutral-800 rounded-lg shadow-[0_0_25px_rgba(187,134,252,0.6)] p-8 text-center">
+      <div className="max-w-2xl w-full bg-neutral-800 rounded-lg shadow-[0_0_25px_rgba(187,134,252,0.6)] p-6 sm:p-8 text-center">
         {/* Success Icon */}
         <div className="mb-6">
           <div className="mx-auto w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mb-4">

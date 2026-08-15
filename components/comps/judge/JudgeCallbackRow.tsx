@@ -5,7 +5,7 @@ import CallbackVoteBadge from "@/components/comps/judge/CallbackVoteBadge";
 import JudgeRawScoreControls, {
   JudgeRawScoreNudgeButtons,
 } from "@/components/comps/judge/JudgeRawScoreControls";
-import { judgeTieBadgeClass } from "@/lib/comps/judgeStyles";
+import { judgeTieBadgeClass, judgeRowReorderFadeClass } from "@/lib/comps/judgeStyles";
 import type { CallbackVote } from "@/lib/scoring/callbackRawSync";
 
 interface SheetEntry {
@@ -34,6 +34,7 @@ function JudgeCallbackRowInner({
   onNudgeRaw,
   onThumbsUp,
   onThumbsDown,
+  reorderFading = false,
 }: {
   entry: SheetEntry;
   mode: "placement" | "raw";
@@ -53,6 +54,7 @@ function JudgeCallbackRowInner({
   onNudgeRaw: (entryId: string, delta: number) => void;
   onThumbsUp: (entryId: string) => void;
   onThumbsDown: (entryId: string) => void;
+  reorderFading?: boolean;
 }) {
   const voteBtnLocked = locked ? " opacity-60" : "";
   const voteBtnNeutral =
@@ -68,9 +70,10 @@ function JudgeCallbackRowInner({
   return (
     <div
       className={
-        mode === "raw"
+        (mode === "raw"
           ? `flex min-w-0 items-center gap-2 rounded-xl border p-2 ${rowTone}`
-          : `flex flex-col gap-2 rounded-xl border p-2 ${rowTone}`
+          : `flex flex-col gap-2 rounded-xl border p-2 ${rowTone}`) +
+        (reorderFading ? ` ${judgeRowReorderFadeClass}` : "")
       }
     >
       <div className="flex min-w-0 flex-1 items-center gap-2">

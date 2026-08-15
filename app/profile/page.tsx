@@ -294,7 +294,7 @@ export default function ProfilePage() {
     );
 
   return (
-    <div className="max-w-3xl mx-auto mt-12 bg-neutral-800 p-8 rounded-lg text-white shadow-[0_0_25px_rgba(187,134,252,0.4)] space-y-6">
+    <div className="max-w-3xl mx-auto mt-6 sm:mt-12 bg-neutral-800 p-4 sm:p-8 rounded-lg text-white shadow-[0_0_25px_rgba(187,134,252,0.4)] space-y-6">
       <h2 className="text-2xl font-bold text-primary text-center">
         Edit Your Profile
       </h2>
@@ -353,7 +353,7 @@ export default function ProfilePage() {
 
       {/* Editable Form */}
       <form onSubmit={handleUpdate} className="space-y-4">
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           <input
             type="text"
             value={profile.first_name || ""}
@@ -361,7 +361,7 @@ export default function ProfilePage() {
               setProfile({ ...profile, first_name: e.target.value })
             }
             placeholder="First Name"
-            className="w-1/2 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+            className="w-full sm:w-1/2 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
           />
           <input
             type="text"
@@ -370,7 +370,7 @@ export default function ProfilePage() {
               setProfile({ ...profile, last_name: e.target.value })
             }
             placeholder="Last Name"
-            className="w-1/2 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+            className="w-full sm:w-1/2 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
           />
         </div>
 
@@ -708,11 +708,13 @@ export default function ProfilePage() {
 
       {/* Slot Manager (only for instructors who enabled scheduling) */}
       {(profile.role === "instructor" || profile.role === "admin") && profile.scheduling_enabled && (
-        <InstructorSlotManager instructorId={profile.id} />
+        <div className="overflow-x-auto min-w-0">
+          <InstructorSlotManager instructorId={profile.id} />
+        </div>
       )}
 
       {(profile.role === "instructor" || profile.role === "admin") && profile.scheduling_enabled && (
-        <div className="mt-10">
+        <div className="mt-10 overflow-x-auto min-w-0">
           <h3 className="text-xl font-semibold text-primary mb-4 text-center">
             Your Public Lesson Calendar Preview
           </h3>

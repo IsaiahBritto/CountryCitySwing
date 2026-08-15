@@ -8,6 +8,7 @@ import JudgeCallbackRow from "@/components/comps/judge/JudgeCallbackRow";
 import JudgeConfirmDialog from "@/components/comps/judge/JudgeConfirmDialog";
 import JudgeSheetHeader from "@/components/comps/judge/JudgeSheetHeader";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
+import { useScoringOrderMoveFade } from "@/components/comps/judge/useScoringOrderMoveFade";
 import { useJudgeShowThumbs } from "@/lib/comps/useJudgeShowThumbs";
 import {
   applyCallbackVote,
@@ -140,17 +141,20 @@ export default function CallbackSheet({
     return sortForDisplayOrder(rows, displayOrder);
   }, [entries, rawById, displayOrder]);
 
+  const { rows: visibleDisplayRows, isFading: isReorderFading } =
+    useScoringOrderMoveFade(displayRows, displayOrder);
+
   const heatSections = useMemo(() => {
     if (displayOrder !== "bib") {
-      return [[null, displayRows] as const];
+      return [[null, visibleDisplayRows] as const];
     }
-    const map = new Map<number | null, typeof displayRows>();
-    for (const row of displayRows) {
+    const map = new Map<number | null, typeof visibleDisplayRows>();
+    for (const row of visibleDisplayRows) {
       const key = row.entry.heatNumber;
       map.set(key, [...(map.get(key) ?? []), row]);
     }
     return [...map.entries()].sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0));
-  }, [displayRows, displayOrder]);
+  }, [visibleDisplayRows, displayOrder]);
 
   useEffect(() => {
     const restored = autosave.restoreUnsent();
@@ -561,6 +565,7 @@ export default function CallbackSheet({
                   onNudgeRaw={nudgeRaw}
                   onThumbsUp={handleThumbsUp}
                   onThumbsDown={handleThumbsDown}
+                  reorderFading={isReorderFading(e.roundEntryId)}
                 />
               );
             })}

@@ -194,7 +194,7 @@ export default function Calendar({ events = [], isAdmin = false, isInstructor = 
                   onClick={() => {
                     if (hasEvents && day) handleDayClick(day);
                   }}
-                  className={`group h-16 flex flex-col justify-center items-center rounded-md transition cursor-pointer overflow-hidden
+                  className={`group h-12 sm:h-16 flex flex-col justify-center items-center rounded-md transition cursor-pointer overflow-hidden
                     ${
                       hasEvents
                         ? eventType === "Convention"

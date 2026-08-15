@@ -621,7 +621,7 @@ export default function SpotifyPageClient() {
             ) : (
               <p className="text-sm text-gray-400">No playlist is active for requests.</p>
             )}
-            <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
               <label className="block space-y-1 flex-1 min-w-[14rem]">
                 <span className="text-sm text-gray-400">
                   Your owned playlists

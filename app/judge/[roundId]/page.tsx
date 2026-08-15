@@ -34,7 +34,7 @@ export default function JudgeRoundPage({
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-2xl px-4 py-12">
+        <div className="py-12">
           <p className="text-center text-neutral-400">Loading round…</p>
         </div>
       }
@@ -93,7 +93,7 @@ function JudgeRoundInner({
   }
   if (!bundle) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12">
+      <div className="py-12">
         <p className="text-center text-neutral-400">Loading round…</p>
       </div>
     );
@@ -103,7 +103,7 @@ function JudgeRoundInner({
   const activeView = activeJudgeRoundView(bundle, activeRole);
   if (!activeView) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12">
+      <div className="py-12">
         <p className="text-center text-neutral-400">Loading round…</p>
       </div>
     );
@@ -121,7 +121,7 @@ function JudgeRoundInner({
   ) : null;
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-4 sm:py-6">
+    <div className="py-4 sm:py-6">
       <div className="mb-4">
         <JudgeNavLinks className="mb-2" />
         <h1 className="text-base font-bold leading-snug text-white sm:text-lg">{title}</h1>

@@ -13,7 +13,7 @@ const DNA_VENUE = "https://www.dancenashville.com/"
 
 export default function DNAPage() {
   return (
-    <section className="max-w-4xl mx-auto px-6 pt-8 pb-16 text-neutral-100">
+    <section className="max-w-4xl mx-auto pt-8 pb-16 text-neutral-100">
       {/* Logo */}
       <div className="flex justify-center mb-4">
         <Image

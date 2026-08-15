@@ -3,7 +3,7 @@ import PrayerForm from "../../components/PrayerForm";
 export default function Prayer() {
   return (
     <section className="max-w-xl mx-auto text-center">
-      <h2 className="gold-wave text-4xl font-extrabold mb-6 pb-2">Prayer Request</h2>
+      <h2 className="gold-wave page-title font-extrabold mb-6 pb-2">Prayer Request</h2>
       <p className="text-gray-300 mb-8">
         You can submit a prayer request anonymously, and it will be sent directly to our team.
       </p>

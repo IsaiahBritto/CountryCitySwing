@@ -6,6 +6,10 @@ import {
   type PaymentsDueResult,
 } from "@/lib/financePaymentsDueTypes";
 import {
+  adjustedWorkshopGuestInstructorAmount,
+  defaultCcsDiscountTotalFrom,
+} from "@/lib/financeSignupBreakdown";
+import {
   computeSocialDoorPayouts,
   computeSocialSplit,
   effectiveDoorAmount,
@@ -72,10 +76,14 @@ function computeWorkshopGuestAmount(
   const studioCost =
     wf.studio_cost != null ? Number(wf.studio_cost) : defaultStudioCost;
   const remaining = Math.max(0, effectiveTotal - studioCost);
-  if (wf.guest_instructor_amount != null) {
-    return round2(Number(wf.guest_instructor_amount));
-  }
-  return round2(Math.max(0, remaining * 0.9));
+  const ccsDiscount = defaultCcsDiscountTotalFrom({
+    ccsTeamTotal: metrics?.ccs_team_total ?? 0,
+  });
+  const rawGuest =
+    wf.guest_instructor_amount != null
+      ? Number(wf.guest_instructor_amount)
+      : round2(Math.max(0, remaining * 0.9));
+  return adjustedWorkshopGuestInstructorAmount(rawGuest, ccsDiscount);
 }
 
 type EventMeta = {

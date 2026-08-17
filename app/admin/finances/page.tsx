@@ -24,6 +24,17 @@ import {
   type PaymentsDueByEvent,
 } from "@/lib/financePaymentsDueTypes";
 import { resolveCollectedTicketAmount } from "@/lib/utils/signupCollectedAmount";
+import {
+  buildWorkshopSignupBreakdown,
+  combinedRegistrationTotal,
+  computeTotalCouponDiscount,
+  defaultCcsDiscountTotalFrom,
+  netCollectedRegistrationTotal,
+  type WorkshopEventPricing,
+  type WorkshopSignupBreakdownRow,
+  type WorkshopSignupBucketTotals,
+} from "@/lib/financeSignupBreakdown";
+import WorkshopSignupFinanceBreakdown from "@/components/admin/WorkshopSignupFinanceBreakdown";
 
 type FinanceAccessLevel = "admin" | "social_viewer";
 
@@ -153,6 +164,129 @@ function skipsEventDetailView(view: EventsView): boolean {
   return isYearOrAggregateView(view) || view === "payments_due";
 }
 
+function groupEventsByMonth(
+  events: Event[],
+  sort: "asc" | "desc" = "asc"
+): { monthKey: string; label: string; events: Event[] }[] {
+  const map = new Map<string, Event[]>();
+  for (const ev of events) {
+    const key = dayjs(ev.starts_at).format("YYYY-MM");
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(ev);
+  }
+  const entries = Array.from(map.entries()).sort(([a], [b]) =>
+    sort === "asc" ? a.localeCompare(b) : b.localeCompare(a)
+  );
+  return entries.map(([monthKey, monthEvents]) => ({
+    monthKey,
+    label: dayjs(`${monthKey}-01`).format("MMMM YYYY"),
+    events: monthEvents,
+  }));
+}
+
+function financesViewTabClass(active: boolean): string {
+  return `flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
+    active
+      ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
+      : "text-primary/70 hover:bg-primary/15 hover:text-primary"
+  }`;
+}
+
+function FinancesViewTabs({
+  eventsView,
+  onViewChange,
+  isFullAdmin,
+  canAccessSocialOverview,
+}: {
+  eventsView: EventsView;
+  onViewChange: (view: EventsView) => void;
+  isFullAdmin: boolean;
+  canAccessSocialOverview: boolean;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Upcoming, past, overview, or social overview by year"
+      className="mb-3 flex flex-wrap rounded-lg border border-primary/40 bg-neutral-900/80 p-0.5 ring-1 ring-primary/20"
+    >
+      <button
+        type="button"
+        onClick={() => onViewChange("upcoming")}
+        className={financesViewTabClass(eventsView === "upcoming")}
+      >
+        Upcoming
+      </button>
+      <button
+        type="button"
+        onClick={() => onViewChange("past")}
+        className={financesViewTabClass(eventsView === "past")}
+      >
+        Past
+      </button>
+      {isFullAdmin && (
+        <button
+          type="button"
+          onClick={() => onViewChange("overview")}
+          className={financesViewTabClass(eventsView === "overview")}
+        >
+          Overview
+        </button>
+      )}
+      {canAccessSocialOverview && (
+        <button
+          type="button"
+          onClick={() => onViewChange("social_overview")}
+          className={financesViewTabClass(eventsView === "social_overview")}
+        >
+          Social
+        </button>
+      )}
+      {isFullAdmin && (
+        <button
+          type="button"
+          onClick={() => onViewChange("payments_due")}
+          className={financesViewTabClass(eventsView === "payments_due")}
+        >
+          Due
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PastMonthNav({
+  monthLabel,
+  canGoForward,
+  onPrevious,
+  onNext,
+}: {
+  monthLabel: string;
+  canGoForward: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onPrevious}
+        className="rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition hover:border-primary/50 hover:text-white"
+      >
+        ← Prev
+      </button>
+      <span className="flex-1 text-center text-sm font-semibold text-white">{monthLabel}</span>
+      <button
+        type="button"
+        onClick={onNext}
+        disabled={!canGoForward}
+        className="rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-2 text-xs font-medium text-neutral-300 transition hover:border-primary/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-neutral-600 disabled:hover:text-neutral-300"
+      >
+        Next →
+      </button>
+    </div>
+  );
+}
+
 const MARK_PAID_API_BASE: Record<MarkPaidRoute, string> = {
   "nashville-night-finances": "/api/admin/nashville-night-finances",
   "the-social-finances": "/api/admin/the-social-finances",
@@ -166,7 +300,9 @@ interface Event {
   starts_at: string;
   location: string;
   price: number | null;
+  price_changes?: unknown;
   ccs_team_price?: number | null;
+  ccs_team_price_changes?: unknown;
   type?: string;
   time_zone?: string | null;
 }
@@ -174,16 +310,23 @@ interface Event {
 interface Signup {
   id: string;
   event_id: string;
+  first_name?: string;
+  last_name?: string;
+  created_at?: string | null;
   payment_method: string;
   paid: boolean;
   checked_in: boolean;
   is_ccs_team?: boolean;
   amount_owed?: number | null;
+  amount_due?: number | null;
   amount_paid?: number | null;
+  principal_refunded_total?: number | null;
+  net_amount_paid?: number | null;
   stripe_tax_amount?: number | null;
   stripe_processing_fee?: number | null;
   free_via_promotion_code?: boolean;
   used_promotion_code?: boolean;
+  refunded_or_cancelled?: string | null;
 }
 
 interface CompSignup {
@@ -211,14 +354,28 @@ interface EventFinanceMetrics {
   stripe_taxes_fees_total: number;
   free_via_promo_count: number;
   revenue_from_coupons: number;
+  coupon_discount_total: number;
   is_comp_event: boolean;
   refreshed_at: string;
+}
+
+function eventPricingFrom(event: Event | null | undefined): WorkshopEventPricing | null {
+  if (!event) return null;
+  return {
+    price: event.price ?? null,
+    price_changes: event.price_changes,
+    ccs_team_price: event.ccs_team_price,
+    ccs_team_price_changes: event.ccs_team_price_changes,
+    time_zone: event.time_zone,
+    starts_at: event.starts_at,
+  };
 }
 
 function computeStats(
   signups: Signup[],
   eventPrice: number | null,
-  _eventCcsTeamPrice: number | null | undefined
+  _eventCcsTeamPrice: number | null | undefined,
+  eventPricing?: WorkshopEventPricing | null
 ): {
   totalSignups: number;
   checkedIn: number;
@@ -231,6 +388,7 @@ function computeStats(
   stripeTaxesFees: number;
   freeViaPromoCount: number;
   revenueFromCoupons: number;
+  couponDiscountTotal: number;
 } {
   const price = eventPrice ?? 0;
   let cashTotal = 0;
@@ -289,6 +447,9 @@ function computeStats(
     stripeTaxesFees,
     freeViaPromoCount,
     revenueFromCoupons,
+    couponDiscountTotal: eventPricing
+      ? computeTotalCouponDiscount(signups, eventPricing)
+      : 0,
   };
 }
 
@@ -306,6 +467,7 @@ function computeStatsComp(
   stripeTaxesFees: number;
   freeViaPromoCount: number;
   revenueFromCoupons: number;
+  couponDiscountTotal: number;
 } {
   let cashTotal = 0;
   let stripeTotal = 0;
@@ -342,11 +504,12 @@ function computeStatsComp(
     stripeTaxesFees,
     freeViaPromoCount: 0,
     revenueFromCoupons: 0,
+    couponDiscountTotal: 0,
   };
 }
 
 function aggregateStats(
-  eventStats: { totalSignups: number; checkedIn: number; cashTotal: number; stripeTotal: number; otherTotal: number; ccsTeamCashTotal: number; ccsTeamStripeTotal: number; ccsTeamTotal: number; stripeTaxesFees: number; freeViaPromoCount: number; revenueFromCoupons: number }[]
+  eventStats: { totalSignups: number; checkedIn: number; cashTotal: number; stripeTotal: number; otherTotal: number; ccsTeamCashTotal: number; ccsTeamStripeTotal: number; ccsTeamTotal: number; stripeTaxesFees: number; freeViaPromoCount: number; revenueFromCoupons: number; couponDiscountTotal: number }[]
 ): {
   totalSignups: number;
   checkedIn: number;
@@ -359,6 +522,7 @@ function aggregateStats(
   stripeTaxesFees: number;
   freeViaPromoCount: number;
   revenueFromCoupons: number;
+  couponDiscountTotal: number;
 } {
   return eventStats.reduce(
     (acc, s) => ({
@@ -373,14 +537,16 @@ function aggregateStats(
       stripeTaxesFees: acc.stripeTaxesFees + s.stripeTaxesFees,
       freeViaPromoCount: acc.freeViaPromoCount + (s.freeViaPromoCount ?? 0),
       revenueFromCoupons: acc.revenueFromCoupons + (s.revenueFromCoupons ?? 0),
+      couponDiscountTotal: acc.couponDiscountTotal + (s.couponDiscountTotal ?? 0),
     }),
-    { totalSignups: 0, checkedIn: 0, cashTotal: 0, stripeTotal: 0, otherTotal: 0, ccsTeamCashTotal: 0, ccsTeamStripeTotal: 0, ccsTeamTotal: 0, stripeTaxesFees: 0, freeViaPromoCount: 0, revenueFromCoupons: 0 }
+    { totalSignups: 0, checkedIn: 0, cashTotal: 0, stripeTotal: 0, otherTotal: 0, ccsTeamCashTotal: 0, ccsTeamStripeTotal: 0, ccsTeamTotal: 0, stripeTaxesFees: 0, freeViaPromoCount: 0, revenueFromCoupons: 0, couponDiscountTotal: 0 }
   );
 }
 
 export default function AdminFinancesPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [eventsView, setEventsView] = useState<EventsView>("upcoming");
+  const [pastEventsMonth, setPastEventsMonth] = useState(() => dayjs().format("YYYY-MM"));
   const [paymentsDueEvents, setPaymentsDueEvents] = useState<PaymentsDueByEvent[] | null>(
     null
   );
@@ -409,6 +575,7 @@ export default function AdminFinancesPage() {
     stripeTaxesFees: number;
     freeViaPromoCount: number;
     revenueFromCoupons: number;
+    couponDiscountTotal: number;
   } | null>(null);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [overviewError, setOverviewError] = useState<string | null>(null);
@@ -436,6 +603,7 @@ export default function AdminFinancesPage() {
     stripeTaxesFees: number;
     freeViaPromoCount: number;
     revenueFromCoupons: number;
+    couponDiscountTotal: number;
   } | null>(null);
   const [socialOverviewFinances, setSocialOverviewFinances] = useState<{
     totalVenueCost: number;
@@ -470,6 +638,13 @@ export default function AdminFinancesPage() {
   const [loadingWorkshop, setLoadingWorkshop] = useState(false);
   const [workshopError, setWorkshopError] = useState<string | null>(null);
   const [workshopSaving, setWorkshopSaving] = useState(false);
+  const [workshopSignupRows, setWorkshopSignupRows] = useState<WorkshopSignupBreakdownRow[]>(
+    []
+  );
+  const [workshopSignupTotals, setWorkshopSignupTotals] =
+    useState<WorkshopSignupBucketTotals | null>(null);
+  const [loadingWorkshopSignups, setLoadingWorkshopSignups] = useState(false);
+  const [workshopSignupsError, setWorkshopSignupsError] = useState<string | null>(null);
   const [socialFinances, setSocialFinances] = useState<TheSocialFinances | null>(null);
   const [loadingSocial, setLoadingSocial] = useState(false);
   const [socialError, setSocialError] = useState<string | null>(null);
@@ -513,6 +688,32 @@ export default function AdminFinancesPage() {
     }
     return [];
   }, [events, eventsView]);
+
+  const pastMonthStart = dayjs(`${pastEventsMonth}-01`);
+  const canGoForwardPastMonth = pastMonthStart.isBefore(dayjs().startOf("month"));
+
+  const displayEvents = useMemo(() => {
+    if (eventsView !== "past") return filteredEvents;
+    const monthStartStr = `${pastEventsMonth}-01`;
+    const monthEndStr = pastMonthStart.add(1, "month").format("YYYY-MM-DD");
+    return filteredEvents.filter((e) => {
+      const eventDate = dayjs(e.starts_at).format("YYYY-MM-DD");
+      return eventDate >= monthStartStr && eventDate < monthEndStr;
+    });
+  }, [filteredEvents, eventsView, pastEventsMonth, pastMonthStart]);
+
+  const handleEventsViewChange = useCallback(
+    (view: EventsView) => {
+      if (view === "past" && selectedEvent) {
+        const today = dayjs().startOf("day");
+        if (dayjs(selectedEvent.starts_at).isBefore(today, "day")) {
+          setPastEventsMonth(dayjs(selectedEvent.starts_at).format("YYYY-MM"));
+        }
+      }
+      setEventsView(view);
+    },
+    [selectedEvent]
+  );
 
   const years = useMemo(() => {
     const set = new Set<number>();
@@ -619,7 +820,9 @@ export default function AdminFinancesPage() {
       setError(null);
       const { data, error: e } = await supabaseBrowser
         .from("events")
-        .select("id, title, starts_at, location, price, ccs_team_price, type, time_zone")
+        .select(
+          "id, title, starts_at, location, price, price_changes, ccs_team_price, ccs_team_price_changes, type, time_zone"
+        )
         .order("starts_at", { ascending: false });
 
       if (e) {
@@ -656,13 +859,13 @@ export default function AdminFinancesPage() {
       if (!ok) setSelectedYear(yearList[0]);
       return;
     }
-    if (!filteredEvents.length) {
+    if (!displayEvents.length) {
       setSelectedEvent(null);
       return;
     }
-    const stillInList = selectedEvent && filteredEvents.some((e) => e.id === selectedEvent.id);
-    if (!stillInList) setSelectedEvent(filteredEvents[0]);
-  }, [eventsView, filteredEvents, years, socialYears, selectedYear, selectedEvent?.id]);
+    const stillInList = selectedEvent && displayEvents.some((e) => e.id === selectedEvent.id);
+    if (!stillInList) setSelectedEvent(displayEvents[0]);
+  }, [eventsView, displayEvents, years, socialYears, selectedYear, selectedEvent?.id]);
 
   useEffect(() => {
     if (!canAccessFinances || skipsEventDetailView(eventsView) || !selectedEvent) {
@@ -724,6 +927,83 @@ export default function AdminFinancesPage() {
     loadMetrics();
   }, [canAccessFinances, eventsView, selectedEvent, authToken]);
 
+  const loadWorkshopSignupBreakdown = useCallback(async () => {
+    if (!selectedEvent || !authToken) return;
+    const isWorkshop =
+      (selectedEvent.type || "").trim().toLowerCase() === "workshop";
+    if (!isWorkshop) {
+      setWorkshopSignupRows([]);
+      setWorkshopSignupTotals(null);
+      setWorkshopSignupsError(null);
+      return;
+    }
+
+    setLoadingWorkshopSignups(true);
+    setWorkshopSignupsError(null);
+    try {
+      const params = new URLSearchParams({
+        event_id: selectedEvent.id,
+        filter: "all",
+      });
+      const res = await fetch(`/api/signups?${params}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          (body as { error?: string })?.error || "Failed to load registration breakdown"
+        );
+      }
+      const data = await res.json();
+      if (data.isComp) {
+        setWorkshopSignupRows([]);
+        setWorkshopSignupTotals(null);
+        return;
+      }
+      const list = (data.signups || []) as Signup[];
+      const { rows, totals } = buildWorkshopSignupBreakdown(list, {
+        price: selectedEvent.price ?? null,
+        price_changes: selectedEvent.price_changes,
+        ccs_team_price: selectedEvent.ccs_team_price,
+        ccs_team_price_changes: selectedEvent.ccs_team_price_changes,
+        time_zone: selectedEvent.time_zone,
+        starts_at: selectedEvent.starts_at,
+      });
+      setWorkshopSignupRows(rows);
+      setWorkshopSignupTotals(totals);
+    } catch (e) {
+      setWorkshopSignupRows([]);
+      setWorkshopSignupTotals(null);
+      setWorkshopSignupsError(
+        e instanceof Error ? e.message : "Failed to load registration breakdown"
+      );
+    } finally {
+      setLoadingWorkshopSignups(false);
+    }
+  }, [selectedEvent, authToken]);
+
+  useEffect(() => {
+    if (
+      !canAccessFinances ||
+      skipsEventDetailView(eventsView) ||
+      !selectedEvent ||
+      !authToken ||
+      (selectedEvent.type || "").trim().toLowerCase() !== "workshop"
+    ) {
+      setWorkshopSignupRows([]);
+      setWorkshopSignupTotals(null);
+      setWorkshopSignupsError(null);
+      return;
+    }
+    loadWorkshopSignupBreakdown();
+  }, [
+    canAccessFinances,
+    eventsView,
+    selectedEvent,
+    authToken,
+    loadWorkshopSignupBreakdown,
+  ]);
+
   const refreshEventMetrics = useCallback(async () => {
     if (!selectedEvent || !authToken) return;
     setRefreshingEventMetrics(true);
@@ -757,12 +1037,15 @@ export default function AdminFinancesPage() {
           setSocialFinances((socialJson.data ?? null) as TheSocialFinances | null);
         }
       }
+      if ((selectedEvent.type || "").trim().toLowerCase() === "workshop") {
+        await loadWorkshopSignupBreakdown();
+      }
     } catch (e) {
       setSignupsError(e instanceof Error ? e.message : "Failed to refresh finance metrics");
     } finally {
       setRefreshingEventMetrics(false);
     }
-  }, [selectedEvent, authToken]);
+  }, [selectedEvent, authToken, loadWorkshopSignupBreakdown]);
 
   const patchEventMetrics = useCallback(
     async (updates: {
@@ -864,6 +1147,7 @@ export default function AdminFinancesPage() {
               stripeTaxesFees: Number(m?.stripe_taxes_fees_total ?? 0),
               freeViaPromoCount: Number(m?.free_via_promo_count ?? 0),
               revenueFromCoupons: Number(m?.revenue_from_coupons ?? 0),
+              couponDiscountTotal: Number(m?.coupon_discount_total ?? 0),
             };
 
             let nashvilleFinances: NashvilleFinances | null = null;
@@ -1127,6 +1411,9 @@ export default function AdminFinancesPage() {
       const now = dayjs();
       const isPast = eventStart ? dayjs(eventStart).isBefore(now, "day") : true;
       setEventsView(isPast ? "past" : "upcoming");
+      if (isPast && eventStart) {
+        setPastEventsMonth(dayjs(eventStart).format("YYYY-MM"));
+      }
       setSelectedEvent(ev);
     },
     [events]
@@ -1191,6 +1478,7 @@ export default function AdminFinancesPage() {
               stripeTaxesFees: Number(m?.stripe_taxes_fees_total ?? 0),
               freeViaPromoCount: Number(m?.free_via_promo_count ?? 0),
               revenueFromCoupons: Number(m?.revenue_from_coupons ?? 0),
+              couponDiscountTotal: Number(m?.coupon_discount_total ?? 0),
             };
 
             let socialFinancesOverview: TheSocialFinances | null = null;
@@ -1799,12 +2087,23 @@ export default function AdminFinancesPage() {
             stripeTaxesFees: Number(eventMetrics.stripe_taxes_fees_total) || 0,
             freeViaPromoCount: Number(eventMetrics.free_via_promo_count) || 0,
             revenueFromCoupons: Number(eventMetrics.revenue_from_coupons) || 0,
+            couponDiscountTotal: Number(eventMetrics.coupon_discount_total) || 0,
           }
         : isCompEvent
           ? computeStatsComp(compSignups)
-          : computeStats(signups, selectedEvent?.price ?? null, selectedEvent?.ccs_team_price ?? null);
+          : computeStats(
+              signups,
+              selectedEvent?.price ?? null,
+              selectedEvent?.ccs_team_price ?? null,
+              eventPricingFrom(selectedEvent)
+            );
 
-  const stripeTaxesFees = stats.stripeTaxesFees ?? 0;
+  const effectiveCouponDiscount =
+    stats.couponDiscountTotal ??
+    workshopSignupTotals?.totalCouponDiscount ??
+    0;
+
+  const effectiveDefaultCcsDiscount = defaultCcsDiscountTotalFrom(stats);
 
   const effectiveCash = isNashvilleEvent && nashvilleFinances?.cash_override != null
     ? nashvilleFinances.cash_override
@@ -1812,6 +2111,19 @@ export default function AdminFinancesPage() {
   const effectiveStripe = isNashvilleEvent && nashvilleFinances?.stripe_override != null
     ? nashvilleFinances.stripe_override
     : stats.stripeTotal;
+
+  const netCollectedTotal = isNashvilleEvent
+    ? effectiveCash + effectiveStripe
+    : netCollectedRegistrationTotal(stats);
+
+  const combinedTotal = isNashvilleEvent
+    ? netCollectedTotal + effectiveCouponDiscount
+    : combinedRegistrationTotal({
+        ...stats,
+        couponDiscountTotal: effectiveCouponDiscount,
+      });
+
+  const stripeTaxesFees = stats.stripeTaxesFees ?? 0;
 
   useEffect(() => {
     if (isNashvilleEvent) {
@@ -1953,47 +2265,87 @@ export default function AdminFinancesPage() {
         </div>
       ) : (
         <>
-          {!skipsEventDetailView(eventsView) && (
-            <div className="sticky top-[4.5rem] z-40 mb-4 rounded-xl border border-neutral-700 bg-neutral-900/95 p-3 backdrop-blur-sm lg:hidden">
-              {isYearOrAggregateView(eventsView) ? (
-                <label className="block text-sm">
-                  <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-neutral-500">
-                    Year
-                  </span>
-                  <select
-                    value={selectedYear ?? ""}
-                    onChange={(e) =>
-                      setSelectedYear(e.target.value ? Number(e.target.value) : null)
+          <div className="sticky top-[4.5rem] z-40 mb-4 space-y-3 rounded-xl border border-neutral-700 bg-neutral-900/95 p-3 backdrop-blur-sm lg:hidden">
+            <FinancesViewTabs
+              eventsView={eventsView}
+              onViewChange={handleEventsViewChange}
+              isFullAdmin={isFullAdmin}
+              canAccessSocialOverview={canAccessSocialOverview}
+            />
+
+            {eventsView === "payments_due" && isFullAdmin ? (
+              <p className="text-sm text-neutral-400">
+                Unpaid instructors, social splits, workshop guests, and comp judges across all
+                events.
+              </p>
+            ) : isYearOrAggregateView(eventsView) ? (
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-neutral-500">
+                  Year
+                </span>
+                <select
+                  value={selectedYear ?? ""}
+                  onChange={(e) =>
+                    setSelectedYear(e.target.value ? Number(e.target.value) : null)
+                  }
+                  className="w-full rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-2.5 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">Select a year…</option>
+                  {(eventsView === "social_overview" ? socialYears : years).map((y) => (
+                    <option key={y} value={y}>
+                      {y}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <>
+                {eventsView === "past" && (
+                  <PastMonthNav
+                    monthLabel={pastMonthStart.format("MMMM YYYY")}
+                    canGoForward={canGoForwardPastMonth}
+                    onPrevious={() =>
+                      setPastEventsMonth(
+                        pastMonthStart.subtract(1, "month").format("YYYY-MM")
+                      )
                     }
-                    className="w-full rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-2.5 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                  >
-                    <option value="">Select a year…</option>
-                    {(eventsView === "social_overview" ? socialYears : years).map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
+                    onNext={() =>
+                      setPastEventsMonth(pastMonthStart.add(1, "month").format("YYYY-MM"))
+                    }
+                  />
+                )}
                 <label className="block text-sm">
                   <span className="mb-1 block text-xs font-medium uppercase tracking-wider text-neutral-500">
-                    Event
+                    {eventsView === "upcoming" ? "Upcoming event" : "Past event"}
                   </span>
                   <select
                     value={selectedEvent?.id ?? ""}
                     onChange={(e) => {
-                      const ev = filteredEvents.find((item) => item.id === e.target.value);
+                      const ev = displayEvents.find((item) => item.id === e.target.value);
                       if (ev) setSelectedEvent(ev);
                     }}
                     className="w-full rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-2.5 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    {filteredEvents.length === 0 ? (
+                    {displayEvents.length === 0 ? (
                       <option value="">
-                        {eventsView === "upcoming" ? "No upcoming events" : "No past events"}
+                        {eventsView === "upcoming"
+                          ? "No upcoming events"
+                          : `No events in ${pastMonthStart.format("MMMM YYYY")}`}
                       </option>
+                    ) : eventsView === "upcoming" ? (
+                      groupEventsByMonth(displayEvents, "asc").map(
+                        ({ monthKey, label, events: monthEvents }) => (
+                          <optgroup key={monthKey} label={label}>
+                            {monthEvents.map((ev) => (
+                              <option key={ev.id} value={ev.id}>
+                                {ev.title} — {dayjs(ev.starts_at).format("MMM D, YYYY")}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )
+                      )
                     ) : (
-                      filteredEvents.map((ev) => (
+                      displayEvents.map((ev) => (
                         <option key={ev.id} value={ev.id}>
                           {ev.title} — {dayjs(ev.starts_at).format("MMM D, YYYY")}
                         </option>
@@ -2001,9 +2353,9 @@ export default function AdminFinancesPage() {
                     )}
                   </select>
                 </label>
-              )}
-            </div>
-          )}
+              </>
+            )}
+          </div>
         <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
           <div className="hidden rounded-xl border border-neutral-700 bg-neutral-800/30 p-2 lg:block">
             <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-neutral-500">
@@ -2013,73 +2365,12 @@ export default function AdminFinancesPage() {
                   ? "Payments"
                   : "Events"}
             </p>
-            <div
-              role="group"
-              aria-label="Upcoming, past, overview, or social overview by year"
-              className="mb-3 flex flex-wrap rounded-lg border border-primary/40 bg-neutral-900/80 p-0.5 ring-1 ring-primary/20"
-            >
-              <button
-                type="button"
-                onClick={() => setEventsView("upcoming")}
-                className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
-                  eventsView === "upcoming"
-                    ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
-                    : "text-primary/70 hover:bg-primary/15 hover:text-primary"
-                }`}
-              >
-                Upcoming
-              </button>
-              <button
-                type="button"
-                onClick={() => setEventsView("past")}
-                className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
-                  eventsView === "past"
-                    ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
-                    : "text-primary/70 hover:bg-primary/15 hover:text-primary"
-                }`}
-              >
-                Past
-              </button>
-              {isFullAdmin && (
-                <button
-                  type="button"
-                  onClick={() => setEventsView("overview")}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
-                    eventsView === "overview"
-                      ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
-                      : "text-primary/70 hover:bg-primary/15 hover:text-primary"
-                  }`}
-                >
-                  Overview
-                </button>
-              )}
-              {canAccessSocialOverview && (
-                <button
-                  type="button"
-                  onClick={() => setEventsView("social_overview")}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
-                    eventsView === "social_overview"
-                      ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
-                      : "text-primary/70 hover:bg-primary/15 hover:text-primary"
-                  }`}
-                >
-                  Social
-                </button>
-              )}
-              {isFullAdmin && (
-                <button
-                  type="button"
-                  onClick={() => setEventsView("payments_due")}
-                  className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition sm:px-3 sm:text-sm ${
-                    eventsView === "payments_due"
-                      ? "bg-[#F2C94C] text-black shadow-[0_0_10px_rgba(242,201,76,0.35)]"
-                      : "text-primary/70 hover:bg-primary/15 hover:text-primary"
-                  }`}
-                >
-                  Due
-                </button>
-              )}
-            </div>
+            <FinancesViewTabs
+              eventsView={eventsView}
+              onViewChange={handleEventsViewChange}
+              isFullAdmin={isFullAdmin}
+              canAccessSocialOverview={canAccessSocialOverview}
+            />
             {eventsView === "payments_due" && isFullAdmin ? (
               <p className="px-2 py-4 text-sm text-neutral-400">
                 Unpaid instructors, social splits, workshop guests, and comp judges across all
@@ -2137,33 +2428,80 @@ export default function AdminFinancesPage() {
                   ))}
                 </div>
               )
-            ) : !filteredEvents.length ? (
-              <p className="px-2 py-4 text-center text-sm text-neutral-500">
-                {eventsView === "upcoming"
-                  ? "No upcoming events"
-                  : "No past events"}
-              </p>
-            ) : (
-              <div className="max-h-[380px] space-y-0.5 overflow-y-auto">
-                {filteredEvents.map((ev) => (
-                  <button
-                    key={ev.id}
-                    onClick={() => setSelectedEvent(ev)}
-                    className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition ${
-                      selectedEvent?.id === ev.id
-                        ? "bg-neutral-700 text-primary"
-                        : "text-neutral-300 hover:bg-neutral-700/50 hover:text-white"
-                    }`}
-                  >
-                    <div className="font-medium truncate">{ev.title}</div>
-                    <div className="mt-0.5 text-xs text-neutral-500">
-                      {dayjs(ev.starts_at).format("MMM D, YYYY")}
-                      {ev.location ? ` · ${ev.location}` : ""}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
+            ) : eventsView === "past" || eventsView === "upcoming" ? (
+              <>
+                {eventsView === "past" && (
+                  <div className="mb-3 px-1">
+                    <PastMonthNav
+                      monthLabel={pastMonthStart.format("MMMM YYYY")}
+                      canGoForward={canGoForwardPastMonth}
+                      onPrevious={() =>
+                        setPastEventsMonth(
+                          pastMonthStart.subtract(1, "month").format("YYYY-MM")
+                        )
+                      }
+                      onNext={() =>
+                        setPastEventsMonth(pastMonthStart.add(1, "month").format("YYYY-MM"))
+                      }
+                    />
+                  </div>
+                )}
+                {!displayEvents.length ? (
+                  <p className="px-2 py-4 text-center text-sm text-neutral-500">
+                    {eventsView === "upcoming"
+                      ? "No upcoming events"
+                      : `No events in ${pastMonthStart.format("MMMM YYYY")}`}
+                  </p>
+                ) : (
+                  <div className="max-h-[380px] space-y-0.5 overflow-y-auto">
+                    {eventsView === "upcoming"
+                      ? groupEventsByMonth(displayEvents, "asc").map(
+                          ({ monthKey, label, events: monthEvents }) => (
+                            <div key={monthKey}>
+                              <p className="sticky top-0 z-10 px-2 py-1.5 text-xs font-medium uppercase tracking-wider text-neutral-500 bg-neutral-800/95">
+                                {label}
+                              </p>
+                              {monthEvents.map((ev) => (
+                                <button
+                                  key={ev.id}
+                                  onClick={() => setSelectedEvent(ev)}
+                                  className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition ${
+                                    selectedEvent?.id === ev.id
+                                      ? "bg-neutral-700 text-primary"
+                                      : "text-neutral-300 hover:bg-neutral-700/50 hover:text-white"
+                                  }`}
+                                >
+                                  <div className="font-medium truncate">{ev.title}</div>
+                                  <div className="mt-0.5 text-xs text-neutral-500">
+                                    {dayjs(ev.starts_at).format("MMM D, YYYY")}
+                                    {ev.location ? ` · ${ev.location}` : ""}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )
+                        )
+                      : displayEvents.map((ev) => (
+                          <button
+                            key={ev.id}
+                            onClick={() => setSelectedEvent(ev)}
+                            className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition ${
+                              selectedEvent?.id === ev.id
+                                ? "bg-neutral-700 text-primary"
+                                : "text-neutral-300 hover:bg-neutral-700/50 hover:text-white"
+                            }`}
+                          >
+                            <div className="font-medium truncate">{ev.title}</div>
+                            <div className="mt-0.5 text-xs text-neutral-500">
+                              {dayjs(ev.starts_at).format("MMM D, YYYY")}
+                              {ev.location ? ` · ${ev.location}` : ""}
+                            </div>
+                          </button>
+                        ))}
+                  </div>
+                )}
+              </>
+            ) : null}
           </div>
 
           <div className="min-w-0 rounded-xl border border-neutral-700 bg-neutral-800/30 p-4 sm:p-6">
@@ -2325,24 +2663,35 @@ export default function AdminFinancesPage() {
                         </span>
                       </div>
 
+                      {(overviewStats.ccsTeamTotal ?? 0) > 0 && (
+                        <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg border border-yellow-500/20 bg-neutral-800/30 px-4 py-3">
+                          <span className="text-sm font-medium text-neutral-300">
+                            Default CCS Discount Total
+                          </span>
+                          <span className="text-lg font-bold text-yellow-400/90">
+                            ${(overviewStats.ccsTeamTotal ?? 0).toFixed(2)}
+                          </span>
+                        </div>
+                      )}
+
                       <div className="mt-6 flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/30 px-4 py-3">
                             <span className="text-sm font-medium text-neutral-300">
-                              Gross income (Cash + Stripe + Other + CCS TEAM)
+                              Gross income (collected + coupon + CCS team discounts)
                             </span>
                             <div className="flex flex-col gap-1">
                               <span className="text-lg font-bold text-primary">
                                 $
-                                {(overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0)).toFixed(2)}
+                                {combinedRegistrationTotal(overviewStats).toFixed(2)}
                               </span>
                               <span className="text-xs text-neutral-500">
-                                Cash and Stripe totals above add up to this gross event revenue.
+                                Net collected ${netCollectedRegistrationTotal(overviewStats).toFixed(2)}
+                                {(overviewStats.couponDiscountTotal ?? 0) > 0
+                                  ? ` + coupon discounts $${(overviewStats.couponDiscountTotal ?? 0).toFixed(2)}`
+                                  : ""}
+                                {(overviewStats.ccsTeamTotal ?? 0) > 0
+                                  ? ` + CCS team discount $${(overviewStats.ccsTeamTotal ?? 0).toFixed(2)}`
+                                  : ""}
                               </span>
-                              {(overviewStats.revenueFromCoupons ?? 0) > 0 && (
-                                <div className="mt-2 pt-2 border-t border-neutral-600 flex items-center justify-between text-sm">
-                                  <span className="text-neutral-400">Revenue from Coupons (included in total)</span>
-                                  <span className="font-medium text-white">${(overviewStats.revenueFromCoupons ?? 0).toFixed(2)}</span>
-                                </div>
-                              )}
                             </div>
                       </div>
 
@@ -2477,16 +2826,17 @@ export default function AdminFinancesPage() {
                                 </p>
                                 <div className="space-y-1.5 rounded-lg border border-neutral-700 bg-neutral-900/40 p-4">
                                   <div className="flex items-center justify-between text-neutral-300">
-                                    <span>Event revenue (Cash + Stripe + Other + CCS TEAM)</span>
+                                    <span>Event revenue (collected + coupon discounts)</span>
                                     <span className="font-semibold text-white">
-                                      ${(overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0)).toFixed(2)}
+                                      ${combinedRegistrationTotal(overviewStats).toFixed(2)}
                                     </span>
                                   </div>
-                                  {(overviewStats.revenueFromCoupons ?? 0) > 0 && (
-                                    <div className="flex items-center justify-between text-neutral-300">
-                                      <span>Revenue from Coupons (included above)</span>
-                                      <span className="font-semibold text-white">
-                                        ${(overviewStats.revenueFromCoupons ?? 0).toFixed(2)}
+                                  {(overviewStats.couponDiscountTotal ?? 0) > 0 && (
+                                    <div className="flex items-center justify-between text-xs text-neutral-500">
+                                      <span>Net collected + coupon discounts (included above)</span>
+                                      <span>
+                                        ${netCollectedRegistrationTotal(overviewStats).toFixed(2)} + $
+                                        {(overviewStats.couponDiscountTotal ?? 0).toFixed(2)}
                                       </span>
                                     </div>
                                   )}
@@ -2500,7 +2850,7 @@ export default function AdminFinancesPage() {
                                   <div className="flex items-center justify-between font-medium text-white">
                                     <span>Total money in</span>
                                     <span>
-                                      ${(overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0)).toFixed(2)}
+                                      ${combinedRegistrationTotal(overviewStats).toFixed(2)}
                                     </span>
                                   </div>
                                 </div>
@@ -2591,7 +2941,7 @@ export default function AdminFinancesPage() {
                                   <span className="text-xl font-bold text-primary">
                                     $
                                     {(
-                                      (overviewStats.cashTotal + overviewStats.stripeTotal + (overviewStats.otherTotal ?? 0) + (overviewStats.ccsTeamTotal ?? 0))
+                                      combinedRegistrationTotal(overviewStats)
                                       - (
                                         overviewFinances.totalStudioRentals +
                                         overviewFinances.totalSocialAllocatedProfits +
@@ -2679,16 +3029,11 @@ export default function AdminFinancesPage() {
 
                       <div className="mt-6 flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/30 px-4 py-3">
                         <span className="text-sm font-medium text-neutral-300">
-                          Gross income (Cash + Stripe + Other + CCS TEAM)
+                          Gross income (collected + coupon + CCS team discounts)
                         </span>
                         <span className="text-lg font-bold text-primary">
                           $
-                          {(
-                            socialOverviewStats.cashTotal +
-                            socialOverviewStats.stripeTotal +
-                            (socialOverviewStats.otherTotal ?? 0) +
-                            (socialOverviewStats.ccsTeamTotal ?? 0)
-                          ).toFixed(2)}
+                          {combinedRegistrationTotal(socialOverviewStats).toFixed(2)}
                         </span>
                       </div>
 
@@ -2987,6 +3332,24 @@ export default function AdminFinancesPage() {
                           </p>
                         </div>
                       )}
+                      {isWorkshopEvent && !isNashvilleEvent && !isCompEvent && (
+                        <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                          <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                            Total discount from coupons
+                          </p>
+                          <p className="mt-1 text-2xl font-bold text-amber-400">
+                            $
+                            {(workshopSignupTotals?.totalCouponDiscount ?? 0).toFixed(2)}
+                          </p>
+                          <p className="mt-0.5 text-sm text-neutral-400">
+                            {loadingWorkshopSignups
+                              ? "Loading promo breakdown…"
+                              : `${workshopSignupTotals?.promoSignupCount ?? 0} signup${
+                                  (workshopSignupTotals?.promoSignupCount ?? 0) === 1 ? "" : "s"
+                                } with a promo code`}
+                          </p>
+                        </div>
+                      )}
                       {isNashvilleEvent ? (
                         <>
                           <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
@@ -3134,14 +3497,24 @@ export default function AdminFinancesPage() {
                       </span>
                     </div>
 
+                    {(stats.ccsTeamTotal ?? 0) > 0 && (
+                      <div className="mt-4 flex flex-wrap items-center gap-4 rounded-lg border border-yellow-500/20 bg-neutral-800/30 px-4 py-3">
+                        <span className="text-sm font-medium text-neutral-300">
+                          Default CCS Discount Total
+                        </span>
+                        <span className="text-lg font-bold text-yellow-400/90">
+                          ${effectiveDefaultCcsDiscount.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+
                     <div className="mt-6 flex flex-wrap items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-800/30 px-4 py-3">
                       <span className="text-sm font-medium text-neutral-300">
-                        Combined total (Cash + Stripe + Other + CCS TEAM)
+                        Combined total (collected + coupon + CCS team discounts)
                       </span>
                       <div className="flex flex-col gap-1">
                         <span className="text-lg font-bold text-primary">
-                          $
-                          {(isNashvilleEvent ? effectiveCash + effectiveStripe : stats.cashTotal + stats.stripeTotal + (stats.otherTotal ?? 0) + (stats.ccsTeamTotal ?? 0)).toFixed(2)}
+                          ${combinedTotal.toFixed(2)}
                         </span>
                         <div className="flex items-center gap-2 text-xs text-neutral-400">
                           <span>Taxes/Fees collected via Stripe:</span>
@@ -3168,10 +3541,16 @@ export default function AdminFinancesPage() {
                           )}
                           <span>(to remain in bank)</span>
                         </div>
-                        {!isNashvilleEvent && (stats.revenueFromCoupons ?? 0) > 0 && (
-                          <div className="mt-2 pt-2 border-t border-neutral-600 flex items-center justify-between text-sm">
-                            <span className="text-neutral-400">Revenue from Coupons (included in total)</span>
-                            <span className="font-medium text-white">${(stats.revenueFromCoupons ?? 0).toFixed(2)}</span>
+                        {(effectiveCouponDiscount > 0 || effectiveDefaultCcsDiscount > 0) && (
+                          <div className="mt-2 border-t border-neutral-600 pt-2 text-sm text-neutral-400">
+                            Net collected ${netCollectedTotal.toFixed(2)}
+                            {effectiveCouponDiscount > 0
+                              ? ` + coupon discounts $${effectiveCouponDiscount.toFixed(2)}`
+                              : ""}
+                            {effectiveDefaultCcsDiscount > 0
+                              ? ` + CCS team discount $${effectiveDefaultCcsDiscount.toFixed(2)}`
+                              : ""}{" "}
+                            (included above; not all deposited to bank)
                           </div>
                         )}
                       </div>
@@ -3203,9 +3582,48 @@ export default function AdminFinancesPage() {
                       />
                     )}
 
+                    {isWorkshopEvent && !isNashvilleEvent && !isCompEvent && (
+                      <WorkshopSignupFinanceBreakdown
+                        rows={workshopSignupRows}
+                        totals={
+                          workshopSignupTotals ?? {
+                            cash: 0,
+                            stripe: 0,
+                            other: 0,
+                            ccsTeamCash: 0,
+                            ccsTeamStripe: 0,
+                            ccsTeamTotal: 0,
+                            stripeTaxesFees: 0,
+                            grossTotal: 0,
+                            totalCouponDiscount: 0,
+                            promoSignupCount: 0,
+                          }
+                        }
+                        loading={loadingWorkshopSignups}
+                        error={workshopSignupsError}
+                        hasMetrics={!!eventMetrics}
+                        metrics={
+                          eventMetrics
+                            ? {
+                                cash_total: Number(eventMetrics.cash_total) || 0,
+                                stripe_total: Number(eventMetrics.stripe_total) || 0,
+                                other_total: Number(eventMetrics.other_total) || 0,
+                                ccs_team_cash_total:
+                                  Number(eventMetrics.ccs_team_cash_total) || 0,
+                                ccs_team_stripe_total:
+                                  Number(eventMetrics.ccs_team_stripe_total) || 0,
+                                stripe_taxes_fees_total:
+                                  Number(eventMetrics.stripe_taxes_fees_total) || 0,
+                              }
+                            : null
+                        }
+                      />
+                    )}
+
                     {usesWorkshopFinancesBreakdown && !isNashvilleEvent && (
                       <WorkshopBreakdown
-                        computedTotalRevenue={stats.cashTotal + stats.stripeTotal + (stats.otherTotal ?? 0) + (stats.ccsTeamTotal ?? 0)}
+                        computedTotalRevenue={combinedTotal}
+                        defaultCcsDiscountTotal={effectiveDefaultCcsDiscount}
                         workshop={workshopFinances}
                         eventTitle={selectedEvent.title}
                         defaultStudioCost={isClassEvent ? 400 : 0}
@@ -3218,7 +3636,7 @@ export default function AdminFinancesPage() {
 
                     {isCompEvent && (
                       <CompBreakdown
-                        computedTotalRevenue={stats.cashTotal + stats.stripeTotal + (stats.otherTotal ?? 0) + (stats.ccsTeamTotal ?? 0)}
+                        computedTotalRevenue={combinedTotal}
                         compFinances={compFinances}
                         loading={loadingCompFinances}
                         error={compFinancesError}
@@ -3229,12 +3647,7 @@ export default function AdminFinancesPage() {
 
                     {isSocialEvent && (
                       <SocialBreakdown
-                        computedTotalRevenue={
-                          stats.cashTotal +
-                          stats.stripeTotal +
-                          (stats.otherTotal ?? 0) +
-                          (stats.ccsTeamTotal ?? 0)
-                        }
+                        computedTotalRevenue={combinedTotal}
                         cashTotal={stats.cashTotal}
                         stripeTotal={stats.stripeTotal}
                         otherTotal={stats.otherTotal ?? 0}
@@ -4059,6 +4472,7 @@ function SocialPersonRow({
 
 function WorkshopBreakdown({
   computedTotalRevenue,
+  defaultCcsDiscountTotal = 0,
   workshop,
   eventTitle,
   defaultStudioCost,
@@ -4068,6 +4482,7 @@ function WorkshopBreakdown({
   onPatch,
 }: {
   computedTotalRevenue: number;
+  defaultCcsDiscountTotal?: number;
   workshop: WorkshopFinances | null;
   eventTitle: string;
   defaultStudioCost: number;
@@ -4095,6 +4510,9 @@ function WorkshopBreakdown({
       : defaultGuest;
   const ccsAmount =
     workshop?.ccs_amount != null ? Number(workshop.ccs_amount) : defaultCcs;
+  const finalGuestInstructorAmount =
+    guestInstructorAmount + defaultCcsDiscountTotal;
+  const finalCcsAmount = Math.max(0, ccsAmount - defaultCcsDiscountTotal);
 
   const [totalInput, setTotalInput] = useState(String(effectiveTotalRevenue));
   const [studioCostInput, setStudioCostInput] = useState(String(studioCost));
@@ -4197,8 +4615,13 @@ function WorkshopBreakdown({
       </div>
 
       <div className="mt-6 space-y-4 rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+        <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+          Raw split (90% / 10%)
+        </p>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-sm font-medium text-neutral-300">Guest Instructor (90%)</label>
+          <label className="text-sm font-medium text-neutral-300">
+            Guest Instructor (90%{defaultCcsDiscountTotal > 0 ? ", raw" : ""})
+          </label>
           <div className="flex items-baseline gap-1">
             <span className="text-neutral-500">$</span>
             <input
@@ -4217,7 +4640,9 @@ function WorkshopBreakdown({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <label className="text-sm font-medium text-neutral-300">CCS (10%)</label>
+          <label className="text-sm font-medium text-neutral-300">
+            CCS (10%{defaultCcsDiscountTotal > 0 ? ", raw" : ""})
+          </label>
           <div className="flex items-baseline gap-1">
             <span className="text-neutral-500">$</span>
             <input
@@ -4235,11 +4660,46 @@ function WorkshopBreakdown({
             <span className="text-xs text-neutral-500">Auto (10%)</span>
           )}
         </div>
-        {guestInstructorAmount > 0.01 && (
+
+        {defaultCcsDiscountTotal > 0 && (
+          <div className="space-y-2 rounded-lg border border-yellow-500/20 bg-neutral-900/40 p-4 text-sm">
+            <p className="text-xs font-medium uppercase tracking-wider text-yellow-500/90">
+              CCS team discount adjustment
+            </p>
+            <div className="flex items-center justify-between text-neutral-300">
+              <span>Guest Instructor (90%, raw)</span>
+              <span className="tabular-nums">${guestInstructorAmount.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between text-neutral-300">
+              <span>CCS (10%, raw)</span>
+              <span className="tabular-nums">${ccsAmount.toFixed(2)}</span>
+            </div>
+            <div className="flex items-center justify-between text-yellow-400/90">
+              <span>Default CCS Discount Total</span>
+              <span className="tabular-nums font-medium">
+                +${defaultCcsDiscountTotal.toFixed(2)} to guest / −$
+                {defaultCcsDiscountTotal.toFixed(2)} from CCS
+              </span>
+            </div>
+            <div className="my-2 border-t border-neutral-700" />
+            <div className="flex items-center justify-between font-medium text-white">
+              <span>Guest Instructor (final)</span>
+              <span className="tabular-nums text-yellow-400">
+                ${finalGuestInstructorAmount.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between font-medium text-white">
+              <span>CCS (final)</span>
+              <span className="tabular-nums text-primary">${finalCcsAmount.toFixed(2)}</span>
+            </div>
+          </div>
+        )}
+
+        {finalGuestInstructorAmount > 0.01 && (
           <PayableRow
             payeeName={guestInstructorNameFromEventTitle(eventTitle)}
             roleLabel="Guest instructor"
-            amount={guestInstructorAmount}
+            amount={finalGuestInstructorAmount}
             paidAt={workshop?.guest_instructor_paid_at ?? null}
             onMarkPaid={() => onPatch({ mark_guest_instructor_paid: true })}
             saving={saving}
@@ -4267,13 +4727,35 @@ function WorkshopBreakdown({
           </div>
           <div className="my-2 border-t border-neutral-800" />
           <div className="flex items-center justify-between text-neutral-300">
-            <span>Guest Instructor</span>
+            <span>Guest Instructor (90%{defaultCcsDiscountTotal > 0 ? ", raw" : ""})</span>
             <span className="font-semibold text-yellow-400">${guestInstructorAmount.toFixed(2)}</span>
           </div>
           <div className="flex items-center justify-between text-neutral-300">
-            <span>CCS</span>
+            <span>CCS (10%{defaultCcsDiscountTotal > 0 ? ", raw" : ""})</span>
             <span className="font-semibold text-primary">${ccsAmount.toFixed(2)}</span>
           </div>
+          {defaultCcsDiscountTotal > 0 && (
+            <>
+              <div className="flex items-center justify-between text-yellow-400/90">
+                <span>Default CCS Discount Total</span>
+                <span className="font-semibold">
+                  +${defaultCcsDiscountTotal.toFixed(2)} guest / −$
+                  {defaultCcsDiscountTotal.toFixed(2)} CCS
+                </span>
+              </div>
+              <div className="my-2 border-t border-neutral-800" />
+              <div className="flex items-center justify-between text-neutral-300">
+                <span>Guest Instructor (final)</span>
+                <span className="font-semibold text-yellow-400">
+                  ${finalGuestInstructorAmount.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-neutral-300">
+                <span>CCS (final)</span>
+                <span className="font-semibold text-primary">${finalCcsAmount.toFixed(2)}</span>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

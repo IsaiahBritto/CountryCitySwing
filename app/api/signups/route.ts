@@ -15,6 +15,10 @@ import {
 } from "@/lib/utils/workshopPricing";
 import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
 import { roundCurrency } from "@/lib/utils/paymentHelpers";
+import {
+  buildPrincipalRefundedMap,
+  withNetPaidAmount,
+} from "@/lib/utils/signupNetPaid";
 import { computeClassLevelSummary, PLANNED_CLASS_LEVELS, applyClassSignupCounts } from "@/lib/classLevels";
 import { loadClassSignupCountsByEmail } from "@/lib/utils/classCheckInCounts";
 import { canViewClassLevelBreakdown } from "@/lib/classLevelRegistrationAccess";
@@ -64,8 +68,7 @@ async function principalRefundedBySignupIds(
   signupIds: string[],
   isComp: boolean
 ): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
-  if (signupIds.length === 0) return map;
+  if (signupIds.length === 0) return new Map();
   const col = isComp ? "comp_signup_id" : "signup_id";
   const { data, error } = await supabaseServer
     .from("signup_refunds")
@@ -74,40 +77,12 @@ async function principalRefundedBySignupIds(
     .eq("refunded_or_cancelled_result", "partial");
   if (error) {
     console.error("signups: load principal refunds", error);
-    return map;
+    return new Map();
   }
-  for (const row of data ?? []) {
-    const id = String((row as Record<string, unknown>)[col] ?? "");
-    if (!id) continue;
-    const amt = Number((row as { principal_refunded?: number }).principal_refunded) || 0;
-    map.set(id, (map.get(id) ?? 0) + amt);
-  }
-  return map;
-}
-
-function withNetPaidAmount<
-  T extends {
-    id: string | number;
-    amount_paid?: number | null;
-    amount_owed?: number | null;
-  },
->(
-  rows: T[],
-  refundedPrincipal: Map<string, number>
-): (T & { principal_refunded_total: number; net_amount_paid: number })[] {
-  return rows.map((row) => {
-    const id = String(row.id);
-    const principalRefunded = refundedPrincipal.get(id) ?? 0;
-    const collected =
-      row.amount_paid != null && Number.isFinite(Number(row.amount_paid))
-        ? Number(row.amount_paid)
-        : Number(row.amount_owed ?? 0);
-    return {
-      ...row,
-      principal_refunded_total: principalRefunded,
-      net_amount_paid: roundCurrency(Math.max(0, collected - principalRefunded)),
-    };
-  });
+  return buildPrincipalRefundedMap(
+    (data ?? []) as { signup_id?: string; comp_signup_id?: string; principal_refunded?: number }[],
+    col
+  );
 }
 
 // GET - Fetch signups for an event (admin, instructor, or social registration viewer)

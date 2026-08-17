@@ -3,15 +3,30 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { assertSocialEvent, requireFinanceAuth } from "@/lib/financeAuth";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { syncSocialFinancesFromMetrics } from "@/lib/socialFinances";
+import {
+  computeTotalCouponDiscount,
+  type WorkshopEventPricing,
+} from "@/lib/financeSignupBreakdown";
 import { resolveCollectedTicketAmount } from "@/lib/utils/signupCollectedAmount";
+import {
+  buildPrincipalRefundedMap,
+  withNetPaidAmount,
+} from "@/lib/utils/signupNetPaid";
+
+const METRICS_SELECT_COLS =
+  "event_id,total_signups,checked_in_count,cash_total,stripe_total,other_total,ccs_team_cash_total,ccs_team_stripe_total,ccs_team_total,stripe_taxes_fees_total,free_via_promo_count,revenue_from_coupons,coupon_discount_total,is_comp_event,refreshed_at,updated_at";
 
 interface SignupRow {
+  id: string;
   payment_method: string | null;
   paid: boolean | null;
   checked_in: boolean | null;
   is_ccs_team: boolean | null;
+  created_at?: string | null;
   amount_owed: number | null;
   amount_paid: number | null;
+  net_amount_paid?: number | null;
+  principal_refunded_total?: number | null;
   stripe_tax_amount: number | null;
   stripe_processing_fee: number | null;
   free_via_promotion_code: boolean | null;
@@ -42,6 +57,7 @@ type Metrics = {
   stripe_taxes_fees_total: number;
   free_via_promo_count: number;
   revenue_from_coupons: number;
+  coupon_discount_total: number;
   is_comp_event: boolean;
 };
 
@@ -116,6 +132,7 @@ function computeStats(
     stripe_taxes_fees_total: round2(stripeTaxesFees),
     free_via_promo_count: freeViaPromoCount,
     revenue_from_coupons: round2(revenueFromCoupons),
+    coupon_discount_total: 0,
     is_comp_event: false,
   };
 }
@@ -161,6 +178,7 @@ function computeStatsComp(compSignups: CompSignupRow[]): Metrics {
     stripe_taxes_fees_total: round2(stripeTaxesFees),
     free_via_promo_count: 0,
     revenue_from_coupons: 0,
+    coupon_discount_total: 0,
     is_comp_event: true,
   };
 }
@@ -168,7 +186,9 @@ function computeStatsComp(compSignups: CompSignupRow[]): Metrics {
 async function computeAndPersistMetrics(eventId: string) {
   const { data: eventRow, error: eventError } = await supabaseServer
     .from("events")
-    .select("id,type,price,ccs_team_price")
+    .select(
+      "id,type,price,price_changes,ccs_team_price,ccs_team_price_changes,time_zone,starts_at"
+    )
     .eq("id", eventId)
     .single();
 
@@ -184,25 +204,58 @@ async function computeAndPersistMetrics(eventId: string) {
     const { data, error } = await supabaseServer
       .from("comp_signups")
       .select(
-        "payment_method,paid,checked_in,is_ccs_team,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,refunded_or_cancelled"
+        "payment_method,paid,checked_in,is_ccs_team,amount_owed,stripe_tax_amount,stripe_processing_fee,refunded_or_cancelled"
       )
       .eq("event_id", eventId)
       .neq("refunded_or_cancelled", "cancelled");
-    if (error) throw new Error("Failed to load comp signups");
+    if (error) {
+      console.error("finance-metrics comp_signups:", error);
+      throw new Error("Failed to load comp signups");
+    }
     metrics = computeStatsComp((data || []) as CompSignupRow[]);
   } else {
     const { data, error } = await supabaseServer
       .from("signups")
       .select(
-        "payment_method,paid,checked_in,is_ccs_team,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code,refunded_or_cancelled"
+        "id,payment_method,paid,checked_in,is_ccs_team,created_at,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code,refunded_or_cancelled"
       )
       .eq("event_id", eventId)
       .neq("refunded_or_cancelled", "cancelled");
-    if (error) throw new Error("Failed to load signups");
+    if (error) {
+      console.error("finance-metrics signups:", error);
+      throw new Error("Failed to load signups");
+    }
+    const rawSignupRows = (data || []) as SignupRow[];
+    const signupIds = rawSignupRows.map((s) => s.id);
+    let refundMap = new Map<string, number>();
+    if (signupIds.length > 0) {
+      const { data: refundRows, error: refundError } = await supabaseServer
+        .from("signup_refunds")
+        .select("signup_id,principal_refunded")
+        .in("signup_id", signupIds)
+        .eq("refunded_or_cancelled_result", "partial");
+      if (refundError) {
+        console.error("finance-metrics signup_refunds:", refundError);
+        throw new Error("Failed to load signups");
+      }
+      refundMap = buildPrincipalRefundedMap(refundRows ?? [], "signup_id");
+    }
+    const signupRows = withNetPaidAmount(rawSignupRows, refundMap);
     metrics = computeStats(
-      (data || []) as SignupRow[],
+      signupRows,
       eventRow.price ?? null,
       eventRow.ccs_team_price ?? null
+    );
+    const eventPricing: WorkshopEventPricing = {
+      price: eventRow.price ?? null,
+      price_changes: eventRow.price_changes,
+      ccs_team_price: eventRow.ccs_team_price ?? null,
+      ccs_team_price_changes: eventRow.ccs_team_price_changes,
+      time_zone: eventRow.time_zone ?? null,
+      starts_at: eventRow.starts_at ?? null,
+    };
+    metrics.coupon_discount_total = round2(
+      computeTotalCouponDiscount(signupRows, eventPricing)
     );
   }
 
@@ -252,6 +305,7 @@ async function computeAndPersistMetrics(eventId: string) {
     stripe_taxes_fees_total: metrics.stripe_taxes_fees_total,
     free_via_promo_count: metrics.free_via_promo_count,
     revenue_from_coupons: metrics.revenue_from_coupons,
+    coupon_discount_total: metrics.coupon_discount_total,
     is_comp_event: metrics.is_comp_event,
     refreshed_at: now,
     updated_at: now,
@@ -260,9 +314,7 @@ async function computeAndPersistMetrics(eventId: string) {
   const { data: saved, error: saveError } = await supabaseServer
     .from("event_finance_metrics")
     .upsert(payload, { onConflict: "event_id" })
-    .select(
-      "event_id,total_signups,checked_in_count,cash_total,stripe_total,other_total,ccs_team_cash_total,ccs_team_stripe_total,ccs_team_total,stripe_taxes_fees_total,free_via_promo_count,revenue_from_coupons,is_comp_event,refreshed_at,updated_at"
-    )
+    .select(METRICS_SELECT_COLS)
     .single();
 
   if (saveError || !saved) {
@@ -293,13 +345,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const selectCols =
-      "event_id,total_signups,checked_in_count,cash_total,stripe_total,other_total,ccs_team_cash_total,ccs_team_stripe_total,ccs_team_total,stripe_taxes_fees_total,free_via_promo_count,revenue_from_coupons,is_comp_event,refreshed_at,updated_at";
-
     if (eventId) {
       const { data, error } = await supabaseServer
         .from("event_finance_metrics")
-        .select(selectCols)
+        .select(METRICS_SELECT_COLS)
         .eq("event_id", eventId)
         .maybeSingle();
 
@@ -349,7 +398,7 @@ export async function GET(req: NextRequest) {
 
       const { data, error } = await supabaseServer
         .from("event_finance_metrics")
-        .select(selectCols)
+        .select(METRICS_SELECT_COLS)
         .in("event_id", eventIds);
 
       if (error) {
@@ -390,9 +439,6 @@ export async function PATCH(req: NextRequest) {
       "cash_total" in body ||
       "stripe_total" in body ||
       "stripe_taxes_fees_total" in body;
-
-    const selectCols =
-      "event_id,total_signups,checked_in_count,cash_total,stripe_total,other_total,ccs_team_cash_total,ccs_team_stripe_total,ccs_team_total,stripe_taxes_fees_total,free_via_promo_count,revenue_from_coupons,is_comp_event,refreshed_at,updated_at";
 
     if (hasManualOverrides) {
       const updates: Record<string, unknown> = {
@@ -447,7 +493,7 @@ export async function PATCH(req: NextRequest) {
         .from("event_finance_metrics")
         .update(updates)
         .eq("event_id", eventId)
-        .select(selectCols)
+        .select(METRICS_SELECT_COLS)
         .single();
 
       if (error || !data) {

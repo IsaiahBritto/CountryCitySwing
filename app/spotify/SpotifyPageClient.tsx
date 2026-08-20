@@ -488,16 +488,24 @@ export default function SpotifyPageClient() {
               <h2 className="text-lg font-semibold text-amber-200">
                 Line dance associations
               </h2>
-              <Link
-                href="/spotify/line-dances"
-                className="text-sm text-amber-400 underline"
-              >
-                Manage associations
-              </Link>
+              <div className="flex flex-wrap gap-3">
+                <Link
+                  href="/spotify/line-dances/review"
+                  className="text-sm text-amber-400 underline"
+                >
+                  Reviewer assignment
+                </Link>
+                <Link
+                  href="/spotify/line-dances"
+                  className="text-sm text-amber-400 underline"
+                >
+                  Manage associations
+                </Link>
+              </div>
             </div>
             <p className="text-xs text-gray-500">
-              Review Line Dance master songs missing a dance name or difficulty,
-              and save associations manually.
+              Assign reviewers to classify Line Dance master songs, or confirm
+              missing dance names and difficulty levels manually.
             </p>
           </div>
 

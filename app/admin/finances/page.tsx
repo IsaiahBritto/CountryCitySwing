@@ -35,20 +35,18 @@ import {
   type WorkshopSignupBucketTotals,
 } from "@/lib/financeSignupBreakdown";
 import WorkshopSignupFinanceBreakdown from "@/components/admin/WorkshopSignupFinanceBreakdown";
+import {
+  ClassEventBreakdown,
+  type ClassFinanceBase,
+  type ClassFinancePayout,
+} from "@/app/admin/finances/ClassEventBreakdown";
+import {
+  DEFAULT_UPPER_LEVEL_TEACHER,
+  isNashvilleNightTitle,
+} from "@/lib/nashvilleEventTitle";
+import { computeClassEventFinances } from "@/lib/utils/classEventFinances";
 
 type FinanceAccessLevel = "admin" | "social_viewer";
-
-const NASHVILLE_EVENT_TITLE = "Nashville Country Swing Nights!";
-const NASHVILLE_EVENT_TITLE_NORMALIZED = normalizeEventTitle(NASHVILLE_EVENT_TITLE);
-
-function normalizeEventTitle(title: string): string {
-  return title.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
-}
-
-function isNashvilleNightTitle(title: string | null | undefined): boolean {
-  if (!title) return false;
-  return normalizeEventTitle(title) === NASHVILLE_EVENT_TITLE_NORMALIZED;
-}
 
 interface NashvilleFinances {
   id: string;
@@ -289,6 +287,7 @@ function PastMonthNav({
 
 const MARK_PAID_API_BASE: Record<MarkPaidRoute, string> = {
   "nashville-night-finances": "/api/admin/nashville-night-finances",
+  "class-event-finances": "/api/admin/class-event-finances",
   "the-social-finances": "/api/admin/the-social-finances",
   "workshop-finances": "/api/admin/workshop-finances",
   "comp-finances": "/api/admin/comp-finances",
@@ -587,6 +586,7 @@ export default function AdminFinancesPage() {
     totalPaidBt3: number;
     totalPaidBt4: number;
     totalPaidJudges: number;
+    totalClassPayouts: number;
     workshopCcsIncome: number;
     totalStripeTaxesFeesFromMerch: number;
     totalSocialAllocatedProfits: number;
@@ -634,6 +634,11 @@ export default function AdminFinancesPage() {
   const [nashvilleSaving, setNashvilleSaving] = useState(false);
   const [nashvilleCashInput, setNashvilleCashInput] = useState("");
   const [nashvilleStripeInput, setNashvilleStripeInput] = useState("");
+  const [classFinanceBase, setClassFinanceBase] = useState<ClassFinanceBase | null>(null);
+  const [classFinancePayouts, setClassFinancePayouts] = useState<ClassFinancePayout[]>([]);
+  const [loadingClassFinances, setLoadingClassFinances] = useState(false);
+  const [classFinancesError, setClassFinancesError] = useState<string | null>(null);
+  const [classFinancesSaving, setClassFinancesSaving] = useState(false);
   const [workshopFinances, setWorkshopFinances] = useState<WorkshopFinances | null>(null);
   const [loadingWorkshop, setLoadingWorkshop] = useState(false);
   const [workshopError, setWorkshopError] = useState<string | null>(null);
@@ -1151,6 +1156,10 @@ export default function AdminFinancesPage() {
             };
 
             let nashvilleFinances: NashvilleFinances | null = null;
+            let classEventFinances: {
+              base: ClassFinanceBase | null;
+              payouts: ClassFinancePayout[];
+            } | null = null;
             let workshopFinances: WorkshopFinances | null = null;
             let socialFinancesOverview: TheSocialFinances | null = null;
             let compFinances: CompFinances | null = null;
@@ -1163,11 +1172,23 @@ export default function AdminFinancesPage() {
                 const { data } = await nr.json();
                 nashvilleFinances = data ?? null;
               }
+            } else if ((ev.type || "").trim().toLowerCase() === "class") {
+              const cr = await fetch(`/api/admin/class-event-finances?event_id=${ev.id}`, {
+                headers: { Authorization: `Bearer ${authToken}` },
+              });
+              if (cr.ok) {
+                const { data } = await cr.json();
+                classEventFinances = {
+                  base: data?.base ?? null,
+                  payouts: data?.payouts ?? [],
+                };
+              }
             }
-            // Fetch workshop finances for every non-Nashville event so we include any event
-            // that has a workshop_finances row (e.g. "Workshop by Juan Aguirre") even if
-            // event.type is not set to "workshop".
-            if (!isNashville(ev)) {
+            // Fetch workshop finances for non-Nashville, non-class events (or events with workshop rows).
+            if (
+              !isNashville(ev) &&
+              (ev.type || "").trim().toLowerCase() !== "class"
+            ) {
               const wr = await fetch(`/api/admin/workshop-finances?event_id=${ev.id}`, {
                 headers: { Authorization: `Bearer ${authToken}` },
               });
@@ -1195,7 +1216,14 @@ export default function AdminFinancesPage() {
               }
             }
 
-            return { stats, nashvilleFinances, workshopFinances, socialFinancesOverview, compFinances };
+            return {
+              stats,
+              nashvilleFinances,
+              classEventFinances,
+              workshopFinances,
+              socialFinancesOverview,
+              compFinances,
+            };
           })
         );
 
@@ -1208,6 +1236,7 @@ export default function AdminFinancesPage() {
         let totalPaidBt3 = 0;
         let totalPaidBt4 = 0;
         let totalPaidJudges = 0;
+        let totalClassPayouts = 0;
         let workshopCcsIncome = 0;
         let totalSocialAllocatedProfits = 0;
 
@@ -1243,7 +1272,28 @@ export default function AdminFinancesPage() {
             totalPaidBt3 += payouts.bt3Payout;
             totalPaidBt4 += payouts.bt4Payout;
           }
-          if (r.workshopFinances) {
+          if (r.classEventFinances?.base) {
+            const cf = r.classEventFinances;
+            const venueCost = Number(cf.base?.venue_cost) || 0;
+            totalStudioRentals += venueCost;
+            const cash =
+              cf.base?.cash_override != null
+                ? Number(cf.base.cash_override)
+                : r.stats.cashTotal;
+            const stripe =
+              cf.base?.stripe_override != null
+                ? Number(cf.base.stripe_override)
+                : r.stats.stripeTotal;
+            const payoutAmounts = (cf.payouts ?? []).map((p) => Number(p.amount) || 0);
+            const classSplit = computeClassEventFinances({
+              cashTotal: cash,
+              stripeTotal: stripe,
+              venueCost,
+              payoutAmounts,
+            });
+            totalClassPayouts += classSplit.payoutTotal;
+          }
+          if (r.workshopFinances && (ev.type || "").trim().toLowerCase() !== "class") {
             totalStudioRentals += Number(r.workshopFinances.studio_cost) || 0;
             workshopCcsIncome += Number(r.workshopFinances.ccs_amount) || 0;
           }
@@ -1295,6 +1345,7 @@ export default function AdminFinancesPage() {
           totalPaidBt3: Math.round(totalPaidBt3 * 100) / 100,
           totalPaidBt4: Math.round(totalPaidBt4 * 100) / 100,
           totalPaidJudges: Math.round(totalPaidJudges * 100) / 100,
+          totalClassPayouts: Math.round(totalClassPayouts * 100) / 100,
           workshopCcsIncome: Math.round(workshopCcsIncome * 100) / 100,
           totalStripeTaxesFeesFromMerch,
           totalSocialAllocatedProfits: Math.round(totalSocialAllocatedProfits * 100) / 100,
@@ -1559,9 +1610,10 @@ export default function AdminFinancesPage() {
   const selectedType = (selectedEvent?.type ?? "").trim().toLowerCase();
   const isWorkshopEvent = selectedType === "workshop";
   const isClassEvent = selectedType === "class";
+  const isGenericClassEvent = isClassEvent && !isNashvilleEvent;
   const isSocialEvent = selectedType === "social";
-  const usesWorkshopFinancesBreakdown = isWorkshopEvent || isClassEvent;
-  const usesNashvilleFinanceRecord = isNashvilleEvent || isClassEvent;
+  const usesNashvilleFinanceRecord = isNashvilleEvent;
+  const usesClassEventFinanceRecord = isGenericClassEvent;
 
   useEffect(() => {
     if (
@@ -1615,6 +1667,66 @@ export default function AdminFinancesPage() {
     eventsView,
     selectedEvent?.id,
     usesNashvilleFinanceRecord,
+    authToken,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isFullAdmin ||
+      skipsEventDetailView(eventsView) ||
+      !selectedEvent ||
+      !usesClassEventFinanceRecord
+    ) {
+      setClassFinanceBase(null);
+      setClassFinancePayouts([]);
+      setClassFinancesError(null);
+      return;
+    }
+
+    const load = async () => {
+      setLoadingClassFinances(true);
+      setClassFinancesError(null);
+      try {
+        if (!authToken) {
+          setClassFinancesError("Session expired. Please sign in again.");
+          setClassFinanceBase(null);
+          setClassFinancePayouts([]);
+          setLoadingClassFinances(false);
+          return;
+        }
+        const params = new URLSearchParams({ event_id: selectedEvent.id });
+        const res = await fetch(`/api/admin/class-event-finances?${params}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setClassFinancesError(
+            (body as { error?: string })?.error || "Failed to load class finances"
+          );
+          setClassFinanceBase(null);
+          setClassFinancePayouts([]);
+        } else {
+          const { data } = await res.json();
+          setClassFinanceBase(data?.base ?? null);
+          setClassFinancePayouts(data?.payouts ?? []);
+        }
+      } catch (e) {
+        setClassFinancesError(
+          e instanceof Error ? e.message : "Connection failed. Check your network and try again."
+        );
+        setClassFinanceBase(null);
+        setClassFinancePayouts([]);
+      } finally {
+        setLoadingClassFinances(false);
+      }
+    };
+
+    load();
+  }, [
+    isFullAdmin,
+    eventsView,
+    selectedEvent?.id,
+    usesClassEventFinanceRecord,
     authToken,
   ]);
 
@@ -1690,8 +1802,7 @@ export default function AdminFinancesPage() {
       !isFullAdmin ||
       skipsEventDetailView(eventsView) ||
       !selectedEvent ||
-      !usesWorkshopFinancesBreakdown ||
-      isNashvilleEvent
+      !isWorkshopEvent
     ) {
       setWorkshopFinances(null);
       setWorkshopError(null);
@@ -1737,8 +1848,8 @@ export default function AdminFinancesPage() {
     isFullAdmin,
     eventsView,
     selectedEvent?.id,
-    usesWorkshopFinancesBreakdown,
-    isNashvilleEvent,
+    isWorkshopEvent,
+    authToken,
   ]);
 
   useEffect(() => {
@@ -1942,7 +2053,7 @@ export default function AdminFinancesPage() {
       ccs_amount?: number | null;
       mark_guest_instructor_paid?: boolean;
     }) => {
-      if (!selectedEvent || !usesWorkshopFinancesBreakdown || !authToken) return;
+      if (!selectedEvent || !isWorkshopEvent || !authToken) return;
       setWorkshopSaving(true);
       try {
         const res = await fetch("/api/admin/workshop-finances", {
@@ -1969,7 +2080,7 @@ export default function AdminFinancesPage() {
         setWorkshopSaving(false);
       }
     },
-    [selectedEvent?.id, usesWorkshopFinancesBreakdown, authToken]
+    [selectedEvent?.id, isWorkshopEvent, authToken]
   );
 
   const patchSocial = useCallback(
@@ -2069,6 +2180,154 @@ export default function AdminFinancesPage() {
     [selectedEvent?.id, usesNashvilleFinanceRecord, authToken]
   );
 
+  const reloadClassFinances = useCallback(async () => {
+    if (!selectedEvent || !authToken) return;
+    const params = new URLSearchParams({ event_id: selectedEvent.id });
+    const res = await fetch(`/api/admin/class-event-finances?${params}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (res.ok) {
+      const { data } = await res.json();
+      setClassFinanceBase(data?.base ?? null);
+      setClassFinancePayouts(data?.payouts ?? []);
+    }
+  }, [selectedEvent?.id, authToken]);
+
+  const patchClassFinanceBase = useCallback(
+    async (updates: {
+      venue_cost?: number;
+      cash_override?: number | null;
+      stripe_override?: number | null;
+    }) => {
+      if (!selectedEvent || !usesClassEventFinanceRecord || !authToken) return;
+      setClassFinancesSaving(true);
+      try {
+        const res = await fetch("/api/admin/class-event-finances", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            event_id: selectedEvent.id,
+            ...updates,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string })?.error || "Failed to save");
+        }
+        const { data } = await res.json();
+        if (data?.base) setClassFinanceBase(data.base);
+      } catch (e) {
+        console.error("Class finances PATCH base:", e);
+        setClassFinancesError(e instanceof Error ? e.message : "Failed to save");
+      } finally {
+        setClassFinancesSaving(false);
+      }
+    },
+    [selectedEvent?.id, usesClassEventFinanceRecord, authToken]
+  );
+
+  const patchClassFinancePayout = useCallback(
+    async (
+      payoutId: string,
+      updates: {
+        role_label?: string;
+        payee_name?: string;
+        amount?: number;
+        mark_paid?: boolean;
+      }
+    ) => {
+      if (!selectedEvent || !usesClassEventFinanceRecord || !authToken) return;
+      setClassFinancesSaving(true);
+      try {
+        const res = await fetch("/api/admin/class-event-finances", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            event_id: selectedEvent.id,
+            payout_id: payoutId,
+            ...updates,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string })?.error || "Failed to save");
+        }
+        await reloadClassFinances();
+      } catch (e) {
+        console.error("Class finances PATCH payout:", e);
+        setClassFinancesError(e instanceof Error ? e.message : "Failed to save");
+      } finally {
+        setClassFinancesSaving(false);
+      }
+    },
+    [selectedEvent?.id, usesClassEventFinanceRecord, authToken, reloadClassFinances]
+  );
+
+  const addClassFinancePayout = useCallback(
+    async (payload: { role_label?: string; payee_name: string; amount?: number }) => {
+      if (!selectedEvent || !usesClassEventFinanceRecord || !authToken) return;
+      setClassFinancesSaving(true);
+      try {
+        const res = await fetch("/api/admin/class-event-finances", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            event_id: selectedEvent.id,
+            ...payload,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string })?.error || "Failed to add payout");
+        }
+        await reloadClassFinances();
+      } catch (e) {
+        console.error("Class finances POST:", e);
+        setClassFinancesError(e instanceof Error ? e.message : "Failed to add payout");
+      } finally {
+        setClassFinancesSaving(false);
+      }
+    },
+    [selectedEvent?.id, usesClassEventFinanceRecord, authToken, reloadClassFinances]
+  );
+
+  const deleteClassFinancePayout = useCallback(
+    async (payoutId: string) => {
+      if (!selectedEvent || !usesClassEventFinanceRecord || !authToken) return;
+      setClassFinancesSaving(true);
+      try {
+        const params = new URLSearchParams({
+          event_id: selectedEvent.id,
+          payout_id: payoutId,
+        });
+        const res = await fetch(`/api/admin/class-event-finances?${params}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body as { error?: string })?.error || "Failed to delete payout");
+        }
+        await reloadClassFinances();
+      } catch (e) {
+        console.error("Class finances DELETE:", e);
+        setClassFinancesError(e instanceof Error ? e.message : "Failed to delete payout");
+      } finally {
+        setClassFinancesSaving(false);
+      }
+    },
+    [selectedEvent?.id, usesClassEventFinanceRecord, authToken, reloadClassFinances]
+  );
+
   const stats =
     eventsView === "overview" && overviewStats
       ? overviewStats
@@ -2105,18 +2364,22 @@ export default function AdminFinancesPage() {
 
   const effectiveDefaultCcsDiscount = defaultCcsDiscountTotalFrom(stats);
 
-  const effectiveCash = isNashvilleEvent && nashvilleFinances?.cash_override != null
-    ? nashvilleFinances.cash_override
-    : stats.cashTotal;
-  const effectiveStripe = isNashvilleEvent && nashvilleFinances?.stripe_override != null
-    ? nashvilleFinances.stripe_override
-    : stats.stripeTotal;
+  const classFinanceOverrides = isNashvilleEvent ? nashvilleFinances : classFinanceBase;
 
-  const netCollectedTotal = isNashvilleEvent
+  const effectiveCash =
+    isClassEvent && classFinanceOverrides?.cash_override != null
+      ? classFinanceOverrides.cash_override
+      : stats.cashTotal;
+  const effectiveStripe =
+    isClassEvent && classFinanceOverrides?.stripe_override != null
+      ? classFinanceOverrides.stripe_override
+      : stats.stripeTotal;
+
+  const netCollectedTotal = isClassEvent
     ? effectiveCash + effectiveStripe
     : netCollectedRegistrationTotal(stats);
 
-  const combinedTotal = isNashvilleEvent
+  const combinedTotal = isClassEvent
     ? netCollectedTotal + effectiveCouponDiscount
     : combinedRegistrationTotal({
         ...stats,
@@ -2126,63 +2389,77 @@ export default function AdminFinancesPage() {
   const stripeTaxesFees = stats.stripeTaxesFees ?? 0;
 
   useEffect(() => {
-    if (isNashvilleEvent) {
+    if (isClassEvent) {
       setNashvilleCashInput(String(effectiveCash));
       setNashvilleStripeInput(String(effectiveStripe));
     }
-  }, [isNashvilleEvent, effectiveCash, effectiveStripe]);
+  }, [isClassEvent, effectiveCash, effectiveStripe]);
 
   useEffect(() => {
-    if (!isNashvilleEvent) {
+    if (!isClassEvent) {
       setEventCashInput(String(stats.cashTotal));
       setEventStripeInput(String(stats.stripeTotal));
     }
     setEventStripeFeesInput(String(stripeTaxesFees));
   }, [
-    isNashvilleEvent,
+    isClassEvent,
     stats.cashTotal,
     stats.stripeTotal,
     stripeTaxesFees,
     selectedEvent?.id,
   ]);
 
-  const saveNashvilleCash = useCallback(() => {
+  const saveClassCash = useCallback(() => {
     const v = parseFloat(nashvilleCashInput);
-    if (!Number.isNaN(v) && v >= 0 && (selectedEvent != null) && isNashvilleEvent) {
+    if (Number.isNaN(v) || v < 0 || selectedEvent == null || !isClassEvent) return;
+    if (isNashvilleEvent) {
       patchNashville({ cash_override: v });
+    } else {
+      patchClassFinanceBase({ cash_override: v });
     }
-  }, [nashvilleCashInput, selectedEvent, isNashvilleEvent, patchNashville]);
+  }, [nashvilleCashInput, selectedEvent, isClassEvent, isNashvilleEvent, patchNashville, patchClassFinanceBase]);
+
+  const saveClassStripe = useCallback(() => {
+    const v = parseFloat(nashvilleStripeInput);
+    if (Number.isNaN(v) || selectedEvent == null || !isClassEvent) return;
+    if (isNashvilleEvent) {
+      patchNashville({ stripe_override: v });
+    } else {
+      patchClassFinanceBase({ stripe_override: v });
+    }
+  }, [nashvilleStripeInput, selectedEvent, isClassEvent, isNashvilleEvent, patchNashville, patchClassFinanceBase]);
+
+  const saveNashvilleCash = useCallback(() => {
+    saveClassCash();
+  }, [saveClassCash]);
 
   const saveNashvilleStripe = useCallback(() => {
-    const v = parseFloat(nashvilleStripeInput);
-    if (!Number.isNaN(v) && selectedEvent != null && isNashvilleEvent) {
-      patchNashville({ stripe_override: v });
-    }
-  }, [nashvilleStripeInput, selectedEvent, isNashvilleEvent, patchNashville]);
+    saveClassStripe();
+  }, [saveClassStripe]);
 
   const saveEventCash = useCallback(() => {
     const v = parseFloat(eventCashInput);
     if (
-      !isNashvilleEvent &&
+      !isClassEvent &&
       !Number.isNaN(v) &&
       v >= 0 &&
       selectedEvent != null
     ) {
       patchEventMetrics({ cash_total: v });
     }
-  }, [eventCashInput, isNashvilleEvent, selectedEvent, patchEventMetrics]);
+  }, [eventCashInput, isClassEvent, selectedEvent, patchEventMetrics]);
 
   const saveEventStripe = useCallback(() => {
     const v = parseFloat(eventStripeInput);
     if (
-      !isNashvilleEvent &&
+      !isClassEvent &&
       !Number.isNaN(v) &&
       v >= 0 &&
       selectedEvent != null
     ) {
       patchEventMetrics({ stripe_total: v });
     }
-  }, [eventStripeInput, isNashvilleEvent, selectedEvent, patchEventMetrics]);
+  }, [eventStripeInput, isClassEvent, selectedEvent, patchEventMetrics]);
 
   const saveStripeFees = useCallback(() => {
     const v = parseFloat(eventStripeFeesInput);
@@ -2789,6 +3066,16 @@ export default function AdminFinancesPage() {
                                 ${overviewFinances.totalPaidJudges.toFixed(2)}
                               </p>
                             </div>
+                            {overviewFinances.totalClassPayouts > 0 && (
+                              <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
+                                <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                                  Total paid · Class payouts
+                                </p>
+                                <p className="mt-1 text-xl font-bold text-primary">
+                                  ${overviewFinances.totalClassPayouts.toFixed(2)}
+                                </p>
+                              </div>
+                            )}
                             <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4 sm:col-span-2 lg:col-span-1">
                               <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
                                 Total studio rentals
@@ -2917,6 +3204,14 @@ export default function AdminFinancesPage() {
                                       −${overviewFinances.totalPaidJudges.toFixed(2)}
                                     </span>
                                   </div>
+                                  {overviewFinances.totalClassPayouts > 0 && (
+                                    <div className="flex items-center justify-between text-neutral-300">
+                                      <span>Class payouts (generic)</span>
+                                      <span className="font-semibold text-white">
+                                        −${overviewFinances.totalClassPayouts.toFixed(2)}
+                                      </span>
+                                    </div>
+                                  )}
                                   <div className="my-2 border-t border-neutral-700" />
                                   <div className="flex items-center justify-between font-medium text-white">
                                     <span>Total money out</span>
@@ -2929,7 +3224,8 @@ export default function AdminFinancesPage() {
                                         overviewFinances.totalPaidBt2 +
                                         overviewFinances.totalPaidBt3 +
                                         overviewFinances.totalPaidBt4 +
-                                        overviewFinances.totalPaidJudges
+                                        overviewFinances.totalPaidJudges +
+                                        overviewFinances.totalClassPayouts
                                       ).toFixed(2)}
                                     </span>
                                   </div>
@@ -2950,7 +3246,8 @@ export default function AdminFinancesPage() {
                                         overviewFinances.totalPaidBt2 +
                                         overviewFinances.totalPaidBt3 +
                                         overviewFinances.totalPaidBt4 +
-                                        overviewFinances.totalPaidJudges
+                                        overviewFinances.totalPaidJudges +
+                                        overviewFinances.totalClassPayouts
                                       )
                                     ).toFixed(2)}
                                   </span>
@@ -3350,7 +3647,7 @@ export default function AdminFinancesPage() {
                           </p>
                         </div>
                       )}
-                      {isNashvilleEvent ? (
+                      {isClassEvent ? (
                         <>
                           <div className="rounded-lg border border-neutral-700 bg-neutral-800/50 p-4">
                             <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
@@ -3365,7 +3662,7 @@ export default function AdminFinancesPage() {
                                 value={nashvilleCashInput}
                                 onChange={(e) => setNashvilleCashInput(e.target.value)}
                                 onBlur={saveNashvilleCash}
-                                disabled={nashvilleSaving}
+                                disabled={nashvilleSaving || classFinancesSaving}
                                 className="w-24 rounded border border-neutral-600 bg-neutral-800 text-xl font-bold text-primary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
                               />
                             </div>
@@ -3386,7 +3683,7 @@ export default function AdminFinancesPage() {
                                 value={nashvilleStripeInput}
                                 onChange={(e) => setNashvilleStripeInput(e.target.value)}
                                 onBlur={saveNashvilleStripe}
-                                disabled={nashvilleSaving}
+                                disabled={nashvilleSaving || classFinancesSaving}
                                 className="w-24 rounded border border-neutral-600 bg-neutral-800 text-xl font-bold text-accent focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-60"
                               />
                             </div>
@@ -3569,7 +3866,7 @@ export default function AdminFinancesPage() {
                               .filter((n): n is string => !!n),
                             classBeginnerLeadDefault,
                             classBeginnerFollowDefault,
-                            "Malissa",
+                            DEFAULT_UPPER_LEVEL_TEACHER,
                           ])
                         )}
                         classBeginnerLeadDefault={classBeginnerLeadDefault}
@@ -3620,13 +3917,30 @@ export default function AdminFinancesPage() {
                       />
                     )}
 
-                    {usesWorkshopFinancesBreakdown && !isNashvilleEvent && (
+                    {isGenericClassEvent && (
+                      <ClassEventBreakdown
+                        eventTitle={selectedEvent.title}
+                        effectiveCash={effectiveCash}
+                        effectiveStripe={effectiveStripe}
+                        base={classFinanceBase}
+                        payouts={classFinancePayouts}
+                        loading={loadingClassFinances}
+                        error={classFinancesError}
+                        saving={classFinancesSaving}
+                        onPatchBase={patchClassFinanceBase}
+                        onPatchPayout={patchClassFinancePayout}
+                        onAddPayout={addClassFinancePayout}
+                        onDeletePayout={deleteClassFinancePayout}
+                      />
+                    )}
+
+                    {isWorkshopEvent && !isCompEvent && (
                       <WorkshopBreakdown
                         computedTotalRevenue={combinedTotal}
                         defaultCcsDiscountTotal={effectiveDefaultCcsDiscount}
                         workshop={workshopFinances}
                         eventTitle={selectedEvent.title}
-                        defaultStudioCost={isClassEvent ? 400 : 0}
+                        defaultStudioCost={0}
                         loading={loadingWorkshop}
                         error={workshopError}
                         saving={workshopSaving}
@@ -5177,7 +5491,7 @@ function NashvilleBreakdown({
   const [venueInput, setVenueInput] = useState(String(venueCost));
   const bt1Fallback = isClassEvent ? classBeginnerLeadDefault : "Beginner Teacher 1";
   const bt2Fallback = isClassEvent ? classBeginnerFollowDefault : "Beginner Teacher 2";
-  const upperFallback = "Malissa";
+  const upperFallback = DEFAULT_UPPER_LEVEL_TEACHER;
   const [bt1Name, setBt1Name] = useState(nashville?.bt1_name ?? bt1Fallback);
   const [bt2Name, setBt2Name] = useState(nashville?.bt2_name ?? bt2Fallback);
   const [bt3Name, setBt3Name] = useState(nashville?.bt3_name ?? "Beginner Teacher 3");
@@ -5681,7 +5995,7 @@ function ClassTeacherAssignments({
   }, [nashville?.bt2_name, followDefault]);
 
   useEffect(() => {
-    setUpperName(nashville?.upper_level_teacher_name ?? "Malissa");
+    setUpperName(nashville?.upper_level_teacher_name ?? DEFAULT_UPPER_LEVEL_TEACHER);
   }, [nashville?.upper_level_teacher_name]);
 
   const options = useMemo(() => {
@@ -5689,7 +6003,7 @@ function ClassTeacherAssignments({
       .filter((i) => isCcsInstructorRole(i.role))
       .map((i) => i.displayName?.trim())
       .filter((n): n is string => !!n);
-    const extras = [leadDefault, followDefault, "Malissa"];
+    const extras = [leadDefault, followDefault, DEFAULT_UPPER_LEVEL_TEACHER];
     return Array.from(new Set([...names, ...extras]));
   }, [instructors, leadDefault, followDefault]);
 
@@ -5709,7 +6023,7 @@ function ClassTeacherAssignments({
 
   const saveUpper = useCallback(() => {
     const s = upperName.trim();
-    const current = nashville?.upper_level_teacher_name ?? "Malissa";
+    const current = nashville?.upper_level_teacher_name ?? DEFAULT_UPPER_LEVEL_TEACHER;
     if (s && s !== current) {
       onPatch({ upper_level_teacher_name: s });
     }

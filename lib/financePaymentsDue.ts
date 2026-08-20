@@ -1,3 +1,4 @@
+import { isNashvilleNightTitle, DEFAULT_UPPER_LEVEL_TEACHER } from "@/lib/nashvilleEventTitle";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   guestInstructorNameFromEventTitle,
@@ -94,19 +95,32 @@ type EventMeta = {
   time_zone?: string | null;
 };
 
+type ClassPayoutRow = {
+  id: string;
+  event_id: string;
+  role_label?: string | null;
+  payee_name: string;
+  amount?: number | null;
+  paid_at?: string | null;
+};
+
 export function buildPaymentsDueRows(
   eventMeta: Map<string, EventMeta>,
   metricsByEvent: Map<string, MetricsRevenueInput>,
   nashvilleRows: Record<string, unknown>[],
   socialRows: Record<string, unknown>[],
   workshopRows: Record<string, unknown>[],
-  judgeRows: { id: string; event_id: string; judge_name: string | null; amount_paid: number | null; paid: boolean | null }[]
+  judgeRows: { id: string; event_id: string; judge_name: string | null; amount_paid: number | null; paid: boolean | null }[],
+  classPayoutRows: ClassPayoutRow[] = []
 ): PaymentDueRow[] {
   const rows: PaymentDueRow[] = [];
 
   for (const nf of nashvilleRows) {
     const eventId = String(nf.event_id ?? "");
     if (!eventId) continue;
+    const meta = eventMeta.get(eventId);
+    if (!isNashvilleNightTitle(meta?.title)) continue;
+
     const metrics = metricsByEvent.get(eventId) ?? null;
     const { cash, stripe } = effectiveNashvilleCashStripe(
       nf as { cash_override?: number | null; stripe_override?: number | null },
@@ -177,7 +191,7 @@ export function buildPaymentsDueRows(
     teachers.push({
       key: "upper",
       label: "Upper Level Teacher",
-      name: String(nf.upper_level_teacher_name ?? "Malissa"),
+      name: String(nf.upper_level_teacher_name ?? DEFAULT_UPPER_LEVEL_TEACHER),
       amount: payouts.malissaPayout,
       paid: !!nf.upper_level_paid,
       markKey: "mark_upper_level_paid",
@@ -197,6 +211,23 @@ export function buildPaymentsDueRows(
         },
       });
     }
+  }
+
+  for (const p of classPayoutRows) {
+    if (p.paid_at != null) continue;
+    const amount = round2(Number(p.amount) || 0);
+    if (!isMeaningfulAmount(amount)) continue;
+    rows.push({
+      id: `class:${p.event_id}:${p.id}`,
+      eventId: p.event_id,
+      payeeName: (p.payee_name ?? "").trim() || "Payee",
+      amount,
+      roleLabel: (p.role_label ?? "").trim() || "Class payout",
+      markPaid: {
+        route: "class-event-finances",
+        body: { event_id: p.event_id, payout_id: p.id, mark_paid: true },
+      },
+    });
   }
 
   for (const sf of socialRows) {
@@ -307,7 +338,9 @@ export function buildPaymentsDueRows(
     const meta = eventMeta.get(eventId);
     const isClassEvent =
       (meta?.type ?? "").toString().trim().toLowerCase() === "class";
-    const defaultStudioCost = isClassEvent ? 400 : 0;
+    if (isClassEvent) continue;
+
+    const defaultStudioCost = 0;
     const metrics = metricsByEvent.get(eventId) ?? null;
     const amount = computeWorkshopGuestAmount(
       wf as {
@@ -388,6 +421,7 @@ export function groupPaymentsDueByEvent(
 export async function fetchPaymentsDue(): Promise<PaymentsDueResult> {
   const [
     nashvilleRes,
+    classPayoutsRes,
     socialRes,
     workshopRes,
     judgesRes,
@@ -399,6 +433,9 @@ export async function fetchPaymentsDue(): Promise<PaymentsDueResult> {
       .select(
         "event_id,venue_cost,cash_override,stripe_override,bt1_name,bt2_name,bt3_name,bt4_name,upper_level_teacher_name,bt1_payout_override,bt2_payout_override,bt3_payout_override,bt4_payout_override,upper_level_payout_override,bt1_paid,bt2_paid,bt3_paid,bt4_paid,upper_level_paid"
       ),
+    supabaseServer
+      .from("class_event_finance_payouts")
+      .select("id,event_id,role_label,payee_name,amount,paid_at"),
     supabaseServer
       .from("the_social_finances")
       .select(
@@ -420,6 +457,7 @@ export async function fetchPaymentsDue(): Promise<PaymentsDueResult> {
   ]);
 
   if (nashvilleRes.error) throw nashvilleRes.error;
+  if (classPayoutsRes.error) throw classPayoutsRes.error;
   if (socialRes.error) throw socialRes.error;
   if (workshopRes.error) throw workshopRes.error;
   if (judgesRes.error) throw judgesRes.error;
@@ -442,6 +480,12 @@ export async function fetchPaymentsDue(): Promise<PaymentsDueResult> {
     metricsByEvent.set(m.event_id, m);
   }
 
+  const genericClassPayouts = (classPayoutsRes.data ?? []).filter((p) => {
+    const meta = eventMeta.get(p.event_id);
+    const isClass = (meta?.type ?? "").trim().toLowerCase() === "class";
+    return isClass && !isNashvilleNightTitle(meta?.title);
+  }) as ClassPayoutRow[];
+
   const flatRows = buildPaymentsDueRows(
     eventMeta,
     metricsByEvent,
@@ -454,7 +498,8 @@ export async function fetchPaymentsDue(): Promise<PaymentsDueResult> {
       judge_name: string | null;
       amount_paid: number | null;
       paid: boolean | null;
-    }[]
+    }[],
+    genericClassPayouts
   );
 
   const events = groupPaymentsDueByEvent(flatRows, eventMeta);

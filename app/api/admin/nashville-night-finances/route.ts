@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DEFAULT_UPPER_LEVEL_TEACHER } from "@/lib/nashvilleEventTitle";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { requireFinanceAuth } from "@/lib/financeAuth";
 
@@ -163,7 +164,7 @@ export async function PATCH(req: NextRequest) {
           bt2_name: updates.bt2_name ?? "Beginner Teacher 2",
           bt3_name: updates.bt3_name ?? null,
           bt4_name: updates.bt4_name ?? null,
-          upper_level_teacher_name: updates.upper_level_teacher_name ?? "Malissa",
+          upper_level_teacher_name: updates.upper_level_teacher_name ?? DEFAULT_UPPER_LEVEL_TEACHER,
           bt1_payout_override: updates.bt1_payout_override ?? null,
           bt2_payout_override: updates.bt2_payout_override ?? null,
           bt3_payout_override: updates.bt3_payout_override ?? null,

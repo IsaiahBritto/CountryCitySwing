@@ -2,6 +2,7 @@
 
 export type MarkPaidRoute =
   | "nashville-night-finances"
+  | "class-event-finances"
   | "the-social-finances"
   | "workshop-finances"
   | "comp-finances";

@@ -8,6 +8,7 @@ import { isCcsInstructorRole } from "@/lib/instructorProfiles";
 import {
   DEFAULT_SOCIAL_DOOR_PAYOUT,
   DEFAULT_SOCIAL_VENUE_COST,
+  SOCIAL_EVENT_DOOR_PAYOUT,
   computeSocialDoorPayouts,
   computeSocialSplit,
   effectiveDoorAmount,
@@ -15,7 +16,11 @@ import {
   normalizeDoorPayouts,
   type SocialDoorPayoutRow,
 } from "@/lib/socialFinancesConstants";
-import { isSocialEventType, isDoormanPosition } from "@/lib/socialScheduleSlots";
+import {
+  doorPayoutRowsEqual,
+  mergeDoorPayoutsFromSlots,
+} from "@/lib/socialDoorPayoutsMerge";
+import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { computeNashvillePayouts } from "@/lib/utils/nashvillePayouts";
 import {
   guestInstructorNameFromEventTitle,
@@ -140,6 +145,7 @@ interface InstructorOption {
 interface ScheduleSlotLite {
   id: string;
   position: string;
+  assignee_id?: string | null;
   slot_starts_at?: string | null;
   assignee?: {
     first_name?: string;
@@ -1895,60 +1901,78 @@ export default function AdminFinancesPage() {
         } else {
           const { data } = await res.json();
           let social = (data ?? null) as TheSocialFinances | null;
-          const existingDoors = normalizeDoorPayouts(social?.door_payouts);
-          if (
-            existingDoors.length === 0 &&
-            slotsRes &&
-            slotsRes.ok &&
-            isSocialDoorPayoutModel(selectedEvent.starts_at, selectedEvent.time_zone)
-          ) {
+          const doorModelActive = isSocialDoorPayoutModel(
+            selectedEvent.starts_at,
+            selectedEvent.time_zone
+          );
+
+          if (doorModelActive && slotsRes?.ok) {
             const slotsJson = await slotsRes.json().catch(() => ({}));
-            const slots = ((slotsJson?.slots ?? []) as ScheduleSlotLite[])
-              .filter((s) => isDoormanPosition(s.position) && s.assignee)
-              .sort((a, b) =>
-                (a.slot_starts_at || "").localeCompare(b.slot_starts_at || "")
-              );
-            if (slots.length > 0) {
-              const door_payouts = slots.map((s, index) => {
-                const name =
-                  [s.assignee?.first_name, s.assignee?.last_name]
-                    .filter(Boolean)
-                    .join(" ")
-                    .trim() || `Doorman ${index + 1}`;
-                return {
-                  slot_id: s.id,
-                  name,
-                  amount: DEFAULT_SOCIAL_DOOR_PAYOUT,
-                  amount_override: null as number | null,
-                  paid_at: null as string | null,
-                };
-              });
-              if (social) {
-                social = { ...social, door_payouts };
-              } else {
-                social = {
-                  id: "pending",
+            const slots = (slotsJson?.slots ?? []) as ScheduleSlotLite[];
+            const apiDoors = normalizeDoorPayouts(social?.door_payouts);
+            const mergedDoors = mergeDoorPayoutsFromSlots({
+              existingRows: apiDoors,
+              slots: slots.map((s) => ({
+                id: s.id,
+                position: s.position,
+                assignee_id: s.assignee_id ?? null,
+                slot_starts_at: s.slot_starts_at,
+                assignee: s.assignee,
+              })),
+              defaultAmount: SOCIAL_EVENT_DOOR_PAYOUT,
+            });
+
+            if (
+              isFullAdmin &&
+              authToken &&
+              !doorPayoutRowsEqual(apiDoors, mergedDoors)
+            ) {
+              const patchRes = await fetch("/api/admin/the-social-finances", {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${authToken}`,
+                },
+                body: JSON.stringify({
                   event_id: selectedEvent.id,
-                  venue_cost: DEFAULT_SOCIAL_VENUE_COST,
-                  other_expense: 0,
-                  other_expense_comment: null,
-                  door_payouts,
-                  brandon_split_ratio: 0,
-                  kyler_split_ratio: 0,
-                  isaiah_split_ratio: 1,
-                  brandon_profit: 0,
-                  kyler_profit: 0,
-                  isaiah_profit: 0,
-                  ccs_profit: 0,
-                  ccs_cash_profit: 0,
-                  brandon_paid_at: null,
-                  kyler_paid_at: null,
-                  isaiah_paid_at: null,
-                  updated_at: new Date().toISOString(),
-                };
+                  door_payouts: mergedDoors,
+                }),
+              });
+              if (patchRes.ok) {
+                const patchJson = await patchRes.json();
+                social = (patchJson.data ?? social) as TheSocialFinances | null;
+                if (social) {
+                  social = { ...social, door_payouts: mergedDoors };
+                }
+              } else if (social) {
+                social = { ...social, door_payouts: mergedDoors };
               }
+            } else if (social) {
+              social = { ...social, door_payouts: mergedDoors };
+            } else if (mergedDoors.length > 0) {
+              social = {
+                id: "pending",
+                event_id: selectedEvent.id,
+                venue_cost: DEFAULT_SOCIAL_VENUE_COST,
+                other_expense: 0,
+                other_expense_comment: null,
+                door_payouts: mergedDoors,
+                brandon_split_ratio: 0,
+                kyler_split_ratio: 0,
+                isaiah_split_ratio: 1,
+                brandon_profit: 0,
+                kyler_profit: 0,
+                isaiah_profit: 0,
+                ccs_profit: 0,
+                ccs_cash_profit: 0,
+                brandon_paid_at: null,
+                kyler_paid_at: null,
+                isaiah_paid_at: null,
+                updated_at: new Date().toISOString(),
+              };
             }
           }
+
           setSocialFinances(social);
         }
       } catch (e) {
@@ -1962,7 +1986,7 @@ export default function AdminFinancesPage() {
     };
 
     load();
-  }, [canAccessFinances, eventsView, selectedEvent?.id, selectedEvent?.starts_at, selectedEvent?.time_zone, isSocialEvent, authToken]);
+  }, [canAccessFinances, eventsView, selectedEvent?.id, selectedEvent?.starts_at, selectedEvent?.time_zone, isSocialEvent, authToken, isFullAdmin]);
 
   useEffect(() => {
     if (
@@ -4062,7 +4086,7 @@ function SocialBreakdown({
       setDoorAmountInputs(
         doors.map((d) =>
           String(
-            d.amount_override != null ? d.amount_override : d.amount ?? DEFAULT_SOCIAL_DOOR_PAYOUT
+            d.amount_override != null ? d.amount_override : d.amount ?? SOCIAL_EVENT_DOOR_PAYOUT
           )
         )
       );
@@ -4228,6 +4252,32 @@ function SocialBreakdown({
       doorRows: doorRowsForCalc,
     });
     const ccsTotal = roundMoney(doorPayouts.isaiahCash + doorPayouts.ccsElectronic);
+    const totalRevenue = roundMoney(cashTotal + stripeTotal);
+    const allocationItems: { label: string; value: number }[] = [
+      { label: "Venue cost", value: venueNum },
+    ];
+    if (otherExpenseNum > 0) {
+      const comment = otherExpenseCommentInput.trim();
+      allocationItems.push({
+        label: comment ? `Other expense (${comment})` : "Other expense",
+        value: otherExpenseNum,
+      });
+    }
+    doorRows.forEach((door, index) => {
+      const amt = doorPayouts.doorAmounts[index] ?? effectiveDoorAmount(door);
+      allocationItems.push({
+        label: `${door.name || `Doorman ${index + 1}`} (cash)`,
+        value: amt,
+      });
+    });
+    allocationItems.push(
+      { label: "Cash → Isaiah", value: doorPayouts.isaiahCash },
+      { label: "Electronic → CCS", value: doorPayouts.ccsElectronic }
+    );
+    const allocationsTotal = roundMoney(
+      allocationItems.reduce((sum, item) => sum + item.value, 0)
+    );
+    const reconciliationDiff = roundMoney(totalRevenue - allocationsTotal);
 
     return (
       <div className="mt-8 rounded-xl border border-primary/40 bg-neutral-800/30 p-6 ring-1 ring-primary/20">
@@ -4317,7 +4367,7 @@ function SocialBreakdown({
               <SocialPersonRow
                 key={door.slot_id ?? index}
                 label={door.name || `Doorman ${index + 1}`}
-                profitInput={doorAmountInputs[index] ?? String(DEFAULT_SOCIAL_DOOR_PAYOUT)}
+                profitInput={doorAmountInputs[index] ?? String(SOCIAL_EVENT_DOOR_PAYOUT)}
                 onProfitChange={(s) => {
                   setDoorAmountInputs((prev) => {
                     const next = [...prev];
@@ -4331,7 +4381,7 @@ function SocialBreakdown({
                     if (i !== index) return d;
                     return {
                       ...d,
-                      amount: DEFAULT_SOCIAL_DOOR_PAYOUT,
+                      amount: SOCIAL_EVENT_DOOR_PAYOUT,
                       amount_override: Number.isFinite(parsed) ? roundMoney(parsed) : null,
                     };
                   });
@@ -4341,7 +4391,7 @@ function SocialBreakdown({
                 onMarkPaid={() => onPatch({ mark_door_paid_index: index })}
                 saving={saving}
                 readOnly={readOnly}
-                subtitle={`Door payout (default $${DEFAULT_SOCIAL_DOOR_PAYOUT})`}
+                subtitle={`Door payout (default $${SOCIAL_EVENT_DOOR_PAYOUT}, paid from cash)`}
               />
             ))
           )}
@@ -4355,6 +4405,30 @@ function SocialBreakdown({
             <p className="text-sm text-neutral-300">
               Electronic → CCS: ${doorPayouts.ccsElectronic.toFixed(2)}
             </p>
+          </div>
+
+          <div className="rounded-lg border border-neutral-700 bg-neutral-900/50 p-4">
+            <h4 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-400">
+              Allocation summary
+            </h4>
+            <ul className="space-y-2 text-sm">
+              {allocationItems.map((item) => (
+                <li key={item.label} className="flex items-center justify-between text-neutral-300">
+                  <span>{item.label}</span>
+                  <span className="font-medium text-white">${item.value.toFixed(2)}</span>
+                </li>
+              ))}
+              <li className="mt-2 flex items-center justify-between border-t border-neutral-700 pt-2 font-medium text-white">
+                <span>Total allocated</span>
+                <span>${allocationsTotal.toFixed(2)}</span>
+              </li>
+              {Math.abs(reconciliationDiff) > 0.01 && (
+                <li className="flex items-center justify-between text-primary">
+                  <span>Reconciliation difference</span>
+                  <span>${reconciliationDiff.toFixed(2)}</span>
+                </li>
+              )}
+            </ul>
           </div>
 
           {stripeTaxesFees > 0 && (

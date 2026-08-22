@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   computeSocialDoorPayouts,
+  defaultDoorPayoutForEventType,
   isSocialDoorPayoutModel,
   normalizeDoorPayouts,
   SOCIAL_DOOR_PAYOUT_CUTOFF_YMD,
+  SOCIAL_EVENT_DOOR_PAYOUT,
 } from "@/lib/socialFinancesConstants";
 
 describe("isSocialDoorPayoutModel", () => {
@@ -11,6 +13,15 @@ describe("isSocialDoorPayoutModel", () => {
     expect(isSocialDoorPayoutModel("2026-07-16T20:00:00-05:00", "America/Chicago")).toBe(false);
     expect(isSocialDoorPayoutModel("2026-07-17T20:00:00-05:00", "America/Chicago")).toBe(true);
     expect(SOCIAL_DOOR_PAYOUT_CUTOFF_YMD).toBe("2026-07-17");
+  });
+});
+
+describe("defaultDoorPayoutForEventType", () => {
+  it("returns 20 for social events and 10 otherwise", () => {
+    expect(defaultDoorPayoutForEventType("social")).toBe(SOCIAL_EVENT_DOOR_PAYOUT);
+    expect(defaultDoorPayoutForEventType("Social")).toBe(20);
+    expect(defaultDoorPayoutForEventType("workshop")).toBe(10);
+    expect(defaultDoorPayoutForEventType(null)).toBe(10);
   });
 });
 

@@ -1,24 +1,17 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
-  DEFAULT_SOCIAL_DOOR_PAYOUT,
   DEFAULT_SOCIAL_VENUE_COST,
+  SOCIAL_EVENT_DOOR_PAYOUT,
   isSocialDoorPayoutModel,
   normalizeDoorPayouts,
-  type SocialDoorPayoutRow,
 } from "@/lib/socialFinancesConstants";
-import { isDoormanPosition, isSocialEventType } from "@/lib/socialScheduleSlots";
+import { mergeDoorPayoutsFromSlots } from "@/lib/socialDoorPayoutsMerge";
+import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import {
   fetchSocialFinancesByEventId,
   writeSocialFinancesInsert,
   writeSocialFinancesUpdate,
 } from "@/lib/socialFinancesDb";
-
-function toDisplayName(profile?: {
-  first_name?: string | null;
-  last_name?: string | null;
-}): string {
-  return [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim();
-}
 
 /**
  * Sync filled Doorman schedule slots into the_social_finances.door_payouts for post-cutoff Socials.
@@ -45,14 +38,12 @@ export async function syncSocialDoorPayoutsFromSchedule(eventId: string): Promis
     return;
   }
 
-  const slotList = ((slots || []) as {
+  const slotList = (slots || []) as {
     id: string;
     position: string | null;
     assignee_id: string | null;
     slot_starts_at: string | null;
-  }[])
-    .filter((s) => isDoormanPosition(s.position) && !!s.assignee_id)
-    .sort((a, b) => (a.slot_starts_at || "").localeCompare(b.slot_starts_at || ""));
+  }[];
 
   const assigneeIds = [
     ...new Set(slotList.map((s) => s.assignee_id).filter(Boolean)),
@@ -76,25 +67,16 @@ export async function syncSocialDoorPayoutsFromSchedule(eventId: string): Promis
     );
   }
 
-  const { data: existing } = await fetchSocialFinancesByEventId(eventId);
-  const previousBySlot = new Map<string, SocialDoorPayoutRow>();
-  for (const row of existing?.door_payouts ?? []) {
-    if (row.slot_id) previousBySlot.set(row.slot_id, row);
-  }
+  const slotsWithAssignees = slotList.map((slot) => ({
+    ...slot,
+    assignee: slot.assignee_id ? profilesMap.get(slot.assignee_id) ?? null : null,
+  }));
 
-  const doorPayouts: SocialDoorPayoutRow[] = slotList.map((slot, index) => {
-    const prev = previousBySlot.get(String(slot.id));
-    const name =
-      toDisplayName(slot.assignee_id ? profilesMap.get(slot.assignee_id) : undefined) ||
-      prev?.name ||
-      `Doorman ${index + 1}`;
-    return {
-      slot_id: String(slot.id),
-      name,
-      amount: prev?.amount ?? DEFAULT_SOCIAL_DOOR_PAYOUT,
-      amount_override: prev?.amount_override ?? null,
-      paid_at: prev?.paid_at ?? null,
-    };
+  const { data: existing } = await fetchSocialFinancesByEventId(eventId);
+  const doorPayouts = mergeDoorPayoutsFromSlots({
+    existingRows: normalizeDoorPayouts(existing?.door_payouts),
+    slots: slotsWithAssignees,
+    defaultAmount: SOCIAL_EVENT_DOOR_PAYOUT,
   });
 
   const now = new Date().toISOString();
@@ -139,4 +121,4 @@ export async function syncSocialDoorPayoutsFromSchedule(eventId: string): Promis
   }
 }
 
-export { normalizeDoorPayouts };
+export { normalizeDoorPayouts } from "@/lib/socialFinancesConstants";

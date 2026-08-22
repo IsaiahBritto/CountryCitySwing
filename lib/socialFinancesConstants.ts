@@ -11,6 +11,15 @@ export const SOCIAL_DOOR_PAYOUT_CUTOFF_YMD = "2026-07-17";
 
 export const DEFAULT_SOCIAL_DOOR_PAYOUT = 10;
 
+/** Default door payout for events with type = social. */
+export const SOCIAL_EVENT_DOOR_PAYOUT = 20;
+
+export function defaultDoorPayoutForEventType(type?: string | null): number {
+  return (type || "").trim().toLowerCase() === "social"
+    ? SOCIAL_EVENT_DOOR_PAYOUT
+    : DEFAULT_SOCIAL_DOOR_PAYOUT;
+}
+
 export type MetricsRevenueInput = {
   cash_total?: number | null;
   stripe_total?: number | null;

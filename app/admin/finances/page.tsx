@@ -9,9 +9,11 @@ import {
   DEFAULT_SOCIAL_DOOR_PAYOUT,
   DEFAULT_SOCIAL_VENUE_COST,
   SOCIAL_EVENT_DOOR_PAYOUT,
+  buildSocialDoorAllocationItems,
   computeSocialDoorPayouts,
   computeSocialSplit,
   effectiveDoorAmount,
+  formatSignedAllocationAmount,
   isSocialDoorPayoutModel,
   normalizeDoorPayouts,
   type SocialDoorPayoutRow,
@@ -2122,6 +2124,7 @@ export default function AdminFinancesPage() {
       mark_isaiah_paid?: boolean;
       door_payouts?: SocialDoorPayoutRow[];
       mark_door_paid_index?: number;
+      mark_door_paid_slot_id?: string;
     }) => {
       if (!selectedEvent || !isSocialEvent || !authToken) return;
       setSocialSaving(true);
@@ -4060,6 +4063,7 @@ function SocialBreakdown({
     mark_isaiah_paid?: boolean;
     door_payouts?: SocialDoorPayoutRow[];
     mark_door_paid_index?: number;
+    mark_door_paid_slot_id?: string;
   }) => Promise<void>;
 }) {
   const [venueInput, setVenueInput] = useState("0");
@@ -4253,29 +4257,22 @@ function SocialBreakdown({
     });
     const ccsTotal = roundMoney(doorPayouts.isaiahCash + doorPayouts.ccsElectronic);
     const totalRevenue = roundMoney(cashTotal + stripeTotal);
-    const allocationItems: { label: string; value: number }[] = [
-      { label: "Venue cost", value: venueNum },
-    ];
-    if (otherExpenseNum > 0) {
-      const comment = otherExpenseCommentInput.trim();
-      allocationItems.push({
-        label: comment ? `Other expense (${comment})` : "Other expense",
-        value: otherExpenseNum,
-      });
-    }
-    doorRows.forEach((door, index) => {
-      const amt = doorPayouts.doorAmounts[index] ?? effectiveDoorAmount(door);
-      allocationItems.push({
-        label: `${door.name || `Doorman ${index + 1}`} (cash)`,
-        value: amt,
-      });
+    const allocationItems = buildSocialDoorAllocationItems({
+      cashTotal,
+      venueCost: venueNum,
+      otherExpense: otherExpenseNum,
+      otherExpenseComment: otherExpenseCommentInput,
+      doorRows,
+      doorAmounts: doorPayouts.doorAmounts,
+      isaiahCash: doorPayouts.isaiahCash,
+      ccsElectronic: doorPayouts.ccsElectronic,
     });
-    allocationItems.push(
-      { label: "Cash → Isaiah", value: doorPayouts.isaiahCash },
-      { label: "Electronic → CCS", value: doorPayouts.ccsElectronic }
-    );
     const allocationsTotal = roundMoney(
-      allocationItems.reduce((sum, item) => sum + item.value, 0)
+      venueNum +
+        otherExpenseNum +
+        doorPayouts.doorTotal +
+        doorPayouts.isaiahCash +
+        doorPayouts.ccsElectronic
     );
     const reconciliationDiff = roundMoney(totalRevenue - allocationsTotal);
 
@@ -4388,7 +4385,13 @@ function SocialBreakdown({
                   onPatch({ door_payouts: patched });
                 }}
                 paidAt={door.paid_at ?? null}
-                onMarkPaid={() => onPatch({ mark_door_paid_index: index })}
+                onMarkPaid={() =>
+                  onPatch(
+                    door.slot_id
+                      ? { mark_door_paid_slot_id: door.slot_id }
+                      : { mark_door_paid_index: index }
+                  )
+                }
                 saving={saving}
                 readOnly={readOnly}
                 subtitle={`Door payout (default $${SOCIAL_EVENT_DOOR_PAYOUT}, paid from cash)`}
@@ -4400,7 +4403,10 @@ function SocialBreakdown({
             <p className="text-xs font-medium uppercase tracking-wider text-primary">CCS total</p>
             <p className="mt-1 text-2xl font-bold text-white">${ccsTotal.toFixed(2)}</p>
             <p className="mt-2 text-sm text-neutral-300">
-              Cash → Isaiah: ${doorPayouts.isaiahCash.toFixed(2)}
+              Cash → Isaiah: ${doorPayouts.isaiahCash.toFixed(2)} (after door payouts)
+            </p>
+            <p className="text-sm text-neutral-400">
+              Door positions are paid from Isaiah&apos;s cash (${cashTotal.toFixed(2)} collected).
             </p>
             <p className="text-sm text-neutral-300">
               Electronic → CCS: ${doorPayouts.ccsElectronic.toFixed(2)}
@@ -4413,9 +4419,20 @@ function SocialBreakdown({
             </h4>
             <ul className="space-y-2 text-sm">
               {allocationItems.map((item) => (
-                <li key={item.label} className="flex items-center justify-between text-neutral-300">
+                <li
+                  key={item.label}
+                  className={`flex items-center justify-between text-neutral-300 ${
+                    item.indent ? "pl-4" : ""
+                  }`}
+                >
                   <span>{item.label}</span>
-                  <span className="font-medium text-white">${item.value.toFixed(2)}</span>
+                  <span
+                    className={`font-medium ${
+                      item.value < 0 ? "text-amber-300" : "text-white"
+                    }`}
+                  >
+                    {formatSignedAllocationAmount(item.value)}
+                  </span>
                 </li>
               ))}
               <li className="mt-2 flex items-center justify-between border-t border-neutral-700 pt-2 font-medium text-white">

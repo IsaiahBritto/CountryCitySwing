@@ -105,6 +105,68 @@ export function effectiveDoorAmount(row: SocialDoorPayoutRow): number {
  * Post-cutoff Social: door payouts from Cash; remaining Cash → Isaiah; Electronic after venue+other → CCS.
  * If door total exceeds cash, scale door amounts down equally (like Nashville teachers).
  */
+export type SocialDoorAllocationItem = {
+  label: string;
+  value: number;
+  /** Nested under Isaiah cash (door deductions). */
+  indent?: boolean;
+  /** Visual subtotal only — omitted from allocation total sum. */
+  excludeFromTotal?: boolean;
+};
+
+/** Allocation lines for post-cutoff Social door model (doors as minuses from Isaiah cash). */
+export function buildSocialDoorAllocationItems({
+  cashTotal,
+  venueCost,
+  otherExpense = 0,
+  otherExpenseComment,
+  doorRows,
+  doorAmounts,
+  isaiahCash,
+  ccsElectronic,
+}: {
+  cashTotal: number;
+  venueCost: number;
+  otherExpense?: number;
+  otherExpenseComment?: string | null;
+  doorRows: SocialDoorPayoutRow[];
+  doorAmounts: number[];
+  isaiahCash: number;
+  ccsElectronic: number;
+}): SocialDoorAllocationItem[] {
+  const items: SocialDoorAllocationItem[] = [{ label: "Venue cost", value: venueCost }];
+  if (otherExpense > 0) {
+    const comment = otherExpenseComment?.trim();
+    items.push({
+      label: comment ? `Other expense (${comment})` : "Other expense",
+      value: otherExpense,
+    });
+  }
+  items.push({ label: "Cash → Isaiah", value: round2(Math.max(0, cashTotal)) });
+  doorRows.forEach((door, index) => {
+    const amt = doorAmounts[index] ?? effectiveDoorAmount(door);
+    items.push({
+      label: `− ${door.name || `Doorman ${index + 1}`} (door)`,
+      value: round2(-amt),
+      indent: true,
+    });
+  });
+  items.push({
+    label: "Isaiah cash (net)",
+    value: isaiahCash,
+    excludeFromTotal: true,
+  });
+  items.push({ label: "Electronic → CCS", value: ccsElectronic });
+  return items;
+}
+
+export function formatSignedAllocationAmount(value: number): string {
+  if (value < 0) {
+    return `−$${Math.abs(value).toFixed(2)}`;
+  }
+  return `$${value.toFixed(2)}`;
+}
+
 export function computeSocialDoorPayouts({
   cashTotal,
   stripeTotal,

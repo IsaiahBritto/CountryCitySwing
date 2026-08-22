@@ -71,6 +71,41 @@ export function mergeDoorPayoutsFromSlots({
   return [...fromSlots, ...clearedSlotRows, ...manualRows];
 }
 
+/** Mark a door payout row paid by slot_id (preferred) or array index. */
+export function applyDoorPayoutMarkPaid(
+  doors: SocialDoorPayoutRow[],
+  {
+    slotId,
+    index,
+    paidAt,
+  }: {
+    slotId?: string | null;
+    index?: number;
+    paidAt: string;
+  }
+): { doors: SocialDoorPayoutRow[]; marked: boolean } {
+  const next = doors.map((d) => ({ ...d }));
+  let idx = -1;
+  const trimmedSlotId = slotId?.trim();
+  if (trimmedSlotId) {
+    idx = next.findIndex((d) => d.slot_id === trimmedSlotId);
+  }
+  if (
+    idx < 0 &&
+    typeof index === "number" &&
+    Number.isInteger(index) &&
+    index >= 0 &&
+    index < next.length
+  ) {
+    idx = index;
+  }
+  if (idx < 0) {
+    return { doors: next, marked: false };
+  }
+  next[idx] = { ...next[idx], paid_at: paidAt };
+  return { doors: next, marked: true };
+}
+
 export function doorPayoutRowsEqual(
   a: SocialDoorPayoutRow[],
   b: SocialDoorPayoutRow[]

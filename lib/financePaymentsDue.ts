@@ -258,10 +258,15 @@ export function buildPaymentsDueRows(
           roleLabel: "Doorman",
           markPaid: {
             route: "the-social-finances",
-            body: {
-              event_id: eventId,
-              mark_door_paid_index: index,
-            },
+            body: door.slot_id
+              ? {
+                  event_id: eventId,
+                  mark_door_paid_slot_id: door.slot_id,
+                }
+              : {
+                  event_id: eventId,
+                  mark_door_paid_index: index,
+                },
           },
         });
       });

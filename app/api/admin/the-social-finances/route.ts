@@ -20,6 +20,7 @@ import {
   writeSocialFinancesUpdate,
 } from "@/lib/socialFinancesDb";
 import { syncSocialDoorPayoutsFromSchedule } from "@/lib/socialDoorFinanceSync";
+import { applyDoorPayoutMarkPaid } from "@/lib/socialDoorPayoutsMerge";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 function round2(v: number): number {
@@ -109,9 +110,27 @@ export async function PATCH(req: NextRequest) {
       mark_isaiah_paid: markIsaiahPaid,
       door_payouts: doorPayoutsBody,
       mark_door_paid_index: markDoorPaidIndex,
+      mark_door_paid_slot_id: markDoorPaidSlotId,
     } = body;
 
-    const { data: existing } = await fetchSocialFinancesByEventId(eventId);
+    const trimmedMarkDoorPaidSlotId =
+      typeof markDoorPaidSlotId === "string" ? markDoorPaidSlotId.trim() : "";
+    const wantsMarkDoorPaid =
+      trimmedMarkDoorPaidSlotId.length > 0 ||
+      (typeof markDoorPaidIndex === "number" &&
+        Number.isInteger(markDoorPaidIndex) &&
+        markDoorPaidIndex >= 0);
+
+    let { data: existing } = await fetchSocialFinancesByEventId(eventId);
+
+    if (wantsMarkDoorPaid && doorModel && !existing) {
+      try {
+        await syncSocialDoorPayoutsFromSchedule(eventId);
+      } catch (e) {
+        console.error("the-social-finances PATCH door sync before mark paid:", e);
+      }
+      ({ data: existing } = await fetchSocialFinancesByEventId(eventId));
+    }
 
     const parseRatio = (v: unknown, fallback: number): number => {
       if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
@@ -159,21 +178,43 @@ export async function PATCH(req: NextRequest) {
         updates.door_payouts = normalizeDoorPayouts(doorPayoutsBody);
       }
 
-      if (
-        typeof markDoorPaidIndex === "number" &&
-        Number.isInteger(markDoorPaidIndex) &&
-        markDoorPaidIndex >= 0
-      ) {
-        const doors = normalizeDoorPayouts(
+      if (wantsMarkDoorPaid) {
+        let doors = normalizeDoorPayouts(
           updates.door_payouts ?? existing.door_payouts
         );
-        if (doors[markDoorPaidIndex]) {
-          doors[markDoorPaidIndex] = {
-            ...doors[markDoorPaidIndex],
-            paid_at: now,
-          };
-          updates.door_payouts = doors;
+        let markResult = applyDoorPayoutMarkPaid(doors, {
+          slotId: trimmedMarkDoorPaidSlotId || undefined,
+          index:
+            typeof markDoorPaidIndex === "number" &&
+            Number.isInteger(markDoorPaidIndex)
+              ? markDoorPaidIndex
+              : undefined,
+          paidAt: now,
+        });
+
+        if (!markResult.marked && doorModel && trimmedMarkDoorPaidSlotId) {
+          try {
+            await syncSocialDoorPayoutsFromSchedule(eventId);
+          } catch (e) {
+            console.error("the-social-finances PATCH door sync on mark paid:", e);
+          }
+          const resynced = await fetchSocialFinancesByEventId(eventId);
+          doors = normalizeDoorPayouts(
+            updates.door_payouts ?? resynced.data?.door_payouts
+          );
+          markResult = applyDoorPayoutMarkPaid(doors, {
+            slotId: trimmedMarkDoorPaidSlotId,
+            paidAt: now,
+          });
         }
+
+        if (!markResult.marked) {
+          return NextResponse.json(
+            { error: "Door payout row not found for mark paid" },
+            { status: 400 }
+          );
+        }
+        updates.door_payouts = markResult.doors;
       }
 
       if (doorModel) {

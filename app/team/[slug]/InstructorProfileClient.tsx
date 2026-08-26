@@ -50,7 +50,7 @@ export default function InstructorProfileClient({
     const f = normalize(first);
     const l = normalize(last);
     if (f === "isaiah" && l === "britto") return "Owner & Head Instructor";
-    if (f === "malissa" && l === "petersen") return "Head Instructor";
+    if (f === "hannah" && l === "bonaguide") return "Head Instructor";
     return "Assistant Instructor";
   };
 

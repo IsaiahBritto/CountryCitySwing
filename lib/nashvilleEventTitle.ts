@@ -6,6 +6,7 @@ function normalizeEventTitle(title: string): string {
 
 const NASHVILLE_EVENT_TITLE_NORMALIZED = normalizeEventTitle(NASHVILLE_EVENT_TITLE);
 
+export const DEFAULT_UPPER_LEVEL_NAMES = "Hannah and Isaiah";
 export const DEFAULT_UPPER_LEVEL_TEACHER = "Hannah Bonaguide";
 
 export function isNashvilleNightTitle(title: string | null | undefined): boolean {

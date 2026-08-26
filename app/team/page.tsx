@@ -37,16 +37,16 @@ export default async function TeamPage() {
 
   const normalize = (s: string | null | undefined) => (s ?? "").trim().toLowerCase();
 
-  // Find Isaiah & Malissa
+  // Find Isaiah & Hannah (head instructors)
   const isaiah = ccsProfiles.find(
     (p) =>
       normalize(p.first_name) === "isaiah" &&
       normalize(p.last_name) === "britto"
   );
-  const malissa = ccsProfiles.find(
+  const hannah = ccsProfiles.find(
     (p) =>
-      normalize(p.first_name) === "malissa" &&
-      normalize(p.last_name) === "petersen"
+      normalize(p.first_name) === "hannah" &&
+      normalize(p.last_name) === "bonaguide"
   );
 
   // Helper function to check if a role indicates a CCS instructor (admin or instructor, not non-ccs-instructor)
@@ -66,8 +66,8 @@ export default async function TeamPage() {
         normalize(p.last_name) === "britto"
       ) &&
       !(
-        normalize(p.first_name) === "malissa" &&
-        normalize(p.last_name) === "petersen"
+        normalize(p.first_name) === "hannah" &&
+        normalize(p.last_name) === "bonaguide"
       ) &&
       isInstructorRole(p.role)
   );
@@ -78,13 +78,13 @@ export default async function TeamPage() {
         Meet Our Instructors
       </h2>
 
-      {/* Top row: Isaiah & Malissa */}
+      {/* Top row: Isaiah & Hannah */}
       <div className="flex flex-wrap justify-center gap-10 mb-14">
         {isaiah && (
           <InstructorCard member={isaiah} title="Owner & Head Instructor" />
         )}
-        {malissa && (
-          <InstructorCard member={malissa} title="Head Instructor" />
+        {hannah && (
+          <InstructorCard member={hannah} title="Head Instructor" />
         )}
       </div>
 

@@ -1,7 +1,7 @@
+import { DEFAULT_UPPER_LEVEL_NAMES } from "@/lib/nashvilleEventTitle";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 const CLASS_INTRO = "This is your one stop shop for weekly country swing fun! ";
-const DEFAULT_UPPER_LEVEL_NAMES = "Malissa and Isaiah";
 const DEFAULT_BEGINNER_SENTENCE = "our team of amazing beginner instructors lead the beginner class scheduled weeks";
 const SEP = " will be instructing the upper level class while ";
 

@@ -19,9 +19,9 @@ import {
   hasCompDivisionPrice,
   type CompLevel,
 } from "@/lib/compLevels";
+import { DEFAULT_UPPER_LEVEL_NAMES } from "@/lib/nashvilleEventTitle";
 
 const CLASS_INTRO = "This is your one stop shop for weekly country swing fun! ";
-const DEFAULT_UPPER_LEVEL_NAMES = "Malissa and Isaiah";
 const DEFAULT_BEGINNER_SENTENCE = "our team of amazing beginner instructors lead the beginner class scheduled weeks";
 /** Canonical title for weekly Nashville class nights (matches admin / finances). */
 const NASHVILLE_CLASS_EVENT_TITLE = "Nashville Country Swing Nights!";

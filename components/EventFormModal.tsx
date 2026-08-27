@@ -19,6 +19,14 @@ import {
   hasCompDivisionPrice,
   type CompLevel,
 } from "@/lib/compLevels";
+import {
+  buildOccupiedClassEventDates,
+  DEFAULT_CLASS_CCS_TEAM_PRICE,
+  DEFAULT_CLASS_LOCATION,
+  DEFAULT_CLASS_PRICE,
+  nextAvailableClassTuesdayDateTimeLocal,
+  type ClassEventScheduleInput,
+} from "@/lib/classEventDefaults";
 import { DEFAULT_UPPER_LEVEL_NAMES } from "@/lib/nashvilleEventTitle";
 
 const CLASS_INTRO = "This is your one stop shop for weekly country swing fun! ";
@@ -125,6 +133,8 @@ interface EventFormModalProps {
   onClose: () => void;
   event?: Event | null;
   onSuccess: () => void;
+  /** Used to pick the next open Tuesday when defaulting Class start time. */
+  existingEvents?: ClassEventScheduleInput[];
 }
 
 export default function EventFormModal({
@@ -132,6 +142,7 @@ export default function EventFormModal({
   onClose,
   event,
   onSuccess,
+  existingEvents = [],
 }: EventFormModalProps) {
   const [formData, setFormData] = useState<Event>({
     title: "",
@@ -534,11 +545,34 @@ export default function EventFormModal({
                 if (!wasClass && isNowClass) {
                   setClassAutoDescription(true);
                   setFormData((prev) => {
+                    const tz = prev.time_zone || DEFAULT_TIME_ZONE;
+                    const occupiedClassDates = buildOccupiedClassEventDates(
+                      existingEvents,
+                      {
+                        excludeEventId: event?.id,
+                        defaultTimeZone: tz,
+                      }
+                    );
                     const next = {
                       ...prev,
                       type: newType,
                       description: buildClassDescription(classUpperLevelNames, classBeginnerPart),
                       title: NASHVILLE_CLASS_EVENT_TITLE,
+                      location: (prev.location || "").trim()
+                        ? prev.location
+                        : DEFAULT_CLASS_LOCATION,
+                      starts_at: (prev.starts_at || "").trim()
+                        ? prev.starts_at
+                        : nextAvailableClassTuesdayDateTimeLocal(
+                            tz,
+                            occupiedClassDates
+                          ),
+                      price:
+                        prev.price != null ? prev.price : DEFAULT_CLASS_PRICE,
+                      ccs_team_price:
+                        prev.ccs_team_price != null
+                          ? prev.ccs_team_price
+                          : DEFAULT_CLASS_CCS_TEAM_PRICE,
                       refundStatement: nextRefundStatementOnTypeChange(
                         prev.refundStatement,
                         prev.type,

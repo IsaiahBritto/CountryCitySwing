@@ -410,6 +410,7 @@ export default function Home() {
           }}
           event={eventToEdit}
           onSuccess={handleEventSaved}
+          existingEvents={events}
         />
 
         <TheSocialLinksEditorModal

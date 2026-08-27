@@ -292,6 +292,7 @@ export default function TestEventsSection() {
         }}
         event={eventToEdit}
         onSuccess={handleEventSaved}
+        existingEvents={events}
       />
 
       <TheSocialLinksEditorModal

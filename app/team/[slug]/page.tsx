@@ -2,6 +2,8 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { slugToName } from "@/lib/utils/slugHelpers";
 import InstructorProfileClient from "./InstructorProfileClient";
 
+export const dynamic = "force-dynamic";
+
 function NotFound() {
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/60 backdrop-blur-sm">

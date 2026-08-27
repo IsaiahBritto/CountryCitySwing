@@ -2,6 +2,9 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import Link from "next/link";
 import { nameToSlug } from "@/lib/utils/slugHelpers";
 
+// Always fetch fresh team data so role changes show up without redeploying
+export const dynamic = "force-dynamic";
+
 interface Instructor {
   id: string;
   first_name: string;

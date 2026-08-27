@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   DEFAULT_TIME_ZONE,
   toDateTimeLocalInTimeZone,
@@ -166,6 +168,8 @@ export default function EventFormModal({
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [classUpperLevelNames, setClassUpperLevelNames] = useState(DEFAULT_UPPER_LEVEL_NAMES);
   const [classBeginnerPart, setClassBeginnerPart] = useState(DEFAULT_BEGINNER_SENTENCE);
   const [classAutoDescription, setClassAutoDescription] = useState(false);
@@ -418,9 +422,8 @@ export default function EventFormModal({
           : fromDateTimeLocalInTimeZone(formData.ends_at, tz)
         : null;
 
-      const response = await fetch(url, {
+      const response = await authedFetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(submitData),
       });
 
@@ -440,6 +443,21 @@ export default function EventFormModal({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!event?.id) return;
+    setDeleteBusy(true);
+    setError("");
+    const res = await authedFetch(`/api/events/${event.id}`, { method: "DELETE" });
+    setDeleteBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    setShowDeleteConfirm(false);
+    onSuccess();
+    onClose();
   };
 
   if (!open) return null;
@@ -1145,27 +1163,55 @@ export default function EventFormModal({
             </div>
           )}
 
-          <div className="flex justify-center gap-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-md bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 rounded-md btn-signup disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading
-                ? "Saving..."
-                : isEditMode
-                ? "Update Event"
-                : "Create Event"}
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
+            {isEditMode ? (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={loading || deleteBusy}
+                className="px-4 py-2 rounded-md border border-red-500/50 text-red-300 hover:border-red-400 transition-colors disabled:opacity-50"
+              >
+                Delete Event
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={loading || deleteBusy}
+                className="px-4 py-2 rounded-md bg-neutral-700 text-gray-300 hover:bg-neutral-600 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={loading || deleteBusy}
+                className="px-4 py-2 rounded-md btn-signup disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading
+                  ? "Saving..."
+                  : isEditMode
+                  ? "Update Event"
+                  : "Create Event"}
+              </button>
+            </div>
           </div>
         </form>
+
+        <ConfirmDialog
+          open={showDeleteConfirm}
+          title="Delete event?"
+          message={`Permanently delete "${formData.title || event?.title || "this event"}"? Signups, schedule slots, finances, and any linked competitions will be removed. This cannot be undone.`}
+          confirmLabel="Delete event"
+          destructive
+          busy={deleteBusy}
+          onConfirm={handleDeleteEvent}
+          onCancel={() => {
+            if (!deleteBusy) setShowDeleteConfirm(false);
+          }}
+        />
       </div>
     </div>
   );

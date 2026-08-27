@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdminAuth } from "@/lib/adminAuth";
+import { deleteEventFully } from "@/lib/events/deleteEvent";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { ensureSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
 
@@ -7,6 +9,9 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.ok) return auth.response;
+
   try {
     const eventData = await req.json();
     const { id: eventId } = await params;
@@ -127,28 +132,18 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.ok) return auth.response;
+
   try {
     const { id: eventId } = await params;
-
-    const { error } = await supabaseServer
-      .from("events")
-      .delete()
-      .eq("id", eventId);
-
-    if (error) {
-      console.error("Error deleting event:", error);
-      return NextResponse.json(
-        { error: "Failed to delete event" },
-        { status: 500 }
-      );
-    }
-
+    await deleteEventFully(eventId);
     return NextResponse.json({ success: true });
-  } catch (error: any) {
-    console.error("Error:", error);
-    return NextResponse.json(
-      { error: error.message || "Internal server error" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    console.error("Error deleting event:", error);
+    const message =
+      error instanceof Error ? error.message : "Internal server error";
+    const status = message === "Event not found" ? 404 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

@@ -2,9 +2,11 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import { judgeDisplayCount } from "@/lib/comps/judgeDisplayCount";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import EntriesTab from "@/components/comps/admin/EntriesTab";
 import JudgesTab from "@/components/comps/admin/JudgesTab";
 import RoundsTab from "@/components/comps/admin/RoundsTab";
@@ -23,6 +25,7 @@ export default function CompetitionConsolePage({
   params: Promise<{ competitionId: string }>;
 }) {
   const { competitionId } = use(params);
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [detail, setDetail] = useState<any>(null);
@@ -32,6 +35,9 @@ export default function CompetitionConsolePage({
   const [testActionMsg, setTestActionMsg] = useState<string | null>(null);
   const [maxFloorCouples, setMaxFloorCouples] = useState("");
   const [maxFloorSaving, setMaxFloorSaving] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await authedFetch(`/api/admin/comps/${competitionId}`);
@@ -137,6 +143,21 @@ export default function CompetitionConsolePage({
     load();
   };
 
+  const deleteCompetition = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    const res = await authedFetch(`/api/admin/comps/${competitionId}`, {
+      method: "DELETE",
+    });
+    setDeleteBusy(false);
+    if (!res.ok) {
+      setDeleteError(await apiError(res));
+      return;
+    }
+    setShowDeleteConfirm(false);
+    router.push("/admin/comps");
+  };
+
   if (loading) {
     return (
       <div className="py-12">
@@ -213,8 +234,37 @@ export default function CompetitionConsolePage({
           >
             {competition.status === "completed" ? "Reopen" : "Mark completed"}
           </button>
+          <button
+            onClick={() => {
+              setDeleteError(null);
+              setShowDeleteConfirm(true);
+            }}
+            disabled={deleteBusy}
+            className="rounded-md border border-red-500/50 px-3 py-1.5 text-sm text-red-300 hover:border-red-400 disabled:opacity-50"
+          >
+            Delete competition
+          </button>
         </div>
       </div>
+
+      {deleteError && (
+        <div className="mb-4 rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
+          {deleteError}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete competition?"
+        message={`Permanently delete "${competition.name}"? All entries, judges, rounds, scores, and prizes for this division will be removed. This cannot be undone.`}
+        confirmLabel="Delete competition"
+        destructive
+        busy={deleteBusy}
+        onConfirm={deleteCompetition}
+        onCancel={() => {
+          if (!deleteBusy) setShowDeleteConfirm(false);
+        }}
+      />
 
       {testActionMsg && (
         <div className="mb-4 rounded-md border border-neutral-600 bg-neutral-800/60 p-3 text-sm text-neutral-300">

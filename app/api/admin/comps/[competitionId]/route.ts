@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
+import { deleteCompetitionFully } from "@/lib/comps/deleteCompetition";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   isHeadJudgeLockedForRole,
@@ -196,7 +197,7 @@ export async function PATCH(
   return NextResponse.json({ competition: data });
 }
 
-/** DELETE: remove a competition (cascades entries, rounds, scores). */
+/** DELETE: permanently remove a competition and all related data. */
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
@@ -205,30 +206,13 @@ export async function DELETE(
   if (!auth.ok) return auth.response;
   const { competitionId } = await params;
 
-  const { data: competition } = await supabaseServer
-    .from("competitions")
-    .select("id, status")
-    .eq("id", competitionId)
-    .maybeSingle();
-  if (!competition) {
-    return NextResponse.json({ error: "Competition not found" }, { status: 404 });
-  }
-  if (competition.status !== "setup") {
-    return NextResponse.json(
-      { error: "Only competitions still in setup can be deleted" },
-      { status: 409 }
-    );
+  try {
+    await deleteCompetitionFully(competitionId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to delete competition";
+    const status = message === "Competition not found" ? 404 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 
-  const { error } = await supabaseServer
-    .from("competitions")
-    .delete()
-    .eq("id", competitionId);
-  if (error) {
-    return NextResponse.json(
-      { error: "Failed to delete competition" },
-      { status: 500 }
-    );
-  }
   return NextResponse.json({ success: true });
 }

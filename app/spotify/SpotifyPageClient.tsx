@@ -1,9 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import {
+  RequestLimitsEditor,
+  draftToLimits,
+  limitsToDraft,
+  type RequestLimitsDraft,
+} from "@/components/RequestLimitsEditor";
+import PlaylistStructureBuilder, {
+  defaultBuilderState,
+  type PlaylistBuilderState,
+} from "@/components/PlaylistStructureBuilder";
+import type { RequestLimits } from "@/lib/spotify/requestLimits";
+import { getLegacyAvailableGenres } from "@/lib/spotify/requestLimits";
+import type { GenrePool } from "@/lib/spotify/playlistIds";
+import {
+  structureAvailableGenres,
+  type PlaylistStructure,
+} from "@/lib/spotify/playlistStructure";
 
 type MasterInfo = {
   linkId: string;
@@ -32,6 +49,8 @@ type GenerateResult = {
   trackCount: number;
   lookedUp: number;
   stillUnknown: number;
+  durationMinutes: number;
+  structure: PlaylistStructure;
 };
 
 type ActivePlaylistStatus = {
@@ -41,6 +60,10 @@ type ActivePlaylistStatus = {
   name: string | null;
   activatedAt: string | null;
   trackCount: number;
+  requestLimits: RequestLimits | null;
+  availableGenres: GenrePool[];
+  structure: PlaylistStructure | null;
+  pattern: GenrePool[];
 };
 
 type OwnedPlaylist = {
@@ -57,6 +80,10 @@ function formatDuration(ms: number): string {
   const minutes = totalMinutes % 60;
   if (hours <= 0) return `${minutes} min`;
   return `${hours}h ${minutes}m`;
+}
+
+function structureSegmentsKey(structure: PlaylistStructure): string {
+  return structure.segments.map((s) => `${s.genre}:${s.count}`).join("|");
 }
 
 export default function SpotifyPageClient() {
@@ -84,6 +111,44 @@ export default function SpotifyPageClient() {
   const [loadingOwned, setLoadingOwned] = useState(false);
   const [activating, setActivating] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
+  const [savingLimits, setSavingLimits] = useState(false);
+  const [limitsDraft, setLimitsDraft] = useState<RequestLimitsDraft>(() =>
+    limitsToDraft(null, getLegacyAvailableGenres())
+  );
+  const [builderState, setBuilderState] = useState<PlaylistBuilderState>(
+    defaultBuilderState
+  );
+
+  const structureKey = structureSegmentsKey(builderState.structure);
+  const builderGenres = useMemo(
+    () => structureAvailableGenres(builderState.structure),
+    [structureKey]
+  );
+
+  const syncLimitsDraft = useCallback((status: ActivePlaylistStatus | null) => {
+    const genres =
+      status?.availableGenres?.length
+        ? status.availableGenres
+        : builderGenres;
+    setLimitsDraft(limitsToDraft(status?.requestLimits ?? null, genres));
+  }, [builderGenres]);
+
+  const syncBuilderFromActive = useCallback(
+    (status: ActivePlaylistStatus | null) => {
+      if (!status?.structure) return;
+      const incomingKey = structureSegmentsKey(status.structure);
+      setBuilderState((prev) => {
+        if (incomingKey === structureSegmentsKey(prev.structure)) return prev;
+        return {
+          durationMinutes: prev.durationMinutes,
+          structure: {
+            segments: status.structure!.segments.map((s) => ({ ...s })),
+          },
+        };
+      });
+    },
+    []
+  );
 
   const loadActivePlaylist = useCallback(async (token: string) => {
     const res = await fetch("/api/spotify/active-playlist", {
@@ -97,7 +162,9 @@ export default function SpotifyPageClient() {
     }
     const data = (await res.json()) as ActivePlaylistStatus;
     setActivePlaylist(data);
-  }, []);
+    syncLimitsDraft(data);
+    syncBuilderFromActive(data);
+  }, [syncLimitsDraft, syncBuilderFromActive]);
 
   const loadOwnedPlaylists = useCallback(async (token: string) => {
     setLoadingOwned(true);
@@ -153,6 +220,9 @@ export default function SpotifyPageClient() {
     [loadActivePlaylist, loadOwnedPlaylists]
   );
 
+  const loadStatusRef = useRef(loadStatus);
+  loadStatusRef.current = loadStatus;
+
   useEffect(() => {
     const oauthError = searchParams.get("error");
     if (oauthError) {
@@ -162,7 +232,6 @@ export default function SpotifyPageClient() {
 
   useEffect(() => {
     const init = async () => {
-      setLoading(true);
       const {
         data: { session },
       } = await supabaseBrowser.auth.getSession();
@@ -192,14 +261,14 @@ export default function SpotifyPageClient() {
       }
       setAuthToken(session.access_token);
       try {
-        await loadStatus(session.access_token);
+        await loadStatusRef.current(session.access_token);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load status");
       }
       setLoading(false);
     };
     init();
-  }, [loadStatus]);
+  }, []);
 
   const getFreshAdminToken = useCallback(async (): Promise<string> => {
     const {
@@ -282,6 +351,8 @@ export default function SpotifyPageClient() {
         body: JSON.stringify({
           name: playlistName,
           lookupFeatures,
+          durationMinutes: builderState.durationMinutes,
+          structure: builderState.structure,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -291,6 +362,14 @@ export default function SpotifyPageClient() {
         );
       }
       setGenerateResult(data as GenerateResult);
+      setBuilderState({
+        durationMinutes: (data as GenerateResult).durationMinutes,
+        structure: {
+          segments: (data as GenerateResult).structure.segments.map((s) => ({
+            ...s,
+          })),
+        },
+      });
       setSelectedOwnedId((data as GenerateResult).id);
       try {
         await loadOwnedPlaylists(token);
@@ -321,6 +400,8 @@ export default function SpotifyPageClient() {
         body: JSON.stringify({
           action: "activate",
           playlistIdOrUrl,
+          requestLimits: draftToLimits(limitsDraft, builderGenres),
+          structure: builderState.structure,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -330,12 +411,49 @@ export default function SpotifyPageClient() {
         );
       }
       setActivePlaylist(data as ActivePlaylistStatus);
+      syncLimitsDraft(data as ActivePlaylistStatus);
+      syncBuilderFromActive(data as ActivePlaylistStatus);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to activate playlist"
       );
     } finally {
       setActivating(false);
+    }
+  };
+
+  const runSaveLimits = async () => {
+    setError(null);
+    setSavingLimits(true);
+    try {
+      const token = await getFreshAdminToken();
+      const genres =
+        activePlaylist?.availableGenres?.length
+          ? activePlaylist.availableGenres
+          : builderGenres;
+      const res = await fetch("/api/spotify/active-playlist", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "updateLimits",
+          requestLimits: draftToLimits(limitsDraft, genres),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error ?? "Failed to save limits"
+        );
+      }
+      setActivePlaylist(data as ActivePlaylistStatus);
+      syncLimitsDraft(data as ActivePlaylistStatus);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save limits");
+    } finally {
+      setSavingLimits(false);
     }
   };
 
@@ -359,6 +477,7 @@ export default function SpotifyPageClient() {
         );
       }
       setActivePlaylist(data as ActivePlaylistStatus);
+      syncLimitsDraft(data as ActivePlaylistStatus);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to deactivate");
     } finally {
@@ -395,15 +514,21 @@ export default function SpotifyPageClient() {
     generating ||
     connecting ||
     activating ||
-    deactivating;
+    deactivating ||
+    savingLimits;
+
+  const limitGenres =
+    activePlaylist?.availableGenres?.length
+      ? activePlaylist.availableGenres
+      : builderGenres;
 
   return (
     <section className="max-w-2xl mx-auto space-y-10">
       <header className="text-center space-y-2">
         <h1 className="gold-wave text-4xl font-extrabold pb-2">Spotify Social</h1>
         <p className="text-gray-300 text-sm">
-          Sync master playlist features, then generate a private ~5.5h Social mix
-          (2 Country / 2 West Coast / 2 Line Dance).
+          Sync master playlist features, then generate a private mix with your
+          chosen duration and dance section pattern.
         </p>
       </header>
 
@@ -525,6 +650,11 @@ export default function SpotifyPageClient() {
                 disabled={busy}
               />
             </label>
+            <PlaylistStructureBuilder
+              value={builderState}
+              onChange={setBuilderState}
+              disabled={busy}
+            />
             <label className="flex items-start gap-2 text-sm text-gray-300 cursor-pointer">
               <input
                 type="checkbox"
@@ -629,6 +759,35 @@ export default function SpotifyPageClient() {
             ) : (
               <p className="text-sm text-gray-400">No playlist is active for requests.</p>
             )}
+
+            <PlaylistStructureBuilder
+              value={builderState}
+              onChange={setBuilderState}
+              disabled={busy}
+            />
+
+            <div className="space-y-3 border-t border-neutral-700/80 pt-4">
+              <h3 className="text-sm font-semibold text-amber-200/90">
+                Per-person request limits
+              </h3>
+              <RequestLimitsEditor
+                availableGenres={limitGenres}
+                draft={limitsDraft}
+                onChange={setLimitsDraft}
+                disabled={busy}
+              />
+              {activePlaylist?.isActive && (
+                <button
+                  type="button"
+                  onClick={runSaveLimits}
+                  disabled={busy}
+                  className="px-3 py-1.5 rounded border border-amber-600/60 text-amber-200 hover:bg-amber-900/30 disabled:opacity-50 text-sm"
+                >
+                  {savingLimits ? "Saving…" : "Save limits"}
+                </button>
+              )}
+            </div>
+
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
               <label className="block space-y-1 flex-1 min-w-[14rem]">
                 <span className="text-sm text-gray-400">

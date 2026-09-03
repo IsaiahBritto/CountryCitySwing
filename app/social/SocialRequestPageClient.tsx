@@ -1,17 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import {
   LINE_DANCE_LEVELS,
   LINE_DANCE_LEVEL_LABELS,
   type LineDanceLevel,
 } from "@/lib/spotify/lineDanceLevels";
+import { GENRE_LABELS } from "@/lib/spotify/requestLimits";
+import type { GenrePool } from "@/lib/spotify/playlistIds";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type SocialStatus = {
   isActive: boolean;
   name: string | null;
   playlistUrl: string | null;
   trackCount: number;
+  availableGenres: GenrePool[];
+};
+
+type QuotaState = {
+  limits: Partial<Record<GenrePool, number>> | null;
+  used: Partial<Record<GenrePool, number>>;
+  remaining: Partial<Record<GenrePool, number | null>>;
+  availableGenres: GenrePool[];
 };
 
 type SearchTrack = {
@@ -24,18 +38,66 @@ type SearchTrack = {
   durationMs: number;
 };
 
-type Genre = "cs" | "wcs" | "ld";
+type Genre = GenrePool;
 
-const GENRE_OPTIONS: { value: Genre; label: string }[] = [
-  { value: "cs", label: "Country Swing" },
-  { value: "wcs", label: "West Coast Swing" },
-  { value: "ld", label: "Line Dance" },
-];
+function formatRemaining(genre: Genre, quota: QuotaState | null): string {
+  if (!quota) return "";
+  const limit = quota.limits?.[genre];
+  const remaining = quota.remaining[genre];
+  if (limit == null || remaining == null) return `${GENRE_LABELS[genre]}: unlimited`;
+  if (limit === 0) return `${GENRE_LABELS[genre]}: closed`;
+  const used = quota.used[genre] ?? 0;
+  return `${GENRE_LABELS[genre]}: ${Math.max(0, remaining)} of ${limit} remaining (${used} used)`;
+}
+
+function genreOptionDisabled(genre: Genre, quota: QuotaState | null): boolean {
+  if (!quota) return false;
+  const limit = quota.limits?.[genre];
+  if (limit === 0) return true;
+  const remaining = quota.remaining[genre];
+  if (remaining != null && remaining <= 0) return true;
+  return false;
+}
+
+function SocialAuthBar({
+  isLoggedIn,
+  displayName,
+}: {
+  isLoggedIn: boolean | null;
+  displayName: string;
+}) {
+  return (
+    <div className="flex justify-end mb-2 min-h-[2rem]">
+      {isLoggedIn === null ? (
+        <span className="text-xs text-gray-500">Checking sign-in…</span>
+      ) : isLoggedIn ? (
+        <span className="text-sm text-gray-400">
+          Signed in{displayName ? ` as ${displayName}` : ""}
+        </span>
+      ) : (
+        <Link
+          href="/auth?next=/social"
+          className="text-sm text-amber-400 underline hover:text-amber-300"
+        >
+          Sign in
+        </Link>
+      )}
+    </div>
+  );
+}
 
 export default function SocialRequestPageClient() {
   const [statusLoading, setStatusLoading] = useState(true);
   const [status, setStatus] = useState<SocialStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [quota, setQuota] = useState<QuotaState | null>(null);
+
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileRef = useRef<TurnstileInstance>(null);
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SearchTrack[]>([]);
@@ -53,6 +115,21 @@ export default function SocialRequestPageClient() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const genreOptions = (status?.availableGenres?.length
+    ? status.availableGenres
+    : (["cs", "wcs", "ld"] as Genre[])
+  ).map((value) => ({ value, label: GENRE_LABELS[value] }));
+
+  const loadQuota = useCallback(async (token: string | null) => {
+    await fetch("/api/social/session");
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch("/api/social/quota", { headers });
+    if (!res.ok) return;
+    const data = (await res.json()) as QuotaState;
+    setQuota(data);
+  }, []);
 
   const loadStatus = useCallback(async () => {
     setStatusLoading(true);
@@ -77,6 +154,56 @@ export default function SocialRequestPageClient() {
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      const {
+        data: { session },
+      } = await supabaseBrowser.auth.getSession();
+      if (session?.access_token) {
+        setIsLoggedIn(true);
+        setAccessToken(session.access_token);
+        try {
+          const meRes = await fetch("/api/me", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (meRes.ok) {
+            const me = await meRes.json();
+            const first = me.profile?.first_name?.trim();
+            setDisplayName(first || "");
+          }
+        } catch {
+          // optional display name
+        }
+      } else {
+        setIsLoggedIn(false);
+        setAccessToken(null);
+        setDisplayName("");
+      }
+    };
+    initAuth();
+
+    const { data: listener } = supabaseBrowser.auth.onAuthStateChange(
+      (_: AuthChangeEvent, session: Session | null) => {
+        if (session?.access_token) {
+          setIsLoggedIn(true);
+          setAccessToken(session.access_token);
+        } else {
+          setIsLoggedIn(false);
+          setAccessToken(null);
+          setDisplayName("");
+        }
+        setTurnstileToken(null);
+        turnstileRef.current?.reset();
+      }
+    );
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!status?.isActive) return;
+    loadQuota(accessToken);
+  }, [status?.isActive, accessToken, loadQuota]);
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -144,8 +271,10 @@ export default function SocialRequestPageClient() {
       const data = await res.json().catch(() => ({}));
       if (res.ok && (data as { genre?: Genre | null }).genre) {
         const g = (data as { genre: Genre }).genre;
-        setGenre(g);
-        setGenreFromMaster(true);
+        if (!genreOptionDisabled(g, quota)) {
+          setGenre(g);
+          setGenreFromMaster(true);
+        }
       } else {
         setGenre("");
         setGenreFromMaster(false);
@@ -179,30 +308,49 @@ export default function SocialRequestPageClient() {
       return;
     }
     if (!genre) {
-      setFormError("Choose Country Swing, West Coast Swing, or Line Dance.");
+      setFormError("Choose a dance category.");
       return;
     }
+    if (!isLoggedIn && !turnstileToken) {
+      setFormError("Please complete the captcha verification.");
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (isLoggedIn && accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+
+      const body: Record<string, string | undefined> = {
+        trackId: selected.id,
+        uri: selected.uri,
+        name: selected.name,
+        primaryArtist: selected.primaryArtist,
+        genre,
+        lineDanceName:
+          genre === "ld" && lineDanceName.trim()
+            ? lineDanceName.trim()
+            : undefined,
+        lineDanceLevel:
+          genre === "ld" && lineDanceLevel ? lineDanceLevel : undefined,
+      };
+      if (!isLoggedIn) {
+        body.turnstileToken = turnstileToken ?? undefined;
+      }
+
       const res = await fetch("/api/social/request", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          trackId: selected.id,
-          uri: selected.uri,
-          name: selected.name,
-          primaryArtist: selected.primaryArtist,
-          genre,
-          lineDanceName:
-            genre === "ld" && lineDanceName.trim()
-              ? lineDanceName.trim()
-              : undefined,
-          lineDanceLevel:
-            genre === "ld" && lineDanceLevel ? lineDanceLevel : undefined,
-        }),
+        headers,
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        turnstileRef.current?.reset();
+        setTurnstileToken(null);
         throw new Error(
           (data as { error?: string }).error ?? "Request failed"
         );
@@ -228,6 +376,9 @@ export default function SocialRequestPageClient() {
       setSuggestions([]);
       setFormError(null);
       setSuccess(`“${result.trackName}” ${placed}.${masterNote}`);
+      setTurnstileToken(null);
+      turnstileRef.current?.reset();
+      await loadQuota(accessToken);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Request failed");
     } finally {
@@ -235,28 +386,39 @@ export default function SocialRequestPageClient() {
     }
   };
 
+  const authBar = (
+    <SocialAuthBar isLoggedIn={isLoggedIn} displayName={displayName} />
+  );
+
   if (statusLoading) {
     return (
-      <section className="max-w-xl mx-auto text-center py-16">
-        <p className="text-gray-400">Loading…</p>
+      <section className="max-w-xl mx-auto py-16">
+        {authBar}
+        <p className="text-center text-gray-400">Loading…</p>
       </section>
     );
   }
 
   if (statusError) {
     return (
-      <section className="max-w-xl mx-auto text-center py-16 space-y-3">
-        <h1 className="gold-wave text-4xl font-extrabold pb-2">Song Requests</h1>
-        <p className="text-red-400">{statusError}</p>
+      <section className="max-w-xl mx-auto py-16 space-y-3">
+        {authBar}
+        <h1 className="gold-wave text-4xl font-extrabold pb-2 text-center">
+          Song Requests
+        </h1>
+        <p className="text-red-400 text-center">{statusError}</p>
       </section>
     );
   }
 
   if (!status?.isActive) {
     return (
-      <section className="max-w-xl mx-auto text-center py-16 space-y-4">
-        <h1 className="gold-wave text-4xl font-extrabold pb-2">Song Requests</h1>
-        <p className="text-gray-300">
+      <section className="max-w-xl mx-auto py-16 space-y-4">
+        {authBar}
+        <h1 className="gold-wave text-4xl font-extrabold pb-2 text-center">
+          Song Requests
+        </h1>
+        <p className="text-gray-300 text-center">
           Song requests aren’t open right now. Check back during The Social.
         </p>
       </section>
@@ -265,6 +427,7 @@ export default function SocialRequestPageClient() {
 
   return (
     <section className="max-w-xl mx-auto py-10 space-y-8">
+      {authBar}
       <header className="text-center space-y-2">
         <h1 className="gold-wave text-4xl font-extrabold pb-2">Song Requests</h1>
         <p className="text-gray-300 text-sm">
@@ -272,7 +435,7 @@ export default function SocialRequestPageClient() {
           <span className="text-amber-200">
             {status.name || "tonight’s Social"}
           </span>
-          . We’ll keep the 2 Country / 2 West Coast / 2 Line Dance flow.
+          .
         </p>
       </header>
 
@@ -378,17 +541,27 @@ export default function SocialRequestPageClient() {
                 ? "Checking master playlists…"
                 : "Select dance category…"}
             </option>
-            {GENRE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
+            {genreOptions.map((opt) => (
+              <option
+                key={opt.value}
+                value={opt.value}
+                disabled={genreOptionDisabled(opt.value, quota)}
+              >
                 {opt.label}
+                {genreOptionDisabled(opt.value, quota) ? " (limit reached)" : ""}
               </option>
             ))}
           </select>
+          {quota && (
+            <ul className="text-xs text-gray-500 pt-1 space-y-0.5">
+              {genreOptions.map((opt) => (
+                <li key={opt.value}>{formatRemaining(opt.value, quota)}</li>
+              ))}
+            </ul>
+          )}
           {genreFromMaster && genre && (
             <span className="text-xs text-green-400">
-              Found in the{" "}
-              {GENRE_OPTIONS.find((o) => o.value === genre)?.label} master
-              playlist.
+              Found in the {GENRE_LABELS[genre]} master playlist.
             </span>
           )}
           {selected && !lookingUpGenre && !genreFromMaster && (
@@ -436,6 +609,18 @@ export default function SocialRequestPageClient() {
           </div>
         )}
 
+        {isLoggedIn === false && siteKey && (
+          <div className="flex justify-center">
+            <Turnstile
+              ref={turnstileRef}
+              siteKey={siteKey}
+              onSuccess={setTurnstileToken}
+              onExpire={() => setTurnstileToken(null)}
+              onError={() => setTurnstileToken(null)}
+            />
+          </div>
+        )}
+
         {formError && (
           <p className="text-sm text-red-400" role="alert">
             {formError}
@@ -449,7 +634,14 @@ export default function SocialRequestPageClient() {
 
         <button
           type="submit"
-          disabled={submitting || !selected || !genre || lookingUpGenre}
+          disabled={
+            submitting ||
+            !selected ||
+            !genre ||
+            lookingUpGenre ||
+            isLoggedIn === null ||
+            (isLoggedIn === false && !turnstileToken)
+          }
           className="w-full px-4 py-2.5 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-sm font-medium"
         >
           {submitting ? "Submitting…" : "Request song"}

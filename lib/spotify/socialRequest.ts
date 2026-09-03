@@ -21,6 +21,10 @@ import {
   resolvePlaybackIndex,
   type SnapshotTrack,
 } from "@/lib/spotify/requestInsert";
+import {
+  assertCanRequest,
+  getRequestCounts,
+} from "@/lib/spotify/requestQuota";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { isLineDanceLevel } from "@/lib/spotify/lineDanceLevels";
 
@@ -46,6 +50,8 @@ export type SocialRequestInput = {
   genre: GenrePool;
   lineDanceName?: string | null;
   lineDanceLevel?: string | null;
+  requesterUserId?: string | null;
+  requesterToken?: string | null;
 };
 
 export type SocialRequestResult = {
@@ -57,15 +63,9 @@ export type SocialRequestResult = {
   trackName: string;
 };
 
-export class SocialRequestError extends Error {
-  status: number;
+import { SocialRequestError } from "@/lib/spotify/socialRequestError";
 
-  constructor(message: string, status = 400) {
-    super(message);
-    this.name = "SocialRequestError";
-    this.status = status;
-  }
-}
+export { SocialRequestError };
 
 function toSnapshot(rows: SocialPlaylistTrackRow[]): SnapshotTrack[] {
   return rows.map((r) => ({
@@ -98,6 +98,8 @@ async function logRequest(input: {
     position: input.position,
     spotify_playlist_id: input.spotifyPlaylistId,
     error_message: input.errorMessage ?? null,
+    requester_user_id: input.track.requesterUserId ?? null,
+    requester_token: input.track.requesterToken ?? null,
   });
 }
 
@@ -111,7 +113,7 @@ async function submitSocialSongRequestUnlocked(
   input: SocialRequestInput
 ): Promise<SocialRequestResult> {
   const status = await getActivePlaylistStatus();
-  if (!status.isActive || !status.spotifyPlaylistId) {
+  if (!status.isActive || !status.spotifyPlaylistId || !status.activatedAt) {
     throw new SocialRequestError(
       "Song requests aren’t open right now.",
       403
@@ -119,9 +121,38 @@ async function submitSocialSongRequestUnlocked(
   }
 
   const genre = input.genre;
-  if (genre !== "cs" && genre !== "wcs" && genre !== "ld") {
-    throw new SocialRequestError("Invalid genre. Choose CS, WCS, or LD.");
+  if (genre !== "cs" && genre !== "wcs" && genre !== "ld" && genre !== "ts") {
+    throw new SocialRequestError("Invalid genre.");
   }
+
+  if (!status.availableGenres.includes(genre)) {
+    throw new SocialRequestError(
+      "That dance style isn’t part of tonight’s playlist.",
+      403
+    );
+  }
+
+  const requesterUserId = input.requesterUserId ?? null;
+  const requesterToken = input.requesterToken ?? null;
+  if (!requesterUserId && !requesterToken) {
+    throw new SocialRequestError(
+      "Could not verify your session. Refresh the page and try again.",
+      403
+    );
+  }
+
+  const counts = await getRequestCounts({
+    spotifyPlaylistId: status.spotifyPlaylistId,
+    activatedAt: status.activatedAt,
+    requesterUserId,
+    requesterToken,
+    genres: [genre],
+  });
+  assertCanRequest({
+    genre,
+    limits: status.requestLimits,
+    counts,
+  });
 
   const { accessToken } = await getValidAccessToken();
   const rows = await loadSnapshotTracks();
@@ -183,7 +214,12 @@ async function submitSocialSongRequestUnlocked(
     status.spotifyPlaylistId
   );
 
-  const target = findRequestInsertTarget(snapshot, currentIndex, genre);
+  const target = findRequestInsertTarget(
+    snapshot,
+    currentIndex,
+    genre,
+    status.pattern
+  );
   const now = new Date().toISOString();
 
   if (target.kind === "replace") {

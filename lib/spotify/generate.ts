@@ -5,27 +5,41 @@ import {
   fetchPlaylistTracks,
   type SpotifyTrack,
 } from "@/lib/spotify/client";
-import {
-  curateSocialPlaylist,
-  type CurateTrack,
-} from "@/lib/spotify/curate";
+import { curatePlaylist, type CurateTrack } from "@/lib/spotify/curate";
 import { resolveTrackFeatures } from "@/lib/spotify/features";
-import { getMasterPlaylistRefs } from "@/lib/spotify/masters";
-import type { GenrePool } from "@/lib/spotify/playlistIds";
+import { getMasterPlaylistRefsForStructure } from "@/lib/spotify/masters";
+import { emptyGenrePools, type GenrePool } from "@/lib/spotify/playlistIds";
+import {
+  DEFAULT_SOCIAL_STRUCTURE,
+  DEFAULT_DURATION_MINUTES,
+  expandStructure,
+  structureDescription,
+  validateDurationMinutes,
+  validatePlaylistStructure,
+  type PlaylistStructure,
+} from "@/lib/spotify/playlistStructure";
 
-export type GenerateSocialResult = {
+export type GeneratePlaylistResult = {
   id: string;
   url: string;
   durationMs: number;
   trackCount: number;
   lookedUp: number;
   stillUnknown: number;
+  durationMinutes: number;
+  structure: PlaylistStructure;
 };
 
-export async function generateSocialPlaylist(
+export type GeneratePlaylistOptions = {
+  lookupFeatures?: boolean;
+  durationMinutes?: number;
+  structure?: PlaylistStructure;
+};
+
+export async function generatePlaylist(
   name: string,
-  options?: { lookupFeatures?: boolean }
-): Promise<GenerateSocialResult> {
+  options?: GeneratePlaylistOptions
+): Promise<GeneratePlaylistResult> {
   const trimmed = name.trim();
   if (!trimmed) {
     throw new Error("Playlist name is required");
@@ -35,15 +49,19 @@ export async function generateSocialPlaylist(
   }
 
   const lookupFeatures = options?.lookupFeatures === true;
+  const durationMinutes = validateDurationMinutes(
+    options?.durationMinutes ?? DEFAULT_DURATION_MINUTES
+  );
+  const structure = validatePlaylistStructure(
+    options?.structure ?? DEFAULT_SOCIAL_STRUCTURE
+  );
+  const pattern = expandStructure(structure);
+  const targetDurationMs = durationMinutes * 60 * 1000;
 
   const { accessToken } = await getValidAccessToken();
-  const masters = await getMasterPlaylistRefs();
+  const masters = await getMasterPlaylistRefsForStructure(structure);
 
-  const pools: Record<GenrePool, CurateTrack[]> = {
-    cs: [],
-    wcs: [],
-    ld: [],
-  };
+  const pools = emptyGenrePools<CurateTrack[]>();
 
   const allTracks: SpotifyTrack[] = [];
   const trackGenre = new Map<string, GenrePool>();
@@ -55,7 +73,6 @@ export async function generateSocialPlaylist(
     );
     for (const track of tracks) {
       allTracks.push(track);
-      // Prefer first genre if a track appears in multiple masters
       if (!trackGenre.has(track.id)) {
         trackGenre.set(track.id, master.genre);
       }
@@ -77,12 +94,17 @@ export async function generateSocialPlaylist(
     addedToPool.add(track.id);
   }
 
-  const curated = curateSocialPlaylist(pools);
+  const curated = curatePlaylist(pools, {
+    pattern,
+    targetDurationMs,
+  });
+
+  const description = `Country City Swing — ${structureDescription(structure)} / ${durationMinutes} min`;
 
   const created = await createPrivatePlaylist(
     accessToken,
     trimmed,
-    "Country City Swing Social — auto-generated mix (2 CS / 2 WCS / 2 LD)"
+    description
   );
 
   await addTracksToPlaylist(
@@ -98,5 +120,17 @@ export async function generateSocialPlaylist(
     trackCount: curated.tracks.length,
     lookedUp: resolved.lookedUp,
     stillUnknown: resolved.stillUnknown,
+    durationMinutes,
+    structure,
   };
+}
+
+/** @deprecated use generatePlaylist */
+export async function generateSocialPlaylist(
+  name: string,
+  options?: { lookupFeatures?: boolean }
+): Promise<Omit<GeneratePlaylistResult, "durationMinutes" | "structure">> {
+  const result = await generatePlaylist(name, options);
+  const { durationMinutes: _d, structure: _s, ...rest } = result;
+  return rest;
 }

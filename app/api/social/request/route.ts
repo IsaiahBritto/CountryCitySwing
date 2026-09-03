@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
+import { getOptionalUser } from "@/lib/optionalAuth";
 import {
   clientIpFromRequest,
   rateLimit,
@@ -8,25 +9,31 @@ import {
   SocialRequestError,
   submitSocialSongRequest,
 } from "@/lib/spotify/socialRequest";
+import { readSocialRequesterCookie } from "@/lib/spotify/socialRequesterCookie";
+import { verifyTurnstileToken } from "@/lib/turnstile";
 
-const GENRES = new Set<GenrePool>(["cs", "wcs", "ld"]);
+const GENRES = new Set<GenrePool>(["cs", "wcs", "ld", "ts"]);
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getOptionalUser(req);
     const ip = clientIpFromRequest(req);
-    const limited = rateLimit({
-      key: `social-request:${ip}`,
-      limit: 20,
-      windowMs: 60_000,
-    });
-    if (!limited.ok) {
-      return NextResponse.json(
-        { error: "Too many requests. Try again shortly." },
-        {
-          status: 429,
-          headers: { "Retry-After": String(limited.retryAfterSec) },
-        }
-      );
+
+    if (!user) {
+      const limited = rateLimit({
+        key: `social-request:${ip}`,
+        limit: 20,
+        windowMs: 60_000,
+      });
+      if (!limited.ok) {
+        return NextResponse.json(
+          { error: "Too many requests. Try again shortly." },
+          {
+            status: 429,
+            headers: { "Retry-After": String(limited.retryAfterSec) },
+          }
+        );
+      }
     }
 
     const body = (await req.json().catch(() => ({}))) as {
@@ -37,6 +44,7 @@ export async function POST(req: NextRequest) {
       genre?: string;
       lineDanceName?: string;
       lineDanceLevel?: string;
+      turnstileToken?: string;
     };
 
     if (
@@ -58,8 +66,29 @@ export async function POST(req: NextRequest) {
     const genre = body.genre.trim() as GenrePool;
     if (!GENRES.has(genre)) {
       return NextResponse.json(
-        { error: "genre must be cs, wcs, or ld" },
+        { error: "genre must be cs, wcs, ld, or ts" },
         { status: 400 }
+      );
+    }
+
+    if (!user) {
+      if (!body.turnstileToken) {
+        return NextResponse.json({ error: "Captcha required" }, { status: 403 });
+      }
+      const { success } = await verifyTurnstileToken(body.turnstileToken, ip);
+      if (!success) {
+        return NextResponse.json(
+          { error: "Captcha verification failed" },
+          { status: 403 }
+        );
+      }
+    }
+
+    const requesterToken = user ? null : readSocialRequesterCookie(req);
+    if (!user && !requesterToken) {
+      return NextResponse.json(
+        { error: "Session required. Refresh the page and try again." },
+        { status: 403 }
       );
     }
 
@@ -73,6 +102,8 @@ export async function POST(req: NextRequest) {
         typeof body.lineDanceName === "string" ? body.lineDanceName : null,
       lineDanceLevel:
         typeof body.lineDanceLevel === "string" ? body.lineDanceLevel : null,
+      requesterUserId: user?.id ?? null,
+      requesterToken,
     });
 
     return NextResponse.json(result);

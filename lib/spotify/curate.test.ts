@@ -1,6 +1,7 @@
 import type { ResolvedTrackFeatures } from "@/lib/spotify/curate";
 import type { SpotifyTrack } from "@/lib/spotify/client";
 import {
+  curatePlaylist,
   curateSocialPlaylist,
   effectiveBpm,
   TARGET_DURATION_MS,
@@ -337,5 +338,32 @@ describe("curateSocialPlaylist", () => {
         { targetDurationMs: TARGET_DURATION_MS, rng }
       )
     ).toThrow(/Pool exhausted/i);
+  });
+
+  it("curates custom pattern and duration", () => {
+    const pattern = ["cs", "cs", "cs", "ld"] as GenrePool[];
+    const result = curatePlaylist(
+      {
+        cs: fillPool("cs", 30),
+        ld: fillPool("ld", 30),
+      },
+      { pattern, targetDurationMs: 45 * 60 * 1000, rng }
+    );
+    expect(result.tracks.length % pattern.length).toBe(0);
+    for (let i = 0; i < result.tracks.length; i++) {
+      expect(result.tracks[i].genre).toBe(pattern[i % pattern.length]);
+    }
+  });
+
+  it("curates two step pool with partner weights", () => {
+    const pattern = ["ts", "ts"] as GenrePool[];
+    const result = curatePlaylist(
+      {
+        ts: fillPool("ts", 20, "TS"),
+      },
+      { pattern, targetDurationMs: 20 * 60 * 1000, rng }
+    );
+    expect(result.tracks.length).toBeGreaterThan(0);
+    expect(result.tracks.every((t) => t.genre === "ts")).toBe(true);
   });
 });

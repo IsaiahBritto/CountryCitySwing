@@ -1,5 +1,13 @@
 import type { GenrePool } from "@/lib/spotify/playlistIds";
+import { emptyGenrePools } from "@/lib/spotify/playlistIds";
 import type { SpotifyTrack } from "@/lib/spotify/client";
+import {
+  DEFAULT_SOCIAL_STRUCTURE,
+  expandStructure,
+  getDefaultPattern,
+  getDefaultTargetDurationMs,
+  type PlaylistStructure,
+} from "@/lib/spotify/playlistStructure";
 
 export type ResolvedTrackFeatures = {
   spotifyTrackId: string;
@@ -18,8 +26,8 @@ export type ResolvedTrackFeatures = {
   trueCamelot: boolean;
 };
 
-export const TARGET_DURATION_MS = Math.round(5.5 * 60 * 60 * 1000);
-export const SET_PATTERN: GenrePool[] = ["cs", "cs", "wcs", "wcs", "ld", "ld"];
+export const TARGET_DURATION_MS = getDefaultTargetDurationMs();
+export const SET_PATTERN: GenrePool[] = getDefaultPattern();
 
 export type CurateTrack = SpotifyTrack & {
   genre: GenrePool;
@@ -34,7 +42,12 @@ export type CurateResult = {
 const BPM_SCALE = 40;
 const PARTNER_WEIGHTS = { wE: 0.6, wB: 0.4, wD: 0.05 };
 const LD_WEIGHTS = { wE: 0.8, wB: 0.2, wD: 0.05 };
-const TOP_K = { cs: 10, wcs: 10, ld: 15 };
+const TOP_K: Record<GenrePool, number> = {
+  cs: 10,
+  wcs: 10,
+  ld: 15,
+  ts: 10,
+};
 
 const SAD_MOODS = new Set(["sad", "melancholic"]);
 
@@ -42,7 +55,6 @@ export function effectiveBpm(features: ResolvedTrackFeatures): number {
   const bpm = features.bpm;
   const alt = features.bpmAlt;
   if (alt == null || !Number.isFinite(alt)) return bpm;
-  // Prefer the value closer to a typical partner-dance band (~70–120)
   const bandCenter = 95;
   return Math.abs(alt - bandCenter) < Math.abs(bpm - bandCenter) ? alt : bpm;
 }
@@ -69,25 +81,38 @@ function pickRandom<T>(items: T[], rng: () => number): T {
   return items[Math.floor(rng() * items.length)];
 }
 
+function initRemainingPools(
+  pools: Partial<Record<GenrePool, CurateTrack[]>>,
+  pattern: GenrePool[]
+): Record<GenrePool, CurateTrack[]> {
+  const remaining = emptyGenrePools<CurateTrack[]>();
+  const genresInPattern = new Set(pattern);
+  for (const genre of genresInPattern) {
+    remaining[genre] = [...(pools[genre] ?? [])];
+  }
+  return remaining;
+}
+
 /**
- * Curate a Social playlist from genre pools.
+ * Curate a playlist from genre pools using a repeating pattern.
  * Stops before starting a new set once elapsed >= target; always finishes an open set.
  */
-export function curateSocialPlaylist(
-  pools: Record<GenrePool, CurateTrack[]>,
-  options?: {
+export function curatePlaylist(
+  pools: Partial<Record<GenrePool, CurateTrack[]>>,
+  options: {
+    pattern: GenrePool[];
     targetDurationMs?: number;
     rng?: () => number;
   }
 ): CurateResult {
-  const targetDurationMs = options?.targetDurationMs ?? TARGET_DURATION_MS;
-  const rng = options?.rng ?? Math.random;
+  const pattern = options.pattern;
+  if (pattern.length === 0) {
+    throw new Error("Pattern must not be empty");
+  }
 
-  const remaining: Record<GenrePool, CurateTrack[]> = {
-    cs: [...pools.cs],
-    wcs: [...pools.wcs],
-    ld: [...pools.ld],
-  };
+  const targetDurationMs = options.targetDurationMs ?? TARGET_DURATION_MS;
+  const rng = options.rng ?? Math.random;
+  const remaining = initRemainingPools(pools, pattern);
 
   const playlist: CurateTrack[] = [];
   let elapsed = 0;
@@ -95,9 +120,12 @@ export function curateSocialPlaylist(
   let targetEnergy = 0.45 + 0.25 * Math.sin(phase);
   let targetBpm = 85 + 20 * Math.sin(phase);
 
-  const takeFromPool = (genre: GenrePool, previousArtist: string | null): CurateTrack => {
+  const takeFromPool = (
+    genre: GenrePool,
+    previousArtist: string | null
+  ): CurateTrack => {
     const pool = remaining[genre];
-    if (pool.length === 0) {
+    if (!pool || pool.length === 0) {
       throw new Error(
         `Pool exhausted for ${genre.toUpperCase()} mid-set. Add more songs to the master playlist.`
       );
@@ -135,7 +163,6 @@ export function curateSocialPlaylist(
       }
     }
 
-    // Soft mood bias: avoid stacking sad/melancholic when alternatives exist
     const last = playlist[playlist.length - 1];
     if (last && SAD_MOODS.has(last.features.mood.toLowerCase())) {
       const nonSad = window.filter(
@@ -154,7 +181,7 @@ export function curateSocialPlaylist(
     let previousArtist: string | null =
       playlist.length > 0 ? playlist[playlist.length - 1].primaryArtist : null;
 
-    for (const genre of SET_PATTERN) {
+    for (const genre of pattern) {
       const track = takeFromPool(genre, previousArtist);
       playlist.push(track);
       elapsed += track.durationMs;
@@ -170,3 +197,20 @@ export function curateSocialPlaylist(
 
   return { tracks: playlist, durationMs: elapsed };
 }
+
+/** @deprecated use curatePlaylist with DEFAULT_SOCIAL_STRUCTURE pattern */
+export function curateSocialPlaylist(
+  pools: Partial<Record<GenrePool, CurateTrack[]>>,
+  options?: {
+    targetDurationMs?: number;
+    rng?: () => number;
+  }
+): CurateResult {
+  return curatePlaylist(pools, {
+    pattern: expandStructure(DEFAULT_SOCIAL_STRUCTURE),
+    targetDurationMs: options?.targetDurationMs,
+    rng: options?.rng,
+  });
+}
+
+export type { PlaylistStructure };

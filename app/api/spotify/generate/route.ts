@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
-import { generateSocialPlaylist } from "@/lib/spotify/generate";
+import { generatePlaylist } from "@/lib/spotify/generate";
+import {
+  parsePlaylistStructure,
+  validateDurationMinutes,
+  validatePlaylistStructure,
+  DEFAULT_SOCIAL_STRUCTURE,
+  DEFAULT_DURATION_MINUTES,
+} from "@/lib/spotify/playlistStructure";
 
 export const maxDuration = 300;
 
@@ -12,6 +19,8 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as {
       name?: string;
       lookupFeatures?: boolean;
+      durationMinutes?: number;
+      structure?: unknown;
     };
     if (typeof body.name !== "string") {
       return NextResponse.json(
@@ -20,8 +29,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await generateSocialPlaylist(body.name, {
+    const durationMinutes = validateDurationMinutes(
+      typeof body.durationMinutes === "number"
+        ? body.durationMinutes
+        : DEFAULT_DURATION_MINUTES
+    );
+    const structure = validatePlaylistStructure(
+      body.structure != null
+        ? parsePlaylistStructure(body.structure) ?? DEFAULT_SOCIAL_STRUCTURE
+        : DEFAULT_SOCIAL_STRUCTURE
+    );
+
+    const result = await generatePlaylist(body.name, {
       lookupFeatures: body.lookupFeatures === true,
+      durationMinutes,
+      structure,
     });
     return NextResponse.json(result);
   } catch (error: unknown) {

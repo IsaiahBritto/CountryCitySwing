@@ -5,8 +5,22 @@ import {
   fetchPlaylistTracks,
   type SpotifyTrack,
 } from "@/lib/spotify/client";
-import { SET_PATTERN } from "@/lib/spotify/curate";
-import { getMasterPlaylistRefs } from "@/lib/spotify/masters";
+import {
+  DEFAULT_SOCIAL_STRUCTURE,
+  expandStructure,
+  getDefaultPattern,
+  parsePlaylistStructure,
+  structureAvailableGenres,
+  validatePlaylistStructure,
+  type PlaylistStructure,
+} from "@/lib/spotify/playlistStructure";
+import {
+  defaultRequestLimits,
+  parseRequestLimits,
+  validateRequestLimits,
+  type RequestLimits,
+} from "@/lib/spotify/requestLimits";
+import { getMasterPlaylistRefs, getMasterPlaylistRefsForGenres } from "@/lib/spotify/masters";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import { parseSpotifyPlaylistId } from "@/lib/spotify/playlistIds";
 import { supabaseServer } from "@/lib/supabaseServer";
@@ -18,6 +32,10 @@ export type ActivePlaylistStatus = {
   name: string | null;
   activatedAt: string | null;
   trackCount: number;
+  requestLimits: RequestLimits | null;
+  availableGenres: GenrePool[];
+  structure: PlaylistStructure | null;
+  pattern: GenrePool[];
 };
 
 export type SocialPlaylistTrackRow = {
@@ -32,11 +50,48 @@ export type SocialPlaylistTrackRow = {
 
 const ACTIVE_ID = "default";
 
+function resolveStructure(raw: unknown): PlaylistStructure {
+  return parsePlaylistStructure(raw) ?? DEFAULT_SOCIAL_STRUCTURE;
+}
+
+function statusFromRow(data: {
+  is_active: boolean;
+  spotify_playlist_id: string | null;
+  playlist_url: string | null;
+  name: string | null;
+  activated_at: string | null;
+  request_limits: unknown;
+  playlist_structure: unknown;
+}, trackCount: number): ActivePlaylistStatus {
+  const structure = data.playlist_structure
+    ? resolveStructure(data.playlist_structure)
+    : null;
+  const pattern = structure
+    ? expandStructure(structure)
+    : getDefaultPattern();
+  const availableGenres = structure
+    ? structureAvailableGenres(structure)
+    : structureAvailableGenres(DEFAULT_SOCIAL_STRUCTURE);
+
+  return {
+    isActive: true,
+    spotifyPlaylistId: data.spotify_playlist_id,
+    playlistUrl: data.playlist_url,
+    name: data.name || null,
+    activatedAt: data.activated_at,
+    trackCount,
+    requestLimits: parseRequestLimits(data.request_limits),
+    availableGenres,
+    structure,
+    pattern,
+  };
+}
+
 export async function getActivePlaylistStatus(): Promise<ActivePlaylistStatus> {
   const { data, error } = await supabaseServer
     .from("social_active_playlist")
     .select(
-      "is_active, spotify_playlist_id, playlist_url, name, activated_at"
+      "is_active, spotify_playlist_id, playlist_url, name, activated_at, request_limits, playlist_structure"
     )
     .eq("id", ACTIVE_ID)
     .maybeSingle();
@@ -44,6 +99,8 @@ export async function getActivePlaylistStatus(): Promise<ActivePlaylistStatus> {
   if (error) {
     throw new Error(`Failed to load active playlist: ${error.message}`);
   }
+
+  const inactiveAvailable = structureAvailableGenres(DEFAULT_SOCIAL_STRUCTURE);
 
   if (!data || !data.is_active || !data.spotify_playlist_id) {
     return {
@@ -53,6 +110,10 @@ export async function getActivePlaylistStatus(): Promise<ActivePlaylistStatus> {
       name: null,
       activatedAt: null,
       trackCount: 0,
+      requestLimits: null,
+      availableGenres: inactiveAvailable,
+      structure: null,
+      pattern: getDefaultPattern(),
     };
   }
 
@@ -61,14 +122,7 @@ export async function getActivePlaylistStatus(): Promise<ActivePlaylistStatus> {
     .select("id", { count: "exact", head: true })
     .eq("active_playlist_id", ACTIVE_ID);
 
-  return {
-    isActive: true,
-    spotifyPlaylistId: data.spotify_playlist_id,
-    playlistUrl: data.playlist_url,
-    name: data.name || null,
-    activatedAt: data.activated_at,
-    trackCount: count ?? 0,
-  };
+  return statusFromRow(data, count ?? 0);
 }
 
 export async function loadSnapshotTracks(): Promise<SocialPlaylistTrackRow[]> {
@@ -139,16 +193,20 @@ export async function lookupTrackGenreInMasters(
 function genreForPosition(
   position: number,
   trackId: string,
-  masterGenre: Map<string, GenrePool>
+  masterGenre: Map<string, GenrePool>,
+  pattern: GenrePool[]
 ): GenrePool {
   const fromMaster = masterGenre.get(trackId);
   if (fromMaster) return fromMaster;
-  return SET_PATTERN[position % SET_PATTERN.length];
+  if (pattern.length === 0) return "cs";
+  return pattern[position % pattern.length];
 }
 
 export async function activateSocialPlaylist(input: {
   playlistIdOrUrl: string;
   activatedBy: string | null;
+  requestLimits?: RequestLimits | null;
+  structure?: PlaylistStructure | null;
 }): Promise<ActivePlaylistStatus> {
   const playlistId = parseSpotifyPlaylistId(input.playlistIdOrUrl);
   if (!playlistId) {
@@ -171,6 +229,15 @@ export async function activateSocialPlaylist(input: {
 
   const masterGenre = await buildMasterGenreMap(accessToken);
   const now = new Date().toISOString();
+  const structure = validatePlaylistStructure(
+    input.structure ?? DEFAULT_SOCIAL_STRUCTURE
+  );
+  const pattern = expandStructure(structure);
+  const availableGenres = structureAvailableGenres(structure);
+  const requestLimits =
+    input.requestLimits != null
+      ? validateRequestLimits(input.requestLimits, availableGenres)
+      : defaultRequestLimits(availableGenres);
 
   const { error: upsertError } = await supabaseServer
     .from("social_active_playlist")
@@ -183,6 +250,8 @@ export async function activateSocialPlaylist(input: {
         activated_at: now,
         activated_by: input.activatedBy,
         is_active: true,
+        request_limits: requestLimits,
+        playlist_structure: structure,
         updated_at: now,
       },
       { onConflict: "id" }
@@ -208,7 +277,7 @@ export async function activateSocialPlaylist(input: {
     uri: t.uri,
     name: t.name,
     primary_artist: t.primaryArtist,
-    genre: genreForPosition(position, t.id, masterGenre),
+    genre: genreForPosition(position, t.id, masterGenre, pattern),
     source: "generated" as const,
     updated_at: now,
   }));
@@ -223,6 +292,34 @@ export async function activateSocialPlaylist(input: {
     if (error) {
       throw new Error(`Failed to save snapshot: ${error.message}`);
     }
+  }
+
+  return getActivePlaylistStatus();
+}
+
+export async function updateSocialRequestLimits(
+  requestLimits: RequestLimits
+): Promise<ActivePlaylistStatus> {
+  const status = await getActivePlaylistStatus();
+  if (!status.isActive) {
+    throw new Error("No active playlist to update limits for");
+  }
+
+  const validated = validateRequestLimits(
+    requestLimits,
+    status.availableGenres
+  );
+  const now = new Date().toISOString();
+  const { error } = await supabaseServer
+    .from("social_active_playlist")
+    .update({
+      request_limits: validated,
+      updated_at: now,
+    })
+    .eq("id", ACTIVE_ID);
+
+  if (error) {
+    throw new Error(`Failed to update request limits: ${error.message}`);
   }
 
   return getActivePlaylistStatus();
@@ -257,8 +354,8 @@ export async function ensureTrackOnMaster(input: {
     return { addedToMaster: false };
   }
 
-  const masters = await getMasterPlaylistRefs();
-  const master = masters.find((m) => m.genre === input.genre);
+  const masters = await getMasterPlaylistRefsForGenres([input.genre]);
+  const master = masters[0];
   if (!master) {
     throw new Error(`No master playlist for genre ${input.genre}`);
   }

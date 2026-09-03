@@ -1,5 +1,11 @@
-import { SET_PATTERN } from "@/lib/spotify/curate";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
+import {
+  cycleLength,
+  genreBlockLength,
+  genreBlockStart,
+  genreBlockStartsInCycle,
+  getDefaultPattern,
+} from "@/lib/spotify/playlistStructure";
 
 export type SnapshotTrackSource = "generated" | "request";
 
@@ -18,74 +24,80 @@ export type InsertTarget =
   | { kind: "append" };
 
 /**
- * Start of the genre set that contains `index` within the repeating 2-2-2 pattern.
- * Returns null if the track at `index` is outside patterned length (e.g. appends).
+ * Start of the genre block that contains `index` within the repeating pattern.
  */
-export function genreSetStart(index: number, genre: GenrePool): number | null {
-  if (index < 0) return null;
-  const phase = index % SET_PATTERN.length;
-  if (SET_PATTERN[phase] !== genre) return null;
-  // Each genre occupies a contiguous pair: cs@0-1, wcs@2-3, ld@4-5
-  const pairStartInCycle = SET_PATTERN.indexOf(genre);
-  const cycleStart = index - phase;
-  return cycleStart + pairStartInCycle;
+export function genreSetStart(
+  index: number,
+  genre: GenrePool,
+  pattern: GenrePool[] = getDefaultPattern()
+): number | null {
+  return genreBlockStart(index, genre, pattern);
 }
 
 /**
- * If currently inside a G set, search after that set ends.
+ * If currently inside a genre block, search after that block ends.
  * Otherwise search after currentIndex.
  */
 export function searchStartIndex(
   currentIndex: number,
   genre: GenrePool,
-  trackCount: number
+  trackCount: number,
+  pattern: GenrePool[] = getDefaultPattern()
 ): number {
   if (currentIndex < 0) return 0;
 
-  const setStart = genreSetStart(currentIndex, genre);
+  const setStart = genreBlockStart(currentIndex, genre, pattern);
   if (setStart != null) {
-    return setStart + 2; // after the two-song set
+    const cycleLen = pattern.length;
+    const cycleStart = currentIndex - (currentIndex % cycleLen);
+    const blockStartInCycle = setStart - cycleStart;
+    const len = genreBlockLength(blockStartInCycle, pattern);
+    return setStart + len;
   }
 
   return Math.min(currentIndex + 1, trackCount);
 }
 
 /**
- * Walk G sets after `fromIndex` and return the first track still marked generated.
- * Falls back to append when no eligible slot remains.
- *
- * Only considers patterned positions (length multiple of 6). Appended tail tracks
- * after the last full cycle are not treated as replaceable set slots.
+ * Walk genre blocks after `fromIndex` and return the first track still marked generated.
  */
 export function findRequestInsertTarget(
   tracks: SnapshotTrack[],
   currentIndex: number,
-  genre: GenrePool
+  genre: GenrePool,
+  pattern: GenrePool[] = getDefaultPattern()
 ): InsertTarget {
+  const cycleLen = cycleLength(pattern);
+  if (cycleLen === 0) return { kind: "append" };
+
   const patternedCount =
-    Math.floor(tracks.length / SET_PATTERN.length) * SET_PATTERN.length;
-  const from = searchStartIndex(currentIndex, genre, patternedCount);
+    Math.floor(tracks.length / cycleLen) * cycleLen;
+  const from = searchStartIndex(currentIndex, genre, patternedCount, pattern);
 
   for (
     let cycleStart = 0;
     cycleStart < patternedCount;
-    cycleStart += SET_PATTERN.length
+    cycleStart += cycleLen
   ) {
-    const pairStartInCycle = SET_PATTERN.indexOf(genre);
-    const setStart = cycleStart + pairStartInCycle;
-    if (setStart < from) continue;
+    for (const blockStartInCycle of genreBlockStartsInCycle(genre, pattern)) {
+      const setStart = cycleStart + blockStartInCycle;
+      if (setStart < from) continue;
 
-    for (let offset = 0; offset < 2; offset++) {
-      const pos = setStart + offset;
-      if (pos >= patternedCount) continue;
-      const track = tracks[pos];
-      if (!track) continue;
-      // Prefer stored genre, but also accept pattern-aligned slots
-      if (track.genre !== genre && SET_PATTERN[pos % SET_PATTERN.length] !== genre) {
-        continue;
-      }
-      if (track.source === "generated") {
-        return { kind: "replace", position: pos };
+      const blockLen = genreBlockLength(blockStartInCycle, pattern);
+      for (let offset = 0; offset < blockLen; offset++) {
+        const pos = setStart + offset;
+        if (pos >= patternedCount) continue;
+        const track = tracks[pos];
+        if (!track) continue;
+        if (
+          track.genre !== genre &&
+          pattern[pos % cycleLen] !== genre
+        ) {
+          continue;
+        }
+        if (track.source === "generated") {
+          return { kind: "replace", position: pos };
+        }
       }
     }
   }
@@ -105,7 +117,6 @@ export function resolvePlaybackIndex(
     return -1;
   }
 
-  // Prefer the first occurrence at or matching the playhead; for duplicates use earliest.
   for (let i = 0; i < tracks.length; i++) {
     const t = tracks[i];
     if (playing.trackId && t.spotifyTrackId === playing.trackId) return i;

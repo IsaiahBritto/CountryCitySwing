@@ -10,6 +10,7 @@ export async function GET() {
       playlistUrl: status.isActive ? status.playlistUrl : null,
       trackCount: status.isActive ? status.trackCount : 0,
       activatedAt: status.isActive ? status.activatedAt : null,
+      availableGenres: status.isActive ? status.availableGenres : [],
     });
   } catch (error: unknown) {
     console.error("Social status error:", error);

@@ -151,10 +151,42 @@ describe("findRequestInsertTarget", () => {
 
   it("during first set before any CS requests mid-WCS requesting LD goes to current cycle LD", () => {
     const tracks = buildCycles(2);
-    // Playing WCS at 2; LD set of current cycle is at 4-5 and still upcoming
     expect(findRequestInsertTarget(tracks, 2, "ld")).toEqual({
       kind: "replace",
       position: 4,
+    });
+  });
+
+  it("handles variable block sizes", () => {
+    const pattern: GenrePool[] = ["cs", "cs", "cs", "ld"];
+    const tracks: SnapshotTrack[] = [];
+    for (let c = 0; c < 2; c++) {
+      for (let i = 0; i < pattern.length; i++) {
+        const pos = c * pattern.length + i;
+        tracks.push(track(pos, pattern[i]));
+      }
+    }
+    expect(findRequestInsertTarget(tracks, -1, "cs", pattern)).toEqual({
+      kind: "replace",
+      position: 0,
+    });
+    expect(findRequestInsertTarget(tracks, 0, "cs", pattern)).toEqual({
+      kind: "replace",
+      position: 4,
+    });
+    expect(findRequestInsertTarget(tracks, 2, "ld", pattern)).toEqual({
+      kind: "replace",
+      position: 3,
+    });
+  });
+
+  it("handles repeated genre blocks in one cycle", () => {
+    const pattern: GenrePool[] = ["cs", "wcs", "cs", "ld"];
+    const tracks: SnapshotTrack[] = pattern.map((g, i) => track(i, g));
+    tracks.push(...pattern.map((g, i) => track(i + 4, g)));
+    expect(findRequestInsertTarget(tracks, 1, "cs", pattern)).toEqual({
+      kind: "replace",
+      position: 2,
     });
   });
 });

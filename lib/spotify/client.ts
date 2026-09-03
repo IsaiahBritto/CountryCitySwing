@@ -203,6 +203,24 @@ export async function fetchCurrentUserId(accessToken: string): Promise<string> {
   return me.id;
 }
 
+export type SpotifyUserProduct = "premium" | "free" | "open";
+
+export async function fetchSpotifyUserProfile(accessToken: string): Promise<{
+  id: string;
+  product: SpotifyUserProduct | null;
+}> {
+  const me = await spotifyFetch<{ id: string; product?: string }>(
+    accessToken,
+    "/me"
+  );
+  const productRaw = typeof me.product === "string" ? me.product : null;
+  const product =
+    productRaw === "premium" || productRaw === "free" || productRaw === "open"
+      ? productRaw
+      : null;
+  return { id: me.id, product };
+}
+
 export async function createPrivatePlaylist(
   accessToken: string,
   name: string,

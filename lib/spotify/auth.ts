@@ -8,6 +8,9 @@ const OAUTH_SCOPES = [
   "playlist-modify-public",
   "user-read-private",
   "user-read-playback-state",
+  "user-read-currently-playing",
+  "user-modify-playback-state",
+  "streaming",
 ].join(" ");
 
 const STATE_COOKIE = "spotify_oauth_state";
@@ -118,14 +121,19 @@ export async function refreshAccessToken(
 export async function saveSpotifyCredentials(input: {
   refreshToken: string;
   spotifyUserId: string;
+  grantedScopes?: string | null;
 }): Promise<void> {
+  const row: Record<string, string> = {
+    id: "default",
+    refresh_token: input.refreshToken,
+    spotify_user_id: input.spotifyUserId,
+    updated_at: new Date().toISOString(),
+  };
+  if (input.grantedScopes != null) {
+    row.granted_scopes = input.grantedScopes;
+  }
   const { error } = await supabaseServer.from("spotify_oauth_credentials").upsert(
-    {
-      id: "default",
-      refresh_token: input.refreshToken,
-      spotify_user_id: input.spotifyUserId,
-      updated_at: new Date().toISOString(),
-    },
+    row,
     { onConflict: "id" }
   );
   if (error) {
@@ -136,10 +144,11 @@ export async function saveSpotifyCredentials(input: {
 export async function getStoredSpotifyCredentials(): Promise<{
   refreshToken: string;
   spotifyUserId: string;
+  grantedScopes: string | null;
 } | null> {
   const { data, error } = await supabaseServer
     .from("spotify_oauth_credentials")
-    .select("refresh_token, spotify_user_id")
+    .select("refresh_token, spotify_user_id, granted_scopes")
     .eq("id", "default")
     .maybeSingle();
 
@@ -150,12 +159,16 @@ export async function getStoredSpotifyCredentials(): Promise<{
   return {
     refreshToken: data.refresh_token,
     spotifyUserId: data.spotify_user_id,
+    grantedScopes:
+      typeof data.granted_scopes === "string" ? data.granted_scopes : null,
   };
 }
 
 export async function getValidAccessToken(): Promise<{
   accessToken: string;
   spotifyUserId: string;
+  expiresIn: number;
+  grantedScopes: string | null;
 }> {
   const creds = await getStoredSpotifyCredentials();
   if (!creds) {
@@ -166,10 +179,13 @@ export async function getValidAccessToken(): Promise<{
     await saveSpotifyCredentials({
       refreshToken: tokens.refresh_token,
       spotifyUserId: creds.spotifyUserId,
+      grantedScopes: tokens.scope ?? creds.grantedScopes,
     });
   }
   return {
     accessToken: tokens.access_token,
     spotifyUserId: creds.spotifyUserId,
+    expiresIn: tokens.expires_in,
+    grantedScopes: creds.grantedScopes,
   };
 }

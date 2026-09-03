@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
-import { getStoredSpotifyCredentials } from "@/lib/spotify/auth";
+import {
+  getStoredSpotifyCredentials,
+  getValidAccessToken,
+} from "@/lib/spotify/auth";
+import { fetchSpotifyUserProfile } from "@/lib/spotify/client";
 import { getMasterPlaylistRefs } from "@/lib/spotify/masters";
+import { needsDeckReconnect } from "@/lib/spotify/scopes";
 
 export async function GET(req: NextRequest) {
   try {
@@ -27,9 +32,23 @@ export async function GET(req: NextRequest) {
       console.error("Failed to load master playlists for status:", err);
     }
 
+    let product: "premium" | "free" | "open" | null = null;
+    if (creds) {
+      try {
+        const { accessToken } = await getValidAccessToken();
+        const profile = await fetchSpotifyUserProfile(accessToken);
+        product = profile.product;
+      } catch (err) {
+        console.error("Failed to fetch Spotify user profile:", err);
+      }
+    }
+
     return NextResponse.json({
       connected: Boolean(creds),
       spotifyUserId: creds?.spotifyUserId ?? null,
+      grantedScopes: creds?.grantedScopes ?? null,
+      needsDeckReconnect: needsDeckReconnect(creds?.grantedScopes),
+      product,
       masters,
     });
   } catch (error: unknown) {

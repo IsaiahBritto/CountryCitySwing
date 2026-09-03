@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
     await saveSpotifyCredentials({
       refreshToken: tokens.refresh_token,
       spotifyUserId,
+      grantedScopes: tokens.scope ?? null,
     });
 
     return NextResponse.redirect(`${origin}/spotify?connected=1`);

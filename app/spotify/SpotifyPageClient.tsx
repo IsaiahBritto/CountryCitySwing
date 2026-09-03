@@ -92,6 +92,7 @@ export default function SpotifyPageClient() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [needsDeckReconnect, setNeedsDeckReconnect] = useState(false);
   const [masters, setMasters] = useState<MasterInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [playlistName, setPlaylistName] = useState("");
@@ -203,6 +204,7 @@ export default function SpotifyPageClient() {
       }
       const data = await res.json();
       setConnected(Boolean(data.connected));
+      setNeedsDeckReconnect(Boolean(data.needsDeckReconnect));
       setMasters((data.masters as MasterInfo[]) ?? []);
       await loadActivePlaylist(token);
       if (data.connected) {
@@ -530,7 +532,24 @@ export default function SpotifyPageClient() {
           Sync master playlist features, then generate a private mix with your
           chosen duration and dance section pattern.
         </p>
+        {connected && (
+          <Link
+            href="/spotify/deck"
+            className="inline-block text-sm text-amber-400 hover:text-amber-300 underline"
+          >
+            Open DJ Deck →
+          </Link>
+        )}
       </header>
+
+      {needsDeckReconnect && connected && (
+        <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
+          Reconnect Spotify to grant DJ deck playback scopes (
+          <code className="text-xs">streaming</code>,{" "}
+          <code className="text-xs">user-modify-playback-state</code>,{" "}
+          <code className="text-xs">user-read-currently-playing</code>).
+        </div>
+      )}
 
       {error && (
         <p className="text-red-400 text-sm text-center" role="alert">
@@ -726,7 +745,7 @@ export default function SpotifyPageClient() {
               link can request songs into this playlist. Only playlists{" "}
               <span className="text-gray-300">owned</span> by the connected
               Spotify account are listed (those are editable for requests).
-              After adding playback scopes, reconnect Spotify once.
+              Reconnect once after enabling DJ deck playback scopes.
             </p>
             {activePlaylist?.isActive ? (
               <div className="text-sm text-gray-300 space-y-2">

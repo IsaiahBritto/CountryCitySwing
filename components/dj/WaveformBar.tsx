@@ -26,7 +26,7 @@ export default function WaveformBar({
     <div className="space-y-1">
       <div className="h-2 rounded-full bg-neutral-800 overflow-hidden">
         <div
-          className={`h-full bg-gradient-to-r ${gradient} transition-[width] duration-300 ${
+          className={`h-full bg-gradient-to-r ${gradient} ${
             isActive ? "opacity-100" : "opacity-40"
           }`}
           style={{ width: `${progress}%` }}

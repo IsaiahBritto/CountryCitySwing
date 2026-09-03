@@ -14,7 +14,15 @@ function isEventPageTestRoute(pathname: string) {
 }
 
 function isWideRoute(pathname: string) {
-  return pathname.startsWith("/admin") || pathname.startsWith("/registration");
+  return (
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/registration") ||
+    pathname.startsWith("/spotify/deck")
+  );
+}
+
+function isDeckRoute(pathname: string) {
+  return pathname.startsWith("/spotify/deck");
 }
 
 function isJudgeRoute(pathname: string) {
@@ -48,7 +56,9 @@ export default function SiteShell({ children }: { children: ReactNode }) {
     <>
       <Navbar />
       <main
-        className={`flex-grow ${mainMaxWidthClass(pathname)} mx-auto w-full min-w-0 px-4 sm:px-6 py-10`}
+        className={`flex-grow ${mainMaxWidthClass(pathname)} mx-auto w-full min-w-0 px-4 sm:px-6 ${
+          isDeckRoute(pathname) ? "py-4 sm:py-10" : "py-10"
+        }`}
       >
         {children}
       </main>

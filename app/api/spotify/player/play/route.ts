@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as {
       uri?: string;
       deviceId?: string;
+      positionMs?: number;
     };
 
     if (typeof body.uri !== "string" || !body.uri.trim()) {
@@ -38,12 +39,19 @@ export async function POST(req: NextRequest) {
     }
 
     const { accessToken } = await getValidAccessToken();
+    const playBody: { uris: string[]; position_ms?: number } = {
+      uris: [body.uri.trim()],
+    };
+    if (typeof body.positionMs === "number" && body.positionMs > 0) {
+      playBody.position_ms = Math.floor(body.positionMs);
+    }
+
     const res = await spotifyPlayerFetch(
       accessToken,
       `/me/player/play?device_id=${encodeURIComponent(body.deviceId.trim())}`,
       {
         method: "PUT",
-        body: JSON.stringify({ uris: [body.uri.trim()] }),
+        body: JSON.stringify(playBody),
       }
     );
 

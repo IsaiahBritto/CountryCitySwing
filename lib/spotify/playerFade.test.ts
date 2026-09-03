@@ -24,11 +24,10 @@ describe("crossfaderGain", () => {
 });
 
 describe("computeEffectiveVolume", () => {
-  it("combines deck, master, and crossfader for active deck", () => {
+  it("combines deck and master volume for active deck", () => {
     const v = computeEffectiveVolume({
       deckVolume: { A: 0.8, B: 1 },
       masterVolume: 0.5,
-      crossfader: 0,
       activeDeck: "A",
     });
     expect(v).toBeCloseTo(0.4);

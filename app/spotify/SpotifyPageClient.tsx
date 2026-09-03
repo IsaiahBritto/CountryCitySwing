@@ -290,18 +290,8 @@ export default function SpotifyPageClient() {
     setError(null);
     try {
       const token = await getFreshAdminToken();
-      const res = await fetch("/api/spotify/auth", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          (data as { error?: string }).error ?? "Failed to start Spotify auth"
-        );
-      }
-      const url = (data as { url?: string }).url;
-      if (!url) throw new Error("Missing Spotify authorize URL");
-      window.location.href = url;
+      const returnTo = encodeURIComponent("/spotify");
+      window.location.href = `/api/spotify/auth/start?returnTo=${returnTo}&token=${encodeURIComponent(token)}`;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to connect Spotify");
       setConnecting(false);

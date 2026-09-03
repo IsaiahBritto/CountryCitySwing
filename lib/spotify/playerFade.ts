@@ -31,12 +31,10 @@ export function crossfaderGain(crossfader: number, deckId: DeckId): number {
 export function computeEffectiveVolume(input: {
   deckVolume: Record<DeckId, number>;
   masterVolume: number;
-  crossfader: number;
   activeDeck: DeckId;
 }): number {
   const deckVol = input.deckVolume[input.activeDeck] ?? 1;
-  const gain = crossfaderGain(input.crossfader, input.activeDeck);
-  return Math.max(0, Math.min(1, deckVol * input.masterVolume * gain));
+  return Math.max(0, Math.min(1, deckVol * input.masterVolume));
 }
 
 export function nextCrossfadePhase(

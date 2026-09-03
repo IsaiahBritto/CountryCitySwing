@@ -15,6 +15,27 @@ const OAUTH_SCOPES = [
 
 const STATE_COOKIE = "spotify_oauth_state";
 
+export const SPOTIFY_OAUTH_STATE_COOKIE = STATE_COOKIE;
+
+export function createSpotifyOAuthRedirect(): {
+  state: string;
+  authorizeUrl: string;
+} {
+  const state = crypto.randomUUID();
+  return { state, authorizeUrl: buildSpotifyAuthorizeUrl(state) };
+}
+
+export function spotifyOAuthStateCookieOptions(state: string) {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 10,
+    value: state,
+  };
+}
+
 export type SpotifyTokenSet = {
   access_token: string;
   token_type: string;

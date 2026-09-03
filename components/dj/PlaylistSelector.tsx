@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { DeckTrack } from "@/lib/spotify/djDeckState";
+import { apiError, authedFetchWithRetry } from "@/lib/clientAuth";
+import type { DeckId, DeckTrack } from "@/lib/spotify/djDeckState";
 
-const SESSION_KEY = "dj-deck-playlist-id";
+function sessionKey(deckId: DeckId) {
+  return `dj-deck-playlist-id-${deckId}`;
+}
 
 type OwnedPlaylist = {
   id: string;
@@ -12,21 +15,21 @@ type OwnedPlaylist = {
 };
 
 export type PlaylistSelectorProps = {
-  authToken: string;
+  deckId: DeckId;
   value: string | null;
-  onChange: (playlist: { id: string; name: string }) => void;
-  onQueueLoaded: (payload: {
-    tracks: DeckTrack[];
-    totalDurationMs: number;
-  }) => void;
+  onChange: (deck: DeckId, playlist: { id: string; name: string }) => void;
+  onPlaylistLoaded: (
+    deck: DeckId,
+    payload: { tracks: DeckTrack[]; totalDurationMs: number }
+  ) => void;
   disabled?: boolean;
 };
 
 export default function PlaylistSelector({
-  authToken,
+  deckId,
   value,
   onChange,
-  onQueueLoaded,
+  onPlaylistLoaded,
   disabled = false,
 }: PlaylistSelectorProps) {
   const [playlists, setPlaylists] = useState<OwnedPlaylist[]>([]);
@@ -39,30 +42,29 @@ export default function PlaylistSelector({
       setLoadingTracks(true);
       setError(null);
       try {
-        const res = await fetch(
-          `/api/spotify/playlists/${encodeURIComponent(playlistId)}/tracks`,
-          { headers: { Authorization: `Bearer ${authToken}` } }
+        const res = await authedFetchWithRetry(
+          `/api/spotify/playlists/${encodeURIComponent(playlistId)}/tracks`
         );
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw new Error(
-            (body as { error?: string }).error ?? "Failed to load tracks"
+            (body as { error?: string }).error ?? (await apiError(res))
           );
         }
-        onChange({ id: playlistId, name: playlistName });
-        onQueueLoaded({
+        onChange(deckId, { id: playlistId, name: playlistName });
+        onPlaylistLoaded(deckId, {
           tracks: (body as { tracks?: DeckTrack[] }).tracks ?? [],
           totalDurationMs:
             (body as { totalDurationMs?: number }).totalDurationMs ?? 0,
         });
-        sessionStorage.setItem(SESSION_KEY, playlistId);
+        sessionStorage.setItem(sessionKey(deckId), playlistId);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load tracks");
       } finally {
         setLoadingTracks(false);
       }
     },
-    [authToken, onChange, onQueueLoaded]
+    [deckId, onChange, onPlaylistLoaded]
   );
 
   useEffect(() => {
@@ -71,13 +73,11 @@ export default function PlaylistSelector({
       setLoadingList(true);
       setError(null);
       try {
-        const res = await fetch("/api/spotify/playlists", {
-          headers: { Authorization: `Bearer ${authToken}` },
-        });
+        const res = await authedFetchWithRetry("/api/spotify/playlists");
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw new Error(
-            (body as { error?: string }).error ?? "Failed to list playlists"
+            (body as { error?: string }).error ?? (await apiError(res))
           );
         }
         const list =
@@ -86,10 +86,12 @@ export default function PlaylistSelector({
         if (cancelled) return;
         setPlaylists(list);
 
-        const savedId = sessionStorage.getItem(SESSION_KEY);
+        if (value) return;
+
+        const savedId = sessionStorage.getItem(sessionKey(deckId));
         const initial =
           (savedId && list.find((p) => p.id === savedId)) ||
-          list[0];
+          (deckId === "A" ? list[0] : null);
         if (initial) {
           await loadTracks(initial.id, initial.name);
         }
@@ -106,7 +108,7 @@ export default function PlaylistSelector({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
-  }, [authToken]);
+  }, [deckId]);
 
   const handleSelect = async (playlistId: string) => {
     const playlist = playlists.find((p) => p.id === playlistId);
@@ -127,16 +129,20 @@ export default function PlaylistSelector({
   }
 
   return (
-    <div className="flex flex-col gap-1 min-w-[240px]">
+    <div className="flex flex-col gap-1 min-w-0 w-full">
       <label className="text-xs uppercase tracking-wide text-neutral-500">
-        Playlist
+        <span className="sm:hidden">{deckId}</span>
+        <span className="hidden sm:inline">Player {deckId} playlist</span>
       </label>
       <select
         value={value ?? ""}
         onChange={(e) => void handleSelect(e.target.value)}
         disabled={disabled || loadingTracks}
-        className="bg-neutral-800 border border-neutral-600 rounded px-3 py-2 text-sm text-neutral-100 disabled:opacity-50"
+        className="bg-neutral-800 border border-neutral-600 rounded px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm text-neutral-100 disabled:opacity-50 w-full min-w-0"
       >
+        <option value="" disabled>
+          Select playlist…
+        </option>
         {playlists.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -145,7 +151,7 @@ export default function PlaylistSelector({
         ))}
       </select>
       {loadingTracks && (
-        <span className="text-xs text-neutral-500">Loading queue…</span>
+        <span className="text-xs text-neutral-500">Loading playlist…</span>
       )}
       {error && (
         <div className="flex items-center gap-2">

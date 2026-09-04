@@ -83,6 +83,9 @@ export default function DjDeckPageClient() {
   const lastBackKeyAtRef = useRef(0);
   const crossfadeInProgressRef = useRef(false);
   const crossfadeCancelRef = useRef<(() => void) | null>(null);
+  const primedTrackUriRef = useRef<string | null>(null);
+  const primeInFlightRef = useRef<string | null>(null);
+  const autoPrimeEnabledRef = useRef(true);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -121,6 +124,63 @@ export default function DjDeckPageClient() {
     if (!isSdkOnActiveTrack) return;
     syncFromSdk(player.positionMs, player.isPlaying);
   }, [isSdkOnActiveTrack, player.isPlaying, player.positionMs, syncFromSdk]);
+
+  const playerStatus = player.status;
+  const playerCurrentTrackUri = player.currentTrackUri;
+  const playerIsPlaying = player.isPlaying;
+  const primeTrack = player.primeTrack;
+
+  const tryPrimeActiveTrack = useCallback(
+    async () => {
+      if (!autoPrimeEnabledRef.current) return;
+      if (!audioUnlocked || playerStatus !== "ready") return;
+      const uri = getNowPlaying(stateRef.current)?.uri ?? null;
+      if (!uri) return;
+      if (primedTrackUriRef.current === uri) return;
+      if (primeInFlightRef.current === uri) return;
+
+      if (
+        trackUrisMatch(playerCurrentTrackUri, uri) &&
+        !playerIsPlaying
+      ) {
+        primedTrackUriRef.current = uri;
+        return;
+      }
+
+      if (playerIsPlaying && trackUrisMatch(playerCurrentTrackUri, uri)) {
+        primedTrackUriRef.current = uri;
+        return;
+      }
+
+      primeInFlightRef.current = uri;
+      try {
+        await primeTrack(uri);
+        primedTrackUriRef.current = uri;
+      } catch {
+        /* best-effort; user Play still attempts full path */
+      } finally {
+        if (primeInFlightRef.current === uri) {
+          primeInFlightRef.current = null;
+        }
+      }
+    },
+    [
+      audioUnlocked,
+      playerCurrentTrackUri,
+      playerIsPlaying,
+      playerStatus,
+      primeTrack,
+    ]
+  );
+
+  useEffect(() => {
+    if (!activeTrackUri) {
+      primedTrackUriRef.current = null;
+      primeInFlightRef.current = null;
+      return;
+    }
+    void tryPrimeActiveTrack();
+  }, [activeTrackUri, audioUnlocked, playerStatus, tryPrimeActiveTrack]);
 
   const loadSpotifyStatus = useCallback(async () => {
     const res = await authedFetchWithRetry("/api/spotify/status");
@@ -215,6 +275,7 @@ export default function DjDeckPageClient() {
     try {
       await player.connect();
       setAudioUnlocked(true);
+      void tryPrimeActiveTrack();
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to connect player");
     } finally {
@@ -382,6 +443,7 @@ export default function DjDeckPageClient() {
       }
 
       dispatch({ type: "SET_ACTIVE_DECK", deck });
+      autoPrimeEnabledRef.current = false;
     },
     [clockPositionMs, pauseClock, player, showToast]
   );
@@ -538,16 +600,19 @@ export default function DjDeckPageClient() {
           });
           await player.pause();
           pauseClock();
-        } else if (sameUri && !player.isPlaying) {
-          if (savedPosition > 0) {
-            await player.seek(savedPosition);
-            syncFromSdk(savedPosition, true);
-          } else {
-            resumeClock();
-          }
-          await player.resume();
         } else {
-          await startPlayback(deck, track, savedPosition);
+          if (sameUri && !player.isPlaying) {
+            if (savedPosition > 0) {
+              await player.seek(savedPosition);
+              syncFromSdk(savedPosition, true);
+            } else {
+              resumeClock();
+            }
+            await player.resume();
+          } else {
+            await startPlayback(deck, track, savedPosition);
+          }
+          autoPrimeEnabledRef.current = false;
         }
       } catch (err) {
         showToast(err instanceof Error ? err.message : "Playback failed");
@@ -769,9 +834,41 @@ export default function DjDeckPageClient() {
         playlistTotalDurationMs: totalDurationMs,
       });
       trackEndTriggeredRef.current = false;
+      if (deck === stateRef.current.activeDeck) {
+        void tryPrimeActiveTrack();
+      }
     },
-    []
+    [tryPrimeActiveTrack]
   );
+
+  const handleRemoveSecondDeck = useCallback(async () => {
+    const current = stateRef.current;
+    const deckB = getDeckState(current, "B");
+    const hasLoadedPlaylist =
+      deckB.playlist.length > 0 || deckB.playQueue.length > 0;
+    if (
+      hasLoadedPlaylist &&
+      !window.confirm(
+        "Remove Player B? Its playlist and queue will be cleared."
+      )
+    ) {
+      return;
+    }
+
+    if (current.activeDeck === "B" && player.isPlaying) {
+      cancelCrossfade();
+      try {
+        await player.pause();
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Pause failed");
+      }
+      pauseClock();
+    }
+
+    trackEndTriggeredRef.current = false;
+    wasPlayingActiveTrackRef.current = false;
+    dispatch({ type: "DISABLE_SECOND_DECK" });
+  }, [cancelCrossfade, pauseClock, player, showToast]);
 
   useEffect(() => {
     if (!activeTrackUri || activeDurationMs <= 0 || !isSdkOnActiveTrack) {
@@ -1015,6 +1112,15 @@ export default function DjDeckPageClient() {
                 className="px-3 py-1.5 rounded-lg border border-neutral-600 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
               >
                 + Add another playlist
+              </button>
+            )}
+            {state.secondDeckEnabled && (
+              <button
+                type="button"
+                onClick={() => void handleRemoveSecondDeck()}
+                className="px-3 py-1.5 rounded-lg border border-neutral-600 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
+              >
+                Remove Player B
               </button>
             )}
           </div>

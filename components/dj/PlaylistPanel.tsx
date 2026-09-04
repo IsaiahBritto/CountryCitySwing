@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import MarqueeText from "@/components/dj/MarqueeText";
 import type { DeckId, DeckTrack, QueueRowStatus } from "@/lib/spotify/djDeckState";
 import {
   formatTotalDuration,
@@ -90,10 +91,10 @@ export default function PlaylistPanel({
             <tr className="text-left text-[10px] sm:text-xs uppercase tracking-wide text-neutral-500 border-b border-neutral-700">
               <th className="hidden sm:table-cell px-3 py-2 w-10">#</th>
               <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-8"></th>
-              <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-[40%] sm:w-auto">
+              <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-[48%] sm:w-auto">
                 Artist
               </th>
-              <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-[40%] sm:w-auto">
+              <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-[48%] sm:w-auto">
                 Title
               </th>
               <th className="hidden sm:table-cell px-2 py-2 w-16 text-right">
@@ -135,11 +136,11 @@ export default function PlaylistPanel({
                       ▶
                     </button>
                   </td>
-                  <td className="px-1.5 py-1 sm:px-2 sm:py-2 text-orange-400/90 truncate">
-                    {track.primaryArtist}
+                  <td className="px-1.5 py-1 sm:px-2 sm:py-2 text-orange-400/90 max-w-0">
+                    <MarqueeText>{track.primaryArtist}</MarqueeText>
                   </td>
-                  <td className="px-1.5 py-1 sm:px-2 sm:py-2 text-neutral-100 truncate">
-                    {track.name}
+                  <td className="px-1.5 py-1 sm:px-2 sm:py-2 text-neutral-100 max-w-0">
+                    <MarqueeText>{track.name}</MarqueeText>
                   </td>
                   <td className="hidden sm:table-cell px-2 py-2 text-right text-neutral-400 tabular-nums">
                     {track.bpm ?? "—"}

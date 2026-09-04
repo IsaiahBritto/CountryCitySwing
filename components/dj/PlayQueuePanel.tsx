@@ -1,5 +1,6 @@
 "use client";
 
+import MarqueeText from "@/components/dj/MarqueeText";
 import type { DeckId, DeckTrack, AfterQueueBehavior } from "@/lib/spotify/djDeckState";
 import {
   formatTrackDuration,
@@ -171,8 +172,8 @@ export default function PlayQueuePanel({
             <tr className="text-left text-[10px] sm:text-xs uppercase tracking-wide text-neutral-500 border-b border-neutral-700">
               <th className="hidden sm:table-cell px-2 py-2 w-8">#</th>
               <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-8"></th>
-              <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-[45%]">Artist</th>
-              <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-[45%]">Title</th>
+              <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-[48%] sm:w-auto">Artist</th>
+              <th className="px-1.5 py-1 sm:px-2 sm:py-2 w-[48%] sm:w-auto">Title</th>
               <th className="hidden sm:table-cell px-2 py-2 w-14 text-right">
                 Time
               </th>
@@ -207,11 +208,11 @@ export default function PlayQueuePanel({
                       ▶
                     </button>
                   </td>
-                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 truncate opacity-90">
-                    {track.primaryArtist}
+                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 max-w-0 opacity-90">
+                    <MarqueeText>{track.primaryArtist}</MarqueeText>
                   </td>
-                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-neutral-100 truncate">
-                    {track.name}
+                  <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-neutral-100 max-w-0">
+                    <MarqueeText>{track.name}</MarqueeText>
                   </td>
                   <td className="hidden sm:table-cell px-2 py-1.5 text-right text-neutral-400 tabular-nums">
                     {formatTrackDuration(track.durationMs)}

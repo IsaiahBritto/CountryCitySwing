@@ -382,4 +382,34 @@ describe("crossfade helpers", () => {
   it("crossfadeSecondsToMs converts clamped seconds", () => {
     expect(crossfadeSecondsToMs(2.5)).toBe(2500);
   });
+
+  it("DISABLE_SECOND_DECK clears deck B and preserves deck A", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, { type: "ENABLE_SECOND_DECK" });
+    state = djDeckReducer(state, {
+      type: "SET_PLAYLIST",
+      deck: "B",
+      playlist: [track(10), track(11)],
+      playlistTotalDurationMs: 360000,
+    });
+    state = djDeckReducer(state, { type: "SET_ACTIVE_DECK", deck: "B" });
+    state = djDeckReducer(state, {
+      type: "SET_AFTER_QUEUE_CONTINUE_DECK",
+      deck: "A",
+      targetDeck: "B",
+    });
+
+    const next = djDeckReducer(state, { type: "DISABLE_SECOND_DECK" });
+
+    expect(next.secondDeckEnabled).toBe(false);
+    expect(next.activeDeck).toBe("A");
+    expect(next.deckA.track?.id).toBe("id-0");
+    expect(next.deckA.playlist).toHaveLength(4);
+    expect(next.deckA.afterQueueContinueDeck).toBe("A");
+    expect(next.deckB.playlist).toHaveLength(0);
+    expect(next.deckB.track).toBeNull();
+    expect(next.deckB.enabled).toBe(false);
+    expect(next.highlightedQueueIndex.B).toBeNull();
+    expect(next.highlightedPlaylistIndex.B).toBeNull();
+  });
 });

@@ -47,6 +47,7 @@ export type DjDeckState = {
 
 export type DjDeckAction =
   | { type: "ENABLE_SECOND_DECK" }
+  | { type: "DISABLE_SECOND_DECK" }
   | {
       type: "SELECT_PLAYLIST";
       deck: DeckId;
@@ -225,6 +226,27 @@ export function djDeckReducer(
         secondDeckEnabled: true,
         deckB: { ...state.deckB, enabled: true },
       };
+    case "DISABLE_SECOND_DECK": {
+      const resetAfterQueueContinue = (deck: DeckState): DeckState =>
+        deck.afterQueueContinueDeck === "B"
+          ? { ...deck, afterQueueContinueDeck: "A" }
+          : deck;
+      return {
+        ...state,
+        secondDeckEnabled: false,
+        activeDeck: state.activeDeck === "B" ? "A" : state.activeDeck,
+        deckA: resetAfterQueueContinue(state.deckA),
+        deckB: createEmptyDeckState(false, "B"),
+        highlightedQueueIndex: {
+          ...state.highlightedQueueIndex,
+          B: null,
+        },
+        highlightedPlaylistIndex: {
+          ...state.highlightedPlaylistIndex,
+          B: null,
+        },
+      };
+    }
     case "SELECT_PLAYLIST":
       return updateDeck(state, action.deck, (deck) => ({
         ...createEmptyDeckState(deck.enabled, action.deck),

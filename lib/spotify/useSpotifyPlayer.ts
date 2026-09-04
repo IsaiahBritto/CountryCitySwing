@@ -70,6 +70,7 @@ export type UseSpotifyPlayerReturn = {
   volume: number;
   connect: () => Promise<void>;
   disconnect: () => void;
+  primeTrack: (uri: string) => Promise<void>;
   playUri: (uri: string, positionMs?: number) => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
@@ -334,6 +335,29 @@ export function useSpotifyPlayer(
     await syncCurrentState();
   }, [syncCurrentState]);
 
+  const primeTrack = useCallback(
+    async (uri: string) => {
+      const id = deviceIdRef.current;
+      if (!authTokenRef.current || !id) return;
+      if (statusRef.current !== "ready") return;
+
+      await playerRef.current?.activateElement();
+      await playerApi("/api/spotify/player/play", { uri, deviceId: id });
+
+      let mapped = await syncCurrentState();
+      if (!mapped) {
+        await sleep(500);
+        mapped = await syncCurrentState();
+      }
+
+      if (mapped?.isPlaying) {
+        await playerRef.current?.pause();
+        await syncCurrentState();
+      }
+    },
+    [syncCurrentState]
+  );
+
   const resume = useCallback(async () => {
     await playerRef.current?.activateElement();
     await playerRef.current?.resume();
@@ -383,6 +407,7 @@ export function useSpotifyPlayer(
     volume,
     connect,
     disconnect,
+    primeTrack,
     playUri,
     pause,
     resume,

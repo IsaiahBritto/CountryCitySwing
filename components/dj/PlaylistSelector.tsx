@@ -23,6 +23,8 @@ export type PlaylistSelectorProps = {
     payload: { tracks: DeckTrack[]; totalDurationMs: number }
   ) => void;
   disabled?: boolean;
+  disableAutoLoad?: boolean;
+  tracksLoaded?: boolean;
 };
 
 export default function PlaylistSelector({
@@ -31,6 +33,8 @@ export default function PlaylistSelector({
   onChange,
   onPlaylistLoaded,
   disabled = false,
+  disableAutoLoad = false,
+  tracksLoaded = false,
 }: PlaylistSelectorProps) {
   const [playlists, setPlaylists] = useState<OwnedPlaylist[]>([]);
   const [loadingList, setLoadingList] = useState(true);
@@ -86,7 +90,7 @@ export default function PlaylistSelector({
         if (cancelled) return;
         setPlaylists(list);
 
-        if (value) return;
+        if (value || disableAutoLoad || tracksLoaded) return;
 
         const savedId = sessionStorage.getItem(sessionKey(deckId));
         const initial =

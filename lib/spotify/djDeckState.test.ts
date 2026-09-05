@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clampCrossfadeSeconds,
   crossfadeSecondsToMs,
+  deserializeDjDeckState,
   djDeckReducer,
   getNextUnplayedPlaylistIndex,
   getNowPlaying,
@@ -11,6 +12,7 @@ import {
   playQueueRowStatus,
   playQueueTotalDurationMs,
   playlistRowStatus,
+  serializeDjDeckState,
 } from "@/lib/spotify/djDeckState";
 
 const track = (i: number) => ({
@@ -411,5 +413,22 @@ describe("crossfade helpers", () => {
     expect(next.deckB.enabled).toBe(false);
     expect(next.highlightedQueueIndex.B).toBeNull();
     expect(next.highlightedPlaylistIndex.B).toBeNull();
+  });
+
+  it("RESTORE_SESSION replaces full deck state", () => {
+    const loaded = withPlaylist();
+    const restored = djDeckReducer(INITIAL_DJ_DECK_STATE, {
+      type: "RESTORE_SESSION",
+      state: loaded,
+    });
+    expect(getNowPlaying(restored)?.id).toBe("id-0");
+    expect(restored.deckA.playlist).toHaveLength(4);
+  });
+
+  it("serialize and deserialize round-trip deck state", () => {
+    const state = withPlaylist();
+    const roundTripped = deserializeDjDeckState(serializeDjDeckState(state));
+    expect(roundTripped.deckA.playlist[0]?.id).toBe("id-0");
+    expect(roundTripped.deckA.track?.uri).toBe("spotify:track:id-0");
   });
 });

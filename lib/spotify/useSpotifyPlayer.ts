@@ -52,9 +52,20 @@ export type SpotifyPlayerStatus =
   | "ready"
   | "error";
 
+export type SpotifyPlayerMode = "host" | "controller";
+
+export type ControllerPlaybackSnapshot = {
+  isPlaying: boolean;
+  positionMs: number;
+  durationMs: number;
+  currentTrackUri: string | null;
+};
+
 export type UseSpotifyPlayerOptions = {
   authToken: string | null;
   enabled: boolean;
+  mode?: SpotifyPlayerMode;
+  controllerSnapshot?: ControllerPlaybackSnapshot | null;
   onPlaybackError?: (message: string) => void;
   onPlaybackInterrupted?: (message: string) => void;
 };
@@ -134,7 +145,15 @@ function mapPlayerState(state: SpotifyPlaybackState | null): MappedPlayerState |
 export function useSpotifyPlayer(
   options: UseSpotifyPlayerOptions
 ): UseSpotifyPlayerReturn {
-  const { authToken, enabled, onPlaybackError, onPlaybackInterrupted } = options;
+  const {
+    authToken,
+    enabled,
+    mode = "host",
+    controllerSnapshot = null,
+    onPlaybackError,
+    onPlaybackInterrupted,
+  } = options;
+  const isController = mode === "controller";
   const playerRef = useRef<SpotifyPlayerInstance | null>(null);
   const authTokenRef = useRef(authToken);
   authTokenRef.current = authToken;
@@ -384,10 +403,19 @@ export function useSpotifyPlayer(
   }, []);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || isController) {
       disconnect();
     }
-  }, [enabled, disconnect]);
+  }, [enabled, disconnect, isController]);
+
+  useEffect(() => {
+    if (!isController || !controllerSnapshot) return;
+    setIsPlaying(controllerSnapshot.isPlaying);
+    setPositionMs(controllerSnapshot.positionMs);
+    setDurationMs(controllerSnapshot.durationMs);
+    setCurrentTrackUri(controllerSnapshot.currentTrackUri);
+    updateStatus("ready");
+  }, [controllerSnapshot, isController, updateStatus]);
 
   useEffect(() => {
     return () => {
@@ -395,6 +423,40 @@ export function useSpotifyPlayer(
       playerRef.current = null;
     };
   }, []);
+
+  const controllerConnect = useCallback(async () => {
+    updateStatus("ready");
+  }, [updateStatus]);
+
+  const controllerNoop = useCallback(async () => {
+    /* controller mode routes playback through session commands */
+  }, []);
+
+  const controllerSetVolume = useCallback((nextVolume: number) => {
+    const clamped = Math.max(0, Math.min(1, nextVolume));
+    setVolumeState(clamped);
+  }, []);
+
+  if (isController) {
+    return {
+      status: (enabled ? "ready" : "idle") as SpotifyPlayerStatus,
+      error: null,
+      deviceId: null,
+      isPlaying: controllerSnapshot?.isPlaying ?? false,
+      positionMs: controllerSnapshot?.positionMs ?? 0,
+      durationMs: controllerSnapshot?.durationMs ?? 0,
+      currentTrackUri: controllerSnapshot?.currentTrackUri ?? null,
+      volume,
+      connect: controllerConnect,
+      disconnect,
+      primeTrack: controllerNoop,
+      playUri: controllerNoop,
+      pause: controllerNoop,
+      resume: controllerNoop,
+      seek: controllerNoop,
+      setVolume: controllerSetVolume,
+    };
+  }
 
   return {
     status,

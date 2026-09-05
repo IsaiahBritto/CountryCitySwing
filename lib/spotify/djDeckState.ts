@@ -85,7 +85,8 @@ export type DjDeckAction =
   | { type: "SET_DECK_CROSSFADE"; deck: DeckId; seconds: number }
   | { type: "SET_MASTER_VOLUME"; value: number }
   | { type: "HIGHLIGHT_QUEUE_ROW"; deck: DeckId; index: number | null }
-  | { type: "HIGHLIGHT_PLAYLIST_ROW"; deck: DeckId; index: number | null };
+  | { type: "HIGHLIGHT_PLAYLIST_ROW"; deck: DeckId; index: number | null }
+  | { type: "RESTORE_SESSION"; state: DjDeckState };
 
 function createEmptyDeckState(enabled: boolean, deckId: DeckId): DeckState {
   return {
@@ -530,6 +531,8 @@ export function djDeckReducer(
           [action.deck]: action.index,
         },
       };
+    case "RESTORE_SESSION":
+      return normalizeDjDeckState(action.state);
     default:
       return state;
   }
@@ -659,4 +662,153 @@ export function isTrackInPlayQueue(
   trackId: string
 ): boolean {
   return getDeckState(state, deck).playQueue.some((t) => t.id === trackId);
+}
+
+function parseDeckTrack(raw: unknown): DeckTrack | null {
+  if (!raw || typeof raw !== "object") return null;
+  const t = raw as Record<string, unknown>;
+  if (typeof t.id !== "string" || typeof t.uri !== "string") return null;
+  if (typeof t.name !== "string" || typeof t.primaryArtist !== "string") {
+    return null;
+  }
+  if (typeof t.durationMs !== "number" || !Number.isFinite(t.durationMs)) {
+    return null;
+  }
+  const track: DeckTrack = {
+    id: t.id,
+    uri: t.uri,
+    name: t.name,
+    primaryArtist: t.primaryArtist,
+    durationMs: Math.max(0, t.durationMs),
+  };
+  if (typeof t.bpm === "number" && Number.isFinite(t.bpm)) {
+    track.bpm = t.bpm;
+  }
+  return track;
+}
+
+function parseDeckState(raw: unknown, deckId: DeckId): DeckState {
+  const empty = createEmptyDeckState(deckId === "A", deckId);
+  if (!raw || typeof raw !== "object") return empty;
+  const d = raw as Record<string, unknown>;
+
+  const playlist = Array.isArray(d.playlist)
+    ? d.playlist.map(parseDeckTrack).filter((t): t is DeckTrack => t != null)
+    : [];
+
+  const playQueue = Array.isArray(d.playQueue)
+    ? d.playQueue.map(parseDeckTrack).filter((t): t is DeckTrack => t != null)
+    : [];
+
+  const playedPlaylistIndices = Array.isArray(d.playedPlaylistIndices)
+    ? d.playedPlaylistIndices.filter(
+        (i): i is number => typeof i === "number" && Number.isInteger(i)
+      )
+    : [];
+
+  return {
+    enabled: d.enabled === true || (deckId === "A" && d.enabled !== false),
+    playlistId: typeof d.playlistId === "string" ? d.playlistId : null,
+    playlistName: typeof d.playlistName === "string" ? d.playlistName : null,
+    playlist,
+    playlistTotalDurationMs:
+      typeof d.playlistTotalDurationMs === "number"
+        ? Math.max(0, d.playlistTotalDurationMs)
+        : playlist.reduce((sum, t) => sum + t.durationMs, 0),
+    playQueue,
+    playQueueIndex:
+      typeof d.playQueueIndex === "number" ? d.playQueueIndex : null,
+    playlistIndex:
+      typeof d.playlistIndex === "number" ? d.playlistIndex : null,
+    playlistResumeIndex:
+      typeof d.playlistResumeIndex === "number"
+        ? d.playlistResumeIndex
+        : null,
+    playbackSource: d.playbackSource === "queue" ? "queue" : "playlist",
+    afterQueueBehavior: d.afterQueueBehavior === "stop" ? "stop" : "continue",
+    afterQueueContinueDeck: d.afterQueueContinueDeck === "B" ? "B" : "A",
+    playedPlaylistIndices,
+    track: parseDeckTrack(d.track),
+    savedPositionMs:
+      typeof d.savedPositionMs === "number"
+        ? Math.max(0, d.savedPositionMs)
+        : 0,
+    skippedAfterCurrent:
+      typeof d.skippedAfterCurrent === "number"
+        ? Math.max(0, d.skippedAfterCurrent)
+        : 0,
+  };
+}
+
+function parseDeckVolume(raw: unknown): Record<DeckId, number> {
+  if (!raw || typeof raw !== "object") {
+    return { A: 1, B: 1 };
+  }
+  const v = raw as Record<string, unknown>;
+  return {
+    A:
+      typeof v.A === "number" && Number.isFinite(v.A)
+        ? Math.max(0, Math.min(1, v.A))
+        : 1,
+    B:
+      typeof v.B === "number" && Number.isFinite(v.B)
+        ? Math.max(0, Math.min(1, v.B))
+        : 1,
+  };
+}
+
+function parseDeckCrossfade(raw: unknown): Record<DeckId, number> {
+  if (!raw || typeof raw !== "object") {
+    return { A: 0, B: 0 };
+  }
+  const v = raw as Record<string, unknown>;
+  return {
+    A:
+      typeof v.A === "number" && Number.isFinite(v.A)
+        ? clampCrossfadeSeconds(v.A)
+        : 0,
+    B:
+      typeof v.B === "number" && Number.isFinite(v.B)
+        ? clampCrossfadeSeconds(v.B)
+        : 0,
+  };
+}
+
+function parseHighlightIndex(raw: unknown): Record<DeckId, number | null> {
+  if (!raw || typeof raw !== "object") {
+    return { A: null, B: null };
+  }
+  const v = raw as Record<string, unknown>;
+  return {
+    A: typeof v.A === "number" ? v.A : null,
+    B: typeof v.B === "number" ? v.B : null,
+  };
+}
+
+export function normalizeDjDeckState(raw: DjDeckState): DjDeckState {
+  return {
+    deckA: parseDeckState(raw.deckA, "A"),
+    deckB: parseDeckState(raw.deckB, "B"),
+    secondDeckEnabled: raw.secondDeckEnabled === true,
+    activeDeck: raw.activeDeck === "B" ? "B" : "A",
+    deckVolume: parseDeckVolume(raw.deckVolume),
+    deckCrossfadeSeconds: parseDeckCrossfade(raw.deckCrossfadeSeconds),
+    masterVolume:
+      typeof raw.masterVolume === "number" && Number.isFinite(raw.masterVolume)
+        ? Math.max(0, Math.min(1, raw.masterVolume))
+        : 1,
+    highlightedQueueIndex: parseHighlightIndex(raw.highlightedQueueIndex),
+    highlightedPlaylistIndex: parseHighlightIndex(raw.highlightedPlaylistIndex),
+  };
+}
+
+export function serializeDjDeckState(state: DjDeckState): DjDeckState {
+  return normalizeDjDeckState(state);
+}
+
+export function deserializeDjDeckState(raw: unknown): DjDeckState {
+  if (!raw || typeof raw !== "object") {
+    return INITIAL_DJ_DECK_STATE;
+  }
+  return normalizeDjDeckState(raw as DjDeckState);
 }

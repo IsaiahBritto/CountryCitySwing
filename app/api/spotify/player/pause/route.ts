@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { getValidAccessToken } from "@/lib/spotify/auth";
+import { resolveHostDeviceId } from "@/lib/spotify/djSessionServer";
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,18 +10,20 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as {
       deviceId?: string;
+      sessionId?: string;
     };
 
-    if (typeof body.deviceId !== "string" || !body.deviceId.trim()) {
+    const resolved = await resolveHostDeviceId(body.sessionId, body.deviceId);
+    if ("error" in resolved) {
       return NextResponse.json(
-        { error: "deviceId is required" },
-        { status: 400 }
+        { error: resolved.error },
+        { status: resolved.status }
       );
     }
 
     const { accessToken } = await getValidAccessToken();
     const res = await fetch(
-      `https://api.spotify.com/v1/me/player/pause?device_id=${encodeURIComponent(body.deviceId.trim())}`,
+      `https://api.spotify.com/v1/me/player/pause?device_id=${encodeURIComponent(resolved.deviceId)}`,
       {
         method: "PUT",
         headers: { Authorization: `Bearer ${accessToken}` },

@@ -33,8 +33,8 @@ export default function SessionBar({
         <div>
           <p className="text-sm font-medium text-neutral-100">No active session</p>
           <p className="text-xs text-neutral-400 mt-0.5">
-            Start a session to save deck state across refreshes and control from
-            other devices.
+            Waiting for a host to start a session, or start one here to play
+            audio on this device and allow remote control from other admins.
           </p>
         </div>
         <button

@@ -1,4 +1,6 @@
 import { randomId } from "@/lib/randomId";
+import type { RemoteDeckAction } from "@/lib/spotify/djDeckActionWire";
+import { parseRemoteDeckAction } from "@/lib/spotify/djDeckActionWire";
 import type { DeckId } from "@/lib/spotify/djDeckState";
 
 export type DjSessionCommand =
@@ -11,7 +13,8 @@ export type DjSessionCommand =
   | { type: "SEEK"; positionMs: number }
   | { type: "PLAY_PLAYLIST_INDEX"; deck: DeckId; index: number }
   | { type: "PLAY_QUEUE_INDEX"; deck: DeckId; index: number }
-  | { type: "START_QUEUE_HEAD"; deck: DeckId; queueIndex: number };
+  | { type: "START_QUEUE_HEAD"; deck: DeckId; queueIndex: number }
+  | { type: "DISPATCH_DECK_ACTION"; action: RemoteDeckAction };
 
 const COMMAND_TYPES = new Set([
   "PLAY_DECK",
@@ -24,6 +27,7 @@ const COMMAND_TYPES = new Set([
   "PLAY_PLAYLIST_INDEX",
   "PLAY_QUEUE_INDEX",
   "START_QUEUE_HEAD",
+  "DISPATCH_DECK_ACTION",
 ]);
 
 function isDeckId(value: unknown): value is DeckId {
@@ -84,6 +88,10 @@ export function parseDjSessionCommand(raw: unknown): DjSessionCommand | null {
             queueIndex: o.queueIndex,
           }
         : null;
+    case "DISPATCH_DECK_ACTION": {
+      const action = parseRemoteDeckAction(o.action);
+      return action ? { type: "DISPATCH_DECK_ACTION", action } : null;
+    }
     default:
       return null;
   }

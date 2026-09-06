@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   createEmptyPlaybackSnapshot,
+  canExecutePlayback,
   effectiveHostStatus,
   inferSessionRole,
   isHostStale,
   parsePlaybackSnapshot,
+  toSessionResponse,
   type DjSessionRow,
 } from "@/lib/spotify/djSession";
 import { INITIAL_DJ_DECK_STATE } from "@/lib/spotify/djDeckState";
@@ -81,5 +83,37 @@ describe("djSession helpers", () => {
       host_last_seen_at: "2020-01-01T00:00:00.000Z",
     });
     expect(effectiveHostStatus(stale)).toBe("offline");
+  });
+
+  it("toSessionResponse uses read-only effective host status", () => {
+    const stale = makeSessionRow({
+      host_status: "online",
+      host_last_seen_at: "2020-01-01T00:00:00.000Z",
+    });
+    const response = toSessionResponse(stale);
+    expect(response.hostStatus).toBe("offline");
+  });
+
+  it("canExecutePlayback requires online effective status and device id", () => {
+    const online = makeSessionRow({
+      host_status: "online",
+      host_last_seen_at: new Date().toISOString(),
+      host_device_id: "device-1",
+    });
+    expect(canExecutePlayback(online)).toBe(true);
+
+    const stale = makeSessionRow({
+      host_status: "online",
+      host_last_seen_at: "2020-01-01T00:00:00.000Z",
+      host_device_id: "device-1",
+    });
+    expect(canExecutePlayback(stale)).toBe(false);
+
+    const noDevice = makeSessionRow({
+      host_status: "online",
+      host_last_seen_at: new Date().toISOString(),
+      host_device_id: null,
+    });
+    expect(canExecutePlayback(noDevice)).toBe(false);
   });
 });

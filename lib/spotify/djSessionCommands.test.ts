@@ -18,6 +18,15 @@ describe("parseDjSessionCommand", () => {
     expect(
       parseDjSessionCommand({ type: "SEEK", positionMs: 5000 })
     ).toEqual({ type: "SEEK", positionMs: 5000 });
+    expect(
+      parseDjSessionCommand({
+        type: "DISPATCH_DECK_ACTION",
+        action: { type: "SET_MASTER_VOLUME", value: 0.75 },
+      })
+    ).toEqual({
+      type: "DISPATCH_DECK_ACTION",
+      action: { type: "SET_MASTER_VOLUME", value: 0.75 },
+    });
   });
 
   it("rejects invalid commands", () => {
@@ -25,5 +34,11 @@ describe("parseDjSessionCommand", () => {
     expect(parseDjSessionCommand({ type: "UNKNOWN" })).toBeNull();
     expect(parseDjSessionCommand({ type: "PLAY_DECK", deck: "C" })).toBeNull();
     expect(parseDjSessionCommand({ type: "SEEK", positionMs: -1 })).toBeNull();
+    expect(
+      parseDjSessionCommand({
+        type: "DISPATCH_DECK_ACTION",
+        action: { type: "ADVANCE_TRACK", deck: "A" },
+      })
+    ).toBeNull();
   });
 });

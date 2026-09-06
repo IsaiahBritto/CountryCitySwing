@@ -27,13 +27,17 @@ import {
   type DjDeckState,
 } from "@/lib/spotify/djDeckState";
 import {
+  canActAsPlaybackHost,
   deckStateContentHash,
+  isEffectiveRemoteController,
   mergeSessionMetadata,
   shouldApplyPersistResponse,
   shouldFullRestoreOnJoin,
   shouldIgnoreOwnPersistEcho,
+  shouldPersistAsPlaybackHost,
   shouldSkipDeckRestore,
 } from "@/lib/spotify/djSessionSync";
+import { isOtherHostTabActive } from "@/lib/spotify/djHostTabLeader";
 import type { DjSessionRow } from "@/lib/spotify/djSession";
 
 function getOrCreateClientId(): string {
@@ -84,6 +88,7 @@ export type UseDjSessionReturn = {
   loading: boolean;
   canExecutePlayback: boolean;
   isRemoteController: boolean;
+  isEffectiveRemoteController: boolean;
   startSession: () => Promise<boolean>;
   endSession: () => Promise<boolean>;
   takeoverSession: (hostDeviceId: string) => Promise<boolean>;
@@ -118,6 +123,7 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const applyingRemoteRef = useRef(false);
+  const restorePendingRef = useRef(false);
   const lastAppliedVersionRef = useRef(0);
   const lastPersistedDeckHashRef = useRef<string | null>(null);
   const lastOwnPersistVersionRef = useRef(0);
@@ -155,12 +161,19 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
 
       lastAppliedVersionRef.current = next.stateVersion;
 
-      const isHost = clientIdRef.current === (current?.hostClientId ?? next.hostClientId);
+      const isPlaybackHost =
+        roleRef.current === "host" &&
+        clientIdRef.current === (current?.hostClientId ?? next.hostClientId) &&
+        canActAsPlaybackHost(
+          roleRef.current,
+          (current?.status ?? next.status) === "active",
+          isOtherHostTabActive()
+        );
       if (
         shouldSkipDeckRestore(
           next,
           deckStateRef.current,
-          isHost ? shouldApplyDeckStateRef.current : undefined,
+          isPlaybackHost ? shouldApplyDeckStateRef.current : undefined,
           current
         )
       ) {
@@ -168,11 +181,11 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
         return;
       }
 
+      restorePendingRef.current = true;
       applyingRemoteRef.current = true;
       lastPersistedDeckHashRef.current = deckStateContentHash(next.deckState);
       dispatch({ type: "RESTORE_SESSION", state: next.deckState });
       setSession(next);
-      applyingRemoteRef.current = false;
       onSessionRestoredRef.current?.();
     },
     [dispatch, mergeSession]
@@ -196,7 +209,9 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
       if (res.status === 404) {
         setSession(null);
         setRole("idle");
-        setLoading(false);
+        onErrorRef.current?.(
+          "No active DJ session — start one on the host device first."
+        );
         return;
       }
 
@@ -222,12 +237,18 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
 
       if (fullRestore) {
         lastPersistedDeckHashRef.current = deckStateContentHash(body.deckState);
+        restorePendingRef.current = true;
         applyingRemoteRef.current = true;
         dispatch({ type: "RESTORE_SESSION", state: body.deckState });
-        applyingRemoteRef.current = false;
         setSession(body);
         onSessionRestoredRef.current?.();
-        if (nextRole === "host") {
+        if (
+          canActAsPlaybackHost(
+            nextRole,
+            body.status === "active",
+            isOtherHostTabActive()
+          )
+        ) {
           onHostSessionLoadedRef.current?.(body);
         }
       } else {
@@ -247,6 +268,7 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
       setLoading(false);
       return;
     }
+    setLoading(true);
     void joinSession();
     // Join once when the hook becomes enabled; token refresh must not re-join.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: enabled-only
@@ -292,10 +314,17 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
             return;
           }
 
-          const isHost = roleRef.current === "host";
+          const isPlaybackHost =
+            roleRef.current === "host" &&
+            clientIdRef.current === next.hostClientId &&
+            canActAsPlaybackHost(
+              roleRef.current,
+              next.status === "active",
+              isOtherHostTabActive()
+            );
           if (
             shouldIgnoreOwnPersistEcho(
-              isHost,
+              isPlaybackHost,
               next.stateVersion,
               lastOwnPersistVersionRef.current,
               next.deckState,
@@ -324,6 +353,15 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
     const currentSession = sessionRef.current;
     if (!currentSession || currentSession.status !== "active") return;
     if (applyingRemoteRef.current) return;
+    if (
+      !shouldPersistAsPlaybackHost(
+        roleRef.current,
+        currentSession.status === "active",
+        isOtherHostTabActive()
+      )
+    ) {
+      return;
+    }
 
     const hashAtStart = deckStateContentHash(deckStateRef.current);
     if (hashAtStart === lastPersistedDeckHashRef.current) return;
@@ -390,13 +428,36 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
 
   useEffect(() => {
     if (!enabled || !session || role === "idle") return;
+    if (
+      !shouldPersistAsPlaybackHost(
+        role,
+        session.status === "active",
+        isOtherHostTabActive()
+      )
+    ) {
+      return;
+    }
     if (applyingRemoteRef.current) return;
     if (deckStateHash === lastPersistedDeckHashRef.current) return;
     schedulePersist();
   }, [deckStateHash, enabled, role, schedulePersist, session]);
 
   useEffect(() => {
-    if (!enabled || role !== "host" || !session?.id) return;
+    if (restorePendingRef.current) {
+      restorePendingRef.current = false;
+      applyingRemoteRef.current = false;
+      lastPersistedDeckHashRef.current = deckStateContentHash(deckStateRef.current);
+    }
+  }, [deckStateHash]);
+
+  useEffect(() => {
+    if (
+      !enabled ||
+      !session?.id ||
+      !canActAsPlaybackHost(role, session.status === "active", isOtherHostTabActive())
+    ) {
+      return;
+    }
 
     const sendHeartbeat = () => {
       const hostDeviceId = hostDeviceIdRef?.current;
@@ -441,7 +502,16 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
   ]);
 
   useEffect(() => {
-    if (!enabled || role !== "host") return;
+    if (
+      !enabled ||
+      !canActAsPlaybackHost(
+        role,
+        session?.status === "active",
+        isOtherHostTabActive()
+      )
+    ) {
+      return;
+    }
 
     const flushOnHide = () => {
       void flushPersist();
@@ -452,7 +522,7 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
     return () => {
       window.removeEventListener("pagehide", flushOnHide);
     };
-  }, [enabled, flushPersist, role]);
+  }, [enabled, flushPersist, role, session?.status]);
 
   const startSession = useCallback(async () => {
     try {
@@ -561,9 +631,21 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
   );
 
   const hostStatus: DjHostStatus = session?.hostStatus ?? "offline";
+  const sessionActive = session?.status === "active";
+  const otherHostTabActive = isOtherHostTabActive();
   const isRemoteController = role === "controller";
+  const effectiveRemoteController = isEffectiveRemoteController(
+    role,
+    sessionActive,
+    otherHostTabActive
+  );
+  const playbackHost = canActAsPlaybackHost(
+    role,
+    sessionActive,
+    otherHostTabActive
+  );
   const canExecutePlayback =
-    role === "host" || (isRemoteController && hostStatus === "online");
+    playbackHost || (effectiveRemoteController && hostStatus === "online");
 
   return {
     clientId: clientIdRef.current,
@@ -573,6 +655,7 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
     loading,
     canExecutePlayback,
     isRemoteController,
+    isEffectiveRemoteController: effectiveRemoteController,
     startSession,
     endSession,
     takeoverSession,

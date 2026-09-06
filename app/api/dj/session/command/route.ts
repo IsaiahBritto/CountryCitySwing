@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
-import {
-  canExecutePlayback,
-  getSessionRowById,
-  refreshHostStatus,
-} from "@/lib/spotify/djSessionServer";
+import { getSessionRowById } from "@/lib/spotify/djSessionServer";
+import { canExecutePlayback, toSessionResponse } from "@/lib/spotify/djSession";
 import {
   createCommandBroadcast,
   parseDjSessionCommand,
 } from "@/lib/spotify/djSessionCommands";
-import { toSessionResponse } from "@/lib/spotify/djSession";
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,15 +36,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid command" }, { status: 400 });
     }
 
-    let session = await getSessionRowById(body.sessionId.trim());
+    const session = await getSessionRowById(body.sessionId.trim());
     if (!session || session.status !== "active") {
       return NextResponse.json(
         { error: "Active session not found" },
         { status: 404 }
       );
     }
-
-    session = await refreshHostStatus(session);
 
     const isHost = session.host_client_id === body.clientId.trim();
     if (!isHost && !canExecutePlayback(session)) {

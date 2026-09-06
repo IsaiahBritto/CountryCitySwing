@@ -2,7 +2,7 @@ import {
   serializeDjDeckState,
   type DjDeckState,
 } from "@/lib/spotify/djDeckState";
-import type { DjSessionResponse } from "@/lib/spotify/djSession";
+import type { DjSessionResponse, DjSessionRole } from "@/lib/spotify/djSession";
 
 export function deckStateContentHash(state: DjDeckState): string {
   return JSON.stringify(serializeDjDeckState(state));
@@ -58,6 +58,78 @@ export function shouldApplyPersistResponse(
   currentDeck: DjDeckState
 ): boolean {
   return deckStateContentHash(currentDeck) === hashAtStart;
+}
+
+/** Only the playback host may PATCH deck state to the session. */
+export function shouldSchedulePersist(role: DjSessionRole): boolean {
+  return role === "host";
+}
+
+/** True when this tab should connect Spotify SDK and drive playback. */
+export function canActAsPlaybackHost(
+  role: DjSessionRole,
+  sessionActive: boolean,
+  otherHostTabActive: boolean
+): boolean {
+  return role === "host" && sessionActive && !otherHostTabActive;
+}
+
+/** Host role in another tab, or explicit controller — remote control only. */
+export function isEffectiveRemoteController(
+  role: DjSessionRole,
+  sessionActive: boolean,
+  otherHostTabActive: boolean
+): boolean {
+  return (
+    role === "controller" ||
+    (role === "host" && sessionActive && otherHostTabActive)
+  );
+}
+
+export function shouldPersistAsPlaybackHost(
+  role: DjSessionRole,
+  sessionActive: boolean,
+  otherHostTabActive: boolean
+): boolean {
+  return (
+    shouldSchedulePersist(role) &&
+    canActAsPlaybackHost(role, sessionActive, otherHostTabActive)
+  );
+}
+
+export type AudioOverlayInput = {
+  role: DjSessionRole;
+  isControllerMode: boolean;
+  pendingTakeover: boolean;
+  audioUnlocked: boolean;
+  playerReady: boolean;
+  spotifyConnected: boolean;
+  needsDeckReconnect: boolean;
+  isPremium: boolean;
+  sessionLoading: boolean;
+};
+
+/** Whether the Enable audio overlay should show (host / takeover only). */
+export function shouldShowAudioOverlay(input: AudioOverlayInput): boolean {
+  if (input.sessionLoading) return false;
+  if (
+    !input.pendingTakeover &&
+    (input.isControllerMode || input.role === "controller")
+  ) {
+    return false;
+  }
+  if (
+    !input.spotifyConnected ||
+    input.needsDeckReconnect ||
+    !input.isPremium
+  ) {
+    return false;
+  }
+  return (
+    (input.pendingTakeover || input.role !== "controller") &&
+    !input.audioUnlocked &&
+    !input.playerReady
+  );
 }
 
 export function shouldSkipDeckRestore(

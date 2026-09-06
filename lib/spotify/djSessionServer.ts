@@ -1,9 +1,11 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
-  effectiveHostStatus,
+  canExecutePlayback,
   isHostStale,
+  toSessionResponse,
   type DjHostStatus,
   type DjPlaybackSnapshot,
+  type DjSessionResponse,
   type DjSessionRow,
 } from "@/lib/spotify/djSession";
 import {
@@ -72,12 +74,11 @@ export async function resolveHostDeviceId(
     return { error: "Active session not found", status: 404 };
   }
 
-  const refreshed = await refreshHostStatus(session);
-  if (!refreshed.host_device_id) {
+  if (!session.host_device_id) {
     return { error: "Playback host has no device", status: 409 };
   }
 
-  return { deviceId: refreshed.host_device_id };
+  return { deviceId: session.host_device_id };
 }
 
 export async function createSession(params: {
@@ -230,6 +231,9 @@ export async function takeoverSession(params: {
   return data as DjSessionRow;
 }
 
-export function canExecutePlayback(session: DjSessionRow): boolean {
-  return effectiveHostStatus(session) === "online" && !!session.host_device_id;
+export { canExecutePlayback };
+
+/** API response with read-only effective host status (no DB write). */
+export function sessionForResponse(row: DjSessionRow): DjSessionResponse {
+  return toSessionResponse(row);
 }

@@ -48,13 +48,17 @@ import {
   executeSessionCommand,
   type DjPlaybackHandlers,
 } from "@/lib/spotify/djPlaybackController";
-import type { DjSessionCommand } from "@/lib/spotify/djSessionCommands";
 import {
-  createEmptyPlaybackSnapshot,
-  type DjPlaybackSnapshot,
-  type DjSessionResponse,
-} from "@/lib/spotify/djSession";
+  isDebouncedRemoteDeckAction,
+  type RemoteDeckAction,
+} from "@/lib/spotify/djDeckActionWire";
+import type { DjSessionCommand } from "@/lib/spotify/djSessionCommands";
 import { resumeHostFromSnapshot } from "@/lib/spotify/hostSessionResume";
+import {
+  heartbeatHostTab,
+  isOtherHostTabActive,
+} from "@/lib/spotify/djHostTabLeader";
+import { shouldShowAudioOverlay } from "@/lib/spotify/djSessionSync";
 import { useDjSession } from "@/lib/spotify/useDjSession";
 import {
   postSessionCommand,
@@ -62,6 +66,13 @@ import {
 } from "@/lib/spotify/useSessionCommandChannel";
 import { useSpotifyPlayer } from "@/lib/spotify/useSpotifyPlayer";
 import { usePlaybackClock } from "@/lib/spotify/usePlaybackClockHook";
+import {
+  createEmptyPlaybackSnapshot,
+  type DjPlaybackSnapshot,
+  type DjSessionResponse,
+} from "@/lib/spotify/djSession";
+
+const REMOTE_VOLUME_DEBOUNCE_MS = 150;
 
 type SpotifyStatus = {
   connected: boolean;
@@ -107,6 +118,15 @@ export default function DjDeckPageClient() {
     (broadcast: import("@/lib/spotify/djSessionCommands").DjSessionCommandBroadcast) => Promise<void>
   >(async () => {});
   const handlersRef = useRef<DjPlaybackHandlers | null>(null);
+  const applyRemoteDeckActionRef = useRef<
+    ((action: RemoteDeckAction) => Promise<void>) | null
+  >(null);
+  const remoteDeckDebounceTimersRef = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
+  const pendingRemoteDeckActionsRef = useRef<Map<string, RemoteDeckAction>>(
+    new Map()
+  );
 
   const trackEndTriggeredRef = useRef(false);
   const wasPlayingActiveTrackRef = useRef(false);
@@ -172,7 +192,26 @@ export default function DjDeckPageClient() {
     onHostSessionLoaded,
   });
 
-  const isControllerMode = djSession.isRemoteController && !pendingTakeover;
+  const isControllerMode =
+    djSession.isEffectiveRemoteController && !pendingTakeover;
+
+  useEffect(() => {
+    if (isControllerMode) {
+      setAudioUnlocked(true);
+    }
+  }, [isControllerMode]);
+
+  useEffect(() => {
+    if (djSession.role !== "host" || djSession.session?.status !== "active") {
+      return;
+    }
+    if (isOtherHostTabActive()) {
+      return;
+    }
+    heartbeatHostTab();
+    const intervalId = window.setInterval(heartbeatHostTab, 5000);
+    return () => window.clearInterval(intervalId);
+  }, [djSession.role, djSession.session?.status]);
 
   const controllerSnapshot = useMemo(() => {
     if (!isControllerMode || !djSession.session) return null;
@@ -410,12 +449,25 @@ export default function DjDeckPageClient() {
   }, [loadSpotifyStatus]);
 
   const handleUnlockAudio = async () => {
+    if (
+      djSession.loading ||
+      djSession.role === "controller" ||
+      djSession.isEffectiveRemoteController
+    ) {
+      return;
+    }
     setConnectingAudio(true);
     try {
       await player.connect();
       setAudioUnlocked(true);
 
-      const pendingResume = pendingHostResumeRef.current;
+      const pendingResume =
+        pendingHostResumeRef.current ??
+        (djSession.role === "host" &&
+        djSession.session?.playbackSnapshot.currentTrackUri
+          ? djSession.session.playbackSnapshot
+          : null);
+
       if (djSession.role === "host" && pendingResume?.currentTrackUri) {
         resumeInProgressRef.current = true;
         autoPrimeEnabledRef.current = false;
@@ -432,10 +484,16 @@ export default function DjDeckPageClient() {
             syncClock: { syncFromSdk },
           });
           trackEndTriggeredRef.current = false;
+          pendingHostResumeRef.current = null;
+        } catch (resumeErr) {
+          showToast(
+            resumeErr instanceof Error
+              ? resumeErr.message
+              : "Failed to resume playback"
+          );
         } finally {
           resumeInProgressRef.current = false;
           autoPrimeEnabledRef.current = true;
-          pendingHostResumeRef.current = null;
         }
       } else {
         void tryPrimeActiveTrack();
@@ -876,8 +934,210 @@ export default function DjDeckPageClient() {
     [player, showToast, syncFromSdk]
   );
 
-  const skipUpNext = useCallback((deck: DeckId) => {
-    dispatch({ type: "SKIP_UP_NEXT", deck });
+  const applyAddToPlayQueue = useCallback(
+    async (deck: DeckId, track: DeckTrack) => {
+      const current = stateRef.current;
+      const deckState = getDeckState(current, deck);
+      const wasEmpty = deckState.playQueue.length === 0;
+      dispatch({ type: "ADD_TO_PLAY_QUEUE", deck, track });
+      if (!wasEmpty) return;
+
+      const deckIsActivelyPlaying =
+        deck === current.activeDeck &&
+        deckState.track != null &&
+        trackUrisMatch(player.currentTrackUri, deckState.track.uri) &&
+        player.isPlaying;
+
+      if (deckIsActivelyPlaying) return;
+
+      if (deck === current.activeDeck) {
+        await startQueueHead(deck, true);
+      }
+    },
+    [player, startQueueHead]
+  );
+
+  const applyPlaylistLoaded = useCallback(
+    (
+      deck: DeckId,
+      {
+        tracks,
+        totalDurationMs,
+      }: {
+        tracks: DeckTrack[];
+        totalDurationMs: number;
+      }
+    ) => {
+      dispatch({
+        type: "SET_PLAYLIST",
+        deck,
+        playlist: tracks,
+        playlistTotalDurationMs: totalDurationMs,
+      });
+      trackEndTriggeredRef.current = false;
+      if (deck === stateRef.current.activeDeck) {
+        void tryPrimeActiveTrack();
+      }
+    },
+    [tryPrimeActiveTrack]
+  );
+
+  const applyDisableSecondDeck = useCallback(async () => {
+    const current = stateRef.current;
+    if (current.activeDeck === "B" && player.isPlaying) {
+      cancelCrossfade();
+      try {
+        await player.pause();
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Pause failed");
+      }
+      pauseClock();
+    }
+
+    trackEndTriggeredRef.current = false;
+    wasPlayingActiveTrackRef.current = false;
+    dispatch({ type: "DISABLE_SECOND_DECK" });
+  }, [cancelCrossfade, pauseClock, player, showToast]);
+
+  const djSessionRef = useRef(djSession);
+  djSessionRef.current = djSession;
+
+  const sendRemoteDeckAction = useCallback(
+    async (action: RemoteDeckAction) => {
+      const sess = djSessionRef.current;
+      if (!sess.session || sess.role !== "controller") return;
+      if (!sess.canExecutePlayback) {
+        showToast("Playback host is offline — take over to resume audio.");
+        return;
+      }
+      const result = await postSessionCommand({
+        sessionId: sess.session.id,
+        clientId: sess.clientId,
+        command: { type: "DISPATCH_DECK_ACTION", action },
+      });
+      if (!result.ok) {
+        showToast(result.error ?? "Remote command failed");
+        return;
+      }
+      if (result.broadcast) {
+        await broadcastCommandRef.current(result.broadcast);
+      }
+    },
+    [showToast]
+  );
+
+  const remoteDeckDebounceKey = useCallback((action: RemoteDeckAction) => {
+    if (action.type === "SET_MASTER_VOLUME") return "SET_MASTER_VOLUME";
+    if (action.type === "SET_DECK_VOLUME") {
+      return `SET_DECK_VOLUME:${action.deck}`;
+    }
+    if (action.type === "SET_DECK_CROSSFADE") {
+      return `SET_DECK_CROSSFADE:${action.deck}`;
+    }
+    return JSON.stringify(action);
+  }, []);
+
+  const runRemoteDeckAction = useCallback(
+    async (
+      action: RemoteDeckAction,
+      localApply: () => void | Promise<void>
+    ) => {
+      const sess = djSessionRef.current;
+      await localApply();
+
+      if (!sess.session || sess.role === "idle" || sess.role === "host") {
+        return;
+      }
+      if (!sess.canExecutePlayback) {
+        showToast("Playback host is offline — take over to resume audio.");
+        return;
+      }
+
+      if (isDebouncedRemoteDeckAction(action)) {
+        const key = remoteDeckDebounceKey(action);
+        pendingRemoteDeckActionsRef.current.set(key, action);
+        const timers = remoteDeckDebounceTimersRef.current;
+        const existing = timers.get(key);
+        if (existing) clearTimeout(existing);
+        timers.set(
+          key,
+          setTimeout(() => {
+            timers.delete(key);
+            const latest = pendingRemoteDeckActionsRef.current.get(key);
+            pendingRemoteDeckActionsRef.current.delete(key);
+            if (latest) void sendRemoteDeckAction(latest);
+          }, REMOTE_VOLUME_DEBOUNCE_MS)
+        );
+        return;
+      }
+
+      await sendRemoteDeckAction(action);
+    },
+    [remoteDeckDebounceKey, sendRemoteDeckAction, showToast]
+  );
+
+  const applyRemoteDeckAction = useCallback(
+    async (action: RemoteDeckAction) => {
+      switch (action.type) {
+        case "SET_DECK_VOLUME":
+        case "SET_MASTER_VOLUME":
+        case "SET_DECK_CROSSFADE":
+          dispatch(action);
+          applyLiveVolume();
+          break;
+        case "ADD_TO_PLAY_QUEUE":
+          await applyAddToPlayQueue(action.deck, action.track);
+          break;
+        case "SET_PLAYLIST":
+          applyPlaylistLoaded(action.deck, {
+            tracks: action.playlist,
+            totalDurationMs: action.playlistTotalDurationMs,
+          });
+          break;
+        case "DISABLE_SECOND_DECK":
+          await applyDisableSecondDeck();
+          break;
+        default:
+          dispatch(action);
+      }
+    },
+    [
+      applyAddToPlayQueue,
+      applyDisableSecondDeck,
+      applyLiveVolume,
+      applyPlaylistLoaded,
+    ]
+  );
+
+  applyRemoteDeckActionRef.current = applyRemoteDeckAction;
+
+  useEffect(() => {
+    const timers = remoteDeckDebounceTimersRef.current;
+    return () => {
+      for (const timer of timers.values()) {
+        clearTimeout(timer);
+      }
+      timers.clear();
+      pendingRemoteDeckActionsRef.current.clear();
+    };
+  }, []);
+
+  const skipUpNext = useCallback(
+    (deck: DeckId) => {
+      void runRemoteDeckAction({ type: "SKIP_UP_NEXT", deck }, () => {
+        dispatch({ type: "SKIP_UP_NEXT", deck });
+      });
+    },
+    [runRemoteDeckAction]
+  );
+
+  const runRemoteDeckActionRef = useRef(runRemoteDeckAction);
+  runRemoteDeckActionRef.current = runRemoteDeckAction;
+
+  const dispatchRemoteDeckAction = useCallback((action: RemoteDeckAction) => {
+    void runRemoteDeckActionRef.current(action, () => {
+      dispatch(action);
+    });
   }, []);
 
   const previousTrack = useCallback(
@@ -945,39 +1205,43 @@ export default function DjDeckPageClient() {
 
   const handleAddToPlayQueue = useCallback(
     async (deck: DeckId, index: number) => {
-      const current = stateRef.current;
-      const deckState = getDeckState(current, deck);
+      const deckState = getDeckState(stateRef.current, deck);
       const trackToAdd = deckState.playlist[index];
       if (!trackToAdd) return;
 
-      const wasEmpty = deckState.playQueue.length === 0;
-      dispatch({ type: "ADD_TO_PLAY_QUEUE", deck, track: trackToAdd });
-      if (!wasEmpty) return;
-
-      const deckIsActivelyPlaying =
-        deck === current.activeDeck &&
-        deckState.track != null &&
-        trackUrisMatch(player.currentTrackUri, deckState.track.uri) &&
-        player.isPlaying;
-
-      if (deckIsActivelyPlaying) return;
-
-      if (deck === current.activeDeck) {
-        await startQueueHead(deck, true);
-      }
+      const action: RemoteDeckAction = {
+        type: "ADD_TO_PLAY_QUEUE",
+        deck,
+        track: trackToAdd,
+      };
+      await runRemoteDeckAction(action, () =>
+        applyAddToPlayQueue(deck, trackToAdd)
+      );
     },
-    [player, startQueueHead]
+    [applyAddToPlayQueue, runRemoteDeckAction]
   );
 
-  const handleRemoveFromPlayQueue = useCallback((deck: DeckId, index: number) => {
-    dispatch({ type: "REMOVE_FROM_PLAY_QUEUE", deck, index });
-  }, []);
+  const handleRemoveFromPlayQueue = useCallback(
+    (deck: DeckId, index: number) => {
+      dispatchRemoteDeckAction({
+        type: "REMOVE_FROM_PLAY_QUEUE",
+        deck,
+        index,
+      });
+    },
+    [dispatchRemoteDeckAction]
+  );
 
   const handlePlaylistChange = useCallback(
     (deck: DeckId, { id, name }: { id: string; name: string }) => {
-      dispatch({ type: "SELECT_PLAYLIST", deck, playlistId: id, playlistName: name });
+      dispatchRemoteDeckAction({
+        type: "SELECT_PLAYLIST",
+        deck,
+        playlistId: id,
+        playlistName: name,
+      });
     },
-    []
+    [dispatchRemoteDeckAction]
   );
 
   const handlePlaylistLoaded = useCallback(
@@ -991,18 +1255,17 @@ export default function DjDeckPageClient() {
         totalDurationMs: number;
       }
     ) => {
-      dispatch({
-        type: "SET_PLAYLIST",
-        deck,
-        playlist: tracks,
-        playlistTotalDurationMs: totalDurationMs,
-      });
-      trackEndTriggeredRef.current = false;
-      if (deck === stateRef.current.activeDeck) {
-        void tryPrimeActiveTrack();
-      }
+      void runRemoteDeckAction(
+        {
+          type: "SET_PLAYLIST",
+          deck,
+          playlist: tracks,
+          playlistTotalDurationMs: totalDurationMs,
+        },
+        () => applyPlaylistLoaded(deck, { tracks, totalDurationMs })
+      );
     },
-    [tryPrimeActiveTrack]
+    [applyPlaylistLoaded, runRemoteDeckAction]
   );
 
   const handleRemoveSecondDeck = useCallback(async () => {
@@ -1019,23 +1282,10 @@ export default function DjDeckPageClient() {
       return;
     }
 
-    if (current.activeDeck === "B" && player.isPlaying) {
-      cancelCrossfade();
-      try {
-        await player.pause();
-      } catch (err) {
-        showToast(err instanceof Error ? err.message : "Pause failed");
-      }
-      pauseClock();
-    }
-
-    trackEndTriggeredRef.current = false;
-    wasPlayingActiveTrackRef.current = false;
-    dispatch({ type: "DISABLE_SECOND_DECK" });
-  }, [cancelCrossfade, pauseClock, player, showToast]);
-
-  const djSessionRef = useRef(djSession);
-  djSessionRef.current = djSession;
+    await runRemoteDeckAction({ type: "DISABLE_SECOND_DECK" }, () =>
+      applyDisableSecondDeck()
+    );
+  }, [applyDisableSecondDeck, runRemoteDeckAction]);
 
   const runPlaybackCommand = useCallback(
     async (command: DjSessionCommand, local: () => Promise<void>) => {
@@ -1083,6 +1333,10 @@ export default function DjDeckPageClient() {
     playFromPlaylistRow: (deck, index) => handlePlayFromPlaylistRow(deck, index),
     playFromQueueRow: (deck, index) => handlePlayFromQueueRow(deck, index),
     startQueueHead: (deck, _queueIndex) => startQueueHead(deck, true),
+    dispatchDeckAction: (action) => {
+      const fn = applyRemoteDeckActionRef.current;
+      return fn ? fn(action) : Promise.resolve();
+    },
   };
 
   const { broadcastCommand } = useSessionCommandChannel({
@@ -1419,11 +1673,19 @@ export default function DjDeckPageClient() {
         onSkipUpNext={() => skipUpNext(deckId)}
         volume={state.deckVolume[deckId]}
         onVolumeChange={(v) =>
-          dispatch({ type: "SET_DECK_VOLUME", deck: deckId, value: v })
+          dispatchRemoteDeckAction({
+            type: "SET_DECK_VOLUME",
+            deck: deckId,
+            value: v,
+          })
         }
         crossfadeSeconds={state.deckCrossfadeSeconds[deckId]}
         onCrossfadeChange={(seconds) =>
-          dispatch({ type: "SET_DECK_CROSSFADE", deck: deckId, seconds })
+          dispatchRemoteDeckAction({
+            type: "SET_DECK_CROSSFADE",
+            deck: deckId,
+            seconds,
+          })
         }
         disabled={!playerReady}
         playlistSelector={
@@ -1465,13 +1727,17 @@ export default function DjDeckPageClient() {
     );
   }
 
-  const needsOverlay =
-    (pendingTakeover || !isControllerMode) &&
-    !audioUnlocked &&
-    player.status !== "ready" &&
-    spotifyStatus?.connected &&
-    !spotifyStatus.needsDeckReconnect &&
-    spotifyStatus.product === "premium";
+  const needsOverlay = shouldShowAudioOverlay({
+    role: djSession.role,
+    isControllerMode,
+    pendingTakeover,
+    audioUnlocked,
+    playerReady: player.status === "ready",
+    spotifyConnected: Boolean(spotifyStatus?.connected),
+    needsDeckReconnect: Boolean(spotifyStatus?.needsDeckReconnect),
+    isPremium: spotifyStatus?.product === "premium",
+    sessionLoading: djSession.loading,
+  });
 
   return (
     <>
@@ -1491,7 +1757,9 @@ export default function DjDeckPageClient() {
             {!state.secondDeckEnabled && (
               <button
                 type="button"
-                onClick={() => dispatch({ type: "ENABLE_SECOND_DECK" })}
+                onClick={() =>
+                  dispatchRemoteDeckAction({ type: "ENABLE_SECOND_DECK" })
+                }
                 className="px-3 py-1.5 rounded-lg border border-neutral-600 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-neutral-100"
               >
                 + Add another playlist
@@ -1526,7 +1794,7 @@ export default function DjDeckPageClient() {
         </header>
 
         <SessionBar
-          role={djSession.role}
+          role={isControllerMode ? "controller" : djSession.role}
           hostStatus={djSession.hostStatus}
           sessionActive={djSession.session?.status === "active"}
           audioUnlocked={audioUnlocked}
@@ -1625,7 +1893,7 @@ export default function DjDeckPageClient() {
                 secondDeckEnabled={state.secondDeckEnabled}
                 masterVolume={state.masterVolume}
                 onMasterVolumeChange={(v) =>
-                  dispatch({ type: "SET_MASTER_VOLUME", value: v })
+                  dispatchRemoteDeckAction({ type: "SET_MASTER_VOLUME", value: v })
                 }
                 disabled={!playerReady}
               />
@@ -1640,7 +1908,7 @@ export default function DjDeckPageClient() {
               accent="neutral"
               value={state.masterVolume}
               onChange={(v) =>
-                dispatch({ type: "SET_MASTER_VOLUME", value: v })
+                dispatchRemoteDeckAction({ type: "SET_MASTER_VOLUME", value: v })
               }
               disabled={!playerReady}
               className="px-1"
@@ -1666,7 +1934,7 @@ export default function DjDeckPageClient() {
                       void handleRemoveFromPlayQueue(deckId, index)
                     }
                     onMoveUp={(index) =>
-                      dispatch({
+                      dispatchRemoteDeckAction({
                         type: "MOVE_PLAY_QUEUE_ITEM",
                         deck: deckId,
                         fromIndex: index,
@@ -1674,7 +1942,7 @@ export default function DjDeckPageClient() {
                       })
                     }
                     onMoveDown={(index) =>
-                      dispatch({
+                      dispatchRemoteDeckAction({
                         type: "MOVE_PLAY_QUEUE_ITEM",
                         deck: deckId,
                         fromIndex: index,
@@ -1683,7 +1951,7 @@ export default function DjDeckPageClient() {
                     }
                     afterQueueBehavior={deckState.afterQueueBehavior}
                     onAfterQueueBehaviorChange={(behavior) =>
-                      dispatch({
+                      dispatchRemoteDeckAction({
                         type: "SET_AFTER_QUEUE_BEHAVIOR",
                         deck: deckId,
                         behavior,
@@ -1691,7 +1959,7 @@ export default function DjDeckPageClient() {
                     }
                     afterQueueContinueDeck={deckState.afterQueueContinueDeck}
                     onAfterQueueContinueDeckChange={(targetDeck) =>
-                      dispatch({
+                      dispatchRemoteDeckAction({
                         type: "SET_AFTER_QUEUE_CONTINUE_DECK",
                         deck: deckId,
                         targetDeck,
@@ -1739,7 +2007,7 @@ export default function DjDeckPageClient() {
               onPlayFromRow={(index) => void remotePlayFromQueueRow("A", index)}
               onRemove={(index) => void handleRemoveFromPlayQueue("A", index)}
               onMoveUp={(index) =>
-                dispatch({
+                dispatchRemoteDeckAction({
                   type: "MOVE_PLAY_QUEUE_ITEM",
                   deck: "A",
                   fromIndex: index,
@@ -1747,7 +2015,7 @@ export default function DjDeckPageClient() {
                 })
               }
               onMoveDown={(index) =>
-                dispatch({
+                dispatchRemoteDeckAction({
                   type: "MOVE_PLAY_QUEUE_ITEM",
                   deck: "A",
                   fromIndex: index,
@@ -1756,7 +2024,7 @@ export default function DjDeckPageClient() {
               }
               afterQueueBehavior={state.deckA.afterQueueBehavior}
               onAfterQueueBehaviorChange={(behavior) =>
-                dispatch({
+                dispatchRemoteDeckAction({
                   type: "SET_AFTER_QUEUE_BEHAVIOR",
                   deck: "A",
                   behavior,
@@ -1764,7 +2032,7 @@ export default function DjDeckPageClient() {
               }
               afterQueueContinueDeck={state.deckA.afterQueueContinueDeck}
               onAfterQueueContinueDeckChange={(targetDeck) =>
-                dispatch({
+                dispatchRemoteDeckAction({
                   type: "SET_AFTER_QUEUE_CONTINUE_DECK",
                   deck: "A",
                   targetDeck,

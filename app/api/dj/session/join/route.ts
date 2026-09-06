@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
-import {
-  getActiveSessionRow,
-  refreshHostStatus,
-} from "@/lib/spotify/djSessionServer";
+import { getActiveSessionRow } from "@/lib/spotify/djSessionServer";
 import { inferSessionRole, toSessionResponse } from "@/lib/spotify/djSession";
 
 export async function POST(req: NextRequest) {
@@ -22,12 +19,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let session = await getActiveSessionRow();
+    const session = await getActiveSessionRow();
     if (!session) {
       return NextResponse.json({ error: "No active session" }, { status: 404 });
     }
 
-    session = await refreshHostStatus(session);
+    // Read-only host status via toSessionResponse; do not write offline on join.
     const role = inferSessionRole(session, body.clientId.trim());
 
     return NextResponse.json({

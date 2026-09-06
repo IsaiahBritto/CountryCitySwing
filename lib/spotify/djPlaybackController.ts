@@ -1,3 +1,4 @@
+import type { RemoteDeckAction } from "@/lib/spotify/djDeckActionWire";
 import type { DeckId } from "@/lib/spotify/djDeckState";
 import type { DjSessionCommand } from "@/lib/spotify/djSessionCommands";
 
@@ -12,6 +13,7 @@ export type DjPlaybackHandlers = {
   playFromPlaylistRow: (deck: DeckId, index: number) => Promise<void>;
   playFromQueueRow: (deck: DeckId, index: number) => Promise<void>;
   startQueueHead: (deck: DeckId, queueIndex: number) => Promise<void>;
+  dispatchDeckAction: (action: RemoteDeckAction) => Promise<void>;
 };
 
 export async function executeSessionCommand(
@@ -48,6 +50,9 @@ export async function executeSessionCommand(
       break;
     case "START_QUEUE_HEAD":
       await handlers.startQueueHead(command.deck, command.queueIndex);
+      break;
+    case "DISPATCH_DECK_ACTION":
+      await handlers.dispatchDeckAction(command.action);
       break;
     default:
       break;

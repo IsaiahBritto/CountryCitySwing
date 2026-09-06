@@ -108,6 +108,10 @@ export function effectiveHostStatus(session: DjSessionRow): DjHostStatus {
   return "online";
 }
 
+export function canExecutePlayback(session: DjSessionRow): boolean {
+  return effectiveHostStatus(session) === "online" && !!session.host_device_id;
+}
+
 export function toSessionResponse(session: DjSessionRow) {
   return {
     id: session.id,

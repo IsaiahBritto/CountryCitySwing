@@ -497,6 +497,11 @@ export async function POST(request: NextRequest) {
             typeof metadata.planned_class_level === "string"
               ? metadata.planned_class_level
               : null;
+          const plannedDanceRoleFromMeta =
+            metadata.planned_dance_role === "lead" ||
+            metadata.planned_dance_role === "follow"
+              ? metadata.planned_dance_role
+              : null;
           const plannedClassLabelInsert = plannedClassLevelLabel(plannedClassFromMeta);
           const { data: newSignup, error: insertError } = await supabaseServer
             .from("signups")
@@ -522,6 +527,9 @@ export async function POST(request: NextRequest) {
                 stripe_payment_intent_id: paymentIntentId,
                 ...(plannedClassFromMeta && plannedClassLabelInsert
                   ? { planned_class_level: plannedClassFromMeta }
+                  : {}),
+                ...(plannedDanceRoleFromMeta
+                  ? { planned_dance_role: plannedDanceRoleFromMeta }
                   : {}),
                 ...(usedPromoInsert ? { used_promotion_code: true } : {}),
               },

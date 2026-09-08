@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { ensureSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
+import { parseUpperLevelCapacity } from "@/lib/upperLevelRegistration";
+
+function parseCapacityField(value: unknown): number | null {
+  if (value === undefined) return null;
+  return parseUpperLevelCapacity(value);
+}
 
 // GET - Fetch all events (public)
 export async function GET() {
@@ -8,7 +14,7 @@ export async function GET() {
     const { data, error } = await supabaseServer
       .from("events")
       .select(
-        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,strictly_level,jnj_level,type,refund_statement,all_three_classes"
+        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,strictly_level,jnj_level,type,refund_statement,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity"
       )
       .order("starts_at", { ascending: true });
 
@@ -90,6 +96,18 @@ export async function POST(req: NextRequest) {
       eventData.all_three_classes === "true" ||
       eventData.allThreeClasses === "true";
     insertData.all_three_classes = typeNorm === "class" && requestedAllThree;
+
+    if (typeNorm === "class" && requestedAllThree) {
+      insertData.upper_level_lead_capacity = parseCapacityField(
+        eventData.upper_level_lead_capacity
+      );
+      insertData.upper_level_follow_capacity = parseCapacityField(
+        eventData.upper_level_follow_capacity
+      );
+    } else {
+      insertData.upper_level_lead_capacity = null;
+      insertData.upper_level_follow_capacity = null;
+    }
 
     const { data, error } = await supabaseServer
       .from("events")

@@ -23,6 +23,11 @@ import {
   PLANNED_CLASS_LEVEL_LABELS,
   PLANNED_CLASS_LEVEL_NOTE,
 } from "@/lib/classLevels";
+import {
+  DANCE_ROLES,
+  DANCE_ROLE_LABELS,
+  type DanceRole,
+} from "@/lib/upperLevelRegistration";
 
 /* ---------- Validation Schema ---------- */
 const REQUIRED_FIELD = "The above is a required field.";
@@ -64,6 +69,11 @@ const baseSchema = z.object({
       errorMap: () => ({ message: REQUIRED_FIELD }),
     })
     .optional(),
+  plannedDanceRole: z
+    .enum(DANCE_ROLES, {
+      errorMap: () => ({ message: REQUIRED_FIELD }),
+    })
+    .optional(),
 });
 
 function buildSignupSchema(
@@ -101,6 +111,17 @@ function buildSignupSchema(
       ctx.addIssue({
         path: ["plannedClassLevel"],
         message: REQUIRED_FIELD,
+        code: z.ZodIssueCode.custom,
+      });
+    }
+    if (
+      requirePlannedClass &&
+      data.plannedClassLevel === "upper_level" &&
+      !data.plannedDanceRole
+    ) {
+      ctx.addIssue({
+        path: ["plannedDanceRole"],
+        message: "Please select whether you are a Lead or Follow.",
         code: z.ZodIssueCode.custom,
       });
     }
@@ -156,9 +177,15 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string; discountedSubtotal?: number } | null>(null);
   const [promoError, setPromoError] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
+  const [upperLevelAvailability, setUpperLevelAvailability] = useState<{
+    lead: { registered: number; capacity: number | null; remaining: number | null; full: boolean };
+    follow: { registered: number; capacity: number | null; remaining: number | null; full: boolean };
+  } | null>(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const beenBefore = watch("beenBefore");
   const paymentMethod = watch("paymentMethod");
   const plannedClassLevel = watch("plannedClassLevel");
+  const plannedDanceRole = watch("plannedDanceRole");
   const acceptLiability = watch("acceptLiability");
   const acceptPayment = watch("acceptPayment");
   const acceptRefund = watch("acceptRefund");
@@ -171,6 +198,39 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   // Use isInstructor from parent when provided (reliable); otherwise from profile fetch in modal
   const isInstructorFromRole = (userRole ?? "").toLowerCase().trim() === "instructor";
   const isInstructor = isInstructorProp ?? isInstructorFromRole;
+
+  useEffect(() => {
+    if (!open || !event?.id || plannedClassLevel !== "upper_level") {
+      setUpperLevelAvailability(null);
+      return;
+    }
+    let cancelled = false;
+    setAvailabilityLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/events/${encodeURIComponent(String(event.id))}/upper-level-availability`
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled || !data.available) return;
+        setUpperLevelAvailability({ lead: data.lead, follow: data.follow });
+      } catch {
+        if (!cancelled) setUpperLevelAvailability(null);
+      } finally {
+        if (!cancelled) setAvailabilityLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, event?.id, plannedClassLevel]);
+
+  useEffect(() => {
+    if (plannedClassLevel !== "upper_level") {
+      setValue("plannedDanceRole", undefined, { shouldValidate: true });
+    }
+  }, [plannedClassLevel, setValue]);
   // Workshop schedule pricing (public vs CCS team)
   const effectivePrice =
     event != null
@@ -629,6 +689,60 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                 <p className="text-xs text-gray-400 mt-3 leading-relaxed">
                   {PLANNED_CLASS_LEVEL_NOTE}
                 </p>
+              </div>
+            )}
+
+            {requiresPlannedClass && plannedClassLevel === "upper_level" && (
+              <div>
+                <p className="font-medium mb-2">
+                  For Upper Level, are you a Lead or Follow?{" "}
+                  <span className="text-red-400">*</span>
+                </p>
+                {availabilityLoading && (
+                  <p className="text-xs text-gray-400 mb-2">Checking availability…</p>
+                )}
+                <ChoiceCards
+                  name="plannedDanceRole"
+                  aria-label="Are you a Lead or Follow for Upper Level?"
+                  hasError={!!errors.plannedDanceRole}
+                  value={plannedDanceRole}
+                  onChange={(next) =>
+                    setValue("plannedDanceRole", next as DanceRole, {
+                      shouldValidate: true,
+                      shouldDirty: true,
+                    })
+                  }
+                  options={DANCE_ROLES.map((role) => {
+                    const availability = upperLevelAvailability?.[role];
+                    const disabled =
+                      !isInstructor && availability?.full === true;
+                    let description: string | undefined;
+                    if (availability) {
+                      if (availability.capacity != null) {
+                        const remaining =
+                          availability.remaining ??
+                          Math.max(0, availability.capacity - availability.registered);
+                        description = disabled
+                          ? "This role is full"
+                          : `${remaining} spots remaining`;
+                      } else if (availability.registered > 0) {
+                        description = `${availability.registered} registered so far`;
+                      }
+                    }
+                    return {
+                      value: role,
+                      label: DANCE_ROLE_LABELS[role],
+                      description,
+                      disabled,
+                    };
+                  })}
+                />
+                <input type="hidden" {...register("plannedDanceRole")} />
+                {errors.plannedDanceRole && (
+                  <p className="text-red-400 text-sm mt-2">
+                    {String(errors.plannedDanceRole.message)}
+                  </p>
+                )}
               </div>
             )}
 

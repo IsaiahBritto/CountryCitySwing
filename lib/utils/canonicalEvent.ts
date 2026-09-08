@@ -4,6 +4,7 @@ import {
   type PriceChange,
 } from "@/lib/utils/workshopPricing";
 import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
+import { parseUpperLevelCapacity } from "@/lib/upperLevelRegistration";
 
 export type CanonicalEvent = {
   id: string;
@@ -18,6 +19,8 @@ export type CanonicalEvent = {
   ccs_team_price_changes: PriceChange[];
   refund_statement: string | null;
   all_three_classes: boolean;
+  upper_level_lead_capacity: number | null;
+  upper_level_follow_capacity: number | null;
 };
 
 export class CanonicalEventError extends Error {
@@ -44,7 +47,7 @@ export async function resolveCanonicalEventById(eventId: unknown): Promise<Canon
   const { data, error } = await supabaseServer
     .from("events")
     .select(
-      "id,title,type,starts_at,location,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,refund_statement,all_three_classes"
+      "id,title,type,starts_at,location,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,refund_statement,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity"
     )
     .eq("id", id)
     .single();
@@ -75,5 +78,11 @@ export async function resolveCanonicalEventById(eventId: unknown): Promise<Canon
         ? String(data.refund_statement).trim()
         : null,
     all_three_classes: data.all_three_classes === true,
+    upper_level_lead_capacity: parseUpperLevelCapacity(
+      data.upper_level_lead_capacity
+    ),
+    upper_level_follow_capacity: parseUpperLevelCapacity(
+      data.upper_level_follow_capacity
+    ),
   };
 }

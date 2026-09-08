@@ -19,18 +19,26 @@ import {
   buildPrincipalRefundedMap,
   withNetPaidAmount,
 } from "@/lib/utils/signupNetPaid";
-import { computeClassLevelSummary, PLANNED_CLASS_LEVELS, applyClassSignupCounts } from "@/lib/classLevels";
+import { computeClassLevelSummary, PLANNED_CLASS_LEVELS, applyClassSignupCounts, normalizeSignupEmail, isPlannedClassLevel, type PlannedClassLevel } from "@/lib/classLevels";
 import { loadClassSignupCountsByEmail } from "@/lib/utils/classCheckInCounts";
 import { canViewClassLevelBreakdown } from "@/lib/classLevelRegistrationAccess";
+import {
+  computeUpperLevelBreakdown,
+  countUpperLevelTowardCapacity,
+  isDanceRole,
+  isUpperLevelRoleFull,
+  validatePlannedClassAndRole,
+  type DanceRole,
+} from "@/lib/upperLevelRegistration";
 
 const COMP_SIGNUPS_SELECT =
   "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled";
 
 const SIGNUPS_SELECT =
-  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code,planned_class_level";
+  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code,planned_class_level,planned_dance_role";
 
 const EVENT_PRICING_SELECT =
-  "id,type,starts_at,ends_at,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,all_three_classes";
+  "id,type,starts_at,ends_at,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity";
 
 const EVENT_META_CACHE_TTL_MS = 60_000; // 60 seconds
 const eventMetaCache = new Map<
@@ -221,6 +229,38 @@ export async function GET(req: NextRequest) {
       classLevelSummary = applyClassSignupCounts(classLevelSummary, classSignupCounts);
     }
 
+    const upperLevelBreakdown =
+      allThreeClasses && showClassLevelBreakdown && eventPricing
+        ? computeUpperLevelBreakdown(enrichedList, {
+            upper_level_lead_capacity:
+              eventPricing.upper_level_lead_capacity ?? null,
+            upper_level_follow_capacity:
+              eventPricing.upper_level_follow_capacity ?? null,
+          })
+        : null;
+    if (upperLevelBreakdown) {
+      const rosterEmails = [
+        ...upperLevelBreakdown.public.lead.roster,
+        ...upperLevelBreakdown.public.follow.roster,
+        ...upperLevelBreakdown.ccsTeam.lead.roster,
+        ...upperLevelBreakdown.ccsTeam.follow.roster,
+      ].map((entry) => entry.email);
+      const classSignupCounts = await loadClassSignupCountsByEmail(rosterEmails);
+      for (const section of [
+        upperLevelBreakdown.public,
+        upperLevelBreakdown.ccsTeam,
+        upperLevelBreakdown.totals,
+      ]) {
+        for (const role of ["lead", "follow"] as const) {
+          section[role].roster = section[role].roster.map((entry) => ({
+            ...entry,
+            class_signup_count:
+              classSignupCounts.get(normalizeSignupEmail(entry.email) ?? "") ?? 0,
+          }));
+        }
+      }
+    }
+
     return NextResponse.json({
       signups,
       compSignups: [],
@@ -231,6 +271,7 @@ export async function GET(req: NextRequest) {
       eventPricing,
       all_three_classes: allThreeClasses,
       class_level_summary: classLevelSummary,
+      upper_level_breakdown: upperLevelBreakdown,
     });
   } catch (error: any) {
     console.error("Error:", error);
@@ -259,6 +300,14 @@ async function loadEventPricing(eventId: string) {
     ccs_team_price: data.ccs_team_price != null ? Number(data.ccs_team_price) : null,
     ccs_team_price_changes: normalizePriceChanges(data.ccs_team_price_changes),
     all_three_classes: data.all_three_classes === true,
+    upper_level_lead_capacity:
+      data.upper_level_lead_capacity != null
+        ? Number(data.upper_level_lead_capacity)
+        : null,
+    upper_level_follow_capacity:
+      data.upper_level_follow_capacity != null
+        ? Number(data.upper_level_follow_capacity)
+        : null,
   };
 }
 
@@ -346,9 +395,12 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ success: true, signup: data });
     }
 
-    if (!["paid", "checked_in", "amount_due"].includes(field)) {
+    if (!["paid", "checked_in", "amount_due", "planned_class_level", "planned_dance_role"].includes(field)) {
       return NextResponse.json(
-        { error: "Invalid field. Must be 'paid', 'checked_in', or 'amount_due'" },
+        {
+          error:
+            "Invalid field. Must be 'paid', 'checked_in', 'amount_due', 'planned_class_level', or 'planned_dance_role'",
+        },
         { status: 400 }
       );
     }
@@ -356,7 +408,7 @@ export async function PATCH(req: NextRequest) {
     const { data: existingSignup, error: existingSignupError } = await supabaseServer
       .from("signups")
       .select(
-        "id,event_id,payment_method,paid,checked_in,amount_owed,amount_due,amount_paid,is_ccs_team,refunded_or_cancelled"
+        "id,event_id,payment_method,paid,checked_in,amount_owed,amount_due,amount_paid,is_ccs_team,refunded_or_cancelled,planned_class_level,planned_dance_role"
       )
       .eq("id", signupId)
       .single();
@@ -379,6 +431,123 @@ export async function PATCH(req: NextRequest) {
     }
     const accessErr = assertRegistrationEventMutateAccess(auth.access.level, eventMeta);
     if (accessErr) return accessErr;
+
+    if (field === "planned_class_level" || field === "planned_dance_role") {
+      if (auth.access.level !== "admin") {
+        return NextResponse.json(
+          { error: "Only admins can change class level or role." },
+          { status: 403 }
+        );
+      }
+
+      const pricing = await loadEventPricing(String(existingSignup.event_id));
+      if (!pricing?.all_three_classes) {
+        return NextResponse.json(
+          { error: "This event does not use class level selection." },
+          { status: 400 }
+        );
+      }
+
+      const nextLevel: PlannedClassLevel | null =
+        field === "planned_class_level"
+          ? isPlannedClassLevel(value)
+            ? value
+            : null
+          : isPlannedClassLevel(existingSignup.planned_class_level)
+            ? existingSignup.planned_class_level
+            : null;
+
+      if (field === "planned_class_level" && !nextLevel) {
+        return NextResponse.json(
+          { error: "Invalid planned class level." },
+          { status: 400 }
+        );
+      }
+
+      let nextRole: DanceRole | null = null;
+      if (field === "planned_dance_role") {
+        if (!isDanceRole(value)) {
+          return NextResponse.json(
+            { error: "Invalid dance role. Must be lead or follow." },
+            { status: 400 }
+          );
+        }
+        nextRole = value;
+      } else if (body.plannedDanceRole !== undefined) {
+        nextRole = isDanceRole(body.plannedDanceRole) ? body.plannedDanceRole : null;
+      } else if (nextLevel === "upper_level") {
+        nextRole = isDanceRole(existingSignup.planned_dance_role)
+          ? existingSignup.planned_dance_role
+          : null;
+      }
+
+      const levelValidation = validatePlannedClassAndRole({
+        allThreeClasses: true,
+        plannedClassLevel: nextLevel,
+        plannedDanceRole: nextLevel === "upper_level" ? nextRole : null,
+      });
+      if (!levelValidation.ok) {
+        return NextResponse.json({ error: levelValidation.error }, { status: 400 });
+      }
+
+      const isCcsTeamSignup = existingSignup.is_ccs_team === true;
+      if (
+        !isCcsTeamSignup &&
+        nextLevel === "upper_level" &&
+        nextRole
+      ) {
+        const { data: capacityRows, error: capacityError } = await supabaseServer
+          .from("signups")
+          .select(
+            "id,planned_class_level,planned_dance_role,is_ccs_team,refunded_or_cancelled"
+          )
+          .eq("event_id", existingSignup.event_id)
+          .eq("planned_class_level", "upper_level")
+          .neq("refunded_or_cancelled", "cancelled");
+        if (capacityError) {
+          return NextResponse.json(
+            { error: "Failed to verify Upper Level availability." },
+            { status: 500 }
+          );
+        }
+        const currentCount = countUpperLevelTowardCapacity(capacityRows ?? [], nextRole, {
+          excludeSignupId: existingSignup.id,
+        });
+        if (
+          pricing &&
+          isUpperLevelRoleFull(pricing, currentCount, nextRole)
+        ) {
+          const roleLabel = nextRole === "lead" ? "Lead" : "Follow";
+          return NextResponse.json(
+            { error: `Upper Level ${roleLabel} spots are full for this event.` },
+            { status: 409 }
+          );
+        }
+      }
+
+      const updatePayload: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+        planned_class_level: nextLevel,
+        planned_dance_role: nextLevel === "upper_level" ? nextRole : null,
+      };
+
+      const { data, error } = await supabaseServer
+        .from("signups")
+        .update(updatePayload)
+        .eq("id", signupId)
+        .select(SIGNUPS_SELECT)
+        .single();
+
+      if (error) {
+        console.error("Error updating signup class level:", error);
+        return NextResponse.json(
+          { error: "Failed to update signup", details: error.message },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json({ success: true, signup: data });
+    }
 
     const pm = String(existingSignup.payment_method || "").trim().toLowerCase();
     const isStripe = pm === "stripe";

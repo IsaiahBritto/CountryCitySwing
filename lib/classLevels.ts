@@ -64,6 +64,8 @@ export type ClassLevelRosterEntry = {
   email: string;
   checked_in: boolean;
   class_signup_count?: number;
+  planned_dance_role?: "lead" | "follow";
+  is_ccs_team?: boolean;
 };
 
 export type ClassLevelCounts = {

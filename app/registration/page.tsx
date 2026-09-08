@@ -35,6 +35,9 @@ import {
 } from "@/lib/utils/workshopPricing";
 import CompLevelBadge from "@/components/CompLevelBadge";
 import PlannedClassLevelBadge from "@/components/PlannedClassLevelBadge";
+import DanceRoleBadge from "@/components/DanceRoleBadge";
+import UpperLevelBreakdownModal from "@/components/UpperLevelBreakdownModal";
+import AdminPlannedClassEditModal from "@/components/AdminPlannedClassEditModal";
 import { hasCompDivisionPrice } from "@/lib/compLevels";
 import {
   type ClassLevelSummary,
@@ -44,6 +47,7 @@ import {
   plannedClassLevelBadgeClass,
   plannedClassLevelModalClass,
 } from "@/lib/classLevels";
+import { type UpperLevelBreakdown } from "@/lib/upperLevelRegistration";
 
 type RegistrationAccessLevel = "admin" | "instructor" | "social_viewer";
 
@@ -98,6 +102,7 @@ interface Signup {
   free_via_promotion_code?: boolean | null;
   used_promotion_code?: boolean | null;
   planned_class_level?: string | null;
+  planned_dance_role?: string | null;
 }
 
 interface CompSignup {
@@ -189,6 +194,12 @@ export default function RegistrationPage() {
     null
   );
   const [classLevelModal, setClassLevelModal] = useState<PlannedClassLevel | null>(
+    null
+  );
+  const [upperLevelBreakdown, setUpperLevelBreakdown] =
+    useState<UpperLevelBreakdown | null>(null);
+  const [upperLevelModalOpen, setUpperLevelModalOpen] = useState(false);
+  const [classLevelEditModal, setClassLevelEditModal] = useState<Signup | null>(
     null
   );
 
@@ -309,6 +320,7 @@ export default function RegistrationPage() {
       loadSignups(selectedEvent.id);
     }
     setClassLevelModal(null);
+    setUpperLevelModalOpen(false);
   }, [selectedEvent, filter]);
 
   // Set up real-time subscription for signups or comp_signups changes
@@ -416,6 +428,7 @@ export default function RegistrationPage() {
         setCheckedInCount(0);
         setArrivalBuckets({ ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS });
         setClassLevelSummary(null);
+        setUpperLevelBreakdown(null);
         return;
       }
 
@@ -424,10 +437,15 @@ export default function RegistrationPage() {
       setIsCompEvent(isComp);
       if (isComp) {
         setClassLevelSummary(null);
+        setUpperLevelBreakdown(null);
       } else if (data.all_three_classes && data.class_level_summary) {
         setClassLevelSummary(data.class_level_summary as ClassLevelSummary);
+        setUpperLevelBreakdown(
+          (data.upper_level_breakdown as UpperLevelBreakdown | null) ?? null
+        );
       } else {
         setClassLevelSummary(null);
+        setUpperLevelBreakdown(null);
       }
       if (data.eventPricing) {
         setEventPricing(data.eventPricing as EventPricing);
@@ -484,6 +502,7 @@ export default function RegistrationPage() {
       setCheckedInCount(0);
       setArrivalBuckets({ ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS });
       setClassLevelSummary(null);
+      setUpperLevelBreakdown(null);
     }
   };
 
@@ -1095,14 +1114,26 @@ export default function RegistrationPage() {
             <div className="mb-4 flex flex-wrap gap-2">
               {PLANNED_CLASS_LEVELS.map((level) => {
                 const { total, checked_in } = classLevelSummary.counts[level];
+                const isUpper = level === "upper_level";
+                const publicLeads = upperLevelBreakdown?.public.lead.total ?? 0;
+                const publicFollows = upperLevelBreakdown?.public.follow.total ?? 0;
+                const ccsTotal =
+                  (upperLevelBreakdown?.ccsTeam.lead.total ?? 0) +
+                  (upperLevelBreakdown?.ccsTeam.follow.total ?? 0);
                 return (
                   <button
                     key={level}
                     type="button"
-                    onClick={() => total > 0 && setClassLevelModal(level)}
-                    disabled={total === 0}
+                    onClick={() => {
+                      if (isUpper) {
+                        setUpperLevelModalOpen(true);
+                      } else if (total > 0) {
+                        setClassLevelModal(level);
+                      }
+                    }}
+                    disabled={!isUpper && total === 0}
                     className={`rounded-lg border px-3 py-2 text-left transition-colors ${plannedClassLevelBadgeClass(level)} ${
-                      total > 0
+                      isUpper || total > 0
                         ? "hover:brightness-110 cursor-pointer"
                         : "opacity-50 cursor-default"
                     }`}
@@ -1111,8 +1142,25 @@ export default function RegistrationPage() {
                       {PLANNED_CLASS_LEVEL_LABELS[level]}
                     </div>
                     <div className="text-sm font-semibold tabular-nums">
-                      {total} signed up
-                      <span className="font-normal opacity-80"> · {checked_in} checked in</span>
+                      {isUpper && upperLevelBreakdown ? (
+                        <>
+                          {publicLeads}L · {publicFollows}F signed up
+                          {ccsTotal > 0 && (
+                            <span className="font-normal opacity-80">
+                              {" "}
+                              · {ccsTotal} CCS Team
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {total} signed up
+                          <span className="font-normal opacity-80">
+                            {" "}
+                            · {checked_in} checked in
+                          </span>
+                        </>
+                      )}
                     </div>
                   </button>
                 );
@@ -1328,8 +1376,22 @@ export default function RegistrationPage() {
                           <>{signupLabel}</>
                         )}
                         {canShowClassLevelBreakdown && (
-                          <PlannedClassLevelBadge level={signup.planned_class_level} />
+                          isAdmin && signup.planned_class_level ? (
+                            <button
+                              type="button"
+                              className="inline-flex"
+                              onClick={() => setClassLevelEditModal(signup)}
+                            >
+                              <PlannedClassLevelBadge level={signup.planned_class_level} />
+                            </button>
+                          ) : (
+                            <PlannedClassLevelBadge level={signup.planned_class_level} />
+                          )
                         )}
+                        {canShowClassLevelBreakdown &&
+                          signup.planned_class_level === "upper_level" && (
+                            <DanceRoleBadge role={signup.planned_dance_role} />
+                          )}
                       </h3>
                       {isAdmin && signup.refunded_or_cancelled === "partial" && (
                         <p className="text-amber-300 text-xs font-medium">Partial refund</p>
@@ -1474,9 +1536,17 @@ export default function RegistrationPage() {
                       {(scannedResult.signup as Signup).first_name}{" "}
                       {(scannedResult.signup as Signup).last_name}
                       {canShowClassLevelBreakdown && (
-                        <PlannedClassLevelBadge
-                          level={(scannedResult.signup as Signup).planned_class_level}
-                        />
+                        <>
+                          <PlannedClassLevelBadge
+                            level={(scannedResult.signup as Signup).planned_class_level}
+                          />
+                          {(scannedResult.signup as Signup).planned_class_level ===
+                            "upper_level" && (
+                            <DanceRoleBadge
+                              role={(scannedResult.signup as Signup).planned_dance_role}
+                            />
+                          )}
+                        </>
                       )}
                     </h3>
                     <p className="text-gray-400 truncate">{(scannedResult.signup as Signup).email}</p>
@@ -1769,7 +1839,7 @@ export default function RegistrationPage() {
           setScannedResult({ signup, isComp: result.isComp });
         }}
       />
-      {classLevelModal && classLevelSummary && (
+      {classLevelModal && classLevelSummary && classLevelModal !== "upper_level" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
           <div
             className={`w-full max-w-md rounded-xl border-2 p-5 shadow-xl ${plannedClassLevelModalClass(classLevelModal)}`}
@@ -1824,6 +1894,29 @@ export default function RegistrationPage() {
             )}
           </div>
         </div>
+      )}
+      {upperLevelModalOpen && upperLevelBreakdown && (
+        <UpperLevelBreakdownModal
+          breakdown={upperLevelBreakdown}
+          onClose={() => setUpperLevelModalOpen(false)}
+        />
+      )}
+      {classLevelEditModal && sessionToken && selectedEvent && (
+        <AdminPlannedClassEditModal
+          key={classLevelEditModal.id}
+          open={!!classLevelEditModal}
+          onClose={() => setClassLevelEditModal(null)}
+          signupId={classLevelEditModal.id}
+          signupName={formatSocialSignupLabel(classLevelEditModal)}
+          currentLevel={classLevelEditModal.planned_class_level}
+          currentRole={classLevelEditModal.planned_dance_role}
+          sessionToken={sessionToken}
+          onSaved={() => {
+            if (selectedEvent) {
+              void loadSignups(selectedEvent.id);
+            }
+          }}
+        />
       )}
       {refundModal && sessionToken && (
         <RegistrationRefundModal

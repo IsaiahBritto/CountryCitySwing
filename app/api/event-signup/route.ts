@@ -20,6 +20,13 @@ import {
   plannedClassLevelLabel,
   type PlannedClassLevel,
 } from "@/lib/classLevels";
+import {
+  countUpperLevelTowardCapacity,
+  isDanceRole,
+  isUpperLevelRoleFull,
+  validatePlannedClassAndRole,
+  type DanceRole,
+} from "@/lib/upperLevelRegistration";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -49,6 +56,7 @@ export async function POST(req: NextRequest) {
     promotionCodeId: promotionCodeIdFromBody,
     discountedSubtotal: clientDiscountedSubtotalFromBody,
     plannedClassLevel: plannedClassLevelFromBody,
+    plannedDanceRole: plannedDanceRoleFromBody,
   } = data;
   const isCcsTeam = isCcsTeamFromBody === true || isCcsTeamFromBody === "true";
 
@@ -82,17 +90,41 @@ export async function POST(req: NextRequest) {
     plannedClassLevelFromBody ??
     data.plannedClassLevel ??
     data.planned_class_level;
-  let plannedClassLevel: PlannedClassLevel | null = null;
-  if (canonicalEvent.all_three_classes) {
-    if (!isPlannedClassLevel(rawPlannedClassLevel)) {
-      return NextResponse.json(
-        { error: "Please select which class you plan on taking." },
-        { status: 400 }
-      );
-    }
-    plannedClassLevel = rawPlannedClassLevel;
+  const rawPlannedDanceRole =
+    plannedDanceRoleFromBody ??
+    data.plannedDanceRole ??
+    data.planned_dance_role;
+
+  let plannedClassLevel: PlannedClassLevel | null = isPlannedClassLevel(
+    rawPlannedClassLevel
+  )
+    ? rawPlannedClassLevel
+    : null;
+  let plannedDanceRole: DanceRole | null = isDanceRole(rawPlannedDanceRole)
+    ? rawPlannedDanceRole
+    : null;
+
+  const levelValidation = validatePlannedClassAndRole({
+    allThreeClasses: canonicalEvent.all_three_classes,
+    plannedClassLevel,
+    plannedDanceRole,
+  });
+  if (!levelValidation.ok) {
+    return NextResponse.json({ error: levelValidation.error }, { status: 400 });
   }
+
+  if (!canonicalEvent.all_three_classes) {
+    plannedClassLevel = null;
+    plannedDanceRole = null;
+  }
+
   const plannedClassLabel = plannedClassLevelLabel(plannedClassLevel);
+  const plannedRoleLabel =
+    plannedDanceRole === "lead"
+      ? "Lead"
+      : plannedDanceRole === "follow"
+        ? "Follow"
+        : null;
   const emailTrimmed = typeof email === "string" ? email.trim().toLowerCase() : "";
 
   // Sanity check: reject if already registered for this event (event_id + email)
@@ -113,6 +145,45 @@ export async function POST(req: NextRequest) {
           alreadyRegistered: true,
           eventTitle,
           eventDate,
+        },
+        { status: 409 }
+      );
+    }
+  }
+
+  if (
+    !isCcsTeam &&
+    plannedClassLevel === "upper_level" &&
+    plannedDanceRole
+  ) {
+    const { data: capacityRows, error: capacityError } = await supabaseServer
+      .from("signups")
+      .select(
+        "id,planned_class_level,planned_dance_role,is_ccs_team,refunded_or_cancelled"
+      )
+      .eq("event_id", eventId)
+      .eq("planned_class_level", "upper_level")
+      .neq("refunded_or_cancelled", "cancelled");
+    if (capacityError) {
+      console.error("[event-signup] capacity check failed", capacityError);
+      return NextResponse.json(
+        { error: "Failed to verify Upper Level availability." },
+        { status: 500 }
+      );
+    }
+    const currentCount = countUpperLevelTowardCapacity(
+      capacityRows ?? [],
+      plannedDanceRole
+    );
+    if (
+      isUpperLevelRoleFull(canonicalEvent, currentCount, plannedDanceRole)
+    ) {
+      const roleLabel = plannedDanceRole === "lead" ? "Lead" : "Follow";
+      return NextResponse.json(
+        {
+          error: `Upper Level ${roleLabel} spots are full for this event.`,
+          capacityFull: true,
+          role: plannedDanceRole,
         },
         { status: 409 }
       );
@@ -218,6 +289,7 @@ export async function POST(req: NextRequest) {
             ...(plannedClassLevel
               ? { planned_class_level: plannedClassLevel }
               : {}),
+            ...(plannedDanceRole ? { planned_dance_role: plannedDanceRole } : {}),
           },
           success_url: `${base}/events/confirmation?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url: `${base}/events?payment=cancelled`,
@@ -294,6 +366,7 @@ export async function POST(req: NextRequest) {
         amount_paid: paid ? roundCurrency(amountOwed) : null,
         is_ccs_team: isCcsTeam,
         ...(plannedClassLevel ? { planned_class_level: plannedClassLevel } : {}),
+        ...(plannedDanceRole ? { planned_dance_role: plannedDanceRole } : {}),
         ...(freeViaPromo ? { free_via_promotion_code: true } : {}),
         ...(usedPromo ? { used_promotion_code: true } : {}),
       },
@@ -408,7 +481,7 @@ export async function POST(req: NextRequest) {
               ${plannedClassLabel ? `
               <div class="detail-row">
                 <div class="detail-label">Planned Class</div>
-                <div class="detail-value"><strong>${plannedClassLabel}</strong></div>
+                <div class="detail-value"><strong>${plannedClassLabel}${plannedRoleLabel ? ` (${plannedRoleLabel})` : ""}</strong></div>
               </div>
               ` : ""}
               ${eventPrice > 0 ? `

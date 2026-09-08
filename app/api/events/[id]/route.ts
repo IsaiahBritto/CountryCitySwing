@@ -3,6 +3,12 @@ import { requireAdminAuth } from "@/lib/adminAuth";
 import { deleteEventFully } from "@/lib/events/deleteEvent";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { ensureSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
+import { parseUpperLevelCapacity } from "@/lib/upperLevelRegistration";
+
+function parseCapacityField(value: unknown): number | null {
+  if (value === undefined) return null;
+  return parseUpperLevelCapacity(value);
+}
 
 // PUT - Update an event (admin only)
 export async function PUT(
@@ -77,6 +83,22 @@ export async function PUT(
       eventData.allThreeClasses === "true";
     // Always persist: Class-only; force false for other types or when omitted.
     updateData.all_three_classes = typeNorm === "class" && requestedAllThree;
+
+    if (typeNorm === "class" && requestedAllThree) {
+      if (eventData.upper_level_lead_capacity !== undefined) {
+        updateData.upper_level_lead_capacity = parseCapacityField(
+          eventData.upper_level_lead_capacity
+        );
+      }
+      if (eventData.upper_level_follow_capacity !== undefined) {
+        updateData.upper_level_follow_capacity = parseCapacityField(
+          eventData.upper_level_follow_capacity
+        );
+      }
+    } else if (typeNorm !== "class" || !requestedAllThree) {
+      updateData.upper_level_lead_capacity = null;
+      updateData.upper_level_follow_capacity = null;
+    }
 
     const { data, error } = await supabaseServer
       .from("events")

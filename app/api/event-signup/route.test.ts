@@ -22,9 +22,12 @@ const canonicalEvent = {
   ccs_team_price_changes: [],
   refund_statement: null as string | null,
   all_three_classes: false as boolean,
+  upper_level_lead_capacity: null as number | null,
+  upper_level_follow_capacity: null as number | null,
 };
 
 let insertedSignupRows: Record<string, unknown>[] = [];
+let existingUpperLevelSignups: Record<string, unknown>[] = [];
 
 vi.mock("@/lib/mailer", () => ({
   sendHtmlEmail: sendHtmlEmailMock,
@@ -74,7 +77,13 @@ vi.mock("@/lib/supabaseServer", () => {
             ilike() {
               return this;
             },
+            neq() {
+              return this;
+            },
             maybeSingle: async () => ({ data: null, error: null }),
+            then(resolve: (value: unknown) => void) {
+              resolve({ data: existingUpperLevelSignups, error: null });
+            },
           }),
           insert: (rows: Record<string, unknown>[]) => {
             insertedSignupRows = rows;
@@ -102,6 +111,7 @@ import { POST } from "@/app/api/event-signup/route";
 describe("POST /api/event-signup canonical event hardening", () => {
   beforeEach(() => {
     insertedSignupRows = [];
+    existingUpperLevelSignups = [];
     sendHtmlEmailMock.mockClear();
     makeQrCodeInlineAttachmentMock.mockClear();
   });
@@ -347,5 +357,132 @@ describe("POST /api/event-signup canonical event hardening", () => {
     canonicalEvent.all_three_classes = false;
     canonicalEvent.type = "Workshop";
     canonicalEvent.title = "Canonical Workshop Title";
+  });
+
+  it("requires lead/follow when upper level is selected", async () => {
+    canonicalEvent.all_three_classes = true;
+    canonicalEvent.type = "Class";
+
+    const payload = {
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      beenBefore: "I've been before!",
+      paymentMethod: "Cash",
+      acceptLiability: true,
+      acceptPayment: true,
+      plannedClassLevel: "upper_level",
+      event: { id: canonicalEvent.id },
+    };
+
+    const req = new NextRequest("http://localhost:3000/api/event-signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error).toMatch(/Lead or Follow/i);
+    expect(insertedSignupRows).toHaveLength(0);
+
+    canonicalEvent.all_three_classes = false;
+    canonicalEvent.type = "Workshop";
+  });
+
+  it("rejects signup when upper level role is at capacity", async () => {
+    canonicalEvent.all_three_classes = true;
+    canonicalEvent.type = "Class";
+    canonicalEvent.upper_level_lead_capacity = 1;
+    existingUpperLevelSignups = [
+      {
+        id: "existing-1",
+        planned_class_level: "upper_level",
+        planned_dance_role: "lead",
+        is_ccs_team: false,
+        refunded_or_cancelled: "active",
+      },
+    ];
+
+    const payload = {
+      firstName: "Jane",
+      lastName: "Doe",
+      email: "jane@example.com",
+      beenBefore: "I've been before!",
+      paymentMethod: "Cash",
+      acceptLiability: true,
+      acceptPayment: true,
+      plannedClassLevel: "upper_level",
+      plannedDanceRole: "lead",
+      event: { id: canonicalEvent.id },
+    };
+
+    const req = new NextRequest("http://localhost:3000/api/event-signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(data.capacityFull).toBe(true);
+    expect(insertedSignupRows).toHaveLength(0);
+
+    canonicalEvent.all_three_classes = false;
+    canonicalEvent.type = "Workshop";
+    canonicalEvent.upper_level_lead_capacity = null;
+    existingUpperLevelSignups = [];
+  });
+
+  it("allows CCS Team upper level signup when role is at capacity", async () => {
+    canonicalEvent.all_three_classes = true;
+    canonicalEvent.type = "Class";
+    canonicalEvent.upper_level_lead_capacity = 1;
+    existingUpperLevelSignups = [
+      {
+        id: "existing-1",
+        planned_class_level: "upper_level",
+        planned_dance_role: "lead",
+        is_ccs_team: false,
+        refunded_or_cancelled: "active",
+      },
+    ];
+
+    const payload = {
+      firstName: "Instructor",
+      lastName: "One",
+      email: "inst@example.com",
+      beenBefore: "I've been before!",
+      paymentMethod: "CCS TEAM",
+      acceptLiability: true,
+      acceptPayment: true,
+      is_ccs_team: true,
+      plannedClassLevel: "upper_level",
+      plannedDanceRole: "lead",
+      event: { id: canonicalEvent.id },
+    };
+
+    const req = new NextRequest("http://localhost:3000/api/event-signup", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "content-type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(insertedSignupRows[0]?.planned_dance_role).toBe("lead");
+    expect(insertedSignupRows[0]?.is_ccs_team).toBe(true);
+
+    canonicalEvent.all_three_classes = false;
+    canonicalEvent.type = "Workshop";
+    canonicalEvent.upper_level_lead_capacity = null;
+    existingUpperLevelSignups = [];
   });
 });

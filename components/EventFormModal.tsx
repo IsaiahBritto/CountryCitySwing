@@ -128,6 +128,8 @@ interface Event {
   refundStatement?: string | null;
   all_three_classes?: boolean;
   allThreeClasses?: boolean;
+  upper_level_lead_capacity?: number | null;
+  upper_level_follow_capacity?: number | null;
 }
 
 interface EventFormModalProps {
@@ -165,6 +167,8 @@ export default function EventFormModal({
     type: "",
     refundStatement: "",
     all_three_classes: false,
+    upper_level_lead_capacity: null,
+    upper_level_follow_capacity: null,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -239,6 +243,10 @@ export default function EventFormModal({
           all_three_classes: Boolean(
             event.all_three_classes ?? event.allThreeClasses
           ),
+          upper_level_lead_capacity:
+            event.upper_level_lead_capacity ?? null,
+          upper_level_follow_capacity:
+            event.upper_level_follow_capacity ?? null,
         });
       } else {
         setClassUpperLevelNames(DEFAULT_UPPER_LEVEL_NAMES);
@@ -263,6 +271,8 @@ export default function EventFormModal({
           type: "",
           refundStatement: "",
           all_three_classes: false,
+          upper_level_lead_capacity: null,
+          upper_level_follow_capacity: null,
         });
       }
       setError("");
@@ -416,6 +426,21 @@ export default function EventFormModal({
           ? formData.refundStatement.trim()
           : "";
       submitData.all_three_classes = isClassType && Boolean(formData.all_three_classes);
+      if (isClassType && formData.all_three_classes) {
+        submitData.upper_level_lead_capacity =
+          formData.upper_level_lead_capacity != null &&
+          formData.upper_level_lead_capacity !== ("" as unknown as number)
+            ? Number(formData.upper_level_lead_capacity)
+            : null;
+        submitData.upper_level_follow_capacity =
+          formData.upper_level_follow_capacity != null &&
+          formData.upper_level_follow_capacity !== ("" as unknown as number)
+            ? Number(formData.upper_level_follow_capacity)
+            : null;
+      } else {
+        submitData.upper_level_lead_capacity = null;
+        submitData.upper_level_follow_capacity = null;
+      }
       submitData.ends_at = formData.ends_at
         ? endUnchanged
           ? event!.ends_at!
@@ -725,6 +750,54 @@ export default function EventFormModal({
                 during registration.
               </span>
             </label>
+          )}
+
+          {isClassType && Boolean(formData.all_three_classes) && (
+            <div className="ml-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Upper Level lead spots (max)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={formData.upper_level_lead_capacity ?? ""}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      upper_level_lead_capacity:
+                        e.target.value === "" ? null : Number(e.target.value),
+                    }))
+                  }
+                  placeholder="Unlimited"
+                  className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Upper Level follow spots (max)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={formData.upper_level_follow_capacity ?? ""}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      upper_level_follow_capacity:
+                        e.target.value === "" ? null : Number(e.target.value),
+                    }))
+                  }
+                  placeholder="Unlimited"
+                  className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+              <p className="sm:col-span-2 text-xs text-gray-400">
+                Leave blank for unlimited. CCS Team registrations do not count toward these limits.
+              </p>
+            </div>
           )}
 
           {isClassType && classAutoDescription && (

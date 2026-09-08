@@ -31,6 +31,9 @@ export type DeckState = {
   track: DeckTrack | null;
   savedPositionMs: number;
   skippedAfterCurrent: number;
+  shuffleEnabled: boolean;
+  /** Original Spotify order preserved while shuffle is on */
+  originalPlaylist: DeckTrack[] | null;
 };
 
 export type DjDeckState = {
@@ -86,6 +89,7 @@ export type DjDeckAction =
   | { type: "SET_MASTER_VOLUME"; value: number }
   | { type: "HIGHLIGHT_QUEUE_ROW"; deck: DeckId; index: number | null }
   | { type: "HIGHLIGHT_PLAYLIST_ROW"; deck: DeckId; index: number | null }
+  | { type: "SET_SHUFFLE_ENABLED"; deck: DeckId; enabled: boolean }
   | { type: "RESTORE_SESSION"; state: DjDeckState };
 
 function createEmptyDeckState(enabled: boolean, deckId: DeckId): DeckState {
@@ -106,7 +110,80 @@ function createEmptyDeckState(enabled: boolean, deckId: DeckId): DeckState {
     track: null,
     savedPositionMs: 0,
     skippedAfterCurrent: 0,
+    shuffleEnabled: false,
+    originalPlaylist: null,
   };
+}
+
+export function shuffleArray<T>(
+  items: T[],
+  rng: () => number = Math.random
+): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+export function findPlaylistIndexByTrackId(
+  playlist: DeckTrack[],
+  trackId: string | null
+): number | null {
+  if (!trackId) return null;
+  const idx = playlist.findIndex((t) => t.id === trackId);
+  return idx >= 0 ? idx : null;
+}
+
+export function shufflePlaylistKeepingCurrent(
+  playlist: DeckTrack[],
+  currentTrackId: string | null,
+  rng: () => number = Math.random
+): { playlist: DeckTrack[]; playlistIndex: number } {
+  if (playlist.length === 0) {
+    return { playlist: [], playlistIndex: 0 };
+  }
+  const currentIdx =
+    currentTrackId != null
+      ? findPlaylistIndexByTrackId(playlist, currentTrackId)
+      : null;
+  const keepIdx = currentIdx ?? 0;
+  const currentTrack = playlist[keepIdx]!;
+  const rest = playlist.filter((_, i) => i !== keepIdx);
+  const shuffledRest = shuffleArray(rest, rng);
+  return {
+    playlist: [currentTrack, ...shuffledRest],
+    playlistIndex: 0,
+  };
+}
+
+function remapPlayedIndicesByTrackId(
+  fromPlaylist: DeckTrack[],
+  toPlaylist: DeckTrack[],
+  played: number[]
+): number[] {
+  const ids = new Set(
+    played
+      .map((i) => fromPlaylist[i]?.id)
+      .filter((id): id is string => typeof id === "string")
+  );
+  const remapped: number[] = [];
+  toPlaylist.forEach((track, index) => {
+    if (ids.has(track.id)) remapped.push(index);
+  });
+  return remapped.sort((a, b) => a - b);
+}
+
+function remapPlaylistIndexByTrackId(
+  fromPlaylist: DeckTrack[],
+  toPlaylist: DeckTrack[],
+  index: number | null
+): number | null {
+  if (index == null) return null;
+  const trackId = fromPlaylist[index]?.id;
+  if (!trackId) return null;
+  return findPlaylistIndexByTrackId(toPlaylist, trackId);
 }
 
 export const INITIAL_DJ_DECK_STATE: DjDeckState = {
@@ -270,6 +347,8 @@ export function djDeckReducer(
         playQueue: [],
         playQueueIndex: null,
         playbackSource: "playlist",
+        shuffleEnabled: false,
+        originalPlaylist: null,
       }));
     }
     case "SET_ACTIVE_DECK":
@@ -531,6 +610,62 @@ export function djDeckReducer(
           [action.deck]: action.index,
         },
       };
+    case "SET_SHUFFLE_ENABLED": {
+      const deck = getDeckState(state, action.deck);
+      if (deck.playlist.length === 0) return state;
+      if (deck.shuffleEnabled === action.enabled) return state;
+
+      if (action.enabled) {
+        const originalPlaylist = deck.originalPlaylist ?? [...deck.playlist];
+        const { playlist: shuffled, playlistIndex } = shufflePlaylistKeepingCurrent(
+          deck.playlist,
+          deck.track?.id ?? null
+        );
+        return updateDeck(state, action.deck, (d) => ({
+          ...d,
+          shuffleEnabled: true,
+          originalPlaylist,
+          playlist: shuffled,
+          playlistIndex,
+          playlistResumeIndex: remapPlaylistIndexByTrackId(
+            d.playlist,
+            shuffled,
+            d.playlistResumeIndex
+          ),
+          playedPlaylistIndices: remapPlayedIndicesByTrackId(
+            d.playlist,
+            shuffled,
+            d.playedPlaylistIndices
+          ),
+          skippedAfterCurrent: 0,
+        }));
+      }
+
+      const originalPlaylist = deck.originalPlaylist;
+      if (!originalPlaylist) return state;
+      const restoredIndex = findPlaylistIndexByTrackId(
+        originalPlaylist,
+        deck.track?.id ?? null
+      );
+      return updateDeck(state, action.deck, (d) => ({
+        ...d,
+        shuffleEnabled: false,
+        originalPlaylist: null,
+        playlist: originalPlaylist,
+        playlistIndex: restoredIndex,
+        playlistResumeIndex: remapPlaylistIndexByTrackId(
+          d.playlist,
+          originalPlaylist,
+          d.playlistResumeIndex
+        ),
+        playedPlaylistIndices: remapPlayedIndicesByTrackId(
+          d.playlist,
+          originalPlaylist,
+          d.playedPlaylistIndices
+        ),
+        skippedAfterCurrent: 0,
+      }));
+    }
     case "RESTORE_SESSION":
       return normalizeDjDeckState(action.state);
     default:
@@ -737,6 +872,12 @@ function parseDeckState(raw: unknown, deckId: DeckId): DeckState {
       typeof d.skippedAfterCurrent === "number"
         ? Math.max(0, d.skippedAfterCurrent)
         : 0,
+    shuffleEnabled: d.shuffleEnabled === true,
+    originalPlaylist: Array.isArray(d.originalPlaylist)
+      ? d.originalPlaylist
+          .map(parseDeckTrack)
+          .filter((t): t is DeckTrack => t != null)
+      : null,
   };
 }
 

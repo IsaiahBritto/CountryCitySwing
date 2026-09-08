@@ -16,6 +16,7 @@ const REMOTE_ACTION_TYPES = new Set([
   "SET_AFTER_QUEUE_BEHAVIOR",
   "SET_AFTER_QUEUE_CONTINUE_DECK",
   "SKIP_UP_NEXT",
+  "SET_SHUFFLE_ENABLED",
   "SELECT_PLAYLIST",
   "SET_PLAYLIST",
   "ENABLE_SECOND_DECK",
@@ -59,7 +60,8 @@ export type RemoteDeckAction =
       deck: DeckId;
       targetDeck: DeckId;
     }
-  | { type: "SKIP_UP_NEXT"; deck: DeckId };
+  | { type: "SKIP_UP_NEXT"; deck: DeckId }
+  | { type: "SET_SHUFFLE_ENABLED"; deck: DeckId; enabled: boolean };
 
 function isDeckId(value: unknown): value is DeckId {
   return value === "A" || value === "B";
@@ -235,6 +237,10 @@ export function parseRemoteDeckAction(raw: unknown): RemoteDeckAction | null {
     case "SKIP_UP_NEXT":
       return isDeckId(o.deck)
         ? { type: "SKIP_UP_NEXT", deck: o.deck }
+        : null;
+    case "SET_SHUFFLE_ENABLED":
+      return isDeckId(o.deck) && typeof o.enabled === "boolean"
+        ? { type: "SET_SHUFFLE_ENABLED", deck: o.deck, enabled: o.enabled }
         : null;
     default:
       return null;

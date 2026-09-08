@@ -13,6 +13,8 @@ import {
   playQueueTotalDurationMs,
   playlistRowStatus,
   serializeDjDeckState,
+  shuffleArray,
+  shufflePlaylistKeepingCurrent,
 } from "@/lib/spotify/djDeckState";
 
 const track = (i: number) => ({
@@ -371,6 +373,129 @@ describe("selectors", () => {
     state = djDeckReducer(state, { type: "ADVANCE_TRACK", deck: "B" });
     expect(state.deckB.track?.id).toBe("id-1");
     expect(getUpNext(state, "B")?.id).toBe("id-2");
+  });
+});
+
+describe("shuffle", () => {
+  const alwaysZero = () => 0;
+
+  it("shuffleArray produces deterministic order with fixed rng", () => {
+    const ids = shuffleArray([1, 2, 3, 4], alwaysZero);
+    expect(ids).toEqual([2, 3, 4, 1]);
+  });
+
+  it("shufflePlaylistKeepingCurrent keeps current track at index 0", () => {
+    const playlist = [track(0), track(1), track(2), track(3)];
+    const { playlist: shuffled, playlistIndex } = shufflePlaylistKeepingCurrent(
+      playlist,
+      "id-0",
+      alwaysZero
+    );
+    expect(playlistIndex).toBe(0);
+    expect(shuffled[0]?.id).toBe("id-0");
+    expect(shuffled.map((t) => t.id)).toEqual(["id-0", "id-2", "id-3", "id-1"]);
+  });
+
+  it("SET_SHUFFLE_ENABLED enables shuffle and reorders playlist", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_SHUFFLE_ENABLED",
+      deck: "A",
+      enabled: true,
+    });
+    expect(state.deckA.shuffleEnabled).toBe(true);
+    expect(state.deckA.originalPlaylist?.map((t) => t.id)).toEqual([
+      "id-0",
+      "id-1",
+      "id-2",
+      "id-3",
+    ]);
+    expect(state.deckA.playlist[0]?.id).toBe("id-0");
+    expect(state.deckA.playlistIndex).toBe(0);
+    expect(state.deckA.playlist.map((t) => t.id)).not.toEqual([
+      "id-0",
+      "id-1",
+      "id-2",
+      "id-3",
+    ]);
+  });
+
+  it("SET_SHUFFLE_ENABLED false restores original order and current track", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_SHUFFLE_ENABLED",
+      deck: "A",
+      enabled: true,
+    });
+    state = djDeckReducer(state, { type: "ADVANCE_TRACK", deck: "A" });
+    const currentId = state.deckA.track?.id;
+    state = djDeckReducer(state, {
+      type: "SET_SHUFFLE_ENABLED",
+      deck: "A",
+      enabled: false,
+    });
+    expect(state.deckA.shuffleEnabled).toBe(false);
+    expect(state.deckA.originalPlaylist).toBeNull();
+    expect(state.deckA.playlist.map((t) => t.id)).toEqual([
+      "id-0",
+      "id-1",
+      "id-2",
+      "id-3",
+    ]);
+    expect(state.deckA.track?.id).toBe(currentId);
+    expect(state.deckA.playlistIndex).toBe(
+      state.deckA.playlist.findIndex((t) => t.id === currentId)
+    );
+  });
+
+  it("ADVANCE_TRACK after shuffle follows shuffled playlist order", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_SHUFFLE_ENABLED",
+      deck: "A",
+      enabled: true,
+    });
+    const secondTrackId = state.deckA.playlist[1]?.id;
+    state = djDeckReducer(state, { type: "ADVANCE_TRACK", deck: "A" });
+    expect(state.deckA.track?.id).toBe(secondTrackId);
+    expect(state.deckA.playlistIndex).toBe(1);
+  });
+
+  it("SET_PLAYLIST clears shuffle state", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_SHUFFLE_ENABLED",
+      deck: "A",
+      enabled: true,
+    });
+    state = djDeckReducer(state, {
+      type: "SET_PLAYLIST",
+      deck: "A",
+      playlist: [track(5), track(6)],
+      playlistTotalDurationMs: 360000,
+    });
+    expect(state.deckA.shuffleEnabled).toBe(false);
+    expect(state.deckA.originalPlaylist).toBeNull();
+  });
+
+  it("serialize and deserialize preserve shuffle fields", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_SHUFFLE_ENABLED",
+      deck: "A",
+      enabled: true,
+    });
+    const roundTripped = deserializeDjDeckState(serializeDjDeckState(state));
+    expect(roundTripped.deckA.shuffleEnabled).toBe(true);
+    expect(roundTripped.deckA.originalPlaylist?.map((t) => t.id)).toEqual([
+      "id-0",
+      "id-1",
+      "id-2",
+      "id-3",
+    ]);
+    expect(roundTripped.deckA.playlist.map((t) => t.id)).toEqual(
+      state.deckA.playlist.map((t) => t.id)
+    );
   });
 });
 

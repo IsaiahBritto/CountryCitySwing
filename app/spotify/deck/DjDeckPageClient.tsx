@@ -1991,6 +1991,14 @@ export default function DjDeckPageClient() {
                     }
                     highlightedIndex={state.highlightedPlaylistIndex[deckId]}
                     totalDurationMs={deckState.playlistTotalDurationMs}
+                    shuffleEnabled={deckState.shuffleEnabled}
+                    onShuffleToggle={() =>
+                      dispatchRemoteDeckAction({
+                        type: "SET_SHUFFLE_ENABLED",
+                        deck: deckId,
+                        enabled: !deckState.shuffleEnabled,
+                      })
+                    }
                     disabled={!playerReady}
                   />
                 </div>
@@ -2058,6 +2066,14 @@ export default function DjDeckPageClient() {
               isInPlayQueue={(trackId) => isTrackInPlayQueue(state, "A", trackId)}
               highlightedIndex={state.highlightedPlaylistIndex.A}
               totalDurationMs={state.deckA.playlistTotalDurationMs}
+              shuffleEnabled={state.deckA.shuffleEnabled}
+              onShuffleToggle={() =>
+                dispatchRemoteDeckAction({
+                  type: "SET_SHUFFLE_ENABLED",
+                  deck: "A",
+                  enabled: !state.deckA.shuffleEnabled,
+                })
+              }
               disabled={!playerReady}
             />
           </div>

@@ -19,6 +19,8 @@ export type PlaylistPanelProps = {
   isInPlayQueue: (trackId: string) => boolean;
   highlightedIndex: number | null;
   totalDurationMs: number;
+  shuffleEnabled: boolean;
+  onShuffleToggle: () => void;
   disabled?: boolean;
 };
 
@@ -33,6 +35,8 @@ export default function PlaylistPanel({
   isInPlayQueue,
   highlightedIndex,
   totalDurationMs,
+  shuffleEnabled,
+  onShuffleToggle,
   disabled = false,
 }: PlaylistPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -75,8 +79,8 @@ export default function PlaylistPanel({
 
   return (
     <div className="flex flex-col flex-1 min-h-[200px] sm:min-h-[280px] rounded-xl border border-neutral-700 bg-neutral-950/60 overflow-hidden min-w-0">
-      <div className="px-2 py-1.5 sm:px-4 sm:py-2 border-b border-neutral-700 bg-neutral-900/80">
-        <h3 className="text-[10px] sm:text-xs uppercase tracking-wide text-neutral-500 truncate">
+      <div className="px-2 py-1.5 sm:px-4 sm:py-2 border-b border-neutral-700 bg-neutral-900/80 flex items-center justify-between gap-2">
+        <h3 className="text-[10px] sm:text-xs uppercase tracking-wide text-neutral-500 truncate min-w-0">
           Playlist
           {title ? (
             <span className="text-neutral-300 normal-case ml-1 sm:ml-2">
@@ -84,6 +88,20 @@ export default function PlaylistPanel({
             </span>
           ) : null}
         </h3>
+        <button
+          type="button"
+          disabled={disabled || playlist.length === 0}
+          onClick={onShuffleToggle}
+          aria-pressed={shuffleEnabled}
+          aria-label={shuffleEnabled ? "Disable shuffle" : "Enable shuffle"}
+          className={`shrink-0 text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded border transition-colors disabled:opacity-40 ${
+            shuffleEnabled
+              ? "border-orange-500/60 bg-orange-950/50 text-orange-300"
+              : "border-neutral-600 text-neutral-400 hover:bg-neutral-800/60 hover:text-neutral-200"
+          }`}
+        >
+          Shuffle
+        </button>
       </div>
       <div ref={scrollContainerRef} className="overflow-y-auto flex-1 min-w-0">
         <table className="w-full table-fixed text-xs sm:text-sm">

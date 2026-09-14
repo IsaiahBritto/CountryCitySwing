@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import AudioUnlockOverlay from "@/components/dj/AudioUnlockOverlay";
+import SpotifyPlayerNotice from "@/components/dj/SpotifyPlayerNotice";
 import DeckPanel from "@/components/dj/DeckPanel";
 import MixerBar from "@/components/dj/MixerBar";
 import PlayQueuePanel from "@/components/dj/PlayQueuePanel";
@@ -19,6 +20,11 @@ import PlaylistSelector from "@/components/dj/PlaylistSelector";
 import SessionBar from "@/components/dj/SessionBar";
 import VolumeSlider from "@/components/dj/VolumeSlider";
 import { apiError, authedFetchWithRetry, getAccessToken } from "@/lib/clientAuth";
+import {
+  parseSpotifyApiError,
+  SpotifyPlayerErrorException,
+  type SpotifyPlayerErrorAction,
+} from "@/lib/spotify/spotifyApiErrors";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import {
   crossfadeSecondsToMs,
@@ -144,6 +150,20 @@ export default function DjDeckPageClient() {
     setToast(message);
     setTimeout(() => setToast(null), 4000);
   }, []);
+
+  const showPlayerError = useCallback(
+    (err: unknown, fallback: string) => {
+      if (err instanceof SpotifyPlayerErrorException) {
+        showToast(err.spotifyError.message);
+        return;
+      }
+      const parsed = parseSpotifyApiError(
+        err instanceof Error ? err.message : fallback
+      );
+      showToast(parsed.message || fallback);
+    },
+    [showToast]
+  );
 
   const getPlaybackSnapshot = useCallback(
     () => playbackSnapshotRef.current,
@@ -486,11 +506,7 @@ export default function DjDeckPageClient() {
           trackEndTriggeredRef.current = false;
           pendingHostResumeRef.current = null;
         } catch (resumeErr) {
-          showToast(
-            resumeErr instanceof Error
-              ? resumeErr.message
-              : "Failed to resume playback"
-          );
+          showPlayerError(resumeErr, "Failed to resume playback");
         } finally {
           resumeInProgressRef.current = false;
           autoPrimeEnabledRef.current = true;
@@ -499,7 +515,7 @@ export default function DjDeckPageClient() {
         void tryPrimeActiveTrack();
       }
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to connect player");
+      showPlayerError(err, "Failed to connect player");
     } finally {
       setConnectingAudio(false);
     }
@@ -623,7 +639,7 @@ export default function DjDeckPageClient() {
       } catch (err) {
         cancelCrossfade();
         applyLiveVolume();
-        showToast(err instanceof Error ? err.message : "Playback failed");
+        showPlayerError(err, "Playback failed");
       }
     },
     [
@@ -633,7 +649,7 @@ export default function DjDeckPageClient() {
       player,
       resumeClock,
       runDeckCrossfade,
-      showToast,
+      showPlayerError,
     ]
   );
 
@@ -658,7 +674,7 @@ export default function DjDeckPageClient() {
           try {
             await player.pause();
           } catch (err) {
-            showToast(err instanceof Error ? err.message : "Pause failed");
+            showPlayerError(err, "Pause failed");
           }
           pauseClock();
         }
@@ -667,7 +683,7 @@ export default function DjDeckPageClient() {
       dispatch({ type: "SET_ACTIVE_DECK", deck });
       autoPrimeEnabledRef.current = false;
     },
-    [clockPositionMs, pauseClock, player, showToast]
+    [clockPositionMs, pauseClock, player, showPlayerError]
   );
 
   const handleQueueExhausted = useCallback(
@@ -681,7 +697,7 @@ export default function DjDeckPageClient() {
           try {
             await player.pause();
           } catch (err) {
-            showToast(err instanceof Error ? err.message : "Pause failed");
+            showPlayerError(err, "Pause failed");
           }
           pauseClock();
         }
@@ -708,7 +724,7 @@ export default function DjDeckPageClient() {
             try {
               await player.pause();
             } catch (err) {
-              showToast(err instanceof Error ? err.message : "Pause failed");
+              showPlayerError(err, "Pause failed");
             }
             pauseClock();
           }
@@ -745,7 +761,7 @@ export default function DjDeckPageClient() {
           try {
             await player.pause();
           } catch (err) {
-            showToast(err instanceof Error ? err.message : "Pause failed");
+            showPlayerError(err, "Pause failed");
           }
           pauseClock();
         }
@@ -760,7 +776,7 @@ export default function DjDeckPageClient() {
         targetState.savedPositionMs
       );
     },
-    [pauseClock, player, showToast, startPlayback, switchActiveDeck]
+    [pauseClock, player, showPlayerError, startPlayback, switchActiveDeck]
   );
 
   const startQueueHead = useCallback(
@@ -837,7 +853,7 @@ export default function DjDeckPageClient() {
           autoPrimeEnabledRef.current = false;
         }
       } catch (err) {
-        showToast(err instanceof Error ? err.message : "Playback failed");
+        showPlayerError(err, "Playback failed");
       }
     },
     [
@@ -847,7 +863,7 @@ export default function DjDeckPageClient() {
       pauseClock,
       player,
       resumeClock,
-      showToast,
+      showPlayerError,
       startPlayback,
       switchActiveDeck,
       syncFromSdk,
@@ -927,11 +943,11 @@ export default function DjDeckPageClient() {
           await player.seek(0);
           syncFromSdk(0, player.isPlaying);
         } catch (err) {
-          showToast(err instanceof Error ? err.message : "Seek failed");
+          showPlayerError(err, "Seek failed");
         }
       }
     },
-    [player, showToast, syncFromSdk]
+    [player, showPlayerError, syncFromSdk]
   );
 
   const applyAddToPlayQueue = useCallback(
@@ -989,7 +1005,7 @@ export default function DjDeckPageClient() {
       try {
         await player.pause();
       } catch (err) {
-        showToast(err instanceof Error ? err.message : "Pause failed");
+        showPlayerError(err, "Pause failed");
       }
       pauseClock();
     }
@@ -997,7 +1013,7 @@ export default function DjDeckPageClient() {
     trackEndTriggeredRef.current = false;
     wasPlayingActiveTrackRef.current = false;
     dispatch({ type: "DISABLE_SECOND_DECK" });
-  }, [cancelCrossfade, pauseClock, player, showToast]);
+  }, [cancelCrossfade, pauseClock, player, showPlayerError]);
 
   const djSessionRef = useRef(djSession);
   djSessionRef.current = djSession;
@@ -1472,7 +1488,7 @@ export default function DjDeckPageClient() {
       }
       showToast("You are now hosting playback");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Takeover failed");
+      showPlayerError(err, "Takeover failed");
     } finally {
       setConnectingAudio(false);
       setTakingOver(false);
@@ -1642,6 +1658,23 @@ export default function DjDeckPageClient() {
     const returnTo = encodeURIComponent("/spotify/deck");
     window.location.href = `/api/spotify/auth/start?returnTo=${returnTo}&token=${encodeURIComponent(token)}`;
   };
+
+  const handlePlayerNoticeAction = useCallback(
+    (action: SpotifyPlayerErrorAction) => {
+      if (action === "reconnect_spotify") {
+        void connectSpotify();
+        return;
+      }
+      if (action === "sign_in") {
+        window.location.reload();
+        return;
+      }
+      if (action === "reconnect_deck") {
+        void player.reconnect();
+      }
+    },
+    [player]
+  );
 
   const renderDeckPanel = (deckId: DeckId, accent: "orange" | "red") => {
     const deckState = getDeckState(state, deckId);
@@ -1853,10 +1886,12 @@ export default function DjDeckPageClient() {
           </div>
         )}
 
-        {player.error && (
-          <div className="rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
-            {player.error}
-          </div>
+        {player.notice && (
+          <SpotifyPlayerNotice
+            notice={player.notice}
+            onDismiss={player.dismissNotice}
+            onAction={handlePlayerNoticeAction}
+          />
         )}
 
         {pageError && (

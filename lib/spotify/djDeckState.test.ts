@@ -7,6 +7,8 @@ import {
   getNextUnplayedPlaylistIndex,
   getNowPlaying,
   getUpNext,
+  getUpcomingTrackEntries,
+  getUpcomingTracks,
   INITIAL_DJ_DECK_STATE,
   isPlayQueueExhausted,
   playQueueRowStatus,
@@ -350,6 +352,89 @@ describe("selectors", () => {
     state = djDeckReducer(state, { type: "ADVANCE_TRACK", deck: "A" });
     expect(state.deckA.track?.id).toBe("id-1");
     expect(getUpNext(state, "A")?.id).toBe("id-2");
+  });
+
+  it("getUpcomingTrackEntries records queue vs playlist indices", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(2),
+    });
+    const entries = getUpcomingTrackEntries(state, "A", 3);
+    expect(entries[0]).toEqual({
+      track: track(2),
+      source: "queue",
+      playlistIndex: null,
+    });
+    expect(entries[1]).toMatchObject({
+      source: "playlist",
+      playlistIndex: 1,
+      track: track(1),
+    });
+  });
+
+  it("getUpcomingTracks returns queue then playlist in order", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(2),
+    });
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(3),
+    });
+    expect(getUpcomingTracks(state, "A", 5).map((t) => t.id)).toEqual([
+      "id-2",
+      "id-3",
+      "id-1",
+    ]);
+  });
+
+  it("getUpcomingTracks respects skippedAfterCurrent on queue", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(1),
+    });
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(2),
+    });
+    state = djDeckReducer(state, { type: "SKIP_UP_NEXT", deck: "A" });
+    expect(getUpcomingTracks(state, "A", 2).map((t) => t.id)).toEqual([
+      "id-2",
+      "id-1",
+    ]);
+  });
+
+  it("getUpcomingTracks returns resume then subsequent playlist tracks", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_PLAYLIST_INDEX",
+      deck: "A",
+      index: 0,
+    });
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(3),
+    });
+    state = djDeckReducer(state, {
+      type: "SET_PLAY_QUEUE_INDEX",
+      deck: "A",
+      index: 0,
+    });
+    state = djDeckReducer(state, { type: "QUEUE_EXHAUSTED", deck: "A" });
+    state = djDeckReducer(state, { type: "ADVANCE_TRACK", deck: "A" });
+    expect(getUpcomingTracks(state, "A", 3).map((t) => t.id)).toEqual([
+      "id-2",
+      "id-3",
+    ]);
   });
 
   it("getUpNext returns song after resume track once resume is playing on deck B", () => {

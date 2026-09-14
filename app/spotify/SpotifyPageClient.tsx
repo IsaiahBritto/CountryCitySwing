@@ -125,6 +125,7 @@ export default function SpotifyPageClient() {
     () => structureAvailableGenres(builderState.structure),
     [structureKey]
   );
+  const hasValidActivateStructure = builderState.structure.segments.length > 0;
 
   const syncLimitsDraft = useCallback((status: ActivePlaylistStatus | null) => {
     const genres =
@@ -713,7 +714,7 @@ export default function SpotifyPageClient() {
                   <button
                     type="button"
                     onClick={() => runActivate(generateResult.url)}
-                    disabled={busy}
+                    disabled={busy || !hasValidActivateStructure}
                     className="mt-2 px-3 py-1.5 rounded border border-amber-600/60 text-amber-200 hover:bg-amber-900/30 disabled:opacity-50 text-sm"
                   >
                     {activating ? "Activating…" : "Activate for /social requests"}
@@ -847,7 +848,9 @@ export default function SpotifyPageClient() {
             <button
               type="button"
               onClick={() => runActivate(selectedOwnedId)}
-              disabled={busy || !selectedOwnedId.trim()}
+              disabled={
+                busy || !selectedOwnedId.trim() || !hasValidActivateStructure
+              }
               className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-sm font-medium"
             >
               {activating ? "Activating…" : "Activate selected playlist"}

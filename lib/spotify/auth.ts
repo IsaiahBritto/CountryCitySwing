@@ -6,6 +6,7 @@ const OAUTH_SCOPES = [
   "playlist-read-private",
   "playlist-modify-private",
   "playlist-modify-public",
+  "user-read-email",
   "user-read-private",
   "user-read-playback-state",
   "user-read-currently-playing",
@@ -200,7 +201,7 @@ export async function getValidAccessToken(): Promise<{
     await saveSpotifyCredentials({
       refreshToken: tokens.refresh_token,
       spotifyUserId: creds.spotifyUserId,
-      grantedScopes: tokens.scope ?? creds.grantedScopes,
+      grantedScopes: tokens.scope?.trim() || creds.grantedScopes,
     });
   }
   return {

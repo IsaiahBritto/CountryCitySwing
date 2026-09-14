@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { getStoredSpotifyCredentials, getValidAccessToken } from "@/lib/spotify/auth";
+import { parseSpotifyApiError } from "@/lib/spotify/spotifyApiErrors";
 import { needsDeckReconnect } from "@/lib/spotify/scopes";
 
 export async function GET(req: NextRequest) {
@@ -19,7 +20,10 @@ export async function GET(req: NextRequest) {
     if (needsDeckReconnect(creds.grantedScopes)) {
       return NextResponse.json(
         {
-          error: "Spotify reconnect required for DJ deck playback scopes",
+          error: parseSpotifyApiError(
+            "Spotify reconnect required for DJ deck playback scopes",
+            403
+          ),
           needsDeckReconnect: true,
         },
         { status: 403 }
@@ -38,6 +42,9 @@ export async function GET(req: NextRequest) {
     console.error("Spotify player-token error:", error);
     const message =
       error instanceof Error ? error.message : "Failed to load player token";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: parseSpotifyApiError(message, 500) },
+      { status: 500 }
+    );
   }
 }

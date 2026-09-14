@@ -23,6 +23,7 @@ import {
 import { getMasterPlaylistRefs, getMasterPlaylistRefsForGenres } from "@/lib/spotify/masters";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import { parseSpotifyPlaylistId } from "@/lib/spotify/playlistIds";
+import { genreForActivationPosition } from "@/lib/spotify/trackGenre";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 export type ActivePlaylistStatus = {
@@ -190,23 +191,11 @@ export async function lookupTrackGenreInMasters(
   return map.get(trackId) ?? null;
 }
 
-function genreForPosition(
-  position: number,
-  trackId: string,
-  masterGenre: Map<string, GenrePool>,
-  pattern: GenrePool[]
-): GenrePool {
-  const fromMaster = masterGenre.get(trackId);
-  if (fromMaster) return fromMaster;
-  if (pattern.length === 0) return "cs";
-  return pattern[position % pattern.length];
-}
-
 export async function activateSocialPlaylist(input: {
   playlistIdOrUrl: string;
   activatedBy: string | null;
   requestLimits?: RequestLimits | null;
-  structure?: PlaylistStructure | null;
+  structure: PlaylistStructure;
 }): Promise<ActivePlaylistStatus> {
   const playlistId = parseSpotifyPlaylistId(input.playlistIdOrUrl);
   if (!playlistId) {
@@ -229,9 +218,7 @@ export async function activateSocialPlaylist(input: {
 
   const masterGenre = await buildMasterGenreMap(accessToken);
   const now = new Date().toISOString();
-  const structure = validatePlaylistStructure(
-    input.structure ?? DEFAULT_SOCIAL_STRUCTURE
-  );
+  const structure = validatePlaylistStructure(input.structure);
   const pattern = expandStructure(structure);
   const availableGenres = structureAvailableGenres(structure);
   const requestLimits =
@@ -277,7 +264,7 @@ export async function activateSocialPlaylist(input: {
     uri: t.uri,
     name: t.name,
     primary_artist: t.primaryArtist,
-    genre: genreForPosition(position, t.id, masterGenre, pattern),
+    genre: genreForActivationPosition(position, t.id, masterGenre, pattern),
     source: "generated" as const,
     updated_at: now,
   }));

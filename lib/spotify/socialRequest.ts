@@ -120,6 +120,13 @@ async function submitSocialSongRequestUnlocked(
     );
   }
 
+  if (!status.structure || status.pattern.length === 0) {
+    throw new SocialRequestError(
+      "Tonight’s playlist structure is not configured — re-activate from admin.",
+      403
+    );
+  }
+
   const genre = input.genre;
   if (genre !== "cs" && genre !== "wcs" && genre !== "ld" && genre !== "ts") {
     throw new SocialRequestError("Invalid genre.");

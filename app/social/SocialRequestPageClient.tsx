@@ -9,8 +9,12 @@ import {
   LINE_DANCE_LEVEL_LABELS,
   type LineDanceLevel,
 } from "@/lib/spotify/lineDanceLevels";
+import NowPlayingPanel from "@/components/social/NowPlayingPanel";
+import UpNextList from "@/components/social/UpNextList";
+import MyRequestsPanel from "@/components/social/MyRequestsPanel";
 import { GENRE_LABELS } from "@/lib/spotify/requestLimits";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
+import type { SocialPlaybackResponse } from "@/lib/spotify/socialPlayback";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type SocialStatus = {
@@ -112,6 +116,8 @@ export default function SocialRequestPageClient() {
   const [formError, setFormError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
+  const [playback, setPlayback] = useState<SocialPlaybackResponse | null>(null);
+  const [myRequestsRefreshKey, setMyRequestsRefreshKey] = useState(0);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -151,9 +157,26 @@ export default function SocialRequestPageClient() {
     }
   }, []);
 
+  const loadPlayback = useCallback(async () => {
+    try {
+      const res = await fetch("/api/social/playback");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      setPlayback(data as SocialPlaybackResponse);
+    } catch {
+      // playback is optional; ignore transient errors
+    }
+  }, []);
+
   useEffect(() => {
     loadStatus();
   }, [loadStatus]);
+
+  useEffect(() => {
+    loadPlayback();
+    const intervalId = window.setInterval(loadPlayback, 3000);
+    return () => window.clearInterval(intervalId);
+  }, [loadPlayback]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -379,6 +402,7 @@ export default function SocialRequestPageClient() {
       setTurnstileToken(null);
       turnstileRef.current?.reset();
       await loadQuota(accessToken);
+      setMyRequestsRefreshKey((k) => k + 1);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Request failed");
     } finally {
@@ -390,9 +414,12 @@ export default function SocialRequestPageClient() {
     <SocialAuthBar isLoggedIn={isLoggedIn} displayName={displayName} />
   );
 
+  const requestsOpen = Boolean(status?.isActive);
+  const hasLiveSession = Boolean(playback?.hasLiveSession);
+
   if (statusLoading) {
     return (
-      <section className="max-w-xl mx-auto py-16">
+      <section className="max-w-2xl mx-auto py-16">
         {authBar}
         <p className="text-center text-gray-400">Loading…</p>
       </section>
@@ -401,7 +428,7 @@ export default function SocialRequestPageClient() {
 
   if (statusError) {
     return (
-      <section className="max-w-xl mx-auto py-16 space-y-3">
+      <section className="max-w-2xl mx-auto py-16 space-y-3">
         {authBar}
         <h1 className="gold-wave text-4xl font-extrabold pb-2 text-center">
           Song Requests
@@ -411,9 +438,9 @@ export default function SocialRequestPageClient() {
     );
   }
 
-  if (!status?.isActive) {
+  if (!requestsOpen && !hasLiveSession) {
     return (
-      <section className="max-w-xl mx-auto py-16 space-y-4">
+      <section className="max-w-2xl mx-auto py-16 space-y-4">
         {authBar}
         <h1 className="gold-wave text-4xl font-extrabold pb-2 text-center">
           Song Requests
@@ -426,19 +453,47 @@ export default function SocialRequestPageClient() {
   }
 
   return (
-    <section className="max-w-xl mx-auto py-10 space-y-8">
+    <section className="max-w-2xl mx-auto py-10 space-y-8">
       {authBar}
       <header className="text-center space-y-2">
         <h1 className="gold-wave text-4xl font-extrabold pb-2">Song Requests</h1>
-        <p className="text-gray-300 text-sm">
-          Request a song for{" "}
-          <span className="text-amber-200">
-            {status.name || "tonight’s Social"}
-          </span>
-          .
-        </p>
+        {requestsOpen ? (
+          <p className="text-gray-300 text-sm">
+            Request a song for{" "}
+            <span className="text-amber-200">
+              {status?.name || "tonight’s Social"}
+            </span>
+            .
+          </p>
+        ) : (
+          <p className="text-gray-300 text-sm">
+            Live from{" "}
+            <span className="text-amber-200">
+              {status?.name || "The Social"}
+            </span>
+            . Song requests aren&apos;t open right now.
+          </p>
+        )}
       </header>
 
+      {hasLiveSession && playback && (
+        <div className="space-y-4">
+          <NowPlayingPanel
+            nowPlaying={playback.nowPlaying}
+            hostOnline={playback.hostOnline}
+          />
+          <UpNextList tracks={playback.upNext} />
+        </div>
+      )}
+
+      {!requestsOpen && (
+        <p className="text-center text-gray-400 text-sm">
+          Song requests aren&apos;t open right now. You can still see what&apos;s
+          playing.
+        </p>
+      )}
+
+      {requestsOpen && (
       <form
         onSubmit={onSubmit}
         className="space-y-5 rounded-lg border border-neutral-700 bg-neutral-800/40 p-6"
@@ -647,6 +702,16 @@ export default function SocialRequestPageClient() {
           {submitting ? "Submitting…" : "Request song"}
         </button>
       </form>
+      )}
+
+      {requestsOpen && (
+        <div className="flex justify-center">
+          <MyRequestsPanel
+            accessToken={accessToken}
+            refreshKey={myRequestsRefreshKey}
+          />
+        </div>
+      )}
     </section>
   );
 }

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { getValidAccessToken } from "@/lib/spotify/auth";
 import { resolveHostDeviceId } from "@/lib/spotify/djSessionServer";
+import { parseSpotifyApiError } from "@/lib/spotify/spotifyApiErrors";
+import { jsonSpotifyPlayerError } from "@/lib/spotify/spotifyPlayerRouteErrors";
 
 async function spotifyPlayerFetch(
   accessToken: string,
@@ -61,10 +63,7 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      return NextResponse.json(
-        { error: text || res.statusText },
-        { status: res.status }
-      );
+      return jsonSpotifyPlayerError(text || res.statusText, res.status);
     }
 
     return NextResponse.json({ ok: true });
@@ -72,6 +71,9 @@ export async function POST(req: NextRequest) {
     console.error("Spotify player play error:", error);
     const message =
       error instanceof Error ? error.message : "Failed to start playback";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: parseSpotifyApiError(message, 500) },
+      { status: 500 }
+    );
   }
 }

@@ -9,7 +9,7 @@ import {
 import { parseRequestLimits } from "@/lib/spotify/requestLimits";
 import {
   parsePlaylistStructure,
-  DEFAULT_SOCIAL_STRUCTURE,
+  validatePlaylistStructure,
 } from "@/lib/spotify/playlistStructure";
 
 export const maxDuration = 120;
@@ -78,10 +78,21 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-      const structure =
-        body.structure != null
-          ? parsePlaylistStructure(body.structure) ?? DEFAULT_SOCIAL_STRUCTURE
-          : DEFAULT_SOCIAL_STRUCTURE;
+      const parsedStructure = parsePlaylistStructure(body.structure);
+      if (!parsedStructure) {
+        return NextResponse.json(
+          { error: "structure is required and must be a valid playlist structure" },
+          { status: 400 }
+        );
+      }
+      let structure;
+      try {
+        structure = validatePlaylistStructure(parsedStructure);
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Invalid playlist structure";
+        return NextResponse.json({ error: message }, { status: 400 });
+      }
       const status = await activateSocialPlaylist({
         playlistIdOrUrl: body.playlistIdOrUrl.trim(),
         activatedBy: auth.userId,

@@ -707,24 +707,82 @@ function getNextPlaylistTrackAfter(
   return null;
 }
 
+export type UpcomingTrackEntry = {
+  track: DeckTrack;
+  source: "queue" | "playlist";
+  playlistIndex: number | null;
+};
+
 export function getUpNext(state: DjDeckState, deck: DeckId): DeckTrack | null {
+  return getUpcomingTracks(state, deck, 1)[0] ?? null;
+}
+
+/** Upcoming tracks in DJ playback order (excludes the currently playing track). */
+export function getUpcomingTracks(
+  state: DjDeckState,
+  deck: DeckId,
+  limit: number
+): DeckTrack[] {
+  return getUpcomingTrackEntries(state, deck, limit).map((entry) => entry.track);
+}
+
+export function getUpcomingTrackEntries(
+  state: DjDeckState,
+  deck: DeckId,
+  limit: number
+): UpcomingTrackEntry[] {
+  if (limit <= 0) return [];
+
   const deckState = getDeckState(state, deck);
+  const result: UpcomingTrackEntry[] = [];
+  const seen = new Set<string>();
+  const currentId = deckState.track?.id ?? null;
 
-  if (hasPendingQueue(deckState)) {
-    return getQueueHead(deckState);
-  }
+  const tryAdd = (
+    candidate: DeckTrack | null,
+    source: UpcomingTrackEntry["source"],
+    playlistIndex: number | null
+  ): boolean => {
+    if (!candidate || candidate.id === currentId || seen.has(candidate.id)) {
+      return result.length >= limit;
+    }
+    seen.add(candidate.id);
+    result.push({ track: candidate, source, playlistIndex });
+    return result.length >= limit;
+  };
 
-  if (deckState.playlistResumeIndex != null) {
-    const resumeIndex =
-      deckState.playlistResumeIndex + deckState.skippedAfterCurrent;
-    const resumeTrack = playlistTrackAt(deckState, resumeIndex);
-    if (resumeTrack && !isCurrentTrack(deckState, resumeTrack)) {
-      return resumeTrack;
+  const queuePending = hasPendingQueue(deckState);
+  if (queuePending) {
+    for (
+      let i = deckState.skippedAfterCurrent;
+      i < deckState.playQueue.length;
+      i++
+    ) {
+      if (tryAdd(deckState.playQueue[i] ?? null, "queue", null)) return result;
     }
   }
 
-  if (deckState.playlistIndex == null) return null;
-  return getNextPlaylistTrackAfter(deckState, deckState.playlistIndex + 1);
+  const playlistSkip = queuePending ? 0 : deckState.skippedAfterCurrent;
+
+  if (deckState.playlistResumeIndex != null) {
+    let index = deckState.playlistResumeIndex + playlistSkip;
+    while (index < deckState.playlist.length) {
+      if (tryAdd(playlistTrackAt(deckState, index), "playlist", index)) {
+        return result;
+      }
+      index += 1;
+    }
+  } else if (deckState.playlistIndex != null) {
+    let index = deckState.playlistIndex + 1 + playlistSkip;
+    while (index < deckState.playlist.length) {
+      if (tryAdd(playlistTrackAt(deckState, index), "playlist", index)) {
+        return result;
+      }
+      index += 1;
+    }
+  }
+
+  return result;
 }
 
 export function isPlayQueueExhausted(state: DjDeckState, deck: DeckId): boolean {

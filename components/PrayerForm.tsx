@@ -6,6 +6,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import { CcsFormField, CcsInput, CcsTextarea } from "@/components/ccs/CcsFormField";
 
 const schema = z.object({
   name: z.string().optional(),
@@ -88,11 +89,8 @@ export default function PrayerForm() {
   };
 
   return (
-    <div className="relative max-w-lg mx-auto my-10 p-[0px] rounded-lg bg-gradient-to-br from-purple-500/60 to-purple-300/40 shadow-[0_0_25px_rgba(187,134,252,0.6)] animate-purplePulse">
-      <form
-        onSubmit={handleSubmit(onSubmit)}
-        className="bg-neutral-800 p-6 rounded-lg shadow-lg text-left"
-      >
+    <div className="relative max-w-lg mx-auto my-6 animate-purplePulse">
+      <form onSubmit={handleSubmit(onSubmit)} className="ccs-form-panel p-6 text-left">
         {isSubmitSuccessful && (
           <p className="text-green-400 mb-4">
             🙏 Your prayer request has been sent!
@@ -103,30 +101,25 @@ export default function PrayerForm() {
           <p className="text-red-400 mb-4">{submitError}</p>
         )}
 
-        <div className="mb-4">
-          <label className="block mb-1 text-gray-300">
-            Your Name (optional)
-          </label>
-          <input
+        <CcsFormField label="Your Name" htmlFor="prayer-name" optional>
+          <CcsInput
+            id="prayer-name"
             {...register("name")}
-            className="w-full px- py-2 rounded bg-neutral-900 border border-neutral-700 text-white"
-            placeholder=" e.g., Joe Smith"
+            placeholder="e.g., Joe Smith"
           />
-        </div>
+        </CcsFormField>
 
-        <div className="mb-6">
-          <label className="block mb-1 text-gray-300">Prayer Request</label>
-          <textarea
+        <CcsFormField
+          label="Prayer Request"
+          htmlFor="prayer-message"
+          error={errors.message ? String(errors.message.message) : undefined}
+        >
+          <CcsTextarea
+            id="prayer-message"
             {...register("message")}
-            className="w-full h-32 px-3 py-2 rounded bg-neutral-900 border border-neutral-700 text-white"
             placeholder="Share your request..."
           />
-          {errors.message && (
-            <p className="text-red-400 text-sm mt-1">
-              {String(errors.message.message)}
-            </p>
-          )}
-        </div>
+        </CcsFormField>
 
         {isLoggedIn === false && siteKey && (
           <div className="mb-4 flex justify-center">
@@ -148,7 +141,7 @@ export default function PrayerForm() {
               (isLoggedIn === false && !turnstileToken)
             }
             type="submit"
-            className="bg-accent text-white px-6 py-2 rounded font-medium transition-all duration-300 shadow-[0_0_15px_rgba(187,134,252,0.5)] hover:shadow-[0_0_25px_rgba(187,134,252,0.8)] hover:bg-[#CF9FFF] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="ccs-btn ccs-btn--ghost-gold border-accent text-accent hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed normal-case tracking-normal"
           >
             {isSubmitting ? "Sending..." : "Send Prayer Request"}
           </button>

@@ -1,13 +1,26 @@
 import PrayerForm from "../../components/PrayerForm";
+import PrayerTeamGrid from "../../components/prayer/PrayerTeamGrid";
+import { CcsPageHeader, CcsHeading } from "@/components/ccs";
 
 export default function Prayer() {
   return (
-    <section className="max-w-xl mx-auto text-center">
-      <h2 className="gold-wave page-title font-extrabold mb-6 pb-2">Prayer Request</h2>
-      <p className="text-gray-300 mb-8">
-        You can submit a prayer request anonymously, and it will be sent directly to our team.
-      </p>
+    <div className="max-w-3xl mx-auto px-4 py-8">
+      <CcsPageHeader
+        title="Prayer Request"
+        subtitle="You can submit a prayer request anonymously, and it will be sent directly to our team."
+      />
       <PrayerForm />
-    </section>
+
+      <section className="mt-20 text-center">
+        <CcsHeading level={2} variant="goldWave" className="mb-4">
+          Looking for Prayer, Church, Bible Studies, Other?
+        </CcsHeading>
+        <p className="ccs-body text-gray-300 max-w-2xl mx-auto mb-6">
+          Our team would love to connect with you. Reach out to any of us below — we&apos;re here
+          to pray with you and help you find community.
+        </p>
+        <PrayerTeamGrid />
+      </section>
+    </div>
   );
 }

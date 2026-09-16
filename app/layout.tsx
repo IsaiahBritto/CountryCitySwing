@@ -1,6 +1,19 @@
 import "./globals.css";
 import type { Viewport } from "next";
+import { Inter, Playfair_Display } from "next/font/google";
 import { ReactNode } from "react";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const playfair = Playfair_Display({
+  subsets: ["latin"],
+  variable: "--font-playfair",
+  display: "swap",
+});
 import CartProviderWrapper from "../components/CartProviderWrapper";
 import CcsToastHost from "../components/CcsToastHost";
 import SiteShell from "../components/SiteShell";
@@ -30,7 +43,7 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`dark ${inter.variable} ${playfair.variable}`}>
       <body className="bg-neutral-900 text-neutral-100 font-sans min-h-screen antialiased flex flex-col">
         <CartProviderWrapper>
           <CcsToastHost />

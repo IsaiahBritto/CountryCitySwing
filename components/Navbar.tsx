@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import { colors } from "@/lib/design/tokens";
+import CcsNavLink from "@/components/ccs/CcsNavLink";
 
 interface UserMeta {
   id?: string;
@@ -13,13 +15,11 @@ interface UserMeta {
   user_metadata?: { first_name?: string };
 }
 
-const DNA_GREEN = "#2BC929";
-
 export default function Navbar() {
   const pathname = usePathname();
   const isDnaPage = pathname === "/dna";
-  const isEventPageTest = pathname === "/test/event-page";
-  const useAccentNav = isDnaPage || isEventPageTest;
+  const isEventsMarketing = pathname === "/events" || pathname === "/test/event-page";
+  const useAccentNav = isDnaPage || isEventsMarketing;
   const [user, setUser] = useState<UserMeta | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -100,13 +100,10 @@ export default function Navbar() {
     (user?.email ? user.email.split("@")[0] : "");
 
   const navLinks = [
-    { name: "DNA", href: "/dna" },
-    { name: "Events", href: "/#events" },
-    { name: "CCS Team", href: "/team" },
+    { name: "Events", href: "/events" },
     { name: "Prayer", href: "/prayer" },
-    { name: "Media", href: "/media" },
+    { name: "Competitions", href: "/comps" },
     { name: "Merch", href: "/merch" },
-    { name: "Instructors", href: "/instructors" },
     { name: "About", href: "/about" },
   ];
 
@@ -117,18 +114,18 @@ export default function Navbar() {
   const navClassName = [
     "sticky top-0 z-50 w-full bg-neutral-900 border-b border-neutral-800 text-white shadow-md",
     isDnaPage ? "nav-dna" : "",
-    isEventPageTest ? "nav-ep-accent" : "",
+    isEventsMarketing ? "nav-ep-accent" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
   const linkClass = useAccentNav
-    ? isEventPageTest
-      ? "nav-ep-accent-link transition-colors"
-      : "text-[#2BC929] hover:text-[#32e032] transition-colors"
-    : "text-gray-300 hover:text-primary transition-colors";
+    ? isEventsMarketing
+      ? "nav-ep-accent-link ccs-nav-link transition-colors"
+      : "ccs-nav-link text-brand-dna hover:text-brand-dna-hover transition-colors"
+    : "ccs-nav-link text-gray-300 hover:text-primary transition-colors";
   const logoClass = useAccentNav
-    ? isEventPageTest
+    ? isEventsMarketing
       ? "text-sm leading-tight sm:text-lg md:text-2xl font-bold min-w-0 shrink-0 nav-ep-accent-logo"
       : "text-sm leading-tight sm:text-lg md:text-2xl font-bold min-w-0 shrink-0 transition-colors"
     : "text-sm leading-tight sm:text-lg md:text-2xl font-bold text-primary min-w-0 shrink-0";
@@ -137,9 +134,9 @@ export default function Navbar() {
     : "max-w-[calc(100%-2.75rem)] lg:max-w-none";
   const signInClass = isDnaPage
     ? "btn-signup nav-dna-signup text-sm px-4 py-2 rounded-md"
-    : isEventPageTest
-      ? "btn-signup nav-ep-accent-signup text-sm px-4 py-2 rounded-md"
-      : "btn-signup text-sm px-4 py-2 rounded-md";
+    : isEventsMarketing
+      ? "ccs-btn ccs-btn--sign-in nav-ep-accent-signup text-sm px-4 py-2"
+      : "ccs-btn ccs-btn--sign-in text-sm px-4 py-2";
 
   const dnaNavStyle = isDnaPage
     ? {
@@ -148,6 +145,8 @@ export default function Navbar() {
       }
     : undefined;
 
+  const dnaLinkStyle = isDnaPage ? { color: colors.brandDna } : undefined;
+
   return (
     <nav className={navClassName} style={dnaNavStyle}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
@@ -155,7 +154,7 @@ export default function Navbar() {
         <Link
           href="/"
           className={`${logoClass} ${logoWidthClass}`}
-          style={isDnaPage ? { color: DNA_GREEN } : undefined}
+          style={dnaLinkStyle}
         >
           Country City Swing
         </Link>
@@ -163,10 +162,10 @@ export default function Navbar() {
         {/* Hamburger (compact / mobile) */}
         <button
           className={
-            (isEventPageTest
+            (isEventsMarketing
               ? "nav-ep-accent-link transition-colors"
               : isDnaPage
-                ? "text-gray-300 hover:text-[#2BC929] transition-colors"
+                ? "text-gray-300 hover:text-brand-dna transition-colors"
                 : "text-gray-300 hover:text-primary transition-colors") +
             ` ml-auto shrink-0 ${hamburgerVisibleClass}`
           }
@@ -174,7 +173,7 @@ export default function Navbar() {
           aria-label="Toggle menu"
         >
           {menuOpen ? (
-            <XMarkIcon className="w-7 h-7" style={isDnaPage ? { color: DNA_GREEN } : undefined} />
+            <XMarkIcon className="w-7 h-7" style={dnaLinkStyle} />
           ) : (
             <Bars3Icon className="w-7 h-7" />
           )}
@@ -185,23 +184,24 @@ export default function Navbar() {
           className={`hidden min-w-0 flex-1 flex-wrap items-center justify-end gap-x-3 gap-y-2 text-sm xl:text-base ${desktopNavVisibleClass}`}
         >
           {navLinks.map((link) => (
-            <Link
+            <CcsNavLink
               key={link.name}
               href={link.href}
               className={linkClass}
+              matchPrefix={link.href !== "/about"}
             >
               {link.name}
-            </Link>
+            </CcsNavLink>
           ))}
           {showRegistration && (
-            <Link href="/registration" className={linkClass}>
+            <CcsNavLink href="/registration" className={linkClass}>
               Registration
-            </Link>
+            </CcsNavLink>
           )}
           {showSchedule && (
-            <Link href="/schedule" className={linkClass}>
-              Schedule
-            </Link>
+            <CcsNavLink href="/schedule" className={linkClass}>
+              (Team Member)
+            </CcsNavLink>
           )}
           {showFinances && (
             <Link href="/admin/finances" className={linkClass}>
@@ -214,7 +214,7 @@ export default function Navbar() {
               Hello {displayName}!
             </Link>
           ) : (
-            <Link href="/auth" className={signInClass} style={isDnaPage ? { color: DNA_GREEN } : undefined}>
+            <Link href="/auth" className={signInClass} style={dnaLinkStyle}>
               Sign In
             </Link>
           )}
@@ -241,7 +241,7 @@ export default function Navbar() {
           )}
           {showSchedule && (
             <Link href="/schedule" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
-              Schedule
+              (Team Member)
             </Link>
           )}
           {showFinances && (
@@ -255,7 +255,7 @@ export default function Navbar() {
               Hello {displayName}!
             </Link>
           ) : (
-            <Link href="/auth" onClick={() => setMenuOpen(false)} className={signInClass + " block text-center"} style={isDnaPage ? { color: DNA_GREEN } : undefined}>
+            <Link href="/auth" onClick={() => setMenuOpen(false)} className={signInClass + " block text-center"} style={dnaLinkStyle}>
               Sign In
             </Link>
           )}

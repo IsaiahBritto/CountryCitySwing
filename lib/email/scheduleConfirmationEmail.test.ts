@@ -18,7 +18,7 @@ describe("createScheduleConfirmationEmailHtml", () => {
     expect(html).toContain("background-color:#111827");
     expect(html).toContain("Location:</strong> Main Hall");
     expect(html).toContain("Brit &amp; Co");
-    expect(html).toContain("/#events");
+    expect(html).toContain("/#upcoming-events");
     expect(html).toContain("View upcoming events");
   });
 
@@ -34,7 +34,7 @@ describe("createScheduleConfirmationEmailHtml", () => {
     expect(html).toContain("Schedule Cancellation Confirmation");
     expect(html).toContain("Your schedule slot has been removed:");
     expect(html).toContain("You can sign up for other slots on the Schedule page.");
-    expect(html).toContain("/#events");
+    expect(html).toContain("/#upcoming-events");
     expect(html).toContain("View upcoming events");
   });
 });

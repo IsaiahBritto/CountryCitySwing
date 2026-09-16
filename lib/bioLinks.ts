@@ -61,7 +61,7 @@ export const bioLinks: BioLink[] = [
   {
     id: "events",
     label: "Sign Up for Events",
-    href: "/#events",
+    href: "/#upcoming-events",
     variant: "primary",
   },
   {

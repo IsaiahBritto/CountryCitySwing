@@ -36,7 +36,7 @@ export function createScheduleConfirmationEmailHtml({
   const safeEventLocation = eventLocation ? escapeHtml(eventLocation) : "";
 
   const siteUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
-  const eventsListingHref = escapeHtml(`${siteUrl}/#events`);
+  const eventsListingHref = escapeHtml(`${siteUrl}/#upcoming-events`);
 
   const title =
     kind === "signup"

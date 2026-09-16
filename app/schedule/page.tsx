@@ -209,7 +209,12 @@ export default function SchedulePage() {
   return (
     <section className="max-w-5xl mx-auto text-center px-4">
       <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
-        <h2 className="text-3xl font-semibold text-primary">Schedule</h2>
+        <div className="text-left">
+          <h2 className="ccs-text-gold-wave gold-wave text-3xl font-extrabold pb-1">Team Schedule</h2>
+          <p className="text-gray-300 text-sm mt-1">
+            Sign up to teach or volunteer to help out here!
+          </p>
+        </div>
         {role === "admin" && (
           <button
             type="button"
@@ -233,6 +238,7 @@ export default function SchedulePage() {
         instructors={instructors}
         onRefresh={loadData}
         getAuthHeaders={getAuthHeaders}
+        variant="team"
       />
 
       {showAddSlot && (

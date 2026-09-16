@@ -9,8 +9,14 @@ function isLinksRoute(pathname: string) {
   return pathname === "/links";
 }
 
-function isEventPageTestRoute(pathname: string) {
-  return pathname === "/test/event-page";
+function isFullBleedRoute(pathname: string) {
+  return (
+    pathname === "/" ||
+    pathname === "/events" ||
+    pathname === "/about" ||
+    pathname === "/prayer" ||
+    pathname === "/test/event-page"
+  );
 }
 
 function isWideRoute(pathname: string) {
@@ -42,7 +48,7 @@ export default function SiteShell({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  if (isEventPageTestRoute(pathname)) {
+  if (isFullBleedRoute(pathname)) {
     return (
       <>
         <Navbar />
@@ -59,6 +65,7 @@ export default function SiteShell({ children }: { children: ReactNode }) {
         className={`flex-grow ${mainMaxWidthClass(pathname)} mx-auto w-full min-w-0 px-4 sm:px-6 ${
           isDeckRoute(pathname) ? "py-4 sm:py-10" : "py-10"
         }`}
+        data-density={pathname.startsWith("/admin") || isJudgeRoute(pathname) ? "compact" : undefined}
       >
         {children}
       </main>

@@ -77,6 +77,8 @@ interface ScheduleCalendarProps {
   instructors?: InstructorOption[];
   onRefresh: () => void;
   getAuthHeaders: () => Promise<HeadersInit>;
+  /** Team schedule uses olive surface (distinct from public events calendar). */
+  variant?: "public" | "team";
 }
 
 const today = getTodayStringInChicago();
@@ -89,7 +91,12 @@ export default function ScheduleCalendar({
   instructors = [],
   onRefresh,
   getAuthHeaders,
+  variant = "public",
 }: ScheduleCalendarProps) {
+  const isTeamVariant = variant === "team";
+  const calendarShellClass = isTeamVariant
+    ? "bg-surface-team text-neutral-100 rounded-xl p-6 shadow-lg max-w-3xl mx-auto border border-primary/10"
+    : "bg-neutral-800 text-neutral-100 rounded-lg p-6 shadow-lg max-w-3xl mx-auto";
   const [currentMonth, setCurrentMonth] = useState(dayjs());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [daySlots, setDaySlots] = useState<ScheduleSlot[]>([]);
@@ -351,7 +358,7 @@ export default function ScheduleCalendar({
 
   return (
     <>
-      <div className="bg-neutral-800 text-neutral-100 rounded-lg p-6 shadow-lg max-w-3xl mx-auto">
+      <div className={calendarShellClass} data-calendar-variant={variant}>
         <div className="flex justify-between items-center mb-4">
           <button
             type="button"
@@ -411,7 +418,8 @@ export default function ScheduleCalendar({
                         ? "bg-neutral-700 text-gray-300"
                         : "bg-neutral-900 text-gray-300"
                     }
-                    ${isToday ? "ring-2 ring-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)]" : ""}`}
+                    ${isToday ? "ring-2 ring-red-500 shadow-[0_0_10px_rgba(255,0,0,0.5)]" : ""}
+                    ${isTeamVariant && hasOpenSlots ? "ring-2 ring-accent" : ""}`}
                 >
                   {day != null && <span className="font-medium text-base">{day}</span>}
                   {hasActivity && (

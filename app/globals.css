@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "./styles/tokens.css";
+@import "./styles/primitives.css";
 @source "../lib";
 
 /* -------------------------------------------------------
@@ -328,11 +330,11 @@ img {
   }
 }
 
-/* Universal “Sign Up” button style */
+/* Universal “Sign Up” button style (legacy — prefer .ccs-btn--sign-in) */
 .btn-signup {
-  @apply font-semibold px-5 py-2 rounded-md  text-yellow-400 bg-transparent
+  @apply font-semibold px-5 py-2 rounded-md text-primary bg-transparent
     transition-all duration-300 ease-in-out;
-  animation: yellowPulse 4s ease-in-out infinite;
+  animation: ccsYellowPulse 4s ease-in-out infinite;
 }
 
 /* Hover and focus states */

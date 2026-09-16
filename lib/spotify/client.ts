@@ -334,6 +334,42 @@ export async function replacePlaylistItemAtPosition(
   await addTracksToPlaylist(accessToken, playlistId, [newUri], { position });
 }
 
+/** Swap two playlist items. Replaces the later index first so positions stay stable. */
+export async function swapPlaylistItemsAtPositions(
+  accessToken: string,
+  playlistId: string,
+  posA: number,
+  uriA: string,
+  posB: number,
+  uriB: string
+): Promise<void> {
+  if (posA === posB || uriA === uriB) return;
+
+  const first =
+    posA > posB
+      ? { position: posA, oldUri: uriA, newUri: uriB }
+      : { position: posB, oldUri: uriB, newUri: uriA };
+  const second =
+    posA > posB
+      ? { position: posB, oldUri: uriB, newUri: uriA }
+      : { position: posA, oldUri: uriA, newUri: uriB };
+
+  await replacePlaylistItemAtPosition(
+    accessToken,
+    playlistId,
+    first.position,
+    first.oldUri,
+    first.newUri
+  );
+  await replacePlaylistItemAtPosition(
+    accessToken,
+    playlistId,
+    second.position,
+    second.oldUri,
+    second.newUri
+  );
+}
+
 export async function searchTracks(
   accessToken: string,
   query: string,

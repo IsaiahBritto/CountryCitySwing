@@ -13,6 +13,7 @@ import NowPlayingPanel from "@/components/social/NowPlayingPanel";
 import UpNextList from "@/components/social/UpNextList";
 import MyRequestsPanel from "@/components/social/MyRequestsPanel";
 import { GENRE_LABELS } from "@/lib/spotify/requestLimits";
+import { formatNextAvailableTime } from "@/lib/spotify/requestQuotaLogic";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import type { SocialPlaybackResponse } from "@/lib/spotify/socialPlayback";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
@@ -30,6 +31,8 @@ type QuotaState = {
   used: Partial<Record<GenrePool, number>>;
   remaining: Partial<Record<GenrePool, number | null>>;
   availableGenres: GenrePool[];
+  refreshMinutes?: number;
+  nextAvailableAt?: Partial<Record<GenrePool, string | null>>;
 };
 
 type SearchTrack = {
@@ -50,8 +53,17 @@ function formatRemaining(genre: Genre, quota: QuotaState | null): string {
   const remaining = quota.remaining[genre];
   if (limit == null || remaining == null) return `${GENRE_LABELS[genre]}: unlimited`;
   if (limit === 0) return `${GENRE_LABELS[genre]}: closed`;
-  const used = quota.used[genre] ?? 0;
-  return `${GENRE_LABELS[genre]}: ${Math.max(0, remaining)} of ${limit} remaining (${used} used)`;
+  const label = GENRE_LABELS[genre];
+  const refreshMinutes = quota.refreshMinutes ?? 30;
+  const nextAt = quota.nextAvailableAt?.[genre];
+  if (remaining <= 0 && nextAt) {
+    return `${label}: next request at ${formatNextAvailableTime(nextAt)}`;
+  }
+  if ((quota.used[genre] ?? 0) === 0) {
+    const plural = limit === 1 ? "request" : "requests";
+    return `${label}: ${limit} ${plural} available (refreshes every ${refreshMinutes} min after use)`;
+  }
+  return `${label}: ${Math.max(0, remaining)} of ${limit} remaining`;
 }
 
 function genreOptionDisabled(genre: Genre, quota: QuotaState | null): boolean {
@@ -121,6 +133,7 @@ export default function SocialRequestPageClient() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const quotaLoadSeqRef = useRef(0);
 
   const genreOptions = (status?.availableGenres?.length
     ? status.availableGenres
@@ -128,12 +141,15 @@ export default function SocialRequestPageClient() {
   ).map((value) => ({ value, label: GENRE_LABELS[value] }));
 
   const loadQuota = useCallback(async (token: string | null) => {
+    const seq = ++quotaLoadSeqRef.current;
     await fetch("/api/social/session");
+    if (seq !== quotaLoadSeqRef.current) return;
     const headers: Record<string, string> = {};
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch("/api/social/quota", { headers });
-    if (!res.ok) return;
+    if (!res.ok || seq !== quotaLoadSeqRef.current) return;
     const data = (await res.json()) as QuotaState;
+    if (seq !== quotaLoadSeqRef.current) return;
     setQuota(data);
   }, []);
 
@@ -227,6 +243,18 @@ export default function SocialRequestPageClient() {
     if (!status?.isActive) return;
     loadQuota(accessToken);
   }, [status?.isActive, accessToken, loadQuota]);
+
+  useEffect(() => {
+    if (!status?.isActive || !quota) return;
+    const hasFutureCooldown = Object.values(quota.nextAvailableAt ?? {}).some(
+      (iso) => iso && new Date(iso).getTime() > Date.now()
+    );
+    if (!hasFutureCooldown) return;
+    const intervalId = window.setInterval(() => {
+      loadQuota(accessToken);
+    }, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [status?.isActive, quota, accessToken, loadQuota]);
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -348,11 +376,12 @@ export default function SocialRequestPageClient() {
         headers.Authorization = `Bearer ${accessToken}`;
       }
 
-      const body: Record<string, string | undefined> = {
+      const body: Record<string, string | number | undefined> = {
         trackId: selected.id,
         uri: selected.uri,
         name: selected.name,
         primaryArtist: selected.primaryArtist,
+        durationMs: selected.durationMs,
         genre,
         lineDanceName:
           genre === "ld" && lineDanceName.trim()
@@ -379,7 +408,7 @@ export default function SocialRequestPageClient() {
         );
       }
       const result = data as {
-        result: "replaced" | "appended";
+        result: "replaced" | "appended" | "swapped";
         addedToMaster: boolean;
         trackName: string;
       };

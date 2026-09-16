@@ -5,6 +5,7 @@ import {
   genreBlockLength,
   genreBlockStart,
   genreBlockStartsInCycle,
+  isLastSongOfCycle,
   parsePlaylistStructure,
   structureAvailableGenres,
   validatePlaylistStructure,
@@ -85,6 +86,20 @@ describe("genreBlockStartsInCycle", () => {
   it("finds multiple cs blocks in one cycle", () => {
     const pattern = ["cs", "wcs", "cs", "ld"];
     expect(genreBlockStartsInCycle("cs", pattern)).toEqual([0, 2]);
+  });
+});
+
+describe("isLastSongOfCycle", () => {
+  const pattern = ["cs", "cs", "wcs", "wcs", "ld", "ld"];
+
+  it("returns true for last index in cycle", () => {
+    expect(isLastSongOfCycle(5, pattern)).toBe(true);
+    expect(isLastSongOfCycle(11, pattern)).toBe(true);
+  });
+
+  it("returns false for other indices", () => {
+    expect(isLastSongOfCycle(0, pattern)).toBe(false);
+    expect(isLastSongOfCycle(4, pattern)).toBe(false);
   });
 });
 

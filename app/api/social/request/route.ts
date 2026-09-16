@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
       genre?: string;
       lineDanceName?: string;
       lineDanceLevel?: string;
+      durationMs?: number;
       turnstileToken?: string;
     };
 
@@ -92,11 +93,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const durationMs =
+      typeof body.durationMs === "number" &&
+      Number.isFinite(body.durationMs) &&
+      body.durationMs >= 0
+        ? Math.round(body.durationMs)
+        : undefined;
+
     const result = await submitSocialSongRequest({
       trackId: body.trackId.trim(),
       uri: body.uri.trim(),
       name: body.name.trim(),
       primaryArtist: body.primaryArtist.trim(),
+      durationMs,
       genre,
       lineDanceName:
         typeof body.lineDanceName === "string" ? body.lineDanceName : null,

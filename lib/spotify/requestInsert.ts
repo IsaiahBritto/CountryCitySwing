@@ -6,6 +6,11 @@ import {
   genreBlockStartsInCycle,
   getDefaultPattern,
 } from "@/lib/spotify/playlistStructure";
+import {
+  deckRowStatusForTrack,
+  isTrackOnDeck,
+  type LivePlaylistView,
+} from "@/lib/spotify/requestLiveView";
 
 export type SnapshotTrackSource = "generated" | "request";
 
@@ -22,6 +27,13 @@ export type SnapshotTrack = {
 export type InsertTarget =
   | { kind: "replace"; position: number }
   | { kind: "append" };
+
+export type ExistingTrackAction =
+  | { kind: "not_in_live_playlist" }
+  | { kind: "already_played" }
+  | { kind: "now_playing" }
+  | { kind: "already_queued" }
+  | { kind: "swap"; from: number; to: number };
 
 /**
  * Start of the genre block that contains `index` within the repeating pattern.
@@ -103,6 +115,80 @@ export function findRequestInsertTarget(
   }
 
   return { kind: "append" };
+}
+
+/**
+ * Snapshot index for genre-slot targeting. Prefers deck now-playing when available.
+ */
+export function resolveInsertPlayheadIndex(
+  tracks: SnapshotTrack[],
+  liveView: LivePlaylistView,
+  spotifyPlayheadIndex: number
+): number {
+  if (liveView.deckAuthority === "social_deck" && liveView.currentTrackId) {
+    const index = tracks.findIndex(
+      (t) => t.spotifyTrackId === liveView.currentTrackId
+    );
+    return index >= 0 ? index : -1;
+  }
+  return spotifyPlayheadIndex;
+}
+
+function resolveSwapOrQueued(
+  tracks: SnapshotTrack[],
+  from: number,
+  currentIndex: number,
+  genre: GenrePool,
+  pattern: GenrePool[]
+): ExistingTrackAction {
+  const target = findRequestInsertTarget(tracks, currentIndex, genre, pattern);
+  if (target.kind === "replace" && from > target.position) {
+    return { kind: "swap", from, to: target.position };
+  }
+  return { kind: "already_queued" };
+}
+
+/**
+ * Decide what to do when the requested track is already in the snapshot.
+ */
+export function resolveExistingTrackAction(
+  tracks: SnapshotTrack[],
+  trackId: string,
+  currentIndex: number,
+  genre: GenrePool,
+  liveView: LivePlaylistView,
+  pattern: GenrePool[] = getDefaultPattern(),
+  fallbackNowPlayingTrackId: string | null = null
+): ExistingTrackAction {
+  const existing = tracks.find((t) => t.spotifyTrackId === trackId);
+  if (!existing) return { kind: "already_queued" };
+
+  const from = existing.position;
+
+  if (liveView.deckAuthority === "social_deck") {
+    if (!isTrackOnDeck(liveView, trackId)) {
+      return { kind: "not_in_live_playlist" };
+    }
+
+    const rowStatus = deckRowStatusForTrack(liveView, trackId);
+    if (rowStatus === "current") {
+      return { kind: "now_playing" };
+    }
+    if (rowStatus === "played") {
+      return { kind: "already_played" };
+    }
+    return resolveSwapOrQueued(tracks, from, currentIndex, genre, pattern);
+  }
+
+  // Fallback: no position-based played; only explicit now-playing match.
+  if (
+    fallbackNowPlayingTrackId &&
+    fallbackNowPlayingTrackId === trackId
+  ) {
+    return { kind: "now_playing" };
+  }
+
+  return resolveSwapOrQueued(tracks, from, currentIndex, genre, pattern);
 }
 
 export function resolvePlaybackIndex(

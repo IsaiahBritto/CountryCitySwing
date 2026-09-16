@@ -119,6 +119,14 @@ export function cycleLength(pattern: GenrePool[]): number {
   return pattern.length;
 }
 
+export function isLastSongOfCycle(
+  playlistIndex: number,
+  pattern: GenrePool[]
+): boolean {
+  const cycleLen = pattern.length;
+  return cycleLen > 0 && playlistIndex % cycleLen === cycleLen - 1;
+}
+
 /** Walk backward within cycle to find contiguous block start for genre at index. */
 export function genreBlockStart(
   index: number,

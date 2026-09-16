@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     }
 
     const status = await getActivePlaylistStatus();
-    if (!status.isActive || !status.spotifyPlaylistId || !status.activatedAt) {
+    if (!status.isActive || !status.spotifyPlaylistId) {
       return NextResponse.json({ requests: [] });
     }
 
@@ -33,7 +33,6 @@ export async function GET(req: NextRequest) {
       )
       .eq("spotify_playlist_id", status.spotifyPlaylistId)
       .neq("result", "rejected")
-      .gte("created_at", status.activatedAt)
       .order("created_at", { ascending: false });
 
     if (user) {

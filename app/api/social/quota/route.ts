@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     if (
       !status.isActive ||
       !status.spotifyPlaylistId ||
-      !status.activatedAt
+      !status.activationId
     ) {
       return NextResponse.json(
         { error: "Song requests aren’t open right now." },
@@ -22,8 +22,8 @@ export async function GET(req: NextRequest) {
     const requesterToken = user ? null : readSocialRequesterCookie(req);
 
     const snapshot = await buildQuotaSnapshot({
-      spotifyPlaylistId: status.spotifyPlaylistId,
-      activatedAt: status.activatedAt,
+      activationId: status.activationId,
+      refreshMinutes: status.requestRefreshMinutes,
       requestLimits: status.requestLimits,
       availableGenres: status.availableGenres,
       requesterUserId: user?.id ?? null,

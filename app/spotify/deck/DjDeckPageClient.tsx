@@ -77,6 +77,8 @@ import {
   type DjPlaybackSnapshot,
   type DjSessionResponse,
 } from "@/lib/spotify/djSession";
+import type { GenrePool } from "@/lib/spotify/playlistIds";
+import { isLastSongOfCycle } from "@/lib/spotify/playlistStructure";
 
 const REMOTE_VOLUME_DEBOUNCE_MS = 150;
 
@@ -91,6 +93,8 @@ type SpotifyStatus = {
 type ActivePlaylistInfo = {
   name: string | null;
   isActive: boolean;
+  spotifyPlaylistId: string | null;
+  pattern: GenrePool[];
 };
 
 export default function DjDeckPageClient() {
@@ -103,6 +107,9 @@ export default function DjDeckPageClient() {
   const [activeSocial, setActiveSocial] = useState<ActivePlaylistInfo | null>(
     null
   );
+  const activeSocialRef = useRef<ActivePlaylistInfo | null>(null);
+  const lastBoundaryReloadAtCycleRef = useRef<number | null>(null);
+  const boundaryReloadInFlightRef = useRef(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -396,9 +403,20 @@ export default function DjDeckPageClient() {
       setActiveSocial({
         name: (activeBody as { name?: string | null }).name ?? null,
         isActive: Boolean((activeBody as { isActive?: boolean }).isActive),
+        spotifyPlaylistId:
+          (activeBody as { spotifyPlaylistId?: string | null })
+            .spotifyPlaylistId ?? null,
+        pattern:
+          ((activeBody as { pattern?: GenrePool[] }).pattern as
+            | GenrePool[]
+            | undefined) ?? [],
       });
     }
   }, []);
+
+  useEffect(() => {
+    activeSocialRef.current = activeSocial;
+  }, [activeSocial]);
 
   useEffect(() => {
     let cancelled = false;
@@ -653,6 +671,58 @@ export default function DjDeckPageClient() {
     ]
   );
 
+  const maybeScheduleCycleBoundaryReload = useCallback(
+    (deck: DeckId, playlistIndex: number) => {
+      const social = activeSocialRef.current;
+      const deckState = getDeckState(stateRef.current, deck);
+      if (
+        !social?.isActive ||
+        !social.spotifyPlaylistId ||
+        social.pattern.length === 0 ||
+        deckState.playlistId !== social.spotifyPlaylistId ||
+        deckState.shuffleEnabled ||
+        !isLastSongOfCycle(playlistIndex, social.pattern)
+      ) {
+        return;
+      }
+
+      const cycleLen = social.pattern.length;
+      const cycleKey = Math.floor(playlistIndex / cycleLen);
+      if (lastBoundaryReloadAtCycleRef.current === cycleKey) return;
+      if (boundaryReloadInFlightRef.current) return;
+
+      lastBoundaryReloadAtCycleRef.current = cycleKey;
+      boundaryReloadInFlightRef.current = true;
+
+      void (async () => {
+        try {
+          const res = await authedFetchWithRetry(
+            `/api/spotify/playlists/${encodeURIComponent(social.spotifyPlaylistId!)}/tracks`
+          );
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(
+              (body as { error?: string }).error ?? "Failed to reload playlist"
+            );
+          }
+          dispatch({
+            type: "MERGE_PLAYLIST",
+            deck,
+            playlist: (body as { tracks?: DeckTrack[] }).tracks ?? [],
+            playlistTotalDurationMs:
+              (body as { totalDurationMs?: number }).totalDurationMs ?? 0,
+          });
+        } catch (err) {
+          console.warn("Cycle boundary playlist reload failed:", err);
+          lastBoundaryReloadAtCycleRef.current = null;
+        } finally {
+          boundaryReloadInFlightRef.current = false;
+        }
+      })();
+    },
+    []
+  );
+
   const switchActiveDeck = useCallback(
     async (deck: DeckId) => {
       const current = stateRef.current;
@@ -749,6 +819,7 @@ export default function DjDeckPageClient() {
         if (!targetTrack) return;
 
         await startPlayback(deck, targetTrack, 0);
+        maybeScheduleCycleBoundaryReload(deck, nextIndex);
         return;
       }
 
@@ -776,7 +847,14 @@ export default function DjDeckPageClient() {
         targetState.savedPositionMs
       );
     },
-    [pauseClock, player, showPlayerError, startPlayback, switchActiveDeck]
+    [
+      maybeScheduleCycleBoundaryReload,
+      pauseClock,
+      player,
+      showPlayerError,
+      startPlayback,
+      switchActiveDeck,
+    ]
   );
 
   const startQueueHead = useCallback(
@@ -916,6 +994,7 @@ export default function DjDeckPageClient() {
 
       dispatch({ type: "ADVANCE_TRACK", deck });
       trackEndTriggeredRef.current = false;
+      maybeScheduleCycleBoundaryReload(deck, nextIndex);
 
       if (autoPlay) {
         if (deck !== current.activeDeck) {
@@ -924,7 +1003,13 @@ export default function DjDeckPageClient() {
         await startPlayback(deck, nextTrack, 0);
       }
     },
-    [handleQueueExhausted, startPlayback, startQueueHead, switchActiveDeck]
+    [
+      handleQueueExhausted,
+      maybeScheduleCycleBoundaryReload,
+      startPlayback,
+      startQueueHead,
+      switchActiveDeck,
+    ]
   );
 
   const restartTrack = useCallback(
@@ -1110,6 +1195,13 @@ export default function DjDeckPageClient() {
             totalDurationMs: action.playlistTotalDurationMs,
           });
           break;
+        case "APPLY_PLAYLIST_PATCH":
+          dispatch({
+            type: "APPLY_PLAYLIST_PATCH",
+            deck: action.deck,
+            patch: action.patch,
+          });
+          break;
         case "DISABLE_SECOND_DECK":
           await applyDisableSecondDeck();
           break;
@@ -1192,13 +1284,14 @@ export default function DjDeckPageClient() {
 
       dispatch({ type: "SET_PLAYLIST_INDEX", deck, index });
       trackEndTriggeredRef.current = false;
+      maybeScheduleCycleBoundaryReload(deck, index);
 
       if (deck !== current.activeDeck) {
         await switchActiveDeck(deck);
       }
       await startPlayback(deck, track, 0);
     },
-    [startPlayback, switchActiveDeck]
+    [maybeScheduleCycleBoundaryReload, startPlayback, switchActiveDeck]
   );
 
   const handlePlayFromQueueRow = useCallback(
@@ -1903,8 +1996,8 @@ export default function DjDeckPageClient() {
         {activeSocial?.isActive && activeSocial.name && (
           <p className="hidden sm:block text-xs text-neutral-500">
             Social requests active on:{" "}
-            <span className="text-neutral-400">{activeSocial.name}</span> (deck
-            playlist is independent)
+            <span className="text-neutral-400">{activeSocial.name}</span>{" "}
+            (requests sync to this playlist automatically)
           </p>
         )}
 

@@ -1,12 +1,23 @@
 import { describe, expect, it } from "vitest";
+import {
+  djDeckReducer,
+  getNowPlaying,
+  INITIAL_DJ_DECK_STATE,
+} from "@/lib/spotify/djDeckState";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import {
   findRequestInsertTarget,
   genreSetStart,
+  resolveExistingTrackAction,
+  resolveInsertPlayheadIndex,
   resolvePlaybackIndex,
   searchStartIndex,
   type SnapshotTrack,
 } from "@/lib/spotify/requestInsert";
+import {
+  createEmptyLivePlaylistView,
+  type LivePlaylistView,
+} from "@/lib/spotify/requestLiveView";
 
 function track(
   position: number,
@@ -187,6 +198,203 @@ describe("findRequestInsertTarget", () => {
     expect(findRequestInsertTarget(tracks, 1, "cs", pattern)).toEqual({
       kind: "replace",
       position: 2,
+    });
+  });
+});
+
+function mockSocialDeckView(input: {
+  playlistIds: string[];
+  playlistIndex: number;
+  extraPlayedIndices?: number[];
+}): LivePlaylistView {
+  const playlist = input.playlistIds.map((id, i) => ({
+    id,
+    uri: `spotify:track:${id}`,
+    name: `Song ${i}`,
+    primaryArtist: "Artist",
+    durationMs: 180000,
+  }));
+  let state = djDeckReducer(INITIAL_DJ_DECK_STATE, {
+    type: "SELECT_PLAYLIST",
+    deck: "A",
+    playlistId: "social-pl",
+    playlistName: "Social",
+  });
+  state = djDeckReducer(state, {
+    type: "SET_PLAYLIST",
+    deck: "A",
+    playlist,
+    playlistTotalDurationMs: playlist.length * 180000,
+  });
+  state = djDeckReducer(state, {
+    type: "SET_PLAYLIST_INDEX",
+    deck: "A",
+    index: input.playlistIndex,
+  });
+  for (const idx of input.extraPlayedIndices ?? []) {
+    state = djDeckReducer(state, {
+      type: "MARK_PLAYLIST_INDEX_PLAYED",
+      deck: "A",
+      index: idx,
+    });
+  }
+  return {
+    deckAuthority: "social_deck",
+    currentTrackId: getNowPlaying(state)?.id ?? null,
+    activeDeck: "A",
+    deckState: state,
+  };
+}
+
+describe("resolveInsertPlayheadIndex", () => {
+  it("uses deck now-playing track mapped into snapshot", () => {
+    const tracks = buildCycles(4);
+    const liveView = mockSocialDeckView({
+      playlistIds: tracks.map((t) => t.spotifyTrackId),
+      playlistIndex: 20,
+    });
+    expect(resolveInsertPlayheadIndex(tracks, liveView, -1)).toBe(20);
+  });
+
+  it("falls back to Spotify playhead when deck has no authority", () => {
+    const tracks = buildCycles(3);
+    expect(
+      resolveInsertPlayheadIndex(tracks, createEmptyLivePlaylistView(), 12)
+    ).toBe(12);
+  });
+});
+
+describe("resolveExistingTrackAction", () => {
+  it("returns not_in_live_playlist for ghost snapshot rows absent from deck", () => {
+    const tracks = buildCycles(3);
+    const liveView = mockSocialDeckView({
+      playlistIds: tracks.slice(0, 6).map((t) => t.spotifyTrackId),
+      playlistIndex: 0,
+    });
+    expect(
+      resolveExistingTrackAction(tracks, "t12", 2, "cs", liveView)
+    ).toEqual({
+      kind: "not_in_live_playlist",
+    });
+  });
+
+  it("treats the deck current track as now playing", () => {
+    const tracks = buildCycles(3);
+    const liveView = mockSocialDeckView({
+      playlistIds: tracks.map((t) => t.spotifyTrackId),
+      playlistIndex: 0,
+    });
+    expect(
+      resolveExistingTrackAction(tracks, "t0", 0, "cs", liveView)
+    ).toEqual({
+      kind: "now_playing",
+    });
+  });
+
+  it("does not treat skipped-ahead tracks as already played", () => {
+    const tracks = buildCycles(4);
+    const liveView = mockSocialDeckView({
+      playlistIds: tracks.map((t) => t.spotifyTrackId),
+      playlistIndex: 20,
+    });
+    expect(
+      resolveExistingTrackAction(tracks, "t5", 20, "cs", liveView)
+    ).not.toEqual({ kind: "already_played" });
+  });
+
+  it("treats deck played indices as already played", () => {
+    const tracks = buildCycles(4);
+    const liveView = mockSocialDeckView({
+      playlistIds: tracks.map((t) => t.spotifyTrackId),
+      playlistIndex: 20,
+      extraPlayedIndices: [5],
+    });
+    expect(
+      resolveExistingTrackAction(tracks, "t5", 20, "cs", liveView)
+    ).toEqual({
+      kind: "already_played",
+    });
+  });
+
+  it("swaps a later CS track into the next generated slot", () => {
+    const tracks = buildCycles(3);
+    const liveView = mockSocialDeckView({
+      playlistIds: tracks.map((t) => t.spotifyTrackId),
+      playlistIndex: 0,
+    });
+    expect(
+      resolveExistingTrackAction(tracks, "t12", 0, "cs", liveView)
+    ).toEqual({
+      kind: "swap",
+      from: 12,
+      to: 6,
+    });
+  });
+
+  it("does not move a track that is already at or before the next slot", () => {
+    const tracks = buildCycles(3);
+    const liveView = mockSocialDeckView({
+      playlistIds: tracks.map((t) => t.spotifyTrackId),
+      playlistIndex: 0,
+    });
+    expect(
+      resolveExistingTrackAction(tracks, "t6", 0, "cs", liveView)
+    ).toEqual({
+      kind: "already_queued",
+    });
+  });
+
+  it("reports already queued when only append remains", () => {
+    const tracks = buildCycles(3);
+    for (const pos of [0, 1, 6, 7, 12, 13]) {
+      tracks[pos] = { ...tracks[pos], source: "request" };
+    }
+    const liveView = mockSocialDeckView({
+      playlistIds: tracks.map((t) => t.spotifyTrackId),
+      playlistIndex: 0,
+    });
+    expect(
+      resolveExistingTrackAction(tracks, "t12", 0, "cs", liveView)
+    ).toEqual({
+      kind: "already_queued",
+    });
+  });
+
+  it("fallback mode never uses position-based already played", () => {
+    const tracks = buildCycles(3);
+    const liveView = createEmptyLivePlaylistView();
+    expect(
+      resolveExistingTrackAction(tracks, "t0", 20, "cs", liveView)
+    ).not.toEqual({ kind: "already_played" });
+  });
+
+  it("fallback mode treats Spotify now-playing as current", () => {
+    const tracks = buildCycles(3);
+    const liveView = createEmptyLivePlaylistView();
+    expect(
+      resolveExistingTrackAction(
+        tracks,
+        "t3",
+        3,
+        "wcs",
+        liveView,
+        undefined,
+        "t3"
+      )
+    ).toEqual({
+      kind: "now_playing",
+    });
+  });
+
+  it("fallback mode still swaps a later track forward", () => {
+    const tracks = buildCycles(3);
+    const liveView = createEmptyLivePlaylistView();
+    expect(
+      resolveExistingTrackAction(tracks, "t12", -1, "cs", liveView)
+    ).toEqual({
+      kind: "swap",
+      from: 12,
+      to: 0,
     });
   });
 });

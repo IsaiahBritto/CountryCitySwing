@@ -61,8 +61,8 @@ export function RequestLimitsEditor({
   return (
     <div className="space-y-3">
       <p className="text-xs text-gray-500">
-        Max requests per person per genre tonight. Blank = unlimited. 0 =
-        disabled.
+        Max requests per person per genre during each refresh window. Blank =
+        unlimited. 0 = disabled.
       </p>
       <ul className="space-y-2">
         {availableGenres.map((genre) => (

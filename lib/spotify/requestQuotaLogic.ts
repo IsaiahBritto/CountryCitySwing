@@ -4,7 +4,64 @@ import {
   type RequestLimits,
 } from "@/lib/spotify/requestLimits";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
+import {
+  requestExpiresAtIso,
+  rollingWindowCutoffIso,
+} from "@/lib/spotify/requestRefresh";
 import { SocialRequestError } from "@/lib/spotify/socialRequestError";
+
+export type ActiveRequestRow = {
+  genre: GenrePool;
+  createdAt: string;
+};
+
+export function filterActiveRequests(
+  rows: ActiveRequestRow[],
+  refreshMinutes: number,
+  nowMs: number
+): ActiveRequestRow[] {
+  const cutoff = rollingWindowCutoffIso(nowMs, refreshMinutes);
+  return rows.filter((row) => row.createdAt > cutoff);
+}
+
+export function countActiveByGenre(
+  rows: ActiveRequestRow[],
+  genres: GenrePool[]
+): Partial<Record<GenrePool, number>> {
+  const counts: Partial<Record<GenrePool, number>> = {};
+  for (const genre of genres) {
+    counts[genre] = rows.filter((row) => row.genre === genre).length;
+  }
+  return counts;
+}
+
+export function nextAvailableAtForGenre(input: {
+  rows: ActiveRequestRow[];
+  limit: number;
+  refreshMinutes: number;
+  nowMs: number;
+}): string | null {
+  const active = filterActiveRequests(
+    input.rows,
+    input.refreshMinutes,
+    input.nowMs
+  ).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+
+  if (active.length < input.limit) return null;
+
+  const blockingIndex = active.length - input.limit;
+  const blockingRequest = active[blockingIndex];
+  if (!blockingRequest) return null;
+
+  const expiresAt = requestExpiresAtIso(
+    blockingRequest.createdAt,
+    input.refreshMinutes
+  );
+  if (new Date(expiresAt).getTime() <= input.nowMs) return null;
+  return expiresAt;
+}
 
 export function getRemainingQuota(input: {
   limits: RequestLimits | null;
@@ -24,10 +81,18 @@ export function getRemainingQuota(input: {
   return remaining;
 }
 
+export function formatNextAvailableTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export function assertCanRequest(input: {
   genre: GenrePool;
   limits: RequestLimits | null;
   counts: Partial<Record<GenrePool, number>>;
+  nextAvailableAt?: Partial<Record<GenrePool, string | null>>;
 }): void {
   const limit = getLimitForGenre(input.limits, input.genre);
   if (limit == null) return;
@@ -42,10 +107,14 @@ export function assertCanRequest(input: {
   const used = input.counts[input.genre] ?? 0;
   if (used >= limit) {
     const label = GENRE_LABELS[input.genre];
+    const nextAt = input.nextAvailableAt?.[input.genre];
+    const retryHint = nextAt
+      ? ` Try again after ${formatNextAvailableTime(nextAt)}.`
+      : "";
     throw new SocialRequestError(
       limit === 1
-        ? `You’ve used your ${label} request for tonight.`
-        : `You’ve used all ${limit} ${label} requests for tonight.`,
+        ? `You’ve used your ${label} request.${retryHint}`
+        : `You’ve used all ${limit} ${label} requests.${retryHint}`,
       403
     );
   }

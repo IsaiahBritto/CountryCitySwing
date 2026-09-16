@@ -4,10 +4,9 @@ import { useCallback, useEffect, useRef } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetchWithRetry } from "@/lib/clientAuth";
 import type { DjSessionCommandBroadcast } from "@/lib/spotify/djSessionCommands";
+import { sessionChannelName } from "@/lib/spotify/djSessionChannel";
 
-export function sessionChannelName(sessionId: string): string {
-  return `dj-session-${sessionId}`;
-}
+export { sessionChannelName } from "@/lib/spotify/djSessionChannel";
 
 export function useSessionCommandChannel(opts: {
   sessionId: string | null;

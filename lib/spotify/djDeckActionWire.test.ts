@@ -60,6 +60,33 @@ describe("parseRemoteDeckAction", () => {
     });
   });
 
+  it("accepts APPLY_PLAYLIST_PATCH", () => {
+    expect(
+      parseRemoteDeckAction({
+        type: "APPLY_PLAYLIST_PATCH",
+        deck: "A",
+        patch: { op: "swap", from: 6, to: 29 },
+      })
+    ).toEqual({
+      type: "APPLY_PLAYLIST_PATCH",
+      deck: "A",
+      patch: { op: "swap", from: 6, to: 29 },
+    });
+    expect(
+      parseRemoteDeckAction({
+        type: "APPLY_PLAYLIST_PATCH",
+        deck: "A",
+        patch: {
+          op: "batch",
+          patches: [
+            { op: "remove", position: 1 },
+            { op: "replace", position: 2, track: sampleTrack },
+          ],
+        },
+      })
+    ).toMatchObject({ type: "APPLY_PLAYLIST_PATCH", deck: "A" });
+  });
+
   it("accepts playlist actions", () => {
     expect(
       parseRemoteDeckAction({

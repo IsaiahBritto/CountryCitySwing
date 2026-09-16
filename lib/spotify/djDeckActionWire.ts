@@ -1,9 +1,11 @@
 import type {
   AfterQueueBehavior,
   DeckId,
+  DeckPlaylistPatch,
   DeckTrack,
   DjDeckAction,
 } from "@/lib/spotify/djDeckState";
+import { parseDeckPlaylistPatch } from "@/lib/spotify/deckPlaylistSync";
 
 const REMOTE_ACTION_TYPES = new Set([
   "SET_DECK_VOLUME",
@@ -19,6 +21,7 @@ const REMOTE_ACTION_TYPES = new Set([
   "SET_SHUFFLE_ENABLED",
   "SELECT_PLAYLIST",
   "SET_PLAYLIST",
+  "APPLY_PLAYLIST_PATCH",
   "ENABLE_SECOND_DECK",
   "DISABLE_SECOND_DECK",
 ]);
@@ -61,7 +64,12 @@ export type RemoteDeckAction =
       targetDeck: DeckId;
     }
   | { type: "SKIP_UP_NEXT"; deck: DeckId }
-  | { type: "SET_SHUFFLE_ENABLED"; deck: DeckId; enabled: boolean };
+  | { type: "SET_SHUFFLE_ENABLED"; deck: DeckId; enabled: boolean }
+  | {
+      type: "APPLY_PLAYLIST_PATCH";
+      deck: DeckId;
+      patch: DeckPlaylistPatch;
+    };
 
 function isDeckId(value: unknown): value is DeckId {
   return value === "A" || value === "B";
@@ -242,6 +250,12 @@ export function parseRemoteDeckAction(raw: unknown): RemoteDeckAction | null {
       return isDeckId(o.deck) && typeof o.enabled === "boolean"
         ? { type: "SET_SHUFFLE_ENABLED", deck: o.deck, enabled: o.enabled }
         : null;
+    case "APPLY_PLAYLIST_PATCH": {
+      const patch = parseDeckPlaylistPatch(o.patch);
+      return isDeckId(o.deck) && patch
+        ? { type: "APPLY_PLAYLIST_PATCH", deck: o.deck, patch }
+        : null;
+    }
     default:
       return null;
   }

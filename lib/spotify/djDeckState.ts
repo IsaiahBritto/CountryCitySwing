@@ -1,3 +1,11 @@
+import {
+  applyDeckPlaylistPatch,
+  mergePlaylistPreservingPlayback,
+  type DeckPlaylistPatch,
+} from "@/lib/spotify/deckPlaylistSync";
+
+export type { DeckPlaylistPatch } from "@/lib/spotify/deckPlaylistSync";
+
 export type DeckId = "A" | "B";
 
 export type DeckTrack = {
@@ -90,6 +98,13 @@ export type DjDeckAction =
   | { type: "HIGHLIGHT_QUEUE_ROW"; deck: DeckId; index: number | null }
   | { type: "HIGHLIGHT_PLAYLIST_ROW"; deck: DeckId; index: number | null }
   | { type: "SET_SHUFFLE_ENABLED"; deck: DeckId; enabled: boolean }
+  | { type: "APPLY_PLAYLIST_PATCH"; deck: DeckId; patch: DeckPlaylistPatch }
+  | {
+      type: "MERGE_PLAYLIST";
+      deck: DeckId;
+      playlist: DeckTrack[];
+      playlistTotalDurationMs: number;
+    }
   | { type: "RESTORE_SESSION"; state: DjDeckState };
 
 function createEmptyDeckState(enabled: boolean, deckId: DeckId): DeckState {
@@ -666,6 +681,18 @@ export function djDeckReducer(
         skippedAfterCurrent: 0,
       }));
     }
+    case "APPLY_PLAYLIST_PATCH":
+      return updateDeck(state, action.deck, (deck) =>
+        applyDeckPlaylistPatch(deck, action.patch)
+      );
+    case "MERGE_PLAYLIST":
+      return updateDeck(state, action.deck, (deck) =>
+        mergePlaylistPreservingPlayback(
+          deck,
+          action.playlist,
+          action.playlistTotalDurationMs
+        )
+      );
     case "RESTORE_SESSION":
       return normalizeDjDeckState(action.state);
     default:

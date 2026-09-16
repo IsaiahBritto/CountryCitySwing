@@ -20,6 +20,12 @@ import {
   validateRequestLimits,
   type RequestLimits,
 } from "@/lib/spotify/requestLimits";
+import {
+  DEFAULT_REQUEST_REFRESH_MINUTES,
+  parseRequestRefreshMinutes,
+  validateRequestRefreshMinutes,
+  type RequestRefreshMinutes,
+} from "@/lib/spotify/requestRefresh";
 import { getMasterPlaylistRefs, getMasterPlaylistRefsForGenres } from "@/lib/spotify/masters";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import { parseSpotifyPlaylistId } from "@/lib/spotify/playlistIds";
@@ -32,6 +38,8 @@ export type ActivePlaylistStatus = {
   playlistUrl: string | null;
   name: string | null;
   activatedAt: string | null;
+  activationId: string | null;
+  requestRefreshMinutes: RequestRefreshMinutes;
   trackCount: number;
   requestLimits: RequestLimits | null;
   availableGenres: GenrePool[];
@@ -61,6 +69,8 @@ function statusFromRow(data: {
   playlist_url: string | null;
   name: string | null;
   activated_at: string | null;
+  activation_id: string | null;
+  request_refresh_minutes: number | null;
   request_limits: unknown;
   playlist_structure: unknown;
 }, trackCount: number): ActivePlaylistStatus {
@@ -80,6 +90,10 @@ function statusFromRow(data: {
     playlistUrl: data.playlist_url,
     name: data.name || null,
     activatedAt: data.activated_at,
+    activationId: data.activation_id,
+    requestRefreshMinutes:
+      parseRequestRefreshMinutes(data.request_refresh_minutes) ??
+      DEFAULT_REQUEST_REFRESH_MINUTES,
     trackCount,
     requestLimits: parseRequestLimits(data.request_limits),
     availableGenres,
@@ -92,7 +106,7 @@ export async function getActivePlaylistStatus(): Promise<ActivePlaylistStatus> {
   const { data, error } = await supabaseServer
     .from("social_active_playlist")
     .select(
-      "is_active, spotify_playlist_id, playlist_url, name, activated_at, request_limits, playlist_structure"
+      "is_active, spotify_playlist_id, playlist_url, name, activated_at, activation_id, request_refresh_minutes, request_limits, playlist_structure"
     )
     .eq("id", ACTIVE_ID)
     .maybeSingle();
@@ -110,6 +124,8 @@ export async function getActivePlaylistStatus(): Promise<ActivePlaylistStatus> {
       playlistUrl: null,
       name: null,
       activatedAt: null,
+      activationId: null,
+      requestRefreshMinutes: DEFAULT_REQUEST_REFRESH_MINUTES,
       trackCount: 0,
       requestLimits: null,
       availableGenres: inactiveAvailable,
@@ -195,6 +211,7 @@ export async function activateSocialPlaylist(input: {
   playlistIdOrUrl: string;
   activatedBy: string | null;
   requestLimits?: RequestLimits | null;
+  requestRefreshMinutes?: RequestRefreshMinutes;
   structure: PlaylistStructure;
 }): Promise<ActivePlaylistStatus> {
   const playlistId = parseSpotifyPlaylistId(input.playlistIdOrUrl);
@@ -225,6 +242,11 @@ export async function activateSocialPlaylist(input: {
     input.requestLimits != null
       ? validateRequestLimits(input.requestLimits, availableGenres)
       : defaultRequestLimits(availableGenres);
+  const requestRefreshMinutes =
+    input.requestRefreshMinutes != null
+      ? validateRequestRefreshMinutes(input.requestRefreshMinutes)
+      : DEFAULT_REQUEST_REFRESH_MINUTES;
+  const activationId = crypto.randomUUID();
 
   const { error: upsertError } = await supabaseServer
     .from("social_active_playlist")
@@ -235,6 +257,8 @@ export async function activateSocialPlaylist(input: {
         playlist_url: meta.url,
         name: meta.name,
         activated_at: now,
+        activation_id: activationId,
+        request_refresh_minutes: requestRefreshMinutes,
         activated_by: input.activatedBy,
         is_active: true,
         request_limits: requestLimits,
@@ -284,25 +308,36 @@ export async function activateSocialPlaylist(input: {
   return getActivePlaylistStatus();
 }
 
-export async function updateSocialRequestLimits(
-  requestLimits: RequestLimits
-): Promise<ActivePlaylistStatus> {
+export async function updateSocialRequestLimits(input: {
+  requestLimits: RequestLimits;
+  requestRefreshMinutes?: RequestRefreshMinutes;
+}): Promise<ActivePlaylistStatus> {
   const status = await getActivePlaylistStatus();
   if (!status.isActive) {
     throw new Error("No active playlist to update limits for");
   }
 
   const validated = validateRequestLimits(
-    requestLimits,
+    input.requestLimits,
     status.availableGenres
   );
   const now = new Date().toISOString();
+  const patch: {
+    request_limits: RequestLimits;
+    updated_at: string;
+    request_refresh_minutes?: RequestRefreshMinutes;
+  } = {
+    request_limits: validated,
+    updated_at: now,
+  };
+  if (input.requestRefreshMinutes != null) {
+    patch.request_refresh_minutes = validateRequestRefreshMinutes(
+      input.requestRefreshMinutes
+    );
+  }
   const { error } = await supabaseServer
     .from("social_active_playlist")
-    .update({
-      request_limits: validated,
-      updated_at: now,
-    })
+    .update(patch)
     .eq("id", ACTIVE_ID);
 
   if (error) {

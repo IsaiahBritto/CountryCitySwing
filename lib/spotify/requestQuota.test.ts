@@ -5,8 +5,17 @@ import {
   validateRequestLimits,
 } from "@/lib/spotify/requestLimits";
 import {
+  parseRequestRefreshMinutes,
+  requestExpiresAtIso,
+  rollingWindowCutoffIso,
+  validateRequestRefreshMinutes,
+} from "@/lib/spotify/requestRefresh";
+import {
   assertCanRequest,
+  countActiveByGenre,
+  filterActiveRequests,
   getRemainingQuota,
+  nextAvailableAtForGenre,
 } from "@/lib/spotify/requestQuotaLogic";
 
 describe("parseRequestLimits", () => {
@@ -42,6 +51,97 @@ describe("validateRequestLimits", () => {
 describe("defaultRequestLimits", () => {
   it("sets 1 per genre", () => {
     expect(defaultRequestLimits(["cs", "ld"])).toEqual({ cs: 1, ld: 1 });
+  });
+});
+
+describe("request refresh minutes", () => {
+  it("parses allowed values", () => {
+    expect(parseRequestRefreshMinutes(15)).toBe(15);
+    expect(parseRequestRefreshMinutes(60)).toBe(60);
+    expect(parseRequestRefreshMinutes(20)).toBeNull();
+  });
+
+  it("validates allowed values", () => {
+    expect(validateRequestRefreshMinutes(30)).toBe(30);
+    expect(() => validateRequestRefreshMinutes(20)).toThrow(/15, 30, 45, or 60/);
+  });
+});
+
+describe("rolling window", () => {
+  const nowMs = Date.parse("2026-09-14T20:00:00.000Z");
+
+  it("computes cutoff from refresh minutes", () => {
+    expect(rollingWindowCutoffIso(nowMs, 30)).toBe(
+      "2026-09-14T19:30:00.000Z"
+    );
+  });
+
+  it("filters expired requests", () => {
+    const rows = [
+      { genre: "cs" as const, createdAt: "2026-09-14T19:45:00.000Z" },
+      { genre: "cs" as const, createdAt: "2026-09-14T19:20:00.000Z" },
+    ];
+    const active = filterActiveRequests(rows, 30, nowMs);
+    expect(active).toHaveLength(1);
+    expect(active[0]?.createdAt).toBe("2026-09-14T19:45:00.000Z");
+  });
+
+  it("computes request expiry", () => {
+    expect(requestExpiresAtIso("2026-09-14T19:45:00.000Z", 15)).toBe(
+      "2026-09-14T20:00:00.000Z"
+    );
+  });
+});
+
+describe("nextAvailableAtForGenre", () => {
+  const nowMs = Date.parse("2026-09-14T20:00:00.000Z");
+
+  it("returns null when under limit", () => {
+    const next = nextAvailableAtForGenre({
+      rows: [{ genre: "cs", createdAt: "2026-09-14T19:50:00.000Z" }],
+      limit: 2,
+      refreshMinutes: 30,
+      nowMs,
+    });
+    expect(next).toBeNull();
+  });
+
+  it("returns expiry when at limit", () => {
+    const next = nextAvailableAtForGenre({
+      rows: [{ genre: "cs", createdAt: "2026-09-14T19:50:00.000Z" }],
+      limit: 1,
+      refreshMinutes: 30,
+      nowMs: Date.parse("2026-09-14T19:55:00.000Z"),
+    });
+    expect(next).toBe("2026-09-14T20:20:00.000Z");
+  });
+
+  it("uses oldest blocking request when limit is 2", () => {
+    const next = nextAvailableAtForGenre({
+      rows: [
+        { genre: "cs", createdAt: "2026-09-14T19:40:00.000Z" },
+        { genre: "cs", createdAt: "2026-09-14T19:50:00.000Z" },
+      ],
+      limit: 2,
+      refreshMinutes: 30,
+      nowMs,
+    });
+    expect(next).toBe("2026-09-14T20:10:00.000Z");
+  });
+});
+
+describe("countActiveByGenre", () => {
+  it("counts per genre", () => {
+    expect(
+      countActiveByGenre(
+        [
+          { genre: "cs", createdAt: "2026-09-14T19:50:00.000Z" },
+          { genre: "wcs", createdAt: "2026-09-14T19:50:00.000Z" },
+          { genre: "cs", createdAt: "2026-09-14T19:51:00.000Z" },
+        ],
+        ["cs", "wcs"]
+      )
+    ).toEqual({ cs: 2, wcs: 1 });
   });
 });
 
@@ -86,5 +186,16 @@ describe("assertCanRequest", () => {
         counts: { cs: 1 },
       })
     ).toThrow(/Country Swing/);
+  });
+
+  it("includes retry time when provided", () => {
+    expect(() =>
+      assertCanRequest({
+        genre: "cs",
+        limits: { cs: 1 },
+        counts: { cs: 1 },
+        nextAvailableAt: { cs: "2026-09-14T20:15:00.000Z" },
+      })
+    ).toThrow(/Try again after/);
   });
 });

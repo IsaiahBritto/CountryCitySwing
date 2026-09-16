@@ -7,6 +7,7 @@ import {
   updateSocialRequestLimits,
 } from "@/lib/spotify/activePlaylist";
 import { parseRequestLimits } from "@/lib/spotify/requestLimits";
+import { parseRequestRefreshMinutes } from "@/lib/spotify/requestRefresh";
 import {
   parsePlaylistStructure,
   validatePlaylistStructure,
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
       action?: string;
       playlistIdOrUrl?: string;
       requestLimits?: unknown;
+      requestRefreshMinutes?: unknown;
       structure?: unknown;
     };
 
@@ -54,7 +56,23 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-      const status = await updateSocialRequestLimits(parsed);
+      const requestRefreshMinutes =
+        body.requestRefreshMinutes != null
+          ? parseRequestRefreshMinutes(body.requestRefreshMinutes)
+          : undefined;
+      if (
+        body.requestRefreshMinutes != null &&
+        requestRefreshMinutes == null
+      ) {
+        return NextResponse.json(
+          { error: "requestRefreshMinutes must be 15, 30, 45, or 60" },
+          { status: 400 }
+        );
+      }
+      const status = await updateSocialRequestLimits({
+        requestLimits: parsed,
+        requestRefreshMinutes: requestRefreshMinutes ?? undefined,
+      });
       return NextResponse.json(status);
     }
 
@@ -93,10 +111,24 @@ export async function POST(req: NextRequest) {
           error instanceof Error ? error.message : "Invalid playlist structure";
         return NextResponse.json({ error: message }, { status: 400 });
       }
+      const requestRefreshMinutes =
+        body.requestRefreshMinutes != null
+          ? parseRequestRefreshMinutes(body.requestRefreshMinutes)
+          : undefined;
+      if (
+        body.requestRefreshMinutes != null &&
+        requestRefreshMinutes == null
+      ) {
+        return NextResponse.json(
+          { error: "requestRefreshMinutes must be 15, 30, 45, or 60" },
+          { status: 400 }
+        );
+      }
       const status = await activateSocialPlaylist({
         playlistIdOrUrl: body.playlistIdOrUrl.trim(),
         activatedBy: auth.userId,
         requestLimits: requestLimits ?? undefined,
+        requestRefreshMinutes: requestRefreshMinutes ?? undefined,
         structure,
       });
       return NextResponse.json(status);

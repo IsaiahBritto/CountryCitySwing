@@ -16,6 +16,11 @@ import PlaylistStructureBuilder, {
 } from "@/components/PlaylistStructureBuilder";
 import type { RequestLimits } from "@/lib/spotify/requestLimits";
 import { getLegacyAvailableGenres } from "@/lib/spotify/requestLimits";
+import {
+  DEFAULT_REQUEST_REFRESH_MINUTES,
+  REQUEST_REFRESH_OPTIONS,
+  type RequestRefreshMinutes,
+} from "@/lib/spotify/requestRefresh";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import {
   structureAvailableGenres,
@@ -59,6 +64,8 @@ type ActivePlaylistStatus = {
   playlistUrl: string | null;
   name: string | null;
   activatedAt: string | null;
+  activationId: string | null;
+  requestRefreshMinutes: RequestRefreshMinutes;
   trackCount: number;
   requestLimits: RequestLimits | null;
   availableGenres: GenrePool[];
@@ -116,6 +123,8 @@ export default function SpotifyPageClient() {
   const [limitsDraft, setLimitsDraft] = useState<RequestLimitsDraft>(() =>
     limitsToDraft(null, getLegacyAvailableGenres())
   );
+  const [requestRefreshMinutes, setRequestRefreshMinutes] =
+    useState<RequestRefreshMinutes>(DEFAULT_REQUEST_REFRESH_MINUTES);
   const [builderState, setBuilderState] = useState<PlaylistBuilderState>(
     defaultBuilderState
   );
@@ -133,6 +142,9 @@ export default function SpotifyPageClient() {
         ? status.availableGenres
         : builderGenres;
     setLimitsDraft(limitsToDraft(status?.requestLimits ?? null, genres));
+    if (status?.requestRefreshMinutes) {
+      setRequestRefreshMinutes(status.requestRefreshMinutes);
+    }
   }, [builderGenres]);
 
   const syncBuilderFromActive = useCallback(
@@ -394,6 +406,7 @@ export default function SpotifyPageClient() {
           action: "activate",
           playlistIdOrUrl,
           requestLimits: draftToLimits(limitsDraft, builderGenres),
+          requestRefreshMinutes,
           structure: builderState.structure,
         }),
       });
@@ -433,6 +446,7 @@ export default function SpotifyPageClient() {
         body: JSON.stringify({
           action: "updateLimits",
           requestLimits: draftToLimits(limitsDraft, genres),
+          requestRefreshMinutes,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -780,6 +794,31 @@ export default function SpotifyPageClient() {
               <h3 className="text-sm font-semibold text-amber-200/90">
                 Per-person request limits
               </h3>
+              <label className="block space-y-1">
+                <span className="text-sm text-gray-400">
+                  Request refresh interval
+                </span>
+                <select
+                  value={requestRefreshMinutes}
+                  onChange={(e) =>
+                    setRequestRefreshMinutes(
+                      Number(e.target.value) as RequestRefreshMinutes
+                    )
+                  }
+                  disabled={busy}
+                  className="w-full rounded bg-neutral-900 border border-neutral-600 px-3 py-2 text-sm"
+                >
+                  {REQUEST_REFRESH_OPTIONS.map((minutes) => (
+                    <option key={minutes} value={minutes}>
+                      {minutes} min
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500">
+                  Each request counts toward the limit until this many minutes
+                  after it was submitted.
+                </p>
+              </label>
               <RequestLimitsEditor
                 availableGenres={limitGenres}
                 draft={limitsDraft}

@@ -25,7 +25,7 @@ export type UserRequestRow = {
   name: string;
   primary_artist: string;
   genre: GenrePool;
-  result: "replaced" | "appended" | "rejected";
+  result: "replaced" | "appended" | "swapped" | "rejected";
   position: number | null;
   created_at: string;
 };
@@ -38,7 +38,7 @@ export type UserRequestWithEstimate = {
   genre: GenrePool;
   genreLabel: string;
   position: number | null;
-  result: "replaced" | "appended" | "rejected";
+  result: "replaced" | "appended" | "swapped" | "rejected";
   status: RequestQueueStatus;
   estimatedWaitMs: number | null;
   createdAt: string;

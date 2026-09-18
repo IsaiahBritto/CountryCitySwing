@@ -152,6 +152,7 @@ export default function DjDeckPageClient() {
   const autoPrimeEnabledRef = useRef(true);
   const resumeInProgressRef = useRef(false);
   const pendingHostResumeRef = useRef<DjPlaybackSnapshot | null>(null);
+  const takeoverEffectStartedRef = useRef(false);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -223,10 +224,10 @@ export default function DjDeckPageClient() {
     djSession.isEffectiveRemoteController && !pendingTakeover;
 
   useEffect(() => {
-    if (isControllerMode) {
+    if (isControllerMode && !pendingTakeover) {
       setAudioUnlocked(true);
     }
-  }, [isControllerMode]);
+  }, [isControllerMode, pendingTakeover]);
 
   useEffect(() => {
     if (djSession.role !== "host" || djSession.session?.status !== "active") {
@@ -1563,8 +1564,11 @@ export default function DjDeckPageClient() {
       const snap = djSession.session?.playbackSnapshot;
       const ok = await djSession.takeoverSession(player.deviceId);
       setTakingOver(false);
+      if (!ok) {
+        takeoverEffectStartedRef.current = false;
+        return;
+      }
       setPendingTakeover(false);
-      if (!ok) return;
       if (snap?.currentTrackUri) {
         await resumeHostFromSnapshot({
           snapshot: snap,
@@ -1581,12 +1585,35 @@ export default function DjDeckPageClient() {
       }
       showToast("You are now hosting playback");
     } catch (err) {
+      takeoverEffectStartedRef.current = false;
       showPlayerError(err, "Takeover failed");
     } finally {
       setConnectingAudio(false);
       setTakingOver(false);
     }
   }, [djSession, player, showToast]);
+
+  const handleTakeoverRequest = useCallback(() => {
+    setAudioUnlocked(false);
+    setPendingTakeover(true);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingTakeover) {
+      takeoverEffectStartedRef.current = false;
+      return;
+    }
+    if (djSession.hostStatus !== "offline") return;
+    if (djSession.session?.status !== "active") return;
+    if (takeoverEffectStartedRef.current) return;
+    takeoverEffectStartedRef.current = true;
+    void handleTakeoverUnlock();
+  }, [
+    pendingTakeover,
+    djSession.hostStatus,
+    djSession.session?.status,
+    handleTakeoverUnlock,
+  ]);
 
   useEffect(() => {
     if (isControllerMode) return;
@@ -1869,6 +1896,7 @@ export default function DjDeckPageClient() {
     <>
       {needsOverlay && (
         <AudioUnlockOverlay
+          variant={pendingTakeover ? "takeover" : "default"}
           onUnlock={() =>
             void (pendingTakeover ? handleTakeoverUnlock() : handleUnlockAudio())
           }
@@ -1929,7 +1957,7 @@ export default function DjDeckPageClient() {
           takingOver={takingOver}
           onStartSession={() => void handleStartSession()}
           onEndSession={() => void handleEndSession()}
-          onTakeover={() => setPendingTakeover(true)}
+          onTakeover={handleTakeoverRequest}
         />
 
         {isControllerMode && (

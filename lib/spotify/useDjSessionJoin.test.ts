@@ -186,4 +186,30 @@ describe("shouldShowAudioOverlay", () => {
       })
     ).toBe(true);
   });
+
+  it("shows overlay for pending takeover when remote tab already unlocked audio", () => {
+    expect(
+      shouldShowAudioOverlay({
+        ...base,
+        role: "controller",
+        isControllerMode: false,
+        pendingTakeover: true,
+        audioUnlocked: true,
+        playerReady: false,
+      })
+    ).toBe(true);
+  });
+
+  it("hides overlay for pending takeover once player is ready", () => {
+    expect(
+      shouldShowAudioOverlay({
+        ...base,
+        role: "controller",
+        isControllerMode: false,
+        pendingTakeover: true,
+        audioUnlocked: true,
+        playerReady: true,
+      })
+    ).toBe(false);
+  });
 });

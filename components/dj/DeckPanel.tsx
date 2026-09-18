@@ -34,6 +34,9 @@ export type DeckPanelProps = {
   onVolumeChange: (value: number) => void;
   crossfadeSeconds: number;
   onCrossfadeChange: (seconds: number) => void;
+  handoffToOtherDeckAfterSong?: boolean;
+  onHandoffToOtherDeckChange?: (enabled: boolean) => void;
+  secondDeckEnabled?: boolean;
   disabled?: boolean;
   playlistSelector?: ReactNode;
 };
@@ -57,9 +60,13 @@ export default function DeckPanel({
   onVolumeChange,
   crossfadeSeconds,
   onCrossfadeChange,
+  handoffToOtherDeckAfterSong = false,
+  onHandoffToOtherDeckChange,
+  secondDeckEnabled = false,
   disabled = false,
   playlistSelector,
 }: DeckPanelProps) {
+  const otherDeckLabel = deckId === "A" ? "B" : "A";
   const accentText = accent === "orange" ? "text-orange-400" : "text-red-400";
   const accentBorder =
     accent === "orange" ? "border-orange-500/40" : "border-red-500/40";
@@ -226,6 +233,25 @@ export default function DeckPanel({
             disabled={disabled}
             className="mt-1 sm:mt-2 w-full"
           />
+
+          {secondDeckEnabled && onHandoffToOtherDeckChange && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onHandoffToOtherDeckChange(!handoffToOtherDeckAfterSong)
+              }
+              className={`mt-1 w-full px-2 py-1 rounded text-[10px] sm:text-xs font-medium border text-left disabled:opacity-40 ${
+                handoffToOtherDeckAfterSong
+                  ? accent === "orange"
+                    ? "bg-orange-950/50 border-orange-500/50 text-orange-200"
+                    : "bg-red-950/50 border-red-500/50 text-red-200"
+                  : "border-neutral-600 text-neutral-400 hover:bg-neutral-800"
+              }`}
+            >
+              Switch to Deck {otherDeckLabel} after song
+            </button>
+          )}
 
           <div className="sm:hidden">
             <VolumeSlider

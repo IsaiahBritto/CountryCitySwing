@@ -35,6 +35,8 @@ export type DeckState = {
   playbackSource: PlaybackSource;
   afterQueueBehavior: AfterQueueBehavior;
   afterQueueContinueDeck: DeckId;
+  /** After track ends, switch active playback to the other deck (queue/index preserved). */
+  handoffToOtherDeckAfterSong: boolean;
   playedPlaylistIndices: number[];
   track: DeckTrack | null;
   savedPositionMs: number;
@@ -85,6 +87,11 @@ export type DjDeckAction =
       behavior: AfterQueueBehavior;
     }
   | { type: "SET_AFTER_QUEUE_CONTINUE_DECK"; deck: DeckId; targetDeck: DeckId }
+  | {
+      type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG";
+      deck: DeckId;
+      enabled: boolean;
+    }
   | { type: "ADVANCE_TRACK"; deck: DeckId }
   | { type: "SKIP_UP_NEXT"; deck: DeckId }
   | { type: "PREVIOUS_TRACK"; deck: DeckId }
@@ -121,6 +128,7 @@ function createEmptyDeckState(enabled: boolean, deckId: DeckId): DeckState {
     playbackSource: "playlist",
     afterQueueBehavior: "continue",
     afterQueueContinueDeck: deckId,
+    handoffToOtherDeckAfterSong: false,
     playedPlaylistIndices: [],
     track: null,
     savedPositionMs: 0,
@@ -460,6 +468,11 @@ export function djDeckReducer(
         ...d,
         afterQueueContinueDeck: action.targetDeck,
       }));
+    case "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG":
+      return updateDeck(state, action.deck, (d) => ({
+        ...d,
+        handoffToOtherDeckAfterSong: action.enabled,
+      }));
     case "ADVANCE_TRACK": {
       const deck = getDeckState(state, action.deck);
       if (deck.playbackSource === "queue") {
@@ -480,6 +493,7 @@ export function djDeckReducer(
         }));
       }
       if (deck.playlistIndex == null) return state;
+      const departingIndex = deck.playlistIndex;
       const nextIndex = deck.playlistIndex + 1 + deck.skippedAfterCurrent;
       const nextTrack = deck.playlist[nextIndex] ?? null;
       if (!nextTrack) return state;
@@ -492,7 +506,7 @@ export function djDeckReducer(
         skippedAfterCurrent: 0,
         playedPlaylistIndices: markPlaylistIndexPlayed(
           d.playedPlaylistIndices,
-          nextIndex
+          departingIndex
         ),
       }));
     }
@@ -841,11 +855,35 @@ export function playlistRowStatus(
   index: number
 ): QueueRowStatus {
   const d = getDeckState(state, deck);
-  if (d.playbackSource === "playlist" && d.playlistIndex === index) {
-    return "current";
+  const rowTrack = d.playlist[index] ?? null;
+  if (d.playbackSource === "playlist" && rowTrack) {
+    if (d.track?.id === rowTrack.id) {
+      return "current";
+    }
+    if (d.track == null && d.playlistIndex === index) {
+      return "current";
+    }
   }
   if (d.playedPlaylistIndices.includes(index)) return "played";
   return "upcoming";
+}
+
+export function reconcileDeckTrackWithPlaylist(deck: DeckState): DeckState {
+  if (deck.playlist.length === 0) return deck;
+  if (deck.track) {
+    const idx = deck.playlist.findIndex((t) => t.id === deck.track!.id);
+    if (idx >= 0) {
+      if (deck.playlistIndex === idx) return deck;
+      return { ...deck, playlistIndex: idx };
+    }
+  }
+  if (deck.playlistIndex != null) {
+    const atIndex = deck.playlist[deck.playlistIndex] ?? null;
+    if (atIndex && deck.track?.id !== atIndex.id) {
+      return { ...deck, track: atIndex };
+    }
+  }
+  return deck;
 }
 
 /** @deprecated use playlistRowStatus */
@@ -947,6 +985,7 @@ function parseDeckState(raw: unknown, deckId: DeckId): DeckState {
     playbackSource: d.playbackSource === "queue" ? "queue" : "playlist",
     afterQueueBehavior: d.afterQueueBehavior === "stop" ? "stop" : "continue",
     afterQueueContinueDeck: d.afterQueueContinueDeck === "B" ? "B" : "A",
+    handoffToOtherDeckAfterSong: d.handoffToOtherDeckAfterSong === true,
     playedPlaylistIndices,
     track: parseDeckTrack(d.track),
     savedPositionMs:
@@ -1013,8 +1052,8 @@ function parseHighlightIndex(raw: unknown): Record<DeckId, number | null> {
 
 export function normalizeDjDeckState(raw: DjDeckState): DjDeckState {
   return {
-    deckA: parseDeckState(raw.deckA, "A"),
-    deckB: parseDeckState(raw.deckB, "B"),
+    deckA: reconcileDeckTrackWithPlaylist(parseDeckState(raw.deckA, "A")),
+    deckB: reconcileDeckTrackWithPlaylist(parseDeckState(raw.deckB, "B")),
     secondDeckEnabled: raw.secondDeckEnabled === true,
     activeDeck: raw.activeDeck === "B" ? "B" : "A",
     deckVolume: parseDeckVolume(raw.deckVolume),

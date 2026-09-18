@@ -14,6 +14,20 @@ const sampleTrack = {
 };
 
 describe("parseRemoteDeckAction", () => {
+  it("accepts handoff toggle action", () => {
+    expect(
+      parseRemoteDeckAction({
+        type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+        deck: "A",
+        enabled: true,
+      })
+    ).toEqual({
+      type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+      deck: "A",
+      enabled: true,
+    });
+  });
+
   it("accepts volume and fade actions", () => {
     expect(
       parseRemoteDeckAction({ type: "SET_MASTER_VOLUME", value: 0.5 })

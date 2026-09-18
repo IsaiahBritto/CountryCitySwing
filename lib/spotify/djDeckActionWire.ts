@@ -17,6 +17,7 @@ const REMOTE_ACTION_TYPES = new Set([
   "CLEAR_PLAY_QUEUE",
   "SET_AFTER_QUEUE_BEHAVIOR",
   "SET_AFTER_QUEUE_CONTINUE_DECK",
+  "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
   "SKIP_UP_NEXT",
   "SET_SHUFFLE_ENABLED",
   "SELECT_PLAYLIST",
@@ -62,6 +63,11 @@ export type RemoteDeckAction =
       type: "SET_AFTER_QUEUE_CONTINUE_DECK";
       deck: DeckId;
       targetDeck: DeckId;
+    }
+  | {
+      type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG";
+      deck: DeckId;
+      enabled: boolean;
     }
   | { type: "SKIP_UP_NEXT"; deck: DeckId }
   | { type: "SET_SHUFFLE_ENABLED"; deck: DeckId; enabled: boolean }
@@ -240,6 +246,14 @@ export function parseRemoteDeckAction(raw: unknown): RemoteDeckAction | null {
             type: "SET_AFTER_QUEUE_CONTINUE_DECK",
             deck: o.deck,
             targetDeck: o.targetDeck,
+          }
+        : null;
+    case "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG":
+      return isDeckId(o.deck) && typeof o.enabled === "boolean"
+        ? {
+            type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+            deck: o.deck,
+            enabled: o.enabled,
           }
         : null;
     case "SKIP_UP_NEXT":

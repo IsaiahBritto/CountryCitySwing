@@ -66,6 +66,43 @@ describe("resumeHostFromSnapshot", () => {
     expect(playUri).not.toHaveBeenCalled();
   });
 
+  it("skips resume when snapshot uri does not match deck track", async () => {
+    const playUri = vi.fn();
+    const dispatch = vi.fn();
+    let state = {
+      ...INITIAL_DJ_DECK_STATE,
+      deckA: {
+        ...INITIAL_DJ_DECK_STATE.deckA,
+        track: {
+          id: "id-0",
+          uri: "spotify:track:deck",
+          name: "Deck Song",
+          primaryArtist: "A",
+          durationMs: 180000,
+        },
+      },
+    };
+
+    await resumeHostFromSnapshot({
+      snapshot: {
+        ...createEmptyPlaybackSnapshot(),
+        currentTrackUri: "spotify:track:other",
+        isPlaying: true,
+      },
+      deckState: state,
+      player: {
+        playUri,
+        primeTrack: vi.fn(),
+        seek: vi.fn(),
+      },
+      dispatch,
+      syncClock: { syncFromSdk: vi.fn() },
+    });
+
+    expect(playUri).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("no-ops when snapshot has no track uri", async () => {
     const playUri = vi.fn();
     const dispatch = vi.fn();

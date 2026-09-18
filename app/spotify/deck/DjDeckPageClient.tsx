@@ -59,7 +59,10 @@ import {
   type RemoteDeckAction,
 } from "@/lib/spotify/djDeckActionWire";
 import type { DjSessionCommand } from "@/lib/spotify/djSessionCommands";
-import { resumeHostFromSnapshot } from "@/lib/spotify/hostSessionResume";
+import {
+  resumeHostFromSnapshot,
+  snapshotMatchesDeckTrack,
+} from "@/lib/spotify/hostSessionResume";
 import {
   heartbeatHostTab,
   isOtherHostTabActive,
@@ -507,7 +510,11 @@ export default function DjDeckPageClient() {
           ? djSession.session.playbackSnapshot
           : null);
 
-      if (djSession.role === "host" && pendingResume?.currentTrackUri) {
+      if (
+        djSession.role === "host" &&
+        pendingResume?.currentTrackUri &&
+        snapshotMatchesDeckTrack(pendingResume, stateRef.current)
+      ) {
         resumeInProgressRef.current = true;
         autoPrimeEnabledRef.current = false;
         try {
@@ -531,6 +538,7 @@ export default function DjDeckPageClient() {
           autoPrimeEnabledRef.current = true;
         }
       } else {
+        pendingHostResumeRef.current = null;
         void tryPrimeActiveTrack();
       }
     } catch (err) {
@@ -1128,6 +1136,7 @@ export default function DjDeckPageClient() {
         totalDurationMs: number;
       }
     ) => {
+      pendingHostResumeRef.current = null;
       dispatch({
         type: "SET_PLAYLIST",
         deck,
@@ -1539,6 +1548,40 @@ export default function DjDeckPageClient() {
     [advanceTrack, runPlaybackCommand]
   );
 
+  const handoffToOtherDeck = useCallback(
+    async (finishingDeck: DeckId): Promise<boolean> => {
+      const current = stateRef.current;
+      if (!current.secondDeckEnabled) return false;
+      const finishing = getDeckState(current, finishingDeck);
+      if (!finishing.handoffToOtherDeckAfterSong) return false;
+
+      const otherDeck: DeckId = finishingDeck === "A" ? "B" : "A";
+      const other = getDeckState(current, otherDeck);
+      const otherTrack = other.track ?? other.playlist[0] ?? null;
+      if (!otherTrack) {
+        showToast("Other deck has no playlist loaded");
+        return false;
+      }
+
+      if (
+        finishing.playbackSource === "playlist" &&
+        finishing.playlistIndex != null
+      ) {
+        dispatch({
+          type: "MARK_PLAYLIST_INDEX_PLAYED",
+          deck: finishingDeck,
+          index: finishing.playlistIndex,
+        });
+      }
+
+      trackEndTriggeredRef.current = false;
+      await switchActiveDeck(otherDeck);
+      await startPlayback(otherDeck, otherTrack, other.savedPositionMs);
+      return true;
+    },
+    [dispatch, showToast, startPlayback, switchActiveDeck]
+  );
+
   const remotePreviousTrack = useCallback(
     (deck: DeckId) => {
       void runPlaybackCommand(
@@ -1627,7 +1670,10 @@ export default function DjDeckPageClient() {
         return;
       }
       setPendingTakeover(false);
-      if (snap?.currentTrackUri) {
+      if (
+        snap?.currentTrackUri &&
+        snapshotMatchesDeckTrack(snap, stateRef.current)
+      ) {
         await resumeHostFromSnapshot({
           snapshot: snap,
           deckState: stateRef.current,
@@ -1640,6 +1686,12 @@ export default function DjDeckPageClient() {
           syncClock: { syncFromSdk },
         });
         trackEndTriggeredRef.current = false;
+      } else if (getNowPlaying(stateRef.current)?.uri) {
+        const active = stateRef.current.activeDeck;
+        const t = getDeckState(stateRef.current, active).track;
+        if (t) {
+          await startPlayback(active, t, 0);
+        }
       }
       showToast("You are now hosting playback");
     } catch (err) {
@@ -1649,7 +1701,7 @@ export default function DjDeckPageClient() {
       setConnectingAudio(false);
       setTakingOver(false);
     }
-  }, [djSession, player, showToast]);
+  }, [djSession, player, showToast, startPlayback]);
 
   const handleTakeoverRequest = useCallback(() => {
     setAudioUnlocked(false);
@@ -1726,7 +1778,11 @@ export default function DjDeckPageClient() {
 
     if ((nearEndWhilePlaying || endedNaturally) && !trackEndTriggeredRef.current) {
       trackEndTriggeredRef.current = true;
-      void remoteAdvanceTrack(stateRef.current.activeDeck, true);
+      const deckAtEnd = stateRef.current.activeDeck;
+      void (async () => {
+        if (await handoffToOtherDeck(deckAtEnd)) return;
+        void remoteAdvanceTrack(deckAtEnd, true);
+      })();
     }
 
     if (positionMs < endDurationMs - Math.max(endThresholdMs, 2000)) {
@@ -1740,6 +1796,7 @@ export default function DjDeckPageClient() {
     player.currentTrackUri,
     player.isPlaying,
     player.positionMs,
+    handoffToOtherDeck,
     remoteAdvanceTrack,
   ]);
 
@@ -1898,6 +1955,15 @@ export default function DjDeckPageClient() {
             seconds,
           })
         }
+        handoffToOtherDeckAfterSong={deckState.handoffToOtherDeckAfterSong}
+        onHandoffToOtherDeckChange={(enabled) =>
+          dispatchRemoteDeckAction({
+            type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+            deck: deckId,
+            enabled,
+          })
+        }
+        secondDeckEnabled={state.secondDeckEnabled}
         disabled={!playerReady}
         playlistSelector={
           authToken ? (

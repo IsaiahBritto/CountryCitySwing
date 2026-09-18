@@ -628,14 +628,32 @@ export default function DjDeckPageClient() {
   const startPlayback = useCallback(
     async (deck: DeckId, track: DeckTrack, positionMs = 0) => {
       try {
-        if (
-          player.currentTrackUri &&
-          trackUrisMatch(player.currentTrackUri, track.uri) &&
-          !player.isPlaying &&
-          positionMs === 0
-        ) {
+        let sdkUri = player.currentTrackUri;
+        let sdkPlaying = player.isPlaying;
+        if (!isControllerMode) {
+          const mapped = await player.syncState();
+          if (mapped) {
+            sdkUri = mapped.currentTrackUri;
+            sdkPlaying = mapped.isPlaying;
+          }
+        }
+
+        const uriMatch = trackUrisMatch(sdkUri, track.uri);
+        if (uriMatch && !sdkPlaying && positionMs === 0) {
           await player.resume();
           resumeClock();
+          if (!isControllerMode) {
+            const after = await player.syncState();
+            if (after) {
+              syncFromSdk(after.positionMs, after.isPlaying);
+            }
+          }
+          return;
+        }
+
+        if (positionMs > 0 && !uriMatch) {
+          cancelCrossfade();
+          await playUriInstant(track, positionMs);
           return;
         }
 
@@ -643,10 +661,9 @@ export default function DjDeckPageClient() {
         const shouldCrossfade =
           positionMs === 0 &&
           deck === current.activeDeck &&
-          player.isPlaying &&
+          sdkPlaying &&
           crossfadeSecondsToMs(current.deckCrossfadeSeconds[deck]) > 0 &&
-          (!player.currentTrackUri ||
-            !trackUrisMatch(player.currentTrackUri, track.uri));
+          (!sdkUri || !trackUrisMatch(sdkUri, track.uri));
 
         if (shouldCrossfade) {
           await runDeckCrossfade(deck, track);
@@ -664,11 +681,13 @@ export default function DjDeckPageClient() {
     [
       applyLiveVolume,
       cancelCrossfade,
+      isControllerMode,
       playUriInstant,
       player,
       resumeClock,
       runDeckCrossfade,
       showPlayerError,
+      syncFromSdk,
     ]
   );
 
@@ -904,10 +923,41 @@ export default function DjDeckPageClient() {
 
       const track = deckState.track;
       const savedPosition = deckState.savedPositionMs;
-      const sameUri = trackUrisMatch(player.currentTrackUri, track.uri);
+
+      let sdkUri = player.currentTrackUri;
+      let sdkPlaying = player.isPlaying;
+      if (!isControllerMode) {
+        const mapped = await player.syncState();
+        if (mapped) {
+          sdkUri = mapped.currentTrackUri;
+          sdkPlaying = mapped.isPlaying;
+        }
+      }
+
+      const sameUri = trackUrisMatch(sdkUri, track.uri);
+      const activeNowPlaying = getNowPlaying(stateRef.current);
+      const deckHasActiveTrack =
+        deck === stateRef.current.activeDeck &&
+        trackUrisMatch(activeNowPlaying?.uri, track.uri);
+
+      const resumeActiveTrack = async (positionMs: number) => {
+        if (positionMs > 0) {
+          await player.seek(positionMs);
+          syncFromSdk(positionMs, true);
+        } else {
+          resumeClock();
+        }
+        await player.resume();
+        if (!isControllerMode) {
+          const after = await player.syncState();
+          if (after) {
+            syncFromSdk(after.positionMs, after.isPlaying);
+          }
+        }
+      };
 
       try {
-        if (sameUri && player.isPlaying) {
+        if (sameUri && sdkPlaying) {
           cancelCrossfade();
           applyLiveVolume();
           dispatch({
@@ -918,14 +968,21 @@ export default function DjDeckPageClient() {
           await player.pause();
           pauseClock();
         } else {
-          if (sameUri && !player.isPlaying) {
-            if (savedPosition > 0) {
-              await player.seek(savedPosition);
-              syncFromSdk(savedPosition, true);
-            } else {
-              resumeClock();
+          if (sameUri && !sdkPlaying) {
+            await resumeActiveTrack(savedPosition);
+          } else if (!sameUri && deckHasActiveTrack) {
+            const resumeAt =
+              savedPosition > 0 ? savedPosition : clockPositionMs;
+            await resumeActiveTrack(resumeAt);
+            if (!isControllerMode) {
+              const after = await player.syncState();
+              const recovered =
+                after?.isPlaying &&
+                trackUrisMatch(after.currentTrackUri, track.uri);
+              if (!recovered) {
+                await startPlayback(deck, track, savedPosition);
+              }
             }
-            await player.resume();
           } else {
             await startPlayback(deck, track, savedPosition);
           }
@@ -939,6 +996,7 @@ export default function DjDeckPageClient() {
       applyLiveVolume,
       cancelCrossfade,
       clockPositionMs,
+      isControllerMode,
       pauseClock,
       player,
       resumeClock,

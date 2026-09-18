@@ -11,6 +11,12 @@ import {
   canUseWebApi,
   shouldDeferReconnect,
 } from "@/lib/spotify/spotifyPlayerLifecycle";
+import {
+  PLAYBACK_PLAY_ATTEMPT_WINDOW_MS,
+  pollPlaybackConfirmation,
+  resolvePlayConfirmationFailure,
+  type MappedPlaybackState,
+} from "@/lib/spotify/playbackStartConfirmation";
 import { SpotifyPlayerTokenManager } from "@/lib/spotify/spotifyPlayerToken";
 import type { SpotifyPlaybackState, SpotifyPlayerInstance } from "@/lib/spotify/spotifySdkTypes";
 
@@ -103,6 +109,7 @@ export type UseSpotifyPlayerReturn = {
   resume: () => Promise<void>;
   seek: (positionMs: number) => Promise<void>;
   setVolume: (volume: number) => void;
+  syncState: () => Promise<MappedPlaybackState | null>;
   dismissNotice: () => void;
 };
 
@@ -110,14 +117,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-type MappedPlayerState = {
-  isPlaying: boolean;
-  positionMs: number;
-  durationMs: number;
-  currentTrackUri: string | null;
-};
-
-function mapPlayerState(state: SpotifyPlaybackState | null): MappedPlayerState | null {
+function mapPlayerState(state: SpotifyPlaybackState | null): MappedPlaybackState | null {
   if (!state) return null;
   const current = state.track_window.current_track;
   return {
@@ -174,8 +174,18 @@ export function useSpotifyPlayer(
 
   const onPlaybackErrorRef = useRef(onPlaybackError);
   onPlaybackErrorRef.current = onPlaybackError;
+  const onPlaybackInterruptedRef = useRef(onPlaybackInterrupted);
+  onPlaybackInterruptedRef.current = onPlaybackInterrupted;
   const onPlayerNoticeRef = useRef(onPlayerNotice);
   onPlayerNoticeRef.current = onPlayerNotice;
+
+  const lastPlayAttemptRef = useRef<{ uri: string; startedAt: number } | null>(
+    null
+  );
+  const lastPlaybackErrorRef = useRef<{ message: string; at: number } | null>(
+    null
+  );
+  const suppressInterruptedRef = useRef(false);
 
   const [status, setStatus] = useState<SpotifyPlayerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -359,13 +369,15 @@ export function useSpotifyPlayer(
     [clearDeviceRefs, emitNotice, reconnectDeviceInternal]
   );
 
-  const applyMappedState = useCallback((mapped: MappedPlayerState | null) => {
+  const applyMappedState = useCallback((mapped: MappedPlaybackState | null) => {
     if (!mapped) {
       setIsPlaying(false);
       isPlayingRef.current = false;
-      onPlaybackInterrupted?.(
-        "Playback moved to another device — close Spotify on other devices and try again."
-      );
+      if (!suppressInterruptedRef.current) {
+        onPlaybackInterruptedRef.current?.(
+          "Playback moved to another device — close Spotify on other devices and try again."
+        );
+      }
       return;
     }
     const wasPlaying = isPlayingRef.current;
@@ -378,7 +390,7 @@ export function useSpotifyPlayer(
     if (wasPlaying && !mapped.isPlaying) {
       void maybeRefreshDevice();
     }
-  }, [maybeRefreshDevice, onPlaybackInterrupted]);
+  }, [maybeRefreshDevice]);
 
   const syncCurrentState = useCallback(async () => {
     const state = await playerRef.current?.getCurrentState();
@@ -441,9 +453,15 @@ export function useSpotifyPlayer(
 
       player.addListener("playback_error", (payload) => {
         const { message } = payload as { message: string };
-        onPlaybackErrorRef.current?.(
-          parseSpotifyApiError(message).message
-        );
+        const parsed = parseSpotifyApiError(message).message;
+        lastPlaybackErrorRef.current = { message: parsed, at: Date.now() };
+        const attempt = lastPlayAttemptRef.current;
+        const inPlayWindow =
+          attempt != null &&
+          Date.now() - attempt.startedAt < PLAYBACK_PLAY_ATTEMPT_WINDOW_MS;
+        if (!inPlayWindow) {
+          onPlaybackErrorRef.current?.(parsed);
+        }
       });
     },
     [applyMappedState, assignDeviceId, emitNotice, handleAuthFailure, updateStatus]
@@ -586,8 +604,30 @@ export function useSpotifyPlayer(
     reconnectDeviceInternal,
   ]);
 
+  const confirmPlaybackStarted = useCallback(
+    async (requestedUri: string) => {
+      suppressInterruptedRef.current = true;
+      try {
+        const tryResume = async () => {
+          await playerRef.current?.activateElement();
+          await playerRef.current?.resume();
+        };
+        return await pollPlaybackConfirmation(requestedUri, {
+          syncState: syncCurrentState,
+          tryResume,
+          sleep,
+        });
+      } finally {
+        suppressInterruptedRef.current = false;
+      }
+    },
+    [syncCurrentState]
+  );
+
   const executePlay = useCallback(
     async (uri: string, positionMs?: number) => {
+      lastPlayAttemptRef.current = { uri, startedAt: Date.now() };
+      lastPlaybackErrorRef.current = null;
       await ensureReadyForCommand();
       const id = deviceIdRef.current;
       if (!id) {
@@ -628,21 +668,27 @@ export function useSpotifyPlayer(
           }
         }
 
-        let mapped = await syncCurrentState();
-        if (!mapped) {
-          await sleep(500);
-          mapped = await syncCurrentState();
-        }
-        if (!mapped?.isPlaying) {
+        const confirm = await confirmPlaybackStarted(uri);
+        if (!confirm.ok) {
+          const attempt = lastPlayAttemptRef.current;
+          const sdkErr =
+            lastPlaybackErrorRef.current &&
+            attempt != null &&
+            lastPlaybackErrorRef.current.at >= attempt.startedAt
+              ? lastPlaybackErrorRef.current.message
+              : null;
           onPlaybackErrorRef.current?.(
-            "Could not start on this device — close other Spotify apps and try again."
+            resolvePlayConfirmationFailure({
+              lastSdkError: sdkErr,
+              persistentStateNull: confirm.persistentStateNull,
+            })
           );
         }
       } catch (err) {
         await handlePlayerApiError(err);
       }
     },
-    [executePlay, handlePlayerApiError, syncCurrentState]
+    [confirmPlaybackStarted, executePlay, handlePlayerApiError]
   );
 
   const pause = useCallback(async () => {
@@ -768,6 +814,10 @@ export function useSpotifyPlayer(
     /* controller mode routes playback through session commands */
   }, []);
 
+  const controllerSyncState = useCallback(async (): Promise<MappedPlaybackState | null> => {
+    return null;
+  }, []);
+
   const controllerSetVolume = useCallback((nextVolume: number) => {
     const clamped = Math.max(0, Math.min(1, nextVolume));
     setVolumeState(clamped);
@@ -793,6 +843,7 @@ export function useSpotifyPlayer(
       resume: controllerNoop,
       seek: controllerNoop,
       setVolume: controllerSetVolume,
+      syncState: controllerSyncState,
       dismissNotice: () => {},
     };
   }
@@ -816,6 +867,7 @@ export function useSpotifyPlayer(
     resume,
     seek,
     setVolume,
+    syncState: syncCurrentState,
     dismissNotice,
   };
 }

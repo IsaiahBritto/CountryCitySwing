@@ -4,13 +4,15 @@ import { getValidAccessToken } from "@/lib/spotify/auth";
 import { resolveHostDeviceId } from "@/lib/spotify/djSessionServer";
 import { parseSpotifyApiError } from "@/lib/spotify/spotifyApiErrors";
 import { jsonSpotifyPlayerError } from "@/lib/spotify/spotifyPlayerRouteErrors";
+import { logSpotifyWebApiError } from "@/lib/spotify/spotifyWebApiDiagnostics";
 
 async function spotifyPlayerFetch(
   accessToken: string,
   path: string,
   init?: RequestInit
 ): Promise<Response> {
-  return fetch(`https://api.spotify.com/v1${path}`, {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const res = await fetch(`https://api.spotify.com/v1${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -18,6 +20,22 @@ async function spotifyPlayerFetch(
       ...(init?.headers ?? {}),
     },
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    logSpotifyWebApiError({
+      method,
+      path,
+      status: res.status,
+      responseText: text,
+      headers: res.headers,
+    });
+    return new Response(text || res.statusText, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    });
+  }
+  return res;
 }
 
 export async function POST(req: NextRequest) {

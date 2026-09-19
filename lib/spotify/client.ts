@@ -1,3 +1,8 @@
+import {
+  logSpotifyWebApiError,
+  spotifyWebApiFailureMessage,
+} from "@/lib/spotify/spotifyWebApiDiagnostics";
+
 export type SpotifyTrack = {
   id: string;
   uri: string;
@@ -17,13 +22,12 @@ export type SpotifySearchTrack = {
   durationMs: number;
 };
 
-type SpotifyApiErrorBody = { error?: { message?: string; status?: number } };
-
 async function spotifyFetch<T>(
   accessToken: string,
   path: string,
   init?: RequestInit
 ): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
   const res = await fetch(`https://api.spotify.com/v1${path}`, {
     ...init,
     headers: {
@@ -34,14 +38,16 @@ async function spotifyFetch<T>(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    let message = text || res.statusText;
-    try {
-      const body = JSON.parse(text) as SpotifyApiErrorBody;
-      if (body.error?.message) message = body.error.message;
-    } catch {
-      // keep text
-    }
-    throw new Error(`Spotify API ${path} failed (${res.status}): ${message}`);
+    logSpotifyWebApiError({
+      method,
+      path,
+      status: res.status,
+      responseText: text,
+      headers: res.headers,
+    });
+    throw new Error(
+      spotifyWebApiFailureMessage(path, res.status, text, res.statusText)
+    );
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

@@ -4,6 +4,7 @@ import { getValidAccessToken } from "@/lib/spotify/auth";
 import { resolveHostDeviceId } from "@/lib/spotify/djSessionServer";
 import { parseSpotifyApiError } from "@/lib/spotify/spotifyApiErrors";
 import { jsonSpotifyPlayerError } from "@/lib/spotify/spotifyPlayerRouteErrors";
+import { logSpotifyWebApiError } from "@/lib/spotify/spotifyWebApiDiagnostics";
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,16 +25,21 @@ export async function POST(req: NextRequest) {
     }
 
     const { accessToken } = await getValidAccessToken();
-    const res = await fetch(
-      `https://api.spotify.com/v1/me/player/pause?device_id=${encodeURIComponent(resolved.deviceId)}`,
-      {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }
-    );
+    const path = `/me/player/pause?device_id=${encodeURIComponent(resolved.deviceId)}`;
+    const res = await fetch(`https://api.spotify.com/v1${path}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
 
     if (!res.ok && res.status !== 204) {
       const text = await res.text().catch(() => "");
+      logSpotifyWebApiError({
+        method: "PUT",
+        path,
+        status: res.status,
+        responseText: text,
+        headers: res.headers,
+      });
       return jsonSpotifyPlayerError(text || res.statusText, res.status);
     }
 

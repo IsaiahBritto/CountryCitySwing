@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { XMarkIcon } from "@heroicons/react/24/solid";
+import GoldToggle from "@/components/GoldToggle";
 
 const InstructorLessonCalendar = dynamic(
   () => import("@/components/InstructorLessonCalendar"),
@@ -26,6 +27,7 @@ export interface InstructorProfile {
   private_lessons: string | null;
   private_lessons_link: string | null;
   scheduling_enabled: boolean | null;
+  accepting_new_students: boolean | null;
   prayer: string | null;
 }
 
@@ -161,6 +163,14 @@ export default function InstructorProfileClient({
             {profile.favorite_song}
           </p>
         )}
+
+        <div className="rounded-lg border border-neutral-700 bg-neutral-900/40 px-4 py-4 max-w-md mx-auto">
+          <GoldToggle
+            checked={!!profile.accepting_new_students}
+            disabled
+            label="Accepting new students for private lessons"
+          />
+        </div>
 
         {/* Private Lessons */}
         {show(profile.private_lessons) && (

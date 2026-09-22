@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import InstructorSlotManager from "@/components/InstructorSlotManager";
+import GoldToggle from "@/components/GoldToggle";
 import { US_STATES_FULL_NAMES } from "@/lib/utils/usStates";
 
 // Dynamically load client-side only
@@ -35,6 +36,7 @@ interface Profile {
   private_lessons_link: string | null;
   private_lesson_disclaimer: string | null;
   scheduling_enabled: boolean | null;
+  accepting_new_students: boolean | null;
   prayer: string | null;
   state: string | null;
   zip_code: string | null;
@@ -129,6 +131,7 @@ export default function ProfilePage() {
       updateData.phone_number = profile.phone_number ?? null;
       updateData.private_lessons = profile.private_lessons ?? null;
       updateData.private_lessons_link = profile.private_lessons_link ?? null;
+      updateData.accepting_new_students = profile.accepting_new_students === true;
       updateData.state = profile.state ?? null;
       updateData.zip_code = profile.zip_code ?? null;
       updateData.prayer = profile.prayer ?? null;
@@ -501,6 +504,17 @@ export default function ProfilePage() {
               placeholder="Private Lessons Schedule Link"
               className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
             />
+
+            <div className="mt-4 rounded-lg border border-neutral-700 bg-neutral-900/50 px-4 py-4">
+              <GoldToggle
+                checked={!!profile.accepting_new_students}
+                onChange={(checked) =>
+                  setProfile({ ...profile, accepting_new_students: checked })
+                }
+                label="Accepting new students for private lessons"
+                description="When on, you can appear when visitors filter Find Instructors to instructors accepting new students."
+              />
+            </div>
 
             {/* Scheduling: only for core CCS instructors, not Non-CCS-Instructor */}
             {(profile.role === "instructor" || profile.role === "admin") && (

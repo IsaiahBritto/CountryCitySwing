@@ -17,6 +17,7 @@ import MixerBar from "@/components/dj/MixerBar";
 import PlayQueuePanel from "@/components/dj/PlayQueuePanel";
 import PlaylistPanel from "@/components/dj/PlaylistPanel";
 import PlaylistSelector from "@/components/dj/PlaylistSelector";
+import { useOwnedPlaylists } from "@/components/dj/useOwnedPlaylists";
 import SessionBar from "@/components/dj/SessionBar";
 import VolumeSlider from "@/components/dj/VolumeSlider";
 import { apiError, authedFetchWithRetry, getAccessToken } from "@/lib/clientAuth";
@@ -127,6 +128,10 @@ export default function DjDeckPageClient() {
   const [endingSession, setEndingSession] = useState(false);
   const [takingOver, setTakingOver] = useState(false);
   const [pendingTakeover, setPendingTakeover] = useState(false);
+
+  const ownedPlaylistsState = useOwnedPlaylists(
+    isAdmin && Boolean(authToken) && !loading
+  );
 
   const [state, dispatch] = useReducer(djDeckReducer, INITIAL_DJ_DECK_STATE);
   const stateRef = useRef(state);
@@ -732,12 +737,13 @@ export default function DjDeckPageClient() {
       void (async () => {
         try {
           const res = await authedFetchWithRetry(
-            `/api/spotify/playlists/${encodeURIComponent(social.spotifyPlaylistId!)}/tracks`
+            "/api/spotify/active-playlist/deck-tracks"
           );
           const body = await res.json().catch(() => ({}));
           if (!res.ok) {
             throw new Error(
-              (body as { error?: string }).error ?? "Failed to reload playlist"
+              (body as { error?: string }).error ??
+                "Failed to sync playlist from snapshot"
             );
           }
           dispatch({
@@ -748,7 +754,7 @@ export default function DjDeckPageClient() {
               (body as { totalDurationMs?: number }).totalDurationMs ?? 0,
           });
         } catch (err) {
-          console.warn("Cycle boundary playlist reload failed:", err);
+          console.warn("Cycle boundary playlist sync failed:", err);
           lastBoundaryReloadAtCycleRef.current = null;
         } finally {
           boundaryReloadInFlightRef.current = false;
@@ -2079,6 +2085,13 @@ export default function DjDeckPageClient() {
               disabled={!playerReady}
               disableAutoLoad={djSession.session?.status === "active"}
               tracksLoaded={deckState.playlist.length > 0}
+              ownedPlaylists={ownedPlaylistsState.playlists}
+              playlistsLoading={ownedPlaylistsState.loading}
+              playlistsError={ownedPlaylistsState.error}
+              playlistsStale={ownedPlaylistsState.stale}
+              quotaBlockedUntil={ownedPlaylistsState.quotaBlockedUntil}
+              onRefreshPlaylists={() => void ownedPlaylistsState.refresh()}
+              activeSocialPlaylistId={activeSocial?.spotifyPlaylistId ?? null}
             />
           ) : undefined
         }

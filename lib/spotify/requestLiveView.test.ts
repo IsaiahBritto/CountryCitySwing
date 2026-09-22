@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { INITIAL_DJ_DECK_STATE, serializeDjDeckState } from "@/lib/spotify/djDeckState";
+import {
+  INITIAL_DJ_DECK_STATE,
+  serializeDjDeckState,
+} from "@/lib/spotify/djDeckState";
 import type { DjSessionRow } from "@/lib/spotify/djSession";
 import {
   buildLivePlaylistViewFromSession,
@@ -62,11 +65,50 @@ describe("buildLivePlaylistViewFromSession", () => {
     expect(isTrackOnDeck(view, "ghost")).toBe(false);
   });
 
-  it("returns no authority when deck playlist differs", () => {
-    const view = buildLivePlaylistViewFromSession(
-      sessionWithDeck(),
-      "other-pl"
-    );
+  it("returns no authority when neither deck uses social playlist", () => {
+    const base = sessionWithDeck();
+    const deckState = {
+      ...INITIAL_DJ_DECK_STATE,
+      deckA: {
+        ...INITIAL_DJ_DECK_STATE.deckA,
+        playlistId: "other-pl",
+      },
+    };
+    const session: DjSessionRow = {
+      ...base,
+      deck_state: serializeDjDeckState(deckState),
+    };
+    const view = buildLivePlaylistViewFromSession(session, "social-pl");
     expect(view.deckAuthority).toBe("none");
+  });
+
+  it("uses social deck when inactive deck holds social playlist", () => {
+    const base = sessionWithDeck();
+    const deckState = serializeDjDeckState({
+      ...INITIAL_DJ_DECK_STATE,
+      deckA: {
+        ...INITIAL_DJ_DECK_STATE.deckA,
+        playlistId: "other-pl",
+      },
+      deckB: {
+        ...INITIAL_DJ_DECK_STATE.deckB,
+        playlistId: "social-pl",
+        playlist: [
+          {
+            id: "on-deck",
+            uri: "spotify:track:on-deck",
+            name: "On Deck",
+            primaryArtist: "Artist",
+            durationMs: 180000,
+          },
+        ],
+      },
+    });
+    const session: DjSessionRow = {
+      ...base,
+      deck_state: deckState,
+    };
+    const view = buildLivePlaylistViewFromSession(session, "social-pl");
+    expect(view.deckAuthority).toBe("social_deck");
   });
 });

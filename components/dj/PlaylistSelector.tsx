@@ -2,17 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiError, authedFetchWithRetry } from "@/lib/clientAuth";
+import type { OwnedPlaylist } from "@/components/dj/useOwnedPlaylists";
 import type { DeckId, DeckTrack } from "@/lib/spotify/djDeckState";
 
 function sessionKey(deckId: DeckId) {
   return `dj-deck-playlist-id-${deckId}`;
 }
-
-type OwnedPlaylist = {
-  id: string;
-  name: string;
-  trackCount: number | null;
-};
 
 export type PlaylistSelectorProps = {
   deckId: DeckId;
@@ -25,6 +20,13 @@ export type PlaylistSelectorProps = {
   disabled?: boolean;
   disableAutoLoad?: boolean;
   tracksLoaded?: boolean;
+  ownedPlaylists: OwnedPlaylist[];
+  playlistsLoading?: boolean;
+  playlistsError?: string | null;
+  playlistsStale?: boolean;
+  quotaBlockedUntil?: string | null;
+  onRefreshPlaylists?: () => void;
+  activeSocialPlaylistId?: string | null;
 };
 
 export default function PlaylistSelector({
@@ -35,24 +37,45 @@ export default function PlaylistSelector({
   disabled = false,
   disableAutoLoad = false,
   tracksLoaded = false,
+  ownedPlaylists,
+  playlistsLoading = false,
+  playlistsError = null,
+  playlistsStale = false,
+  quotaBlockedUntil = null,
+  onRefreshPlaylists,
+  activeSocialPlaylistId = null,
 }: PlaylistSelectorProps) {
-  const [playlists, setPlaylists] = useState<OwnedPlaylist[]>([]);
-  const [loadingList, setLoadingList] = useState(true);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trackWarning, setTrackWarning] = useState<string | null>(null);
 
   const loadTracks = useCallback(
     async (playlistId: string, playlistName: string) => {
       setLoadingTracks(true);
       setError(null);
+      setTrackWarning(null);
       try {
-        const res = await authedFetchWithRetry(
-          `/api/spotify/playlists/${encodeURIComponent(playlistId)}/tracks`
-        );
+        const useSnapshot =
+          activeSocialPlaylistId != null &&
+          playlistId === activeSocialPlaylistId;
+        const path = useSnapshot
+          ? "/api/spotify/active-playlist/deck-tracks"
+          : `/api/spotify/playlists/${encodeURIComponent(playlistId)}/tracks`;
+
+        const res = await authedFetchWithRetry(path);
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw new Error(
             (body as { error?: string }).error ?? (await apiError(res))
+          );
+        }
+        if ((body as { warning?: string }).warning) {
+          setTrackWarning((body as { warning?: string }).warning ?? null);
+        }
+        if ((body as { stale?: boolean }).stale) {
+          setTrackWarning(
+            (body as { warning?: string }).warning ??
+              "Showing cached playlist data while Spotify sync is paused."
           );
         }
         onChange(deckId, { id: playlistId, name: playlistName });
@@ -68,110 +91,99 @@ export default function PlaylistSelector({
         setLoadingTracks(false);
       }
     },
-    [deckId, onChange, onPlaylistLoaded]
+    [
+      activeSocialPlaylistId,
+      deckId,
+      onChange,
+      onPlaylistLoaded,
+    ]
   );
 
   useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      setLoadingList(true);
-      setError(null);
-      try {
-        const res = await authedFetchWithRetry("/api/spotify/playlists");
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(
-            (body as { error?: string }).error ?? (await apiError(res))
-          );
-        }
-        const list =
-          ((body as { playlists?: OwnedPlaylist[] }).playlists ??
-            []) as OwnedPlaylist[];
-        if (cancelled) return;
-        setPlaylists(list);
+    if (value || disableAutoLoad || tracksLoaded) return;
+    if (playlistsLoading || ownedPlaylists.length === 0) return;
 
-        if (value || disableAutoLoad || tracksLoaded) return;
-
-        const savedId = sessionStorage.getItem(sessionKey(deckId));
-        const initial =
-          (savedId && list.find((p) => p.id === savedId)) ||
-          (deckId === "A" ? list[0] : null);
-        if (initial) {
-          await loadTracks(initial.id, initial.name);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load playlists");
-        }
-      } finally {
-        if (!cancelled) setLoadingList(false);
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on mount
-  }, [deckId]);
+    const savedId = sessionStorage.getItem(sessionKey(deckId));
+    const initial =
+      (savedId && ownedPlaylists.find((p) => p.id === savedId)) ||
+      (deckId === "A" ? ownedPlaylists[0] : null);
+    if (initial) {
+      void loadTracks(initial.id, initial.name);
+    }
+  }, [
+    deckId,
+    disableAutoLoad,
+    loadTracks,
+    ownedPlaylists,
+    playlistsLoading,
+    tracksLoaded,
+    value,
+  ]);
 
   const handleSelect = async (playlistId: string) => {
-    const playlist = playlists.find((p) => p.id === playlistId);
+    const playlist = ownedPlaylists.find((p) => p.id === playlistId);
     if (!playlist) return;
     await loadTracks(playlist.id, playlist.name);
   };
 
-  if (loadingList) {
-    return <span className="text-sm text-neutral-400">Loading playlists…</span>;
-  }
+  const quotaBanner =
+    quotaBlockedUntil && new Date(quotaBlockedUntil).getTime() > Date.now()
+      ? `Spotify library sync paused until ${new Date(quotaBlockedUntil).toLocaleTimeString()}. Cached data remains available.`
+      : playlistsStale
+        ? "Showing cached Spotify library — sync will resume when quota allows."
+        : null;
 
-  if (playlists.length === 0) {
-    return (
-      <span className="text-sm text-neutral-400">
-        No owned playlists — generate one on /spotify first.
-      </span>
-    );
+  if (playlistsLoading && ownedPlaylists.length === 0) {
+    return <p className="text-sm text-neutral-400">Loading playlists…</p>;
   }
 
   return (
-    <div className="flex flex-col gap-1 min-w-0 w-full">
-      <label className="text-xs uppercase tracking-wide text-neutral-500">
-        <span className="sm:hidden">{deckId}</span>
-        <span className="hidden sm:inline">Player {deckId} playlist</span>
-      </label>
-      <select
-        value={value ?? ""}
-        onChange={(e) => void handleSelect(e.target.value)}
-        disabled={disabled || loadingTracks}
-        className="bg-neutral-800 border border-neutral-600 rounded px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm text-neutral-100 disabled:opacity-50 w-full min-w-0"
-      >
-        <option value="" disabled>
-          Select playlist…
-        </option>
-        {playlists.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-            {p.trackCount != null ? ` (${p.trackCount})` : ""}
+    <div className="space-y-2">
+      {quotaBanner ? (
+        <p className="text-xs text-amber-400/90" role="status">
+          {quotaBanner}
+        </p>
+      ) : null}
+      {(playlistsError || error) && ownedPlaylists.length > 0 ? (
+        <p className="text-xs text-amber-400/90">{playlistsError ?? error}</p>
+      ) : null}
+      {playlistsError && ownedPlaylists.length === 0 ? (
+        <p className="text-sm text-red-400">{playlistsError}</p>
+      ) : null}
+      {trackWarning ? (
+        <p className="text-xs text-amber-400/90">{trackWarning}</p>
+      ) : null}
+      <div className="flex gap-2 items-center">
+        <select
+          className="flex-1 min-w-0 rounded-md border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-sm"
+          value={value ?? ""}
+          disabled={disabled || loadingTracks || ownedPlaylists.length === 0}
+          onChange={(e) => void handleSelect(e.target.value)}
+        >
+          <option value="" disabled>
+            Select playlist
           </option>
-        ))}
-      </select>
-      {loadingTracks && (
-        <span className="text-xs text-neutral-500">Loading playlist…</span>
-      )}
-      {error && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-red-400">{error}</span>
+          {ownedPlaylists.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+              {p.trackCount != null ? ` (${p.trackCount})` : ""}
+            </option>
+          ))}
+        </select>
+        {onRefreshPlaylists ? (
           <button
             type="button"
-            className="text-xs text-amber-400 underline"
-            onClick={() => {
-              const current = playlists.find((p) => p.id === value);
-              if (current) void loadTracks(current.id, current.name);
-            }}
+            className="text-xs text-neutral-400 hover:text-white shrink-0"
+            disabled={disabled || playlistsLoading}
+            onClick={() => onRefreshPlaylists()}
           >
-            Retry
+            Refresh
           </button>
-        </div>
-      )}
+        ) : null}
+      </div>
+      {loadingTracks ? (
+        <p className="text-xs text-neutral-500">Loading tracks…</p>
+      ) : null}
     </div>
   );
 }

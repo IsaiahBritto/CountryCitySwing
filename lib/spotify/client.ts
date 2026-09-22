@@ -1,3 +1,13 @@
+import {
+  shouldSkipPlaylistTracksFallback,
+  spotifyWebApiFetch,
+  SpotifyApiFetchError,
+} from "@/lib/spotify/spotifyApiFetchError";
+import {
+  readActivePlaylistSnapshotId,
+  writeActivePlaylistSnapshotId,
+} from "@/lib/spotify/spotifyServerCache";
+
 export type SpotifyTrack = {
   id: string;
   uri: string;
@@ -24,28 +34,10 @@ async function spotifyFetch<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
-  const res = await fetch(`https://api.spotify.com/v1${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    let message = text || res.statusText;
-    try {
-      const body = JSON.parse(text) as SpotifyApiErrorBody;
-      if (body.error?.message) message = body.error.message;
-    } catch {
-      // keep text
-    }
-    throw new Error(`Spotify API ${path} failed (${res.status}): ${message}`);
-  }
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return spotifyWebApiFetch<T>(accessToken, path, init);
 }
+
+export { SpotifyApiFetchError };
 
 function mapArtists(artists: unknown): string {
   if (!Array.isArray(artists)) return "Unknown";
@@ -179,6 +171,9 @@ export async function fetchPlaylistTracks(
       break;
     } catch (err) {
       firstError = err instanceof Error ? err : new Error(String(err));
+      if (shouldSkipPlaylistTracksFallback(err)) {
+        break;
+      }
       // try next path
     }
   }
@@ -224,7 +219,8 @@ export async function fetchSpotifyUserProfile(accessToken: string): Promise<{
 export async function createPrivatePlaylist(
   accessToken: string,
   name: string,
-  description?: string
+  description?: string,
+  options?: { spotifyUserId?: string }
 ): Promise<{ id: string; url: string }> {
   const body = {
     name,
@@ -248,7 +244,8 @@ export async function createPrivatePlaylist(
         `https://open.spotify.com/playlist/${created.id}`,
     };
   } catch {
-    const userId = await fetchCurrentUserId(accessToken);
+    const userId =
+      options?.spotifyUserId ?? (await fetchCurrentUserId(accessToken));
     const created = await spotifyFetch<{
       id: string;
       external_urls?: { spotify?: string };
@@ -288,15 +285,37 @@ export async function addTracksToPlaylist(
 
 async function fetchPlaylistSnapshotId(
   accessToken: string,
-  playlistId: string
+  playlistId: string,
+  options?: { cachedSnapshotId?: string | null; useActivePlaylistCache?: boolean }
 ): Promise<string | null> {
+  if (options?.cachedSnapshotId) {
+    return options.cachedSnapshotId;
+  }
+  if (options?.useActivePlaylistCache) {
+    const cached = await readActivePlaylistSnapshotId();
+    if (cached) return cached;
+  }
   const data = await spotifyFetch<{ snapshot_id?: string }>(
     accessToken,
     `/playlists/${playlistId}`
   );
-  return typeof data.snapshot_id === "string" && data.snapshot_id
-    ? data.snapshot_id
-    : null;
+  const snapshotId =
+    typeof data.snapshot_id === "string" && data.snapshot_id
+      ? data.snapshot_id
+      : null;
+  if (options?.useActivePlaylistCache && snapshotId) {
+    await writeActivePlaylistSnapshotId(snapshotId);
+  }
+  return snapshotId;
+}
+
+export async function fetchPlaylistSnapshotIdOnly(
+  accessToken: string,
+  playlistId: string
+): Promise<string | null> {
+  return fetchPlaylistSnapshotId(accessToken, playlistId, {
+    useActivePlaylistCache: true,
+  });
 }
 
 /** Remove a single playlist item at a specific position. */
@@ -304,9 +323,13 @@ export async function removePlaylistItemAtPosition(
   accessToken: string,
   playlistId: string,
   trackUri: string,
-  position: number
+  position: number,
+  options?: { cachedSnapshotId?: string | null; useActivePlaylistCache?: boolean }
 ): Promise<void> {
-  const snapshotId = await fetchPlaylistSnapshotId(accessToken, playlistId);
+  const snapshotId = await fetchPlaylistSnapshotId(accessToken, playlistId, {
+    cachedSnapshotId: options?.cachedSnapshotId,
+    useActivePlaylistCache: options?.useActivePlaylistCache,
+  });
   // Feb 2026: body field is `items` (not `tracks`); /tracks DELETE returns 403.
   const body: {
     items: Array<{ uri: string; positions: number[] }>;
@@ -320,6 +343,11 @@ export async function removePlaylistItemAtPosition(
     method: "DELETE",
     body: JSON.stringify(body),
   });
+
+  if (options?.useActivePlaylistCache) {
+    const refreshed = await fetchPlaylistSnapshotId(accessToken, playlistId);
+    await writeActivePlaylistSnapshotId(refreshed);
+  }
 }
 
 /** Replace the track at `position` with `newUri`. */
@@ -328,10 +356,21 @@ export async function replacePlaylistItemAtPosition(
   playlistId: string,
   position: number,
   oldUri: string,
-  newUri: string
+  newUri: string,
+  options?: { cachedSnapshotId?: string | null; useActivePlaylistCache?: boolean }
 ): Promise<void> {
-  await removePlaylistItemAtPosition(accessToken, playlistId, oldUri, position);
+  await removePlaylistItemAtPosition(
+    accessToken,
+    playlistId,
+    oldUri,
+    position,
+    options
+  );
   await addTracksToPlaylist(accessToken, playlistId, [newUri], { position });
+  if (options?.useActivePlaylistCache) {
+    const refreshed = await fetchPlaylistSnapshotId(accessToken, playlistId);
+    await writeActivePlaylistSnapshotId(refreshed);
+  }
 }
 
 /** Swap two playlist items. Replaces the later index first so positions stay stable. */
@@ -341,7 +380,8 @@ export async function swapPlaylistItemsAtPositions(
   posA: number,
   uriA: string,
   posB: number,
-  uriB: string
+  uriB: string,
+  options?: { cachedSnapshotId?: string | null; useActivePlaylistCache?: boolean }
 ): Promise<void> {
   if (posA === posB || uriA === uriB) return;
 
@@ -359,14 +399,16 @@ export async function swapPlaylistItemsAtPositions(
     playlistId,
     first.position,
     first.oldUri,
-    first.newUri
+    first.newUri,
+    options
   );
   await replacePlaylistItemAtPosition(
     accessToken,
     playlistId,
     second.position,
     second.oldUri,
-    second.newUri
+    second.newUri,
+    options
   );
 }
 
@@ -434,12 +476,19 @@ export async function getCurrentlyPlaying(
 export async function fetchPlaylistMeta(
   accessToken: string,
   playlistId: string
-): Promise<{ id: string; name: string; url: string; ownerId: string | null }> {
+): Promise<{
+  id: string;
+  name: string;
+  url: string;
+  ownerId: string | null;
+  snapshotId: string | null;
+}> {
   const data = await spotifyFetch<{
     id: string;
     name?: string;
     external_urls?: { spotify?: string };
     owner?: { id?: string };
+    snapshot_id?: string;
   }>(accessToken, `/playlists/${playlistId}`);
   return {
     id: data.id,
@@ -448,6 +497,10 @@ export async function fetchPlaylistMeta(
       data.external_urls?.spotify ??
       `https://open.spotify.com/playlist/${playlistId}`,
     ownerId: typeof data.owner?.id === "string" ? data.owner.id : null,
+    snapshotId:
+      typeof data.snapshot_id === "string" && data.snapshot_id
+        ? data.snapshot_id
+        : null,
   };
 }
 

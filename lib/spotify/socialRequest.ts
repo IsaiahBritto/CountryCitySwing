@@ -7,6 +7,7 @@ import {
 import { getValidAccessToken } from "@/lib/spotify/auth";
 import {
   addTracksToPlaylist,
+  fetchPlaylistSnapshotIdOnly,
   getCurrentlyPlaying,
   removePlaylistItemAtPosition,
   replacePlaylistItemAtPosition,
@@ -42,8 +43,11 @@ import {
 } from "@/lib/spotify/requestQuota";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { isLineDanceLevel } from "@/lib/spotify/lineDanceLevels";
+import { readActivePlaylistSnapshotId } from "@/lib/spotify/spotifyServerCache";
 
 const ACTIVE_ID = "default";
+
+const SOCIAL_PLAYLIST_MUTATE_OPTS = { useActivePlaylistCache: true as const };
 
 /** Serialize request handling in this process to avoid double-replacing one slot. */
 let requestChain: Promise<unknown> = Promise.resolve();
@@ -155,6 +159,7 @@ async function purgeStaleSnapshotTrack(input: {
   spotifyPlaylistId: string;
   trackId: string;
   snapshot: SnapshotTrack[];
+  cachedSnapshotId: string | null;
 }): Promise<void> {
   const staleRows = input.snapshot.filter(
     (t) => t.spotifyTrackId === input.trackId
@@ -170,7 +175,11 @@ async function purgeStaleSnapshotTrack(input: {
         input.accessToken,
         input.spotifyPlaylistId,
         row.uri,
-        row.position
+        row.position,
+        {
+          ...SOCIAL_PLAYLIST_MUTATE_OPTS,
+          cachedSnapshotId: input.cachedSnapshotId,
+        }
       );
     } catch (err) {
       console.warn(
@@ -357,6 +366,7 @@ async function submitSocialSongRequestUnlocked(
   };
 
   const { accessToken } = await getValidAccessToken();
+  const cachedSnapshotId = await readActivePlaylistSnapshotId();
   let rows = await loadSnapshotTracks();
   let snapshot = toSnapshot(rows);
 
@@ -368,7 +378,10 @@ async function submitSocialSongRequestUnlocked(
   let purgePositions: number[] = [];
 
   let spotifyPlaying = null;
-  if (liveView.deckAuthority !== "social_deck") {
+  const skipSpotifyPlayhead =
+    liveView.deckAuthority === "social_deck" ||
+    (session != null && session.status === "active");
+  if (!skipSpotifyPlayhead) {
     try {
       spotifyPlaying = await getCurrentlyPlaying(accessToken);
     } catch (err) {
@@ -413,6 +426,7 @@ async function submitSocialSongRequestUnlocked(
         spotifyPlaylistId: status.spotifyPlaylistId,
         trackId: input.trackId,
         snapshot,
+        cachedSnapshotId,
       });
       rows = await loadSnapshotTracks();
       snapshot = toSnapshot(rows);
@@ -451,7 +465,11 @@ async function submitSocialSongRequestUnlocked(
         action.from,
         fromTrack.uri,
         action.to,
-        toTrack.uri
+        toTrack.uri,
+        {
+          ...SOCIAL_PLAYLIST_MUTATE_OPTS,
+          cachedSnapshotId,
+        }
       );
 
       const now = new Date().toISOString();
@@ -567,7 +585,11 @@ async function submitSocialSongRequestUnlocked(
       status.spotifyPlaylistId,
       target.position,
       existing.uri,
-      input.uri
+      input.uri,
+      {
+        ...SOCIAL_PLAYLIST_MUTATE_OPTS,
+        cachedSnapshotId,
+      }
     );
 
     const { error } = await supabaseServer
@@ -615,6 +637,11 @@ async function submitSocialSongRequestUnlocked(
   await addTracksToPlaylist(accessToken, status.spotifyPlaylistId, [
     input.uri,
   ]);
+  try {
+    await fetchPlaylistSnapshotIdOnly(accessToken, status.spotifyPlaylistId);
+  } catch (err) {
+    console.warn("Could not refresh playlist snapshot after append:", err);
+  }
   const position = snapshot.length;
 
   const { error } = await supabaseServer.from("social_playlist_tracks").insert({

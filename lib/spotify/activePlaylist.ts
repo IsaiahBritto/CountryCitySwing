@@ -26,10 +26,17 @@ import {
   validateRequestRefreshMinutes,
   type RequestRefreshMinutes,
 } from "@/lib/spotify/requestRefresh";
-import { getMasterPlaylistRefs, getMasterPlaylistRefsForGenres } from "@/lib/spotify/masters";
+import {
+  ensureMasterGenreMap,
+  lookupMasterGenreFromDb,
+  rebuildMasterGenreIndexFromSpotify,
+  upsertMasterGenreRow,
+} from "@/lib/spotify/masterGenreDb";
+import { getMasterPlaylistRefsForGenres } from "@/lib/spotify/masters";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import { parseSpotifyPlaylistId } from "@/lib/spotify/playlistIds";
 import { genreForActivationPosition } from "@/lib/spotify/trackGenre";
+import { writeActivePlaylistSnapshotId } from "@/lib/spotify/spotifyServerCache";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 export type ActivePlaylistStatus = {
@@ -180,19 +187,18 @@ export async function buildMasterGenreMap(
     return masterGenreCache.map;
   }
 
-  const masters = await getMasterPlaylistRefs();
-  const map = new Map<string, GenrePool>();
-  for (const master of masters) {
-    const tracks = await fetchPlaylistTracks(
-      accessToken,
-      master.spotifyPlaylistId
-    );
-    for (const t of tracks) {
-      if (!map.has(t.id)) map.set(t.id, master.genre);
-    }
+  const dbMap = await ensureMasterGenreMap(accessToken, options);
+  if (dbMap.size > 0) {
+    masterGenreCache = { map: dbMap, expiresAt: now + MASTER_GENRE_TTL_MS };
+    return dbMap;
   }
-  masterGenreCache = { map, expiresAt: now + MASTER_GENRE_TTL_MS };
-  return map;
+
+  await rebuildMasterGenreIndexFromSpotify();
+  const refreshed = await ensureMasterGenreMap(accessToken, {
+    bypassCache: true,
+  });
+  masterGenreCache = { map: refreshed, expiresAt: now + MASTER_GENRE_TTL_MS };
+  return refreshed;
 }
 
 export function invalidateMasterGenreCache(): void {
@@ -202,6 +208,8 @@ export function invalidateMasterGenreCache(): void {
 export async function lookupTrackGenreInMasters(
   trackId: string
 ): Promise<GenrePool | null> {
+  const fromDb = await lookupMasterGenreFromDb(trackId);
+  if (fromDb) return fromDb;
   const { accessToken } = await getValidAccessToken();
   const map = await buildMasterGenreMap(accessToken);
   return map.get(trackId) ?? null;
@@ -221,6 +229,9 @@ export async function activateSocialPlaylist(input: {
 
   const { accessToken, spotifyUserId } = await getValidAccessToken();
   const meta = await fetchPlaylistMeta(accessToken, playlistId);
+  if (meta.snapshotId) {
+    await writeActivePlaylistSnapshotId(meta.snapshotId);
+  }
   if (meta.ownerId && meta.ownerId !== spotifyUserId) {
     throw new Error(
       "That playlist is not owned by the connected Spotify account, so song requests cannot edit it. Pick one from your owned playlists list."
@@ -385,6 +396,7 @@ export async function ensureTrackOnMaster(input: {
   await addTracksToPlaylist(input.accessToken, master.spotifyPlaylistId, [
     input.track.uri,
   ]);
+  await upsertMasterGenreRow(input.track.id, input.genre);
   invalidateMasterGenreCache();
   return { addedToMaster: true };
 }

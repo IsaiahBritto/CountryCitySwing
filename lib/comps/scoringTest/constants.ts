@@ -1,8 +1,14 @@
+export const TEST_EVENT_TITLE = "CCS Judging Sandbox";
 export const TEST_STRICTLY_NAME = "Test Strictly";
 export const TEST_JNJ_NAME = "Test J&J";
 
-export const MIN_STRICTLY_COUPLES = 3;
-export const MIN_JNJ_PER_ROLE = 3;
+/** Target field size for mock sandbox competitions. */
+export const FIXTURE_STRICTLY_COUPLES = 30;
+export const FIXTURE_JNJ_PER_ROLE = 30;
+
+/** Minimum counts referenced by scoring test generators (matches sandbox size). */
+export const MIN_STRICTLY_COUPLES = FIXTURE_STRICTLY_COUPLES;
+export const MIN_JNJ_PER_ROLE = FIXTURE_JNJ_PER_ROLE;
 
 export const STRICTLY_JUDGE_EMAILS = [
   "test-judge-strictly-1@ccs.test",

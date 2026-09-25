@@ -5,8 +5,14 @@ import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import { compBtnOutlineLg, judgeSheetStickyBottom, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
 import HeatSectionDivider from "@/components/comps/judge/HeatSectionDivider";
 import JudgeCallbackRow from "@/components/comps/judge/JudgeCallbackRow";
+import CallbackJudgingMethodModal from "@/components/comps/judge/CallbackJudgingMethodModal";
 import JudgeConfirmDialog from "@/components/comps/judge/JudgeConfirmDialog";
 import JudgeSheetHeader from "@/components/comps/judge/JudgeSheetHeader";
+import type { CallbackJudgingMethod } from "@/lib/comps/types";
+import {
+  callbackPrimaryComplete,
+  judgingMethodStorageKey,
+} from "@/lib/scoring/callbackSheetProgress";
 import { useAutosaveQueue } from "@/components/comps/judge/useAutosaveQueue";
 import { useScoringOrderMoveFade } from "@/components/comps/judge/useScoringOrderMoveFade";
 import { useJudgeShowThumbs } from "@/lib/comps/useJudgeShowThumbs";
@@ -17,6 +23,7 @@ import {
   conflictedCallbackEntryIds,
   rawScoreForCallback,
   seedRawFromCallbacks,
+  type CallbackLimits,
   type CallbackVote,
 } from "@/lib/scoring/callbackRawSync";
 import { roundScore, respreadRawScores } from "@/lib/scoring/finalsSync";
@@ -48,6 +55,7 @@ export default function CallbackSheet({
   entries,
   initialScores,
   sheetStatus,
+  initialJudgingMethod = null,
   onSubmitted,
   stickyHeaderExtra,
 }: {
@@ -65,6 +73,7 @@ export default function CallbackSheet({
     thumbs_down_count?: number;
   }[];
   sheetStatus: "draft" | "submitted";
+  initialJudgingMethod?: CallbackJudgingMethod | null;
   onSubmitted: () => void;
   stickyHeaderExtra?: ReactNode;
 }) {
@@ -72,42 +81,6 @@ export default function CallbackSheet({
     () => entries.map((e) => e.roundEntryId),
     [entries]
   );
-
-  const [votes, setVotes] = useState<Map<string, CallbackVote>>(() => {
-    const map = new Map<string, CallbackVote>();
-    for (const s of initialScores) {
-      if (s.callback_value) map.set(s.round_entry_id, s.callback_value as CallbackVote);
-    }
-    return map;
-  });
-  const [rawById, setRawById] = useState<Map<string, number | null>>(() =>
-    buildInitialRaw(entryIds, initialScores, votes)
-  );
-  const [thumbs, setThumbs] = useState<Map<string, ThumbsState>>(() =>
-    buildInitialThumbs(initialScores)
-  );
-  const [displayOrder, setDisplayOrder] = useState<DisplayOrder>("bib");
-  const [mode, setMode] = useState<"placement" | "raw">("placement");
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [sliderDraft, setSliderDraft] = useState<Map<string, number>>(new Map());
-  const [spreadConfirmOpen, setSpreadConfirmOpen] = useState(false);
-  const { showThumbs, setShowThumbs } = useJudgeShowThumbs();
-  const locked = sheetStatus === "submitted";
-
-  const votesRef = useRef(votes);
-  const rawByIdRef = useRef(rawById);
-  const thumbsRef = useRef(thumbs);
-  votesRef.current = votes;
-  rawByIdRef.current = rawById;
-  thumbsRef.current = thumbs;
-
-  const autosave = useAutosaveQueue({
-    roundId,
-    judgeAssignmentId,
-    sendAssignmentId: isOverride,
-  });
 
   const effectiveCallbacks = Math.min(callbackCount, entries.length);
   const effectiveAlternates = Math.min(
@@ -121,8 +94,129 @@ export default function CallbackSheet({
     }),
     [effectiveCallbacks, effectiveAlternates]
   );
+
+  const [votes, setVotes] = useState<Map<string, CallbackVote>>(() =>
+    buildInitialVotes(initialScores)
+  );
+  const [rawById, setRawById] = useState<Map<string, number | null>>(() =>
+    buildInitialRaw(entryIds, initialScores, buildInitialVotes(initialScores), limits)
+  );
+  const [placementAutomatedRawIds, setPlacementAutomatedRawIds] = useState<
+    Set<string>
+  >(() =>
+    buildInitialAutomatedRawIds(
+      entryIds,
+      initialScores,
+      buildInitialVotes(initialScores)
+    )
+  );
+  const [thumbs, setThumbs] = useState<Map<string, ThumbsState>>(() =>
+    buildInitialThumbs(initialScores)
+  );
+  const [displayOrder, setDisplayOrder] = useState<DisplayOrder>("bib");
+  const [primaryMethod, setPrimaryMethod] =
+    useState<CallbackJudgingMethod | null>(initialJudgingMethod);
+  const [mode, setMode] = useState<"placement" | "raw">(
+    initialJudgingMethod ?? "placement"
+  );
+  const [methodModalBusy, setMethodModalBusy] = useState(false);
+  const [methodModalError, setMethodModalError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [sliderDraft, setSliderDraft] = useState<Map<string, number>>(new Map());
+  const [spreadConfirmOpen, setSpreadConfirmOpen] = useState(false);
+  const { showThumbs, setShowThumbs } = useJudgeShowThumbs();
+  const locked = sheetStatus === "submitted";
+
+  const votesRef = useRef(votes);
+  const rawByIdRef = useRef(rawById);
+  const thumbsRef = useRef(thumbs);
+  const placementAutomatedRef = useRef(placementAutomatedRawIds);
+  votesRef.current = votes;
+  rawByIdRef.current = rawById;
+  thumbsRef.current = thumbs;
+  placementAutomatedRef.current = placementAutomatedRawIds;
+
+  const autosave = useAutosaveQueue({
+    roundId,
+    judgeAssignmentId,
+    sendAssignmentId: isOverride,
+  });
+
   const limitsRef = useRef(limits);
   limitsRef.current = limits;
+
+  useEffect(() => {
+    if (initialJudgingMethod) {
+      setPrimaryMethod(initialJudgingMethod);
+      setMode(initialJudgingMethod);
+      try {
+        localStorage.setItem(
+          judgingMethodStorageKey(roundId, judgeAssignmentId),
+          initialJudgingMethod
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }, [initialJudgingMethod, roundId, judgeAssignmentId]);
+
+  const showMethodModal =
+    !locked && entries.length > 0 && primaryMethod == null;
+
+  const primaryComplete = useMemo(
+    () =>
+      primaryMethod != null
+        ? callbackPrimaryComplete(
+            primaryMethod,
+            entryIds,
+            votes,
+            rawById
+          )
+        : false,
+    [primaryMethod, entryIds, votes, rawById]
+  );
+
+  const tabLockHint = useMemo(() => {
+    if (!primaryMethod || primaryComplete) return null;
+    return primaryMethod === "placement"
+      ? "Finish Yes / No / Alts for every competitor to unlock Raw scores."
+      : "Enter a raw score for every competitor to unlock Yes / No / Alts.";
+  }, [primaryMethod, primaryComplete]);
+
+  const chooseJudgingMethod = useCallback(
+    async (method: CallbackJudgingMethod) => {
+      setMethodModalBusy(true);
+      setMethodModalError(null);
+      const res = await authedFetch(
+        `/api/judge/rounds/${roundId}/judging-method`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            judging_method: method,
+            ...(isOverride ? { judge_assignment_id: judgeAssignmentId } : {}),
+          }),
+        }
+      );
+      setMethodModalBusy(false);
+      if (!res.ok) {
+        setMethodModalError(await apiError(res));
+        return;
+      }
+      setPrimaryMethod(method);
+      setMode(method);
+      try {
+        localStorage.setItem(
+          judgingMethodStorageKey(roundId, judgeAssignmentId),
+          method
+        );
+      } catch {
+        // ignore
+      }
+    },
+    [roundId, judgeAssignmentId, isOverride]
+  );
 
   const altOptions = useMemo(
     () =>
@@ -199,6 +293,17 @@ export default function CallbackSheet({
         }
         return next;
       });
+      setPlacementAutomatedRawIds((prev) => {
+        const next = new Set(prev);
+        for (const patch of restored) {
+          if (patch.placement_automated) {
+            next.add(patch.round_entry_id);
+          } else if (patch.placement_automated === false) {
+            next.delete(patch.round_entry_id);
+          }
+        }
+        return next;
+      });
       setNotice("Draft restored from this device");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -208,12 +313,14 @@ export default function CallbackSheet({
     (
       nextVotes: Map<string, CallbackVote>,
       nextRaw: Map<string, number | null>,
-      changedIds: string[]
+      changedIds: string[],
+      automatedIds = placementAutomatedRef.current
     ) => {
       const patches = changedIds.map((id) => ({
         round_entry_id: id,
-        callback_value: nextVotes.get(id) ?? "no",
+        callback_value: nextVotes.has(id) ? nextVotes.get(id)! : null,
         raw_score: nextRaw.get(id) ?? null,
+        placement_automated: automatedIds.has(id),
       }));
       const scored = entryIds.filter((id) => nextVotes.has(id)).length;
       autosave.queue(patches, { scored, total: entries.length });
@@ -225,12 +332,20 @@ export default function CallbackSheet({
     (
       nextVotes: Map<string, CallbackVote>,
       nextRaw: Map<string, number | null>,
-      changedIds: string[]
+      changedIds: string[],
+      markPlacementAutomated?: string[]
     ) => {
+      let automated = placementAutomatedRef.current;
+      if (markPlacementAutomated && markPlacementAutomated.length > 0) {
+        automated = new Set(automated);
+        for (const id of markPlacementAutomated) automated.add(id);
+        placementAutomatedRef.current = automated;
+        setPlacementAutomatedRawIds(automated);
+      }
       setVotes(nextVotes);
       setRawById(nextRaw);
       setError(null);
-      queueScorePatches(nextVotes, nextRaw, changedIds);
+      queueScorePatches(nextVotes, nextRaw, changedIds, automated);
     },
     [queueScorePatches]
   );
@@ -241,20 +356,31 @@ export default function CallbackSheet({
       const currentVotes = votesRef.current;
       if (currentVotes.get(roundEntryId) === vote) return;
 
+      const automated = new Set(placementAutomatedRef.current);
+      automated.add(roundEntryId);
+
       const result = applyCallbackVote(
         entryIds,
         currentVotes,
         rawByIdRef.current,
         roundEntryId,
         vote,
-        limitsRef.current
+        limitsRef.current,
+        automated
       );
 
-      const changed = new Set<string>([roundEntryId]);
-      for (const [id, v] of result.votes) {
-        if (currentVotes.get(id) !== v) changed.add(id);
+      const changed = new Set<string>();
+      for (const id of entryIds) {
+        if (currentVotes.get(id) !== result.votes.get(id)) changed.add(id);
+        if (rawByIdRef.current.get(id) !== result.rawById.get(id)) changed.add(id);
       }
-      applyVoteAndRaw(result.votes, result.rawById, [...changed]);
+      const markAutomated = [...changed].filter((id) => automated.has(id));
+      applyVoteAndRaw(
+        result.votes,
+        result.rawById,
+        [...changed],
+        markAutomated
+      );
     },
     [locked, entryIds, applyVoteAndRaw]
   );
@@ -275,14 +401,26 @@ export default function CallbackSheet({
       for (const id of entryIds) {
         if (currentVotes.get(id) !== result.votes.get(id)) changed.add(id);
       }
-      applyVoteAndRaw(result.votes, result.rawById, [...changed]);
+      const nextAutomated = new Set(placementAutomatedRef.current);
+      nextAutomated.delete(entryId);
+      placementAutomatedRef.current = nextAutomated;
+      setPlacementAutomatedRawIds(nextAutomated);
+      setVotes(result.votes);
+      setRawById(result.rawById);
+      setError(null);
+      queueScorePatches(
+        result.votes,
+        result.rawById,
+        [...changed],
+        nextAutomated
+      );
       setSliderDraft((prev) => {
         const next = new Map(prev);
         next.delete(entryId);
         return next;
       });
     },
-    [locked, entryIds, applyVoteAndRaw]
+    [locked, entryIds, queueScorePatches]
   );
 
   const nudgeRaw = useCallback(
@@ -292,7 +430,9 @@ export default function CallbackSheet({
       const currentRaw = rawByIdRef.current;
       const current =
         currentRaw.get(entryId) ??
-        rawScoreForCallback(currentVotes.get(entryId) ?? "no");
+        (currentVotes.has(entryId)
+          ? rawScoreForCallback(currentVotes.get(entryId)!)
+          : 0);
       commitRaw(entryId, roundScore(current + delta));
     },
     [locked, commitRaw]
@@ -326,17 +466,36 @@ export default function CallbackSheet({
   };
 
   const handleModeChange = (nextMode: "placement" | "raw") => {
+    if (
+      primaryMethod != null &&
+      !primaryComplete &&
+      nextMode !== primaryMethod
+    ) {
+      return;
+    }
     if (nextMode === "raw") {
+      const seeded = seedRawFromCallbacks(
+        entryIds,
+        votes,
+        limitsRef.current
+      );
+      const newlySeeded: string[] = [];
       setRawById((prev) => {
         const next = new Map(prev);
-        const seeded = seedRawFromCallbacks(entryIds, votes);
         for (const id of entryIds) {
-          if (next.get(id) == null) {
-            next.set(id, seeded.get(id) ?? rawScoreForCallback("no"));
+          if (next.get(id) == null && seeded.has(id)) {
+            next.set(id, seeded.get(id)!);
+            newlySeeded.push(id);
           }
         }
         return next;
       });
+      if (newlySeeded.length > 0) {
+        const nextAutomated = new Set(placementAutomatedRef.current);
+        for (const id of newlySeeded) nextAutomated.add(id);
+        placementAutomatedRef.current = nextAutomated;
+        setPlacementAutomatedRawIds(nextAutomated);
+      }
     }
     setMode(nextMode);
   };
@@ -392,11 +551,16 @@ export default function CallbackSheet({
   const altAssigned = (rank: CallbackVote) =>
     [...votes.values()].some((v) => v === rank);
   const conflictedIds = useMemo(
-    () => new Set(conflictedCallbackEntryIds(votes, limits)),
-    [votes, limits]
+    () => new Set(conflictedCallbackEntryIds(votes, limits, rawById)),
+    [votes, limits, rawById]
   );
   const hasTies = conflictedIds.size > 0;
-  const canSubmit = canSubmitCallbackPlacements(votes, limits, entryIds);
+  const canSubmit = canSubmitCallbackPlacements(
+    votes,
+    limits,
+    entryIds,
+    rawById
+  );
 
   const submit = async () => {
     setSubmitting(true);
@@ -465,6 +629,13 @@ export default function CallbackSheet({
 
   return (
     <div>
+      <CallbackJudgingMethodModal
+        open={showMethodModal}
+        busy={methodModalBusy}
+        error={methodModalError}
+        onChoose={chooseJudgingMethod}
+      />
+      <div className={showMethodModal ? "pointer-events-none opacity-40" : ""}>
       <div className={judgeSheetStickyTop}>
         <JudgeSheetHeader
           stickyHeaderExtra={stickyHeaderExtra}
@@ -475,6 +646,8 @@ export default function CallbackSheet({
           saveState={autosave.saveState}
           extraSummary={summary}
           headerControls={thumbsToggle}
+          primaryMethod={primaryMethod}
+          tabLockHint={tabLockHint}
         />
       </div>
 
@@ -496,7 +669,7 @@ export default function CallbackSheet({
       )}
       {hasTies && !locked && (
         <p className="mb-2 text-xs text-blue-400">
-          Tied votes — adjust before submitting.
+          Tied raw scores — adjust before submitting.
         </p>
       )}
       {mode === "raw" && !locked && (
@@ -552,6 +725,7 @@ export default function CallbackSheet({
                   vote={vote}
                   raw={raw}
                   isConflicted={isConflicted}
+                  isAutomatedRaw={placementAutomatedRawIds.has(e.roundEntryId)}
                   rowTone={callbackRowTone(vote, isConflicted)}
                   locked={locked}
                   showThumbs={showThumbs}
@@ -588,13 +762,16 @@ export default function CallbackSheet({
                 : unknownCount > 0
                   ? `Mark ${unknownCount} unknown${unknownCount === 1 ? "" : "s"} to submit`
                   : hasTies
-                    ? "Resolve tied votes to submit"
+                    ? "Resolve tied raw scores to submit"
+                    : yesCount > effectiveCallbacks
+                      ? `Remove ${yesCount - effectiveCallbacks} Yes vote${yesCount - effectiveCallbacks === 1 ? "" : "s"} to submit`
                     : yesCount !== effectiveCallbacks
                       ? `Select ${effectiveCallbacks - yesCount} more Yes`
                       : "Assign all alternate ranks to submit"}
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -610,6 +787,41 @@ function callbackRowTone(
   return "border-neutral-700 bg-neutral-800/50";
 }
 
+function buildInitialVotes(
+  initialScores: {
+    round_entry_id: string;
+    callback_value: string | null;
+  }[]
+): Map<string, CallbackVote> {
+  const map = new Map<string, CallbackVote>();
+  for (const s of initialScores) {
+    if (s.callback_value) {
+      map.set(s.round_entry_id, s.callback_value as CallbackVote);
+    }
+  }
+  return map;
+}
+
+function buildInitialAutomatedRawIds(
+  entryIds: string[],
+  initialScores: {
+    round_entry_id: string;
+    raw_score?: number | null;
+    callback_value: string | null;
+  }[],
+  votes: Map<string, CallbackVote>
+): Set<string> {
+  const scoreById = new Map(initialScores.map((s) => [s.round_entry_id, s]));
+  const automated = new Set<string>();
+  for (const id of entryIds) {
+    const saved = scoreById.get(id)?.raw_score;
+    if (saved == null && votes.has(id)) {
+      automated.add(id);
+    }
+  }
+  return automated;
+}
+
 function buildInitialRaw(
   entryIds: string[],
   initialScores: {
@@ -617,16 +829,18 @@ function buildInitialRaw(
     callback_value: string | null;
     raw_score?: number | null;
   }[],
-  votes: Map<string, CallbackVote>
+  votes: Map<string, CallbackVote>,
+  limits: CallbackLimits
 ): Map<string, number | null> {
   const scoreById = new Map(initialScores.map((s) => [s.round_entry_id, s]));
+  const seeded = seedRawFromCallbacks(entryIds, votes, limits);
   const map = new Map<string, number | null>();
   for (const id of entryIds) {
     const saved = scoreById.get(id)?.raw_score;
     if (saved != null) {
       map.set(id, Number(saved));
-    } else if (votes.has(id)) {
-      map.set(id, rawScoreForCallback(votes.get(id)!));
+    } else if (seeded.has(id)) {
+      map.set(id, seeded.get(id)!);
     } else {
       map.set(id, null);
     }

@@ -5,11 +5,19 @@ export interface ScorePatch {
   raw_score?: number | null;
   thumbs_up_count?: number;
   thumbs_down_count?: number;
+  /** Client draft only — stripped before API PUT. */
+  placement_automated?: boolean;
 }
 
 export const FLUSH_DEBOUNCE_MS = 700;
 export const CHAIN_DEBOUNCE_MS = 200;
 export const RETRY_DELAY_MS = 4000;
+
+/** Omit client-only draft fields before sending to the API. */
+export function scorePatchForApi(patch: ScorePatch): ScorePatch {
+  const { placement_automated: _automated, ...apiPatch } = patch;
+  return apiPatch;
+}
 
 export function mergeScorePatch(
   existing: ScorePatch | undefined,

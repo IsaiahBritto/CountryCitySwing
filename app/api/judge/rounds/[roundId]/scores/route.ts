@@ -1,86 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireJudgeAuth } from "@/lib/judgeAuth";
-import {
-  activeRoundEntries,
-  loadRoundContext,
-  RoundDataError,
-  type RoundContext,
-} from "@/lib/comps/roundData";
+import { resolveJudgeRound } from "@/lib/comps/judgeRoundResolve";
+import { activeRoundEntries } from "@/lib/comps/roundData";
 import { supabaseServer } from "@/lib/supabaseServer";
 import type { CallbackValue } from "@/lib/comps/types";
 
 const CALLBACK_VALUES: CallbackValue[] = ["yes", "alt1", "alt2", "alt3", "no"];
-
-interface ResolvedJudge {
-  ctx: RoundContext;
-  assignmentId: string;
-  actingUserId: string;
-  isOverride: boolean;
-}
-
-async function resolveJudge(
-  req: NextRequest,
-  roundId: string,
-  overrideId: string | null
-): Promise<ResolvedJudge | NextResponse> {
-  let ctx;
-  try {
-    ctx = await loadRoundContext(roundId);
-  } catch (err) {
-    if (err instanceof RoundDataError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    }
-    throw err;
-  }
-
-  const auth = await requireJudgeAuth(req, {
-    competitionId: ctx.round.competition_id,
-  });
-  if (!auth.ok) return auth.response;
-
-  let assignment = auth.assignments.find(
-    (a) => a.competition_id === ctx.round.competition_id
-  );
-  let isOverride = false;
-  if (overrideId && auth.isAdmin && overrideId !== assignment?.id) {
-    const target = ctx.judges.find((j) => j.id === overrideId);
-    if (!target) {
-      return NextResponse.json(
-        { error: "Judge assignment not found" },
-        { status: 404 }
-      );
-    }
-    assignment = target;
-    isOverride = true;
-  }
-  if (!assignment) {
-    return NextResponse.json(
-      { error: "You are not assigned to judge this competition" },
-      { status: 403 }
-    );
-  }
-
-  if (ctx.round.status !== "open") {
-    return NextResponse.json(
-      { error: "Scoring is not open for this round" },
-      { status: 409 }
-    );
-  }
-  const sheet = ctx.sheets.find((s) => s.judge_assignment_id === assignment.id);
-  if (sheet?.status === "submitted") {
-    return NextResponse.json(
-      { error: "This sheet is submitted and locked. Ask the chief judge to unlock it." },
-      { status: 409 }
-    );
-  }
-
-  return {
-    ctx,
-    assignmentId: assignment.id,
-    actingUserId: auth.userId,
-    isOverride,
-  };
-}
 
 /**
  * PUT: silent autosave. Body: { scores: [{ round_entry_id, callback_value?,
@@ -93,7 +17,7 @@ export async function PUT(
 ) {
   const { roundId } = await params;
   const body = await req.json();
-  const resolved = await resolveJudge(
+  const resolved = await resolveJudgeRound(
     req,
     roundId,
     body.judge_assignment_id ?? null
@@ -192,7 +116,7 @@ export async function POST(
   } catch {
     // Empty body allowed.
   }
-  const resolved = await resolveJudge(
+  const resolved = await resolveJudgeRound(
     req,
     roundId,
     body?.judge_assignment_id ?? null

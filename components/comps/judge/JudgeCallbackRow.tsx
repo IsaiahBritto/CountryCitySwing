@@ -21,6 +21,7 @@ function JudgeCallbackRowInner({
   vote,
   raw,
   isConflicted,
+  isAutomatedRaw = false,
   rowTone,
   locked,
   showThumbs,
@@ -41,6 +42,7 @@ function JudgeCallbackRowInner({
   vote: CallbackVote | undefined;
   raw: number | null;
   isConflicted: boolean;
+  isAutomatedRaw?: boolean;
   rowTone: string;
   locked: boolean;
   showThumbs: boolean;
@@ -101,7 +103,7 @@ function JudgeCallbackRowInner({
           </div>
           {isConflicted && mode !== "raw" && (
             <span className={`mt-0.5 inline-block ${judgeTieBadgeClass}`}>
-              tied — resolve
+              tied — adjust
             </span>
           )}
           {mode === "raw" && (
@@ -111,6 +113,7 @@ function JudgeCallbackRowInner({
               sliderDraftValue={sliderDraftValue}
               locked={locked}
               isTied={isConflicted}
+              isAutomatedRaw={isAutomatedRaw}
               showThumbs={showThumbs}
               thumbsUp={thumbUp}
               thumbsDown={thumbDown}

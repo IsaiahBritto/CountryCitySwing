@@ -284,6 +284,7 @@ function RoleCallbackSheet({
         entries={view.entries}
         initialScores={view.scores}
         sheetStatus={sheetStatus as "draft" | "submitted"}
+        initialJudgingMethod={view.sheet.judging_method ?? null}
         onSubmitted={onSubmitted}
         stickyHeaderExtra={stickyHeaderExtra}
       />

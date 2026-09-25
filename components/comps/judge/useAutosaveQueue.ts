@@ -8,6 +8,7 @@ import {
   followUpFlushDelayMs,
   mergeScorePatch,
   pruneAckedPending,
+  scorePatchForApi,
   type ScorePatch,
 } from "@/lib/comps/autosaveHelpers";
 
@@ -101,7 +102,7 @@ export function useAutosaveQueue(opts: {
       const res = await authedFetch(`/api/judge/rounds/${roundId}/scores`, {
         method: "PUT",
         body: JSON.stringify({
-          scores: snapshot.map(([, patch]) => patch),
+          scores: snapshot.map(([, patch]) => scorePatchForApi(patch)),
           ...(sendAssignmentId ? { judge_assignment_id: judgeAssignmentId } : {}),
         }),
       });

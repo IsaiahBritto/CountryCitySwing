@@ -1,7 +1,21 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useRef } from "react";
+import AutomatedRawBadge from "@/components/comps/judge/AutomatedRawBadge";
 import { judgeTieBadgeClass } from "@/lib/comps/judgeStyles";
+import { isPointerNearRangeThumb } from "@/lib/comps/rangeSliderThumb";
+
+const SLIDER_MIN = 0;
+const SLIDER_MAX = 100;
+
+const KEYBOARD_ADJUST_KEYS = new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Home",
+  "End",
+]);
 
 function JudgeRawScoreControlsInner({
   entryId,
@@ -9,6 +23,7 @@ function JudgeRawScoreControlsInner({
   sliderDraftValue,
   locked,
   isTied,
+  isAutomatedRaw = false,
   showThumbs = true,
   thumbsUp,
   thumbsDown,
@@ -22,6 +37,7 @@ function JudgeRawScoreControlsInner({
   sliderDraftValue: number | undefined;
   locked: boolean;
   isTied?: boolean;
+  isAutomatedRaw?: boolean;
   showThumbs?: boolean;
   thumbsUp: number;
   thumbsDown: number;
@@ -32,6 +48,61 @@ function JudgeRawScoreControlsInner({
 }) {
   const displayedRaw = sliderDraftValue ?? raw;
   const sliderValue = Math.round(sliderDraftValue ?? raw ?? 0);
+  const allowInputRef = useRef(false);
+  const valueAtPointerDownRef = useRef(sliderValue);
+
+  const revertSliderValue = (input: HTMLInputElement) => {
+    input.value = String(valueAtPointerDownRef.current);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const rect = input.getBoundingClientRect();
+    const pointerOffsetX = e.clientX - rect.left;
+    allowInputRef.current = isPointerNearRangeThumb(
+      sliderValue,
+      SLIDER_MIN,
+      SLIDER_MAX,
+      rect.width,
+      pointerOffsetX
+    );
+    valueAtPointerDownRef.current = sliderValue;
+  };
+
+  const handleSliderInput = (e: React.FormEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    if (!allowInputRef.current) {
+      revertSliderValue(input);
+      return;
+    }
+    onSliderDraft(entryId, Number(input.value));
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLInputElement>) => {
+    if (allowInputRef.current) {
+      onSliderCommit(entryId, Number(e.currentTarget.value));
+    }
+    allowInputRef.current = false;
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<HTMLInputElement>) => {
+    revertSliderValue(e.currentTarget);
+    allowInputRef.current = false;
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (KEYBOARD_ADJUST_KEYS.has(e.key)) {
+      allowInputRef.current = true;
+      valueAtPointerDownRef.current = Number(e.currentTarget.value);
+    }
+  };
+
+  const handleKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      onSliderCommit(entryId, Number(e.currentTarget.value));
+    }
+    allowInputRef.current = false;
+  };
 
   return (
     <>
@@ -42,32 +113,25 @@ function JudgeRawScoreControlsInner({
             {displayedRaw != null ? displayedRaw.toFixed(1) : "—"}
           </span>
         </span>
+        {isAutomatedRaw && <AutomatedRawBadge />}
         {isTied && (
           <span className={judgeTieBadgeClass}>tied — adjust</span>
         )}
       </div>
       <input
         type="range"
-        min={0}
-        max={100}
+        min={SLIDER_MIN}
+        max={SLIDER_MAX}
         step={1}
         value={sliderValue}
         disabled={locked}
-        onInput={(e) =>
-          onSliderDraft(entryId, Number(e.currentTarget.value))
-        }
-        onChange={(e) => onSliderDraft(entryId, Number(e.target.value))}
-        onPointerUp={(e) =>
-          onSliderCommit(entryId, Number(e.currentTarget.value))
-        }
-        onKeyUp={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            onSliderCommit(
-              entryId,
-              Number((e.target as HTMLInputElement).value)
-            );
-          }
-        }}
+        onPointerDown={handlePointerDown}
+        onInput={handleSliderInput}
+        onChange={handleSliderInput}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
         className="mt-1 h-6 w-full touch-manipulation accent-primary"
       />
       {showThumbs && (

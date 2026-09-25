@@ -109,6 +109,14 @@ export default function AdminCompsPage() {
   );
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [ensureFixturesBusy, setEnsureFixturesBusy] = useState(false);
+  const [ensureFixturesMsg, setEnsureFixturesMsg] = useState<string | null>(
+    null
+  );
+  const [ensureFixturesLinks, setEnsureFixturesLinks] = useState<{
+    strictlyId: string;
+    jnjId: string;
+  } | null>(null);
 
   const eventGroups = useMemo(
     () => groupCompetitionsByEvent(competitions),
@@ -157,6 +165,36 @@ export default function AdminCompsPage() {
       setLoading(false);
     })();
   }, [load]);
+
+  const ensureMockSandbox = async () => {
+    setEnsureFixturesBusy(true);
+    setEnsureFixturesMsg(null);
+    setEnsureFixturesLinks(null);
+    setError(null);
+    const res = await authedFetch("/api/admin/comps/ensure-test-fixtures", {
+      method: "POST",
+      body: JSON.stringify({
+        seed_entries: true,
+        ensure_judges: true,
+        reset_rounds: false,
+      }),
+    });
+    setEnsureFixturesBusy(false);
+    if (!res.ok) {
+      setEnsureFixturesMsg(await apiError(res));
+      return;
+    }
+    const data = await res.json();
+    const c = data.counts ?? {};
+    setEnsureFixturesMsg(
+      `Sandbox ready: ${c.strictlyCouples ?? 0} Strictly couples, ${c.jnjLeads ?? 0} JnJ leads, ${c.jnjFollows ?? 0} JnJ follows. Fixture judges assigned. Hidden from public comps hub.`
+    );
+    setEnsureFixturesLinks({
+      strictlyId: data.strictly?.id,
+      jnjId: data.jnj?.id,
+    });
+    await load();
+  };
 
   const createCompetition = async () => {
     if (!newEventId || !newName.trim()) return;
@@ -220,6 +258,46 @@ export default function AdminCompsPage() {
           {error}
         </div>
       )}
+
+      <div className="mb-6 rounded-xl border border-violet-500/40 bg-violet-950/30 p-4">
+        <h2 className="font-semibold text-violet-200">
+          Mock competitions (admin only)
+        </h2>
+        <p className="mt-1 text-sm text-violet-200/80">
+          Creates or refreshes <strong>CCS Judging Sandbox</strong> with Test
+          Strictly (30 couples) and Test J&amp;J (30 leads + 30 follows), plus
+          fixture judges. Not visible on the public comps hub.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={ensureMockSandbox}
+            disabled={ensureFixturesBusy}
+            className="rounded-md border border-violet-400/60 px-4 py-2 text-sm font-medium text-violet-100 hover:border-violet-300 disabled:opacity-50"
+          >
+            {ensureFixturesBusy ? "Setting up…" : "Ensure JnJ + Strictly sandbox"}
+          </button>
+          {ensureFixturesLinks && (
+            <span className="flex flex-wrap gap-3 text-sm">
+              <Link
+                href={`/admin/comps/${ensureFixturesLinks.strictlyId}`}
+                className="text-violet-300 underline hover:text-violet-200"
+              >
+                Open Test Strictly
+              </Link>
+              <Link
+                href={`/admin/comps/${ensureFixturesLinks.jnjId}`}
+                className="text-violet-300 underline hover:text-violet-200"
+              >
+                Open Test J&amp;J
+              </Link>
+            </span>
+          )}
+        </div>
+        {ensureFixturesMsg && (
+          <p className="mt-3 text-sm text-neutral-300">{ensureFixturesMsg}</p>
+        )}
+      </div>
 
       {showCreate && (
         <div className="mb-6 rounded-xl border border-neutral-700 bg-neutral-800/60 p-4">

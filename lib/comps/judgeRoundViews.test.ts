@@ -11,7 +11,7 @@ function mockResponse(
 ): JudgeRoundApiResponse {
   return {
     checkin: { unresolved: 0, present: 10, complete: true },
-    sheet: { status: "draft", submitted_at: null },
+    sheet: { status: "draft", submitted_at: null, judging_method: null },
     entries: [],
     scores: [],
     competition: { id: "c1", name: "Test J&J", comp_type: "jnj" },
@@ -31,7 +31,7 @@ function mockResponse(
         status: "open",
       },
       checkin: { unresolved: 0, present: 10, complete: true },
-      sheet: { status: "draft", submitted_at: null },
+      sheet: { status: "draft", submitted_at: null, judging_method: null },
       entries: [],
       scores: [],
     },
@@ -83,7 +83,7 @@ describe("parseJudgeRoundBundle", () => {
           status: "open",
         },
         checkin: { unresolved: 0, present: 10, complete: true },
-        sheet: { status: "draft", submitted_at: null },
+        sheet: { status: "draft", submitted_at: null, judging_method: null },
         entries: [],
         scores: [],
       },

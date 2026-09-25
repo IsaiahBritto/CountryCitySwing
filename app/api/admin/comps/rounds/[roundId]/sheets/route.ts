@@ -56,6 +56,7 @@ export async function PATCH(
     .update({
       status: "draft",
       submitted_at: null,
+      judging_method: null,
       updated_at: new Date().toISOString(),
     })
     .eq("round_id", roundId)

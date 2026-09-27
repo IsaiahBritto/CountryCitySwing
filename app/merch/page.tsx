@@ -1,30 +1,20 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { ShoppingCartIcon, ClipboardDocumentListIcon } from "@heroicons/react/24/outline";
-import ProductModal from "@/components/ProductModal";
+import ProductModal, { type MerchProduct } from "@/components/ProductModal";
 import Cart from "@/components/Cart";
 import AdminDashboard from "@/components/AdminDashboard";
 import MerchGridSkeleton from "@/components/MerchGridSkeleton";
+import {
+  isMerchPreorderClosed,
+  isMerchProductPubliclyVisible,
+} from "@/lib/merchPreorder";
 
-interface ProductImage {
-  id: string;
-  url: string;
-  alt?: string;
-}
-
-interface Product {
-  id: string;
-  name: string;
-  type: string;
-  price: number;
-  images: ProductImage[];
-  availableSizes: string[];
-  mainImageUrl: string;
-}
+type Product = MerchProduct & { mainImageUrl: string };
 
 export type InventoryByProduct = Record<string, { size: string; quantity: number }[]>;
 
@@ -65,7 +55,9 @@ export default function MerchPage() {
         // Fetch products from Supabase
         const { data, error } = await supabase
           .from("merch_products")
-          .select("id,name,type,price,available_sizes,main_image_url")
+          .select(
+            "id,name,type,price,available_sizes,main_image_url,preorder_end_at,unlimited_inventory"
+          )
           .order("display_order", { ascending: true })
           .order("name", { ascending: true }); // Secondary sort by name
 
@@ -81,7 +73,10 @@ export default function MerchPage() {
             .in("product_id", productIds)
             .order("display_order");
 
-          const imagesByProductId: Record<string, ProductImage[]> = {};
+          const imagesByProductId: Record<
+            string,
+            MerchProduct["images"]
+          > = {};
           (allImages || []).forEach((img: any) => {
             const list = imagesByProductId[img.product_id] ?? [];
             list.push({
@@ -113,6 +108,8 @@ export default function MerchPage() {
                   : [{ id: "main", url: mainImageUrl, alt: product.name }],
               availableSizes: product.available_sizes || [],
               mainImageUrl,
+              preorderEndAt: product.preorder_end_at ?? null,
+              unlimitedInventory: product.unlimited_inventory === true,
             };
           });
           setProducts(transformedProducts);
@@ -141,9 +138,33 @@ export default function MerchPage() {
     loadProducts();
   }, []);
 
+  const gridProducts = useMemo(() => {
+    if (isAdmin) return products;
+    return products.filter((p) =>
+      isMerchProductPubliclyVisible(p.preorderEndAt)
+    );
+  }, [products, isAdmin]);
+
   const handleProductClick = (product: Product) => {
     setSelectedProduct(product);
     setIsModalOpen(true);
+  };
+
+  const handleProductUpdated = (updated: MerchProduct) => {
+    setProducts((prev) =>
+      prev.map((p) =>
+        p.id === updated.id
+          ? {
+              ...p,
+              ...updated,
+              mainImageUrl: p.mainImageUrl,
+            }
+          : p
+      )
+    );
+    setSelectedProduct((prev) =>
+      prev?.id === updated.id ? { ...prev, ...updated } : prev
+    );
   };
 
   if (showAdminDashboard) {
@@ -193,17 +214,20 @@ export default function MerchPage() {
 
       {loading ? (
         <MerchGridSkeleton />
-      ) : products.length === 0 ? (
+      ) : gridProducts.length === 0 ? (
         <p className="text-center text-gray-400 py-12">
           No products available at this time.
         </p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {products.map((product) => (
+          {gridProducts.map((product) => {
+            const ended =
+              isAdmin && isMerchPreorderClosed(product.preorderEndAt);
+            return (
             <div
               key={product.id}
               onClick={() => handleProductClick(product)}
-              className="bg-neutral-800 rounded-lg overflow-hidden cursor-pointer hover:shadow-[0_0_20px_rgba(242,201,76,0.3)] transition-all duration-200"
+              className={`bg-neutral-800 rounded-lg overflow-hidden cursor-pointer hover:shadow-[0_0_20px_rgba(242,201,76,0.3)] transition-all duration-200 ${ended ? "opacity-75 ring-1 ring-neutral-600" : ""}`}
             >
               <div className="aspect-square relative overflow-hidden">
                 <img
@@ -211,6 +235,11 @@ export default function MerchPage() {
                   alt={product.name}
                   className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
                 />
+                {ended && (
+                  <span className="absolute top-2 left-2 bg-neutral-900/90 text-yellow-500 text-xs font-semibold px-2 py-1 rounded">
+                    Preorder ended
+                  </span>
+                )}
               </div>
               <div className="p-4">
                 <h3 className="text-xl font-semibold text-white mb-2">
@@ -221,7 +250,8 @@ export default function MerchPage() {
                 </p>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -234,6 +264,8 @@ export default function MerchPage() {
             setSelectedProduct(null);
           }}
           inventoryByProduct={inventoryByProductId[selectedProduct.id]}
+          isAdmin={isAdmin}
+          onProductUpdated={handleProductUpdated}
         />
       )}
     </section>

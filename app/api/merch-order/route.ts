@@ -5,6 +5,10 @@ import { sendHtmlEmail } from "@/lib/mailer";
 import { getStripe } from "@/lib/stripe";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getMerchandiseTaxCode, getShippingTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
+import {
+  loadMerchProductsForOrder,
+  merchProductMetaById,
+} from "@/lib/merchOrderValidation";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -44,8 +48,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check inventory before proceeding
+    const productValidation = await loadMerchProductsForOrder(orderData.items);
+    if (!productValidation.ok) {
+      return NextResponse.json(
+        { error: productValidation.error },
+        { status: productValidation.status }
+      );
+    }
+    const productMetaById = merchProductMetaById(productValidation.products);
+
     for (const item of orderData.items) {
+      const meta = productMetaById.get(item.productId);
+      if (meta?.unlimited_inventory) continue;
+
       const { data: inventory } = await supabaseServer
         .from("merch_inventory")
         .select("quantity")

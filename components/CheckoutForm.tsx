@@ -5,6 +5,10 @@ import { ArrowLeftIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outl
 import { useCart } from "./CartContext";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import ChoiceCards from "@/components/ChoiceCards";
+import {
+  formatMerchPreorderEnd,
+  isLegacy8ccPreorderProductName,
+} from "@/lib/merchPreorder";
 
 interface CheckoutFormProps {
   onBack: () => void;
@@ -80,9 +84,7 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
     // If canPickupFrom8CC is checked, exclude preorder items from shipping calculation
     if (canPickupFrom8CC) {
       const nonPreorderItems = items.filter(
-        (item) =>
-          item.productName !== "Black CCS x 8CC Shirt (Preorder)" &&
-          item.productName !== "Black CCS x 8CC Crop (Preorder)"
+        (item) => !isLegacy8ccPreorderProductName(item.productName)
       );
       const totalItems = nonPreorderItems.reduce((sum, item) => sum + item.quantity, 0);
       return Math.ceil(totalItems / 2) * 10;
@@ -107,12 +109,20 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
     if (stripeDisabled && paymentMethod === "stripe") setPaymentMethod("cash");
   }, [stripeDisabled, paymentMethod]);
 
-  // Check if cart contains preorder items
-  const hasPreorderItems = items.some(
-    (item) =>
-      item.productName === "Black CCS x 8CC Shirt (Preorder)" ||
-      item.productName === "Black CCS x 8CC Crop (Preorder)"
+  const hasLegacy8ccPreorder = items.some((item) =>
+    isLegacy8ccPreorderProductName(item.productName)
   );
+  const hasDatedPreorder = items.some((item) => !!item.preorderEndAt);
+  const hasPreorderItems = hasLegacy8ccPreorder || hasDatedPreorder;
+
+  const latestPreorderEndAt = items
+    .map((item) => item.preorderEndAt)
+    .filter((v): v is string => !!v)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+
+  const preorderAcknowledgmentText = hasDatedPreorder && latestPreorderEndAt
+    ? `I understand that my order contains preorder items which must be paid for now. Preorder ordering closes by ${formatMerchPreorderEnd(latestPreorderEndAt)} (Central time).`
+    : "I understand that my order contains preorder items which need to be paid for but will be arriving around the start of March.";
 
   const applyPromo = async () => {
     const code = promoCodeInput.trim();
@@ -296,13 +306,15 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
                         className="w-5 h-5 mt-0.5 text-primary focus:ring-primary border-neutral-600 bg-neutral-700 rounded"
                       />
                       <span className="text-gray-200 text-sm">
-                        I understand that my order contains preorder items which need to be paid for but will be arriving around the start of March.
+                        {preorderAcknowledgmentText}
                       </span>
                     </label>
                   </div>
+                  {hasLegacy8ccPreorder && (
                   <p className="text-gray-300 text-sm ml-8">
                     If you live in North Carolina and can pick up in person from 8 Count Country, please still click "Ship It" below. However you will not be charged delivery fees for this order. Address is just needed for records sake. Thank you!
                   </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -322,7 +334,7 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
               { value: "ship", label: "Ship it" },
             ]}
           />
-          {hasPreorderItems && deliveryMethod === "ship" && (
+          {hasLegacy8ccPreorder && deliveryMethod === "ship" && (
             <label className="flex items-center gap-3 cursor-pointer mt-3">
               <input
                 type="checkbox"

@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { getStripe } from "@/lib/stripe";
 import { calculateProcessingFee, roundCurrency } from "@/lib/utils/paymentHelpers";
 import { getMerchandiseTaxCode, getShippingTaxCode, getProcessingFeeTaxCode } from "@/lib/utils/stripeTaxCodes";
+import { loadMerchProductsForOrder } from "@/lib/merchOrderValidation";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -45,6 +46,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(
         { error: "This order is not eligible for cash payment conversion." },
         { status: 400 }
+      );
+    }
+
+    const items = (order.items ?? []) as {
+      productId: string;
+      productName?: string;
+      size: string;
+      quantity: number;
+    }[];
+    const productValidation = await loadMerchProductsForOrder(items);
+    if (!productValidation.ok) {
+      return NextResponse.json(
+        { error: productValidation.error },
+        { status: productValidation.status }
       );
     }
 
@@ -99,6 +114,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "This order is not eligible for cash payment conversion" },
         { status: 400 }
+      );
+    }
+
+    const payItems = (order.items ?? []) as {
+      productId: string;
+      productName?: string;
+      size: string;
+      quantity: number;
+    }[];
+    const productValidation = await loadMerchProductsForOrder(payItems);
+    if (!productValidation.ok) {
+      return NextResponse.json(
+        { error: productValidation.error },
+        { status: productValidation.status }
       );
     }
 

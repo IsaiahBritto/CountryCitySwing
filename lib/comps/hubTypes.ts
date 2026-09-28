@@ -45,6 +45,8 @@ export interface HubPastEvent {
   title: string;
   starts_at: string | null;
   location: string | null;
+  strictly_level?: string | null;
+  jnj_level?: string | null;
   test_event?: boolean;
   competitions: HubPastCompetition[];
 }

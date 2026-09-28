@@ -5,7 +5,7 @@ import CompSignupModal from "@/components/CompSignupModal";
 import HowCompsWork from "@/components/comps/hub/HowCompsWork";
 import LiveNowSection from "@/components/comps/hub/LiveNowSection";
 import MyCompsSection from "@/components/comps/hub/MyCompsSection";
-import PastCompsSection from "@/components/comps/hub/PastCompsSection";
+import CompetitionResultsSection from "@/components/comps/hub/CompetitionResultsSection";
 import RoleCards from "@/components/comps/hub/RoleCards";
 import UpcomingCompsSection from "@/components/comps/hub/UpcomingCompsSection";
 import { authedFetch } from "@/lib/comps/clientAuth";
@@ -128,7 +128,7 @@ export default function CompsHubPage() {
             myUpcoming={me?.upcoming ?? []}
             onSignup={setSignupEvent}
           />
-          <PastCompsSection past={hub.past} />
+          <CompetitionResultsSection past={hub.past} />
         </>
       ) : null}
 

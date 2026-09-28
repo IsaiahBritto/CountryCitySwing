@@ -264,6 +264,12 @@ export interface EditableInstructorProfile {
   zip_code: string | null;
 }
 
+/** Profile page / instructor tabs (editable fields + account email). */
+export type InstructorProfileFormState = EditableInstructorProfile & {
+  email: string;
+  newsletter_opt_in?: boolean;
+};
+
 export function formatShownOn(shownOn: ProfileShownOn[]): string {
   return shownOn.map((s) => SHOWN_ON_LABELS[s]).join(" · ");
 }

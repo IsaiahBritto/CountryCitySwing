@@ -8,7 +8,7 @@ import InstructorProfileView from "@/components/InstructorProfileView";
 import {
   profileToInstructorView,
   SHOWN_ON_LABELS,
-  type EditableInstructorProfile,
+  type InstructorProfileFormState,
   type ProfileShownOn,
 } from "@/lib/instructorProfileFields";
 import { instructorPublicLinks } from "@/lib/instructorPublicLinks";
@@ -35,8 +35,10 @@ export default function ProfileInstructorTabs({
   demoteBlock,
   childrenAccountSettings,
 }: {
-  profile: EditableInstructorProfile & { email?: string; newsletter_opt_in?: boolean };
-  setProfile: (p: EditableInstructorProfile & { email?: string; newsletter_opt_in?: boolean }) => void;
+  profile: InstructorProfileFormState;
+  setProfile: React.Dispatch<
+    React.SetStateAction<InstructorProfileFormState>
+  >;
   photoPreviewUrl: string | null;
   onPhotoFileChange: (file: File | null) => void;
   onSubmit: (e: React.FormEvent) => void;

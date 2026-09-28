@@ -4,32 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import ProfileAccountSettings from "@/components/profile/ProfileAccountSettings";
 import ProfileInstructorTabs from "@/components/profile/ProfileInstructorTabs";
-import { isInstructorLikeRole } from "@/lib/instructorProfileFields";
+import {
+  isInstructorLikeRole,
+  type InstructorProfileFormState,
+} from "@/lib/instructorProfileFields";
 
-interface Profile {
-  id: string;
-  first_name: string;
-  last_name: string;
-  photo_url: string | null;
-  email: string;
-  role: string;
-  instagram_url: string | null;
-  teaching_since: string | null;
-  favorite_song: string | null;
-  teaching_style: string | null;
-  bio_long: string | null;
-  specialty: string | null;
-  phone_number: string | null;
-  private_lessons: string | null;
-  private_lessons_link: string | null;
-  private_lesson_disclaimer: string | null;
-  scheduling_enabled: boolean | null;
-  accepting_new_students: boolean | null;
-  prayer: string | null;
-  state: string | null;
-  zip_code: string | null;
-  newsletter_opt_in?: boolean;
-}
+type Profile = InstructorProfileFormState;
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -430,7 +410,12 @@ export default function ProfilePage() {
       {isInstructorLikeRole(profile.role) ? (
         <ProfileInstructorTabs
           profile={profile}
-          setProfile={setProfile}
+          setProfile={(action) => {
+            setProfile((prev) => {
+              if (!prev) return prev;
+              return typeof action === "function" ? action(prev) : action;
+            });
+          }}
           photoPreviewUrl={photoPreviewUrl}
           onPhotoFileChange={setFile}
           onSubmit={handleUpdate}

@@ -6,12 +6,15 @@ import ProfileField from "@/components/profile/ProfileField";
 import {
   INSTRUCTOR_PROFILE_SECTIONS,
   isCcsCoreInstructor,
-  type EditableInstructorProfile,
   type InstructorFieldKey,
+  type InstructorProfileFormState,
 } from "@/lib/instructorProfileFields";
 import { US_STATES_FULL_NAMES } from "@/lib/utils/usStates";
 
-function getFieldValue(profile: EditableInstructorProfile, key: InstructorFieldKey): string {
+function getFieldValue(
+  profile: InstructorProfileFormState,
+  key: InstructorFieldKey
+): string {
   const v = profile[key];
   if (key === "accepting_new_students" || key === "scheduling_enabled") {
     return "";
@@ -21,10 +24,10 @@ function getFieldValue(profile: EditableInstructorProfile, key: InstructorFieldK
 }
 
 function setFieldValue(
-  profile: EditableInstructorProfile,
+  profile: InstructorProfileFormState,
   key: InstructorFieldKey,
   value: string
-): EditableInstructorProfile {
+): InstructorProfileFormState {
   if (key === "accepting_new_students" || key === "scheduling_enabled") {
     return profile;
   }
@@ -41,8 +44,10 @@ export default function InstructorProfileEditor({
   onPhotoFileChange,
   saveMessage,
 }: {
-  profile: EditableInstructorProfile;
-  setProfile: (p: EditableInstructorProfile) => void;
+  profile: InstructorProfileFormState;
+  setProfile: React.Dispatch<
+    React.SetStateAction<InstructorProfileFormState>
+  >;
   photoPreviewUrl: string | null;
   onPhotoFileChange: (file: File | null) => void;
   saveMessage: { type: "success" | "error"; text: string } | null;

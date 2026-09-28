@@ -1,22 +1,10 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
-import InstructorSlotManager from "@/components/InstructorSlotManager";
-import GoldToggle from "@/components/GoldToggle";
-import { US_STATES_FULL_NAMES } from "@/lib/utils/usStates";
-
-// Dynamically load client-side only
-const InstructorLessonCalendar = dynamic(
-  () => import("@/components/InstructorLessonCalendar"),
-  { ssr: false }
-);
-
-function isInstructorLikeRole(role: string | null | undefined): boolean {
-  const r = (role ?? "").toLowerCase();
-  return r === "admin" || r === "instructor" || r === "non-ccs-instructor" || r.includes("instructor");
-}
+import ProfileAccountSettings from "@/components/profile/ProfileAccountSettings";
+import ProfileInstructorTabs from "@/components/profile/ProfileInstructorTabs";
+import { isInstructorLikeRole } from "@/lib/instructorProfileFields";
 
 interface Profile {
   id: string;
@@ -48,18 +36,44 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [file, setFile] = useState<File | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordUpdating, setPasswordUpdating] = useState(false);
-  const [passwordMessage, setPasswordMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [passwordMessage, setPasswordMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [newEmail, setNewEmail] = useState("");
   const [confirmNewEmail, setConfirmNewEmail] = useState("");
   const [emailUpdating, setEmailUpdating] = useState(false);
-  const [emailMessage, setEmailMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [emailMessage, setEmailMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
   const [activatingInstructor, setActivatingInstructor] = useState(false);
   const [demotingToAttendee, setDemotingToAttendee] = useState(false);
   const [testNewsletterSending, setTestNewsletterSending] = useState(false);
-  const [testNewsletterMessage, setTestNewsletterMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [testNewsletterMessage, setTestNewsletterMessage] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  const photoPreviewUrl = useMemo(() => {
+    if (file) return URL.createObjectURL(file);
+    return profile?.photo_url ?? null;
+  }, [file, profile?.photo_url]);
+
+  useEffect(() => {
+    return () => {
+      if (file && photoPreviewUrl?.startsWith("blob:")) {
+        URL.revokeObjectURL(photoPreviewUrl);
+      }
+    };
+  }, [file, photoPreviewUrl]);
 
   useEffect(() => {
     async function loadProfile() {
@@ -91,8 +105,8 @@ export default function ProfilePage() {
     e.preventDefault();
     if (!profile) return;
     setUpdating(true);
+    setSaveMessage(null);
 
-    // Upload new profile photo if one is chosen (only for non-attendee users)
     let photo_url = profile.photo_url;
     if (file && profile.role !== "attendee") {
       const { data, error } = await supabaseBrowser.storage
@@ -108,7 +122,6 @@ export default function ProfilePage() {
       }
     }
 
-    // Build update payload: include every editable field so the API saves all of them
     const updateData: Record<string, unknown> = {
       first_name: profile.first_name ?? "",
       last_name: profile.last_name ?? "",
@@ -131,13 +144,15 @@ export default function ProfilePage() {
       updateData.phone_number = profile.phone_number ?? null;
       updateData.private_lessons = profile.private_lessons ?? null;
       updateData.private_lessons_link = profile.private_lessons_link ?? null;
-      updateData.accepting_new_students = profile.accepting_new_students === true;
+      updateData.accepting_new_students =
+        profile.accepting_new_students === true;
       updateData.state = profile.state ?? null;
       updateData.zip_code = profile.zip_code ?? null;
       updateData.prayer = profile.prayer ?? null;
       if (profile.role === "instructor" || profile.role === "admin") {
         updateData.scheduling_enabled = profile.scheduling_enabled ?? false;
-        updateData.private_lesson_disclaimer = profile.private_lesson_disclaimer ?? null;
+        updateData.private_lesson_disclaimer =
+          profile.private_lesson_disclaimer ?? null;
       }
     }
 
@@ -148,7 +163,10 @@ export default function ProfilePage() {
 
     if (!token) {
       setUpdating(false);
-      alert("Session expired. Please sign in again.");
+      setSaveMessage({
+        type: "error",
+        text: "Session expired. Please sign in again.",
+      });
       return;
     }
 
@@ -164,10 +182,17 @@ export default function ProfilePage() {
     setUpdating(false);
 
     if (res.ok) {
-      alert("Profile updated successfully!");
+      setFile(null);
+      if (photo_url !== profile.photo_url) {
+        setProfile({ ...profile, photo_url });
+      }
+      setSaveMessage({ type: "success", text: "Profile saved successfully." });
     } else {
       const err = await res.json().catch(() => ({}));
-      alert("Error updating profile: " + (err.error ?? res.statusText));
+      setSaveMessage({
+        type: "error",
+        text: String(err.error ?? res.statusText),
+      });
     }
   };
 
@@ -175,7 +200,10 @@ export default function ProfilePage() {
     e.preventDefault();
     setPasswordMessage(null);
     if (newPassword.length < 6) {
-      setPasswordMessage({ type: "error", text: "Password must be at least 6 characters." });
+      setPasswordMessage({
+        type: "error",
+        text: "Password must be at least 6 characters.",
+      });
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -183,13 +211,18 @@ export default function ProfilePage() {
       return;
     }
     setPasswordUpdating(true);
-    const { error } = await supabaseBrowser.auth.updateUser({ password: newPassword });
+    const { error } = await supabaseBrowser.auth.updateUser({
+      password: newPassword,
+    });
     setPasswordUpdating(false);
     if (error) {
       setPasswordMessage({ type: "error", text: error.message });
       return;
     }
-    setPasswordMessage({ type: "success", text: "Password updated successfully." });
+    setPasswordMessage({
+      type: "success",
+      text: "Password updated successfully.",
+    });
     setNewPassword("");
     setConfirmPassword("");
   };
@@ -200,19 +233,31 @@ export default function ProfilePage() {
     const trimmed = newEmail.trim();
     const confirmTrimmed = confirmNewEmail.trim();
     if (!trimmed) {
-      setEmailMessage({ type: "error", text: "Please enter a new email address." });
+      setEmailMessage({
+        type: "error",
+        text: "Please enter a new email address.",
+      });
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
-      setEmailMessage({ type: "error", text: "Please enter a valid email address." });
+      setEmailMessage({
+        type: "error",
+        text: "Please enter a valid email address.",
+      });
       return;
     }
     if (trimmed !== confirmTrimmed) {
-      setEmailMessage({ type: "error", text: "New email and confirmation do not match." });
+      setEmailMessage({
+        type: "error",
+        text: "New email and confirmation do not match.",
+      });
       return;
     }
     if (trimmed === profile?.email) {
-      setEmailMessage({ type: "error", text: "New email is the same as your current email." });
+      setEmailMessage({
+        type: "error",
+        text: "New email is the same as your current email.",
+      });
       return;
     }
     setEmailUpdating(true);
@@ -236,7 +281,9 @@ export default function ProfilePage() {
   };
 
   const handleCreateInstructorProfile = async () => {
-    const { data: { session } } = await supabaseBrowser.auth.getSession();
+    const {
+      data: { session },
+    } = await supabaseBrowser.auth.getSession();
     const token = session?.access_token;
     if (!token) return;
     setActivatingInstructor(true);
@@ -258,9 +305,17 @@ export default function ProfilePage() {
   };
 
   const handleRemoveFromInstructorDirectory = async () => {
-    if (!profile || (profile.role ?? "").toLowerCase() !== "non-ccs-instructor") return;
-    if (!confirm("Remove your listing from the instructor directory? Your profile info will be kept but you will no longer appear on the Find Instructors page. You can add yourself back anytime.")) return;
-    const { data: { session } } = await supabaseBrowser.auth.getSession();
+    if (!profile || (profile.role ?? "").toLowerCase() !== "non-ccs-instructor")
+      return;
+    if (
+      !confirm(
+        "Remove your listing from the instructor directory? Your profile info will be kept but you will no longer appear on the Find Instructors page. You can add yourself back anytime."
+      )
+    )
+      return;
+    const {
+      data: { session },
+    } = await supabaseBrowser.auth.getSession();
     const token = session?.access_token;
     if (!token) return;
     setDemotingToAttendee(true);
@@ -287,6 +342,59 @@ export default function ProfilePage() {
       profile.role.trim() === "" ||
       profile.role.toLowerCase() === "attendee");
 
+  const accountSettings = profile ? (
+    <ProfileAccountSettings
+      profile={profile}
+      newPassword={newPassword}
+      setNewPassword={setNewPassword}
+      confirmPassword={confirmPassword}
+      setConfirmPassword={setConfirmPassword}
+      passwordUpdating={passwordUpdating}
+      passwordMessage={passwordMessage}
+      onPasswordSubmit={handlePasswordChange}
+      newEmail={newEmail}
+      setNewEmail={setNewEmail}
+      confirmNewEmail={confirmNewEmail}
+      setConfirmNewEmail={setConfirmNewEmail}
+      emailUpdating={emailUpdating}
+      emailMessage={emailMessage}
+      onEmailSubmit={handleEmailChange}
+      testNewsletterSending={testNewsletterSending}
+      testNewsletterMessage={testNewsletterMessage}
+      onTestNewsletter={async () => {
+        setTestNewsletterMessage(null);
+        setTestNewsletterSending(true);
+        const {
+          data: { session },
+        } = await supabaseBrowser.auth.getSession();
+        const token = session?.access_token;
+        if (!token) {
+          setTestNewsletterMessage({ type: "error", text: "Not signed in." });
+          setTestNewsletterSending(false);
+          return;
+        }
+        const res = await fetch("/api/newsletter/send-test", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        setTestNewsletterSending(false);
+        if (res.ok) {
+          setTestNewsletterMessage({
+            type: "success",
+            text: `Test email sent to ${data.sentTo ?? "your email"}.`,
+          });
+        } else {
+          setTestNewsletterMessage({
+            type: "error",
+            text: data.error ?? "Failed to send test.",
+          });
+        }
+      }}
+      onSignOut={handleSignOut}
+    />
+  ) : null;
+
   if (loading)
     return <p className="text-gray-400 text-center mt-10">Loading...</p>;
   if (!profile)
@@ -302,29 +410,11 @@ export default function ProfilePage() {
         Edit Your Profile
       </h2>
 
-      {/* Profile Photo */}
-      {profile.photo_url && (
-        <img
-          src={profile.photo_url}
-          alt="Profile photo"
-          className="w-28 h-28 rounded-full mx-auto border border-yellow-400 object-cover"
-        />
-      )}
-      {/* Only allow photo upload for non-attendee users (includes non-ccs-instructor) */}
-      {profile.role !== "attendee" && (
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          className="block mx-auto text-sm text-gray-300 mt-2"
-        />
-      )}
-
-      {/* Create instructor profile CTA for attendees */}
       {isAttendee && (
         <div className="rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-4 text-center">
           <p className="text-gray-300 mb-3">
-            List yourself as an instructor in the CCS directory and create a public profile.
+            List yourself as an instructor in the CCS directory and create a
+            public profile.
           </p>
           <button
             type="button"
@@ -337,418 +427,104 @@ export default function ProfilePage() {
         </div>
       )}
 
-      {/* Remove from instructor directory (non-CCS only) */}
-      {(profile.role ?? "").toLowerCase() === "non-ccs-instructor" && (
-        <div className="rounded-lg border border-neutral-600 bg-neutral-700/30 p-4 text-center">
-          <p className="text-gray-300 mb-3">
-            Remove your listing from the Find Instructors page and make your profile a regular account. Your current info will be kept, but you will no longer appear in the instructor directory. You can add yourself back anytime.
-          </p>
-          <button
-            type="button"
-            onClick={handleRemoveFromInstructorDirectory}
-            disabled={demotingToAttendee}
-            className="px-6 py-2 rounded-md bg-neutral-600 hover:bg-neutral-500 text-white disabled:opacity-50"
-          >
-            {demotingToAttendee ? "Updating..." : "Remove from instructor directory"}
-          </button>
-        </div>
-      )}
-
-      {/* Editable Form */}
-      <form onSubmit={handleUpdate} className="space-y-4">
-        <div className="flex flex-col sm:flex-row gap-2">
-          <input
-            type="text"
-            value={profile.first_name || ""}
-            onChange={(e) =>
-              setProfile({ ...profile, first_name: e.target.value })
-            }
-            placeholder="First Name"
-            className="w-full sm:w-1/2 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-          />
-          <input
-            type="text"
-            value={profile.last_name || ""}
-            onChange={(e) =>
-              setProfile({ ...profile, last_name: e.target.value })
-            }
-            placeholder="Last Name"
-            className="w-full sm:w-1/2 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-          />
-        </div>
-
-        {/* Instructor and Non-CCS-Instructor profile fields */}
-        {isInstructorLikeRole(profile.role) && (
-          <>
-            <input
-              type="text"
-              value={profile.prayer || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, prayer: e.target.value })
-              }
-              placeholder="Prayer: "
-              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            />
-            <textarea
-              value={profile.bio_long || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, bio_long: e.target.value })
-              }
-              placeholder="Full Bio (share your story!)"
-              className="w-full h-28 px-3 py-2 rounded bg-neutral-900 border border-neutral-700 resize-none"
-            />
-
-            <input
-              type="text"
-              value={profile.specialty || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, specialty: e.target.value })
-              }
-              placeholder="Specialty (e.g., Country Swing)"
-              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            />
-
-            {/* Location for directory and map */}
-            <div className="flex gap-2 flex-wrap">
-              <select
-                value={profile.state || ""}
-                onChange={(e) =>
-                  setProfile({ ...profile, state: e.target.value || null })
-                }
-                className="flex-1 min-w-[140px] px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-                aria-label="State"
-              >
-                <option value="">State (optional)</option>
-                {US_STATES_FULL_NAMES.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
+      {isInstructorLikeRole(profile.role) ? (
+        <ProfileInstructorTabs
+          profile={profile}
+          setProfile={setProfile}
+          photoPreviewUrl={photoPreviewUrl}
+          onPhotoFileChange={setFile}
+          onSubmit={handleUpdate}
+          updating={updating}
+          saveMessage={saveMessage}
+          demoteBlock={
+            (profile.role ?? "").toLowerCase() === "non-ccs-instructor" ? (
+              <div className="rounded-lg border border-neutral-600 bg-neutral-700/30 p-4 text-center">
+                <p className="text-gray-300 mb-3">
+                  Remove your listing from the Find Instructors page. Your info
+                  is kept; you can add yourself back anytime.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleRemoveFromInstructorDirectory}
+                  disabled={demotingToAttendee}
+                  className="px-6 py-2 rounded-md bg-neutral-600 hover:bg-neutral-500 text-white disabled:opacity-50"
+                >
+                  {demotingToAttendee
+                    ? "Updating..."
+                    : "Remove from instructor directory"}
+                </button>
+              </div>
+            ) : undefined
+          }
+          childrenAccountSettings={accountSettings}
+        />
+      ) : (
+        <>
+          <form onSubmit={handleUpdate} className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
-                value={profile.zip_code || ""}
+                value={profile.first_name || ""}
                 onChange={(e) =>
-                  setProfile({ ...profile, zip_code: e.target.value.trim() || null })
+                  setProfile({ ...profile, first_name: e.target.value })
                 }
-                placeholder="ZIP code (optional)"
-                className="w-32 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-                maxLength={10}
+                placeholder="First Name"
+                className="w-full sm:w-1/2 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
+              />
+              <input
+                type="text"
+                value={profile.last_name || ""}
+                onChange={(e) =>
+                  setProfile({ ...profile, last_name: e.target.value })
+                }
+                placeholder="Last Name"
+                className="w-full sm:w-1/2 px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
               />
             </div>
-
-            <input
-              type="text"
-              value={profile.teaching_style || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, teaching_style: e.target.value })
-              }
-              placeholder="Teaching Style"
-              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            />
-
-            <input
-              type="date"
-              value={profile.teaching_since || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, teaching_since: e.target.value })
-              }
-              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            />
-
-            <input
-              type="text"
-              value={profile.favorite_song || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, favorite_song: e.target.value })
-              }
-              placeholder="Favorite Song"
-              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            />
-
-            <input
-              type="text"
-              value={profile.instagram_url || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, instagram_url: e.target.value })
-              }
-              placeholder="Instagram URL"
-              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            />
-
-            <input
-              type="text"
-              value={profile.phone_number || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, phone_number: e.target.value })
-              }
-              placeholder="Phone Number"
-              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            />
-
-            <textarea
-              value={profile.private_lessons || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, private_lessons: e.target.value })
-              }
-              placeholder="Private Lessons Info"
-              className="w-full h-24 px-3 py-2 rounded bg-neutral-900 border border-neutral-700 resize-none"
-            />
-
-            <input
-              type="text"
-              value={profile.private_lessons_link || ""}
-              onChange={(e) =>
-                setProfile({ ...profile, private_lessons_link: e.target.value })
-              }
-              placeholder="Private Lessons Schedule Link"
-              className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            />
-
-            <div className="mt-4 rounded-lg border border-neutral-700 bg-neutral-900/50 px-4 py-4">
-              <GoldToggle
-                checked={!!profile.accepting_new_students}
-                onChange={(checked) =>
-                  setProfile({ ...profile, accepting_new_students: checked })
+            <div className="flex items-center justify-between max-w-md gap-4">
+              <label className="text-gray-300 font-medium text-sm">
+                Weekly schedule email (Sundays)
+              </label>
+              <input
+                type="checkbox"
+                checked={!!profile.newsletter_opt_in}
+                onChange={(e) =>
+                  setProfile({
+                    ...profile,
+                    newsletter_opt_in: e.target.checked,
+                  })
                 }
-                label="Accepting new students for private lessons"
-                description="When on, you can appear when visitors filter Find Instructors to instructors accepting new students."
+                className="w-5 h-5 accent-yellow-400"
               />
             </div>
-
-            {/* Scheduling: only for core CCS instructors, not Non-CCS-Instructor */}
-            {(profile.role === "instructor" || profile.role === "admin") && (
-              <>
-                <div className="flex items-center justify-between mt-6">
-                  <label className="text-gray-300 font-medium">
-                    Enable scheduling through CCS website
-                  </label>
-                  <input
-                    type="checkbox"
-                    checked={!!profile.scheduling_enabled}
-                    onChange={(e) =>
-                      setProfile({
-                        ...profile,
-                        scheduling_enabled: e.target.checked,
-                      })
-                    }
-                    className="w-5 h-5 accent-yellow-400"
-                  />
-                </div>
-                <div className="mt-4">
-                  <label className="block text-gray-300 font-medium mb-1">
-                    Private lesson booking disclaimer (optional)
-                  </label>
-                  <p className="text-xs text-gray-400 mb-2">
-                    If set, students must read and acknowledge this before confirming a booking on your calendar.
-                  </p>
-                  <textarea
-                    value={profile.private_lesson_disclaimer || ""}
-                    onChange={(e) =>
-                      setProfile({
-                        ...profile,
-                        private_lesson_disclaimer: e.target.value,
-                      })
-                    }
-                    placeholder="e.g. cancellation policy, what to bring, studio rules..."
-                    className="w-full h-28 px-3 py-2 rounded bg-neutral-900 border border-neutral-700 resize-none text-sm"
-                  />
-                </div>
-              </>
-            )}
-
-          </>
-        )}
-
-        {/* Weekly newsletter (all users) */}
-        <div className="border-t border-neutral-700 pt-6 mt-6">
-          <div className="flex items-center justify-between max-w-md">
-            <label className="text-gray-300 font-medium">
-              Send me the weekly schedule and workshop highlights (Sundays)
-            </label>
-            <input
-              type="checkbox"
-              checked={!!profile.newsletter_opt_in}
-              onChange={(e) => {
-                setProfile({ ...profile, newsletter_opt_in: e.target.checked });
-              }}
-              className="w-5 h-5 accent-yellow-400"
-            />
-          </div>
-          <p className="text-gray-500 text-sm mt-1">
-            You can turn this off anytime here or via the link in each email.
-          </p>
-
-          {/* Admin: send test newsletter to self */}
-          {(profile.role ?? "").toLowerCase() === "admin" && (
-            <div className="mt-4 pt-4 border-t border-neutral-600">
-              <p className="text-gray-400 text-sm mb-2">
-                Send a copy of the weekly newsletter to your email to preview how it looks.
-              </p>
-              <button
-                type="button"
-                disabled={testNewsletterSending}
-                onClick={async () => {
-                  setTestNewsletterMessage(null);
-                  setTestNewsletterSending(true);
-                  const { data: { session } } = await supabaseBrowser.auth.getSession();
-                  const token = session?.access_token;
-                  if (!token) {
-                    setTestNewsletterMessage({ type: "error", text: "Not signed in." });
-                    setTestNewsletterSending(false);
-                    return;
-                  }
-                  const res = await fetch("/api/newsletter/send-test", {
-                    method: "POST",
-                    headers: { Authorization: `Bearer ${token}` },
-                  });
-                  const data = await res.json().catch(() => ({}));
-                  setTestNewsletterSending(false);
-                  if (res.ok) {
-                    setTestNewsletterMessage({ type: "success", text: `Test email sent to ${data.sentTo ?? "your email"}.` });
-                  } else {
-                    setTestNewsletterMessage({ type: "error", text: data.error ?? "Failed to send test." });
-                  }
-                }}
-                className="px-4 py-2 rounded-md bg-neutral-600 hover:bg-neutral-500 text-white text-sm disabled:opacity-50"
+            {saveMessage && (
+              <p
+                className={
+                  "text-sm " +
+                  (saveMessage.type === "success"
+                    ? "text-green-400"
+                    : "text-red-400")
+                }
               >
-                {testNewsletterSending ? "Sending…" : "Send test newsletter to my email"}
-              </button>
-              {testNewsletterMessage && (
-                <p
-                  className={`text-sm mt-2 ${testNewsletterMessage.type === "success" ? "text-green-400" : "text-red-400"}`}
-                >
-                  {testNewsletterMessage.text}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-
-        <button
-          type="submit"
-          disabled={updating}
-          className="btn-signup w-full py-2 rounded-md mt-4"
-        >
-          {updating ? "Updating..." : "Save Changes"}
-        </button>
-      </form>
-
-      {/* Change password */}
-      <div className="border-t border-neutral-700 pt-6 mt-6">
-        <h3 className="text-lg font-semibold text-primary mb-3">Change password</h3>
-        <form onSubmit={handlePasswordChange} className="space-y-4 max-w-md">
-          <input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="New password"
-            className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            autoComplete="new-password"
-            minLength={6}
-          />
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            placeholder="Confirm new password"
-            className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            autoComplete="new-password"
-            minLength={6}
-          />
-          {passwordMessage && (
-            <p
-              className={`text-sm ${passwordMessage.type === "success" ? "text-green-400" : "text-red-400"}`}
+                {saveMessage.text}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={updating}
+              className="btn-signup w-full py-2 rounded-md"
             >
-              {passwordMessage.text}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={passwordUpdating}
-            className="btn-signup py-2 px-4 rounded-md"
-          >
-            {passwordUpdating ? "Updating..." : "Update password"}
-          </button>
-        </form>
-      </div>
-
-      {/* Change email */}
-      <div className="border-t border-neutral-700 pt-6 mt-6">
-        <h3 className="text-lg font-semibold text-primary mb-3">Change email</h3>
-        <form onSubmit={handleEmailChange} className="space-y-4 max-w-md">
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Current email</label>
-            <input
-              type="email"
-              value={profile?.email ?? ""}
-              readOnly
-              className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-gray-400 cursor-not-allowed"
-              aria-readonly
-            />
+              {updating ? "Updating..." : "Save Changes"}
+            </button>
+          </form>
+          <div className="border-t border-neutral-700 pt-8">
+            <h3 className="text-lg font-semibold text-primary mb-4">
+              Account settings
+            </h3>
+            {accountSettings}
           </div>
-          <input
-            type="email"
-            value={newEmail}
-            onChange={(e) => { setNewEmail(e.target.value); setEmailMessage(null); }}
-            placeholder="New email address"
-            className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            autoComplete="email"
-          />
-          <input
-            type="email"
-            value={confirmNewEmail}
-            onChange={(e) => { setConfirmNewEmail(e.target.value); setEmailMessage(null); }}
-            placeholder="Confirm new email address"
-            className="w-full px-3 py-2 rounded bg-neutral-900 border border-neutral-700"
-            autoComplete="email"
-          />
-          {emailMessage && (
-            <p
-              className={`text-sm ${emailMessage.type === "success" ? "text-green-400" : "text-red-400"}`}
-            >
-              {emailMessage.text}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={emailUpdating}
-            className="btn-signup py-2 px-4 rounded-md"
-          >
-            {emailUpdating ? "Sending..." : "Send confirmation email"}
-          </button>
-        </form>
-      </div>
-
-      {/* Slot Manager (only for instructors who enabled scheduling) */}
-      {(profile.role === "instructor" || profile.role === "admin") && profile.scheduling_enabled && (
-        <div className="overflow-x-auto min-w-0">
-          <InstructorSlotManager instructorId={profile.id} />
-        </div>
+        </>
       )}
-
-      {(profile.role === "instructor" || profile.role === "admin") && profile.scheduling_enabled && (
-        <div className="mt-10 overflow-x-auto min-w-0">
-          <h3 className="text-xl font-semibold text-primary mb-4 text-center">
-            Your Public Lesson Calendar Preview
-          </h3>
-          <InstructorLessonCalendar instructorId={profile.id} isInstructorView={true} />
-        </div>
-      )}
-
-      {/* Sign Out */}
-      <div className="text-center mt-6">
-        <button
-          onClick={handleSignOut}
-          className="w-full py-2 rounded-md font-semibold transition-all duration-300
-             bg-transparent border border-red-500 text-red-400
-             shadow-[0_0_15px_rgba(239,68,68,0.4)]
-             hover:bg-red-500 hover:text-black
-             hover:shadow-[0_0_25px_rgba(239,68,68,0.8)]"
-        >
-          Sign Out
-        </button>
-      </div>
     </div>
   );
 }

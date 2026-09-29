@@ -446,6 +446,18 @@ describe("callbackRawSync", () => {
       expect(altPlacementRaw("alt3", votes, raw, "C")).toBe(58);
     });
 
+    it("altPlacementRaw steps alt2 below alt1 holder at 70", () => {
+      const votes = new Map<string, CallbackVote>([
+        ["Y", "yes"],
+        ["A1", "alt1"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["Y", 100],
+        ["A1", 70],
+      ]);
+      expect(altPlacementRaw("alt2", votes, raw, "A2")).toBe(69);
+    });
+
     it("altPlacementRaw steps down from min yes when min yes is under 60", () => {
       const votes = new Map<string, "yes">([["Y", "yes"]]);
       const raw = new Map<string, number | null>([["Y", 52]]);
@@ -1252,6 +1264,91 @@ describe("callbackRawSync", () => {
 
       expect(next.rawById.get("Comp11")).toBe(59);
       expect(next.rawById.get("Comp10")).toBe(59);
+    });
+
+    it("ties second alt1 to incumbent Yes-band raw 93 not canonical 60", () => {
+      const entryIds = ["Comp10", "Comp11", "A"];
+      const votes = new Map<string, CallbackVote>([
+        ["Comp10", "no"],
+        ["Comp11", "alt1"],
+        ["A", "yes"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["Comp10", 18],
+        ["Comp11", 93],
+        ["A", 100],
+      ]);
+
+      const next = applyCallbackVote(
+        entryIds,
+        votes,
+        raw,
+        "Comp10",
+        "alt1",
+        { callbackCount: 1, alternateCount: 1 },
+        new Set(["Comp10"])
+      );
+
+      expect(next.rawById.get("Comp11")).toBe(93);
+      expect(next.rawById.get("Comp10")).toBe(93);
+    });
+
+    it("ties second alt2 to incumbent Yes-band raw 62 not canonical 59", () => {
+      const entryIds = ["Comp10", "Comp11", "A"];
+      const votes = new Map<string, CallbackVote>([
+        ["Comp10", "no"],
+        ["Comp11", "alt2"],
+        ["A", "yes"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["Comp10", 18],
+        ["Comp11", 62],
+        ["A", 100],
+      ]);
+
+      const next = applyCallbackVote(
+        entryIds,
+        votes,
+        raw,
+        "Comp10",
+        "alt2",
+        { callbackCount: 1, alternateCount: 2 },
+        new Set(["Comp10"])
+      );
+
+      expect(next.rawById.get("Comp11")).toBe(62);
+      expect(next.rawById.get("Comp10")).toBe(62);
+    });
+
+    it("keeps alt1 at 70 when duplicate alt1 demotes to alt2", () => {
+      const entryIds = ["A", "B", "C"];
+      const limits = { callbackCount: 1, alternateCount: 2 };
+      const votes = new Map<string, CallbackVote>([
+        ["A", "yes"],
+        ["B", "alt1"],
+        ["C", "alt1"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["A", 100],
+        ["B", 70],
+        ["C", 70],
+      ]);
+      const automated = new Set(["B", "C"]);
+
+      const next = applyCallbackVote(
+        entryIds,
+        votes,
+        raw,
+        "C",
+        "alt2",
+        limits,
+        automated
+      );
+
+      expect(next.votes.get("B")).toBe("alt1");
+      expect(next.votes.get("C")).toBe("alt2");
+      expect(next.rawById.get("B")).toBe(70);
+      expect(next.rawById.get("C")).toBe(69);
     });
   });
 });

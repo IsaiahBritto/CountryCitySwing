@@ -122,6 +122,26 @@ function altIndexFromVote(vote: CallbackVote): number {
   return 1;
 }
 
+function minHigherAltHolderRaw(
+  vote: CallbackVote,
+  votes: Map<string, CallbackVote>,
+  rawById: Map<string, number | null>,
+  entryId: string
+): number | null {
+  const altIndex = altIndexFromVote(vote);
+  if (altIndex <= 1) return null;
+  let min: number | null = null;
+  for (let i = 1; i < altIndex; i++) {
+    const rank = `alt${i}` as CallbackVote;
+    for (const [id, v] of votes) {
+      if (v !== rank || id === entryId) continue;
+      const raw = rawById.get(id);
+      if (raw != null) min = min == null ? raw : Math.min(min, raw);
+    }
+  }
+  return min;
+}
+
 export function altPlacementRaw(
   vote: CallbackVote,
   votes: Map<string, CallbackVote>,
@@ -147,6 +167,11 @@ export function altPlacementRaw(
     computed = ALT_CEILING - (altIndex - 1);
   } else {
     computed = minYes - altIndex;
+  }
+
+  const minHigher = minHigherAltHolderRaw(vote, votes, rawById, entryId);
+  if (minHigher != null) {
+    computed = clampScore(minHigher - 1);
   }
 
   const maxNo = maxExistingNoRaw(votes, rawById, entryId);
@@ -303,12 +328,31 @@ function pickDuplicateAltGroupRaw(
     return null;
   };
 
+  const pickIncumbentRaw = (excludeChanged: boolean): number | null => {
+    for (const id of holders) {
+      if (
+        excludeChanged &&
+        placementChangedEntryId != null &&
+        id === placementChangedEntryId
+      ) {
+        continue;
+      }
+      const existing = out.get(id);
+      if (existing != null) return existing;
+    }
+    return null;
+  };
+
   if (placementChangedEntryId != null) {
+    const incumbentRaw = pickIncumbentRaw(true);
+    if (incumbentRaw != null) return incumbentRaw;
     const incumbent = pickFirstValid(true);
     if (incumbent != null) return incumbent;
   }
   const any = pickFirstValid(false);
-  return any ?? canonical;
+  if (any != null) return any;
+  const anyRaw = pickIncumbentRaw(false);
+  return anyRaw ?? canonical;
 }
 
 function applyAltGroupRaws(
@@ -343,11 +387,20 @@ function applyAltGroupRaws(
   }
 
   const id = holders[0]!;
+  const stored = out.get(id);
+  if (
+    placementChangedEntryId != null &&
+    id !== placementChangedEntryId &&
+    stored != null &&
+    !isStaleNoRawOnAltVote(stored)
+  ) {
+    out.set(id, stored);
+    return;
+  }
   if (automatedEntryIds.has(id)) {
     out.set(id, canonical);
     return;
   }
-  const stored = out.get(id);
   if (stored != null && isValidAltHolderRaw(stored, votes, out, limits)) {
     out.set(id, stored);
   } else {

@@ -37,6 +37,10 @@ import CompLevelBadge from "@/components/CompLevelBadge";
 import PlannedClassLevelBadge from "@/components/PlannedClassLevelBadge";
 import DanceRoleBadge from "@/components/DanceRoleBadge";
 import UpperLevelBreakdownModal from "@/components/UpperLevelBreakdownModal";
+import CompDivisionRegistrationModal, {
+  type CompDivisionModalKind,
+} from "@/components/CompDivisionRegistrationModal";
+import type { CompDivisionSummary } from "@/lib/compRegistrationCounts";
 import AdminPlannedClassEditModal from "@/components/AdminPlannedClassEditModal";
 import { hasCompDivisionPrice } from "@/lib/compLevels";
 import {
@@ -202,6 +206,10 @@ export default function RegistrationPage() {
   const [classLevelEditModal, setClassLevelEditModal] = useState<Signup | null>(
     null
   );
+  const [compDivisionSummary, setCompDivisionSummary] =
+    useState<CompDivisionSummary | null>(null);
+  const [compDivisionModal, setCompDivisionModal] =
+    useState<CompDivisionModalKind | null>(null);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -321,6 +329,7 @@ export default function RegistrationPage() {
     }
     setClassLevelModal(null);
     setUpperLevelModalOpen(false);
+    setCompDivisionModal(null);
   }, [selectedEvent, filter]);
 
   // Set up real-time subscription for signups or comp_signups changes
@@ -429,6 +438,7 @@ export default function RegistrationPage() {
         setArrivalBuckets({ ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS });
         setClassLevelSummary(null);
         setUpperLevelBreakdown(null);
+        setCompDivisionSummary(null);
         return;
       }
 
@@ -438,14 +448,19 @@ export default function RegistrationPage() {
       if (isComp) {
         setClassLevelSummary(null);
         setUpperLevelBreakdown(null);
+        setCompDivisionSummary(
+          (data.comp_division_summary as CompDivisionSummary | undefined) ?? null
+        );
       } else if (data.all_three_classes && data.class_level_summary) {
         setClassLevelSummary(data.class_level_summary as ClassLevelSummary);
         setUpperLevelBreakdown(
           (data.upper_level_breakdown as UpperLevelBreakdown | null) ?? null
         );
+        setCompDivisionSummary(null);
       } else {
         setClassLevelSummary(null);
         setUpperLevelBreakdown(null);
+        setCompDivisionSummary(null);
       }
       if (data.eventPricing) {
         setEventPricing(data.eventPricing as EventPricing);
@@ -503,6 +518,7 @@ export default function RegistrationPage() {
       setArrivalBuckets({ ...EMPTY_CHECK_IN_ARRIVAL_BUCKETS });
       setClassLevelSummary(null);
       setUpperLevelBreakdown(null);
+      setCompDivisionSummary(null);
     }
   };
 
@@ -1050,18 +1066,44 @@ export default function RegistrationPage() {
                 (hasCompDivisionPrice(selectedEvent.strictly_price) ||
                   hasCompDivisionPrice(selectedEvent.jnj_price)) && (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {hasCompDivisionPrice(selectedEvent.strictly_price) && (
-                    <span className="inline-flex items-center gap-2 text-sm text-gray-300">
-                      <span className="text-primary font-medium">Strictly</span>
-                      <CompLevelBadge level={selectedEvent.strictly_level} />
-                    </span>
-                  )}
-                  {hasCompDivisionPrice(selectedEvent.jnj_price) && (
-                    <span className="inline-flex items-center gap-2 text-sm text-gray-300">
-                      <span className="text-primary font-medium">JnJ</span>
-                      <CompLevelBadge level={selectedEvent.jnj_level} />
-                    </span>
-                  )}
+                  {hasCompDivisionPrice(selectedEvent.strictly_price) &&
+                    (isAdmin ? (
+                      <button
+                        type="button"
+                        title="View registration counts"
+                        onClick={() => setCompDivisionModal("strictly")}
+                        className="inline-flex items-center gap-2 text-sm text-gray-300 rounded-md border border-transparent px-1 py-0.5 hover:border-primary/40 hover:bg-primary/10 cursor-pointer transition-colors"
+                      >
+                        <span className="text-primary font-medium underline decoration-primary/50 underline-offset-2">
+                          Strictly
+                        </span>
+                        <CompLevelBadge level={selectedEvent.strictly_level} />
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-2 text-sm text-gray-300">
+                        <span className="text-primary font-medium">Strictly</span>
+                        <CompLevelBadge level={selectedEvent.strictly_level} />
+                      </span>
+                    ))}
+                  {hasCompDivisionPrice(selectedEvent.jnj_price) &&
+                    (isAdmin ? (
+                      <button
+                        type="button"
+                        title="View registration counts"
+                        onClick={() => setCompDivisionModal("jnj")}
+                        className="inline-flex items-center gap-2 text-sm text-gray-300 rounded-md border border-transparent px-1 py-0.5 hover:border-primary/40 hover:bg-primary/10 cursor-pointer transition-colors"
+                      >
+                        <span className="text-primary font-medium underline decoration-primary/50 underline-offset-2">
+                          JnJ
+                        </span>
+                        <CompLevelBadge level={selectedEvent.jnj_level} />
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-2 text-sm text-gray-300">
+                        <span className="text-primary font-medium">JnJ</span>
+                        <CompLevelBadge level={selectedEvent.jnj_level} />
+                      </span>
+                    ))}
                 </div>
               )}
             </div>
@@ -1899,6 +1941,18 @@ export default function RegistrationPage() {
         <UpperLevelBreakdownModal
           breakdown={upperLevelBreakdown}
           onClose={() => setUpperLevelModalOpen(false)}
+        />
+      )}
+      {compDivisionModal && compDivisionSummary && selectedEvent && (
+        <CompDivisionRegistrationModal
+          division={compDivisionModal}
+          level={
+            compDivisionModal === "strictly"
+              ? selectedEvent.strictly_level
+              : selectedEvent.jnj_level
+          }
+          summary={compDivisionSummary}
+          onClose={() => setCompDivisionModal(null)}
         />
       )}
       {classLevelEditModal && sessionToken && selectedEvent && (

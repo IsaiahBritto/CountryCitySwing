@@ -125,6 +125,15 @@ export default function EventOpsPage({
           </p>
         </Link>
         <Link
+          href={`/admin/comps/events/${eventId}/playlists`}
+          className="rounded-xl border border-neutral-700 bg-neutral-800/50 p-5 transition hover:border-primary/60"
+        >
+          <div className="font-semibold text-white">Competition playlists</div>
+          <p className="mt-1 text-sm text-neutral-400">
+            Generate private Spotify playlists per division.
+          </p>
+        </Link>
+        <Link
           href={`/admin/comps/events/${eventId}/checkin`}
           className="rounded-xl border border-neutral-700 bg-neutral-800/50 p-5 transition hover:border-primary/60"
         >

@@ -596,29 +596,42 @@ export function callbackRawTiedEntryIds(
 
 function isMaterialRawTieGroup(
   group: string[],
-  votes: Map<string, CallbackVote>
+  votes: Map<string, CallbackVote>,
+  limits: CallbackLimits
 ): boolean {
   const voteValues = group.map((id) => votes.get(id));
   const defined = voteValues.filter((v): v is CallbackVote => v != null);
   if (defined.length !== group.length) return true;
-  return new Set(defined).size !== 1;
+  if (new Set(defined).size !== 1) return true;
+  const vote = defined[0]!;
+  if (vote === "yes") {
+    const yesCount = [...votes.values()].filter((v) => v === "yes").length;
+    if (yesCount > limits.callbackCount) return true;
+  }
+  if (vote !== "yes" && vote !== "no") {
+    const holders = [...votes.values()].filter((v) => v === vote).length;
+    if (holders > 1) return true;
+  }
+  return false;
 }
 
 /** Duplicate raw groups that span different placement votes (block submit / tie UI). */
 export function callbackMaterialRawTieGroups(
   votes: Map<string, CallbackVote>,
-  rawById: Map<string, number | null>
+  rawById: Map<string, number | null>,
+  limits: CallbackLimits
 ): string[][] {
   return callbackRawTieGroups(rawById).filter((group) =>
-    isMaterialRawTieGroup(group, votes)
+    isMaterialRawTieGroup(group, votes, limits)
   );
 }
 
 export function callbackMaterialRawTiedEntryIds(
   votes: Map<string, CallbackVote>,
-  rawById: Map<string, number | null>
+  rawById: Map<string, number | null>,
+  limits: CallbackLimits
 ): string[] {
-  return callbackMaterialRawTieGroups(votes, rawById).flat();
+  return callbackMaterialRawTieGroups(votes, rawById, limits).flat();
 }
 
 export function itemsFromVotesAndRaw(
@@ -678,10 +691,12 @@ export function callbackPlacementConflicts(
 
 export function conflictedCallbackEntryIds(
   votes: Map<string, CallbackVote>,
-  _limits: CallbackLimits,
+  limits: CallbackLimits,
   rawById?: Map<string, number | null>
 ): string[] {
-  return rawById ? callbackMaterialRawTiedEntryIds(votes, rawById) : [];
+  return rawById
+    ? callbackMaterialRawTiedEntryIds(votes, rawById, limits)
+    : [];
 }
 
 /** Submit gate: every entry voted, exact quotas, no vote-level or material raw-score ties. */
@@ -696,7 +711,7 @@ export function canSubmitCallbackPlacements(
   }
   if (
     rawById &&
-    callbackMaterialRawTiedEntryIds(votes, rawById).length > 0
+    callbackMaterialRawTiedEntryIds(votes, rawById, limits).length > 0
   ) {
     return false;
   }

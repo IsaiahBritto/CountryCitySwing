@@ -749,7 +749,7 @@ describe("callbackRawSync", () => {
         ["C", 2],
         ["D", 2],
       ]);
-      expect(callbackMaterialRawTieGroups(votes, raw)).toEqual([]);
+      expect(callbackMaterialRawTieGroups(votes, raw, { callbackCount: 1, alternateCount: 1 })).toEqual([]);
       expect(
         canSubmitCallbackPlacements(
           votes,
@@ -771,7 +771,7 @@ describe("callbackRawSync", () => {
         ["B", 88],
         ["C", 1],
       ]);
-      expect(callbackMaterialRawTieGroups(votes, raw)).toEqual([]);
+      expect(callbackMaterialRawTieGroups(votes, raw, { callbackCount: 2, alternateCount: 0 })).toEqual([]);
       expect(
         canSubmitCallbackPlacements(
           votes,
@@ -780,6 +780,58 @@ describe("callbackRawSync", () => {
           raw
         )
       ).toBe(true);
+    });
+
+    it("flags overflow Yes rows tied at min in-quota raw", () => {
+      const limits = { callbackCount: 2, alternateCount: 0 };
+      const votes = new Map<string, CallbackVote>([
+        ["A", "yes"],
+        ["B", "yes"],
+        ["C", "yes"],
+        ["D", "no"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["A", 90],
+        ["B", 58],
+        ["C", 58],
+        ["D", 1],
+      ]);
+      expect(callbackMaterialRawTieGroups(votes, raw, limits)).toEqual([
+        ["B", "C"],
+      ]);
+      expect(conflictedCallbackEntryIds(votes, limits, raw).sort()).toEqual([
+        "B",
+        "C",
+      ]);
+      expect(
+        canSubmitCallbackPlacements(votes, limits, ["A", "B", "C", "D"], raw)
+      ).toBe(false);
+    });
+
+    it("flags duplicate alt holders tied at same raw", () => {
+      const limits = { callbackCount: 1, alternateCount: 1 };
+      const votes = new Map<string, CallbackVote>([
+        ["A", "yes"],
+        ["B", "alt1"],
+        ["C", "alt1"],
+        ["D", "no"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["A", 100],
+        ["B", 60],
+        ["C", 60],
+        ["D", 1],
+      ]);
+      expect(callbackMaterialRawTieGroups(votes, raw, limits)).toEqual([
+        ["B", "C"],
+      ]);
+      expect(conflictedCallbackEntryIds(votes, limits, raw).sort()).toEqual([
+        "B",
+        "C",
+      ]);
+      expect(
+        canSubmitCallbackPlacements(votes, limits, ["A", "B", "C", "D"], raw)
+      ).toBe(false);
     });
 
     it("flags Yes vs No at same raw", () => {
@@ -791,7 +843,9 @@ describe("callbackRawSync", () => {
         ["A", 49],
         ["B", 49],
       ]);
-      expect(callbackMaterialRawTiedEntryIds(votes, raw).sort()).toEqual([
+      expect(
+        callbackMaterialRawTiedEntryIds(votes, raw, { callbackCount: 1, alternateCount: 0 }).sort()
+      ).toEqual([
         "A",
         "B",
       ]);

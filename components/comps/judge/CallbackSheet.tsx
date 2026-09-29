@@ -558,8 +558,8 @@ export default function CallbackSheet({
     [votes, limits, rawById]
   );
   const tieGroups = useMemo(
-    () => callbackMaterialRawTieGroups(votes, rawById),
-    [votes, rawById]
+    () => callbackMaterialRawTieGroups(votes, rawById, limits),
+    [votes, rawById, limits]
   );
   const tiedWithBibsByEntryId = useMemo(() => {
     const bibById = new Map(entries.map((e) => [e.roundEntryId, e.bibNumber]));

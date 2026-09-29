@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiError, authedFetchWithRetry } from "@/lib/clientAuth";
 import type { OwnedPlaylist } from "@/components/dj/useOwnedPlaylists";
 import type { DeckId, DeckTrack } from "@/lib/spotify/djDeckState";
@@ -49,6 +49,17 @@ export default function PlaylistSelector({
   const [error, setError] = useState<string | null>(null);
   const [trackWarning, setTrackWarning] = useState<string | null>(null);
 
+  const onChangeRef = useRef(onChange);
+  const onPlaylistLoadedRef = useRef(onPlaylistLoaded);
+  onChangeRef.current = onChange;
+  onPlaylistLoadedRef.current = onPlaylistLoaded;
+
+  const autoLoadAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    autoLoadAttemptedRef.current = false;
+  }, [deckId]);
+
   const loadTracks = useCallback(
     async (playlistId: string, playlistName: string) => {
       setLoadingTracks(true);
@@ -78,8 +89,8 @@ export default function PlaylistSelector({
               "Showing cached playlist data while Spotify sync is paused."
           );
         }
-        onChange(deckId, { id: playlistId, name: playlistName });
-        onPlaylistLoaded(deckId, {
+        onChangeRef.current(deckId, { id: playlistId, name: playlistName });
+        onPlaylistLoadedRef.current(deckId, {
           tracks: (body as { tracks?: DeckTrack[] }).tracks ?? [],
           totalDurationMs:
             (body as { totalDurationMs?: number }).totalDurationMs ?? 0,
@@ -91,30 +102,33 @@ export default function PlaylistSelector({
         setLoadingTracks(false);
       }
     },
-    [
-      activeSocialPlaylistId,
-      deckId,
-      onChange,
-      onPlaylistLoaded,
-    ]
+    [activeSocialPlaylistId, deckId]
   );
+
+  useEffect(() => {
+    if (tracksLoaded) {
+      autoLoadAttemptedRef.current = true;
+    }
+  }, [tracksLoaded]);
 
   useEffect(() => {
     if (value || disableAutoLoad || tracksLoaded) return;
     if (playlistsLoading || ownedPlaylists.length === 0) return;
+    if (autoLoadAttemptedRef.current) return;
 
     const savedId = sessionStorage.getItem(sessionKey(deckId));
     const initial =
       (savedId && ownedPlaylists.find((p) => p.id === savedId)) ||
       (deckId === "A" ? ownedPlaylists[0] : null);
     if (initial) {
+      autoLoadAttemptedRef.current = true;
       void loadTracks(initial.id, initial.name);
     }
   }, [
     deckId,
     disableAutoLoad,
     loadTracks,
-    ownedPlaylists,
+    ownedPlaylists.length,
     playlistsLoading,
     tracksLoaded,
     value,
@@ -123,6 +137,7 @@ export default function PlaylistSelector({
   const handleSelect = async (playlistId: string) => {
     const playlist = ownedPlaylists.find((p) => p.id === playlistId);
     if (!playlist) return;
+    autoLoadAttemptedRef.current = true;
     await loadTracks(playlist.id, playlist.name);
   };
 

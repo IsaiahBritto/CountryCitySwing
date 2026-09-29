@@ -8,6 +8,8 @@ export type { DeckPlaylistPatch } from "@/lib/spotify/deckPlaylistSync";
 
 export type DeckId = "A" | "B";
 
+export type DeckTrackAnalysisStatus = "complete" | "pending" | "unavailable";
+
 export type DeckTrack = {
   id: string;
   uri: string;
@@ -15,6 +17,10 @@ export type DeckTrack = {
   primaryArtist: string;
   durationMs: number;
   bpm?: number;
+  isrc?: string | null;
+  camelot?: string | null;
+  energy?: number;
+  analysisStatus?: DeckTrackAnalysisStatus;
 };
 
 export type PlaybackSource = "queue" | "playlist";
@@ -106,6 +112,17 @@ export type DjDeckAction =
   | { type: "HIGHLIGHT_PLAYLIST_ROW"; deck: DeckId; index: number | null }
   | { type: "SET_SHUFFLE_ENABLED"; deck: DeckId; enabled: boolean }
   | { type: "APPLY_PLAYLIST_PATCH"; deck: DeckId; patch: DeckPlaylistPatch }
+  | {
+      type: "MERGE_TRACK_METADATA";
+      deck: DeckId;
+      updates: Array<{
+        id: string;
+        bpm?: number;
+        camelot?: string | null;
+        energy?: number;
+        analysisStatus?: DeckTrackAnalysisStatus;
+      }>;
+    }
   | {
       type: "MERGE_PLAYLIST";
       deck: DeckId;
@@ -314,6 +331,66 @@ export function getNextUnplayedPlaylistIndex(state: DjDeckState, deck: DeckId): 
     if (!d.playedPlaylistIndices.includes(i)) return i;
   }
   return null;
+}
+
+function mergeTrackMetadataFields(
+  track: DeckTrack,
+  patch: {
+    bpm?: number;
+    camelot?: string | null;
+    energy?: number;
+    analysisStatus?: DeckTrackAnalysisStatus;
+  }
+): DeckTrack {
+  const next = { ...track };
+  if (typeof patch.bpm === "number" && Number.isFinite(patch.bpm)) {
+    next.bpm = Math.round(patch.bpm);
+  }
+  if (patch.camelot !== undefined) {
+    next.camelot = patch.camelot;
+  }
+  if (typeof patch.energy === "number" && Number.isFinite(patch.energy)) {
+    next.energy = patch.energy;
+  }
+  if (patch.analysisStatus !== undefined) {
+    next.analysisStatus = patch.analysisStatus;
+  }
+  return next;
+}
+
+function applyTrackMetadataUpdates(
+  deck: DeckState,
+  updates: Array<{
+    id: string;
+    bpm?: number;
+    camelot?: string | null;
+    energy?: number;
+    analysisStatus?: DeckTrackAnalysisStatus;
+  }>
+): DeckState {
+  if (updates.length === 0) return deck;
+  const byId = new Map(updates.map((u) => [u.id, u]));
+
+  const mapList = (list: DeckTrack[]) =>
+    list.map((t) => {
+      const patch = byId.get(t.id);
+      return patch ? mergeTrackMetadataFields(t, patch) : t;
+    });
+
+  const track =
+    deck.track && byId.has(deck.track.id)
+      ? mergeTrackMetadataFields(deck.track, byId.get(deck.track.id)!)
+      : deck.track;
+
+  return {
+    ...deck,
+    playlist: mapList(deck.playlist),
+    playQueue: mapList(deck.playQueue),
+    originalPlaylist: deck.originalPlaylist
+      ? mapList(deck.originalPlaylist)
+      : null,
+    track,
+  };
 }
 
 export function djDeckReducer(
@@ -699,6 +776,10 @@ export function djDeckReducer(
       return updateDeck(state, action.deck, (deck) =>
         applyDeckPlaylistPatch(deck, action.patch)
       );
+    case "MERGE_TRACK_METADATA":
+      return updateDeck(state, action.deck, (deck) =>
+        applyTrackMetadataUpdates(deck, action.updates)
+      );
     case "MERGE_PLAYLIST":
       return updateDeck(state, action.deck, (deck) =>
         mergePlaylistPreservingPlayback(
@@ -941,6 +1022,23 @@ function parseDeckTrack(raw: unknown): DeckTrack | null {
   };
   if (typeof t.bpm === "number" && Number.isFinite(t.bpm)) {
     track.bpm = t.bpm;
+  }
+  if (t.isrc !== undefined) {
+    track.isrc = typeof t.isrc === "string" ? t.isrc : null;
+  }
+  if (t.camelot !== undefined) {
+    track.camelot =
+      typeof t.camelot === "string" ? t.camelot : t.camelot === null ? null : undefined;
+  }
+  if (typeof t.energy === "number" && Number.isFinite(t.energy)) {
+    track.energy = t.energy;
+  }
+  if (
+    t.analysisStatus === "complete" ||
+    t.analysisStatus === "pending" ||
+    t.analysisStatus === "unavailable"
+  ) {
+    track.analysisStatus = t.analysisStatus;
   }
   return track;
 }

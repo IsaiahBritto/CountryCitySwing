@@ -602,9 +602,8 @@ export default function SpotifyPageClient() {
               </button>
             </div>
             <p className="text-xs text-gray-500">
-              Pulls tracks from Spotify and fills BPM/energy cache via FreqBlog
-              (only missing or incomplete rows). Run this before generate to save
-              quota.
+              Pulls tracks from Spotify and fills Musicae analysis cache (ISRC).
+              Run this before generate for best results.
             </p>
             <ul className="space-y-2">
               {masters.map((m) => (
@@ -688,11 +687,11 @@ export default function SpotifyPageClient() {
                 className="mt-1"
               />
               <span>
-                Lookup missing BPM/energy on FreqBlog
+                Lookup missing BPM/energy via Musicae (ISRC)
                 <span className="block text-xs text-gray-500 mt-0.5">
                   Leave off to generate from the synced cache only (faster, no
-                  FreqBlog quota). Sync first for best results. When on, only
-                  tracks missing true BPM or energy are looked up.
+                  Musicae quota). Sync first for best results. When on, only
+                  tracks missing Musicae BPM or energy are looked up.
                 </span>
               </span>
             </label>

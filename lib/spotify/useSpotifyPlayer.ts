@@ -18,6 +18,7 @@ import {
   type MappedPlaybackState,
 } from "@/lib/spotify/playbackStartConfirmation";
 import { SpotifyPlayerTokenManager } from "@/lib/spotify/spotifyPlayerToken";
+import { controllerSnapshotsEqual } from "@/lib/spotify/controllerPlaybackSnapshot";
 import type { SpotifyPlaybackState, SpotifyPlayerInstance } from "@/lib/spotify/spotifySdkTypes";
 
 const SPOTIFY_SDK_URL = "https://sdk.scdn.co/spotify-player.js";
@@ -179,6 +180,9 @@ export function useSpotifyPlayer(
   const onPlayerNoticeRef = useRef(onPlayerNotice);
   onPlayerNoticeRef.current = onPlayerNotice;
 
+  const lastControllerSnapshotRef = useRef<ControllerPlaybackSnapshot | null>(
+    null
+  );
   const lastPlayAttemptRef = useRef<{ uri: string; startedAt: number } | null>(
     null
   );
@@ -789,13 +793,27 @@ export function useSpotifyPlayer(
   }, [enabled, disconnect, isController]);
 
   useEffect(() => {
-    if (!isController || !controllerSnapshot) return;
+    if (!isController || !controllerSnapshot) {
+      lastControllerSnapshotRef.current = null;
+      return;
+    }
+    if (
+      controllerSnapshotsEqual(
+        lastControllerSnapshotRef.current,
+        controllerSnapshot
+      )
+    ) {
+      return;
+    }
+    lastControllerSnapshotRef.current = controllerSnapshot;
     setIsPlaying(controllerSnapshot.isPlaying);
     isPlayingRef.current = controllerSnapshot.isPlaying;
     setPositionMs(controllerSnapshot.positionMs);
     setDurationMs(controllerSnapshot.durationMs);
     setCurrentTrackUri(controllerSnapshot.currentTrackUri);
-    updateStatus("ready");
+    if (statusRef.current !== "ready") {
+      updateStatus("ready");
+    }
   }, [controllerSnapshot, isController, updateStatus]);
 
   useEffect(() => {

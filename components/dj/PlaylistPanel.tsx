@@ -24,6 +24,12 @@ export type PlaylistPanelProps = {
   disabled?: boolean;
 };
 
+function formatBpmCell(track: DeckTrack): string {
+  if (track.analysisStatus === "pending") return "…";
+  if (track.bpm != null) return String(track.bpm);
+  return "—";
+}
+
 export default function PlaylistPanel({
   deckId,
   title,
@@ -161,7 +167,7 @@ export default function PlaylistPanel({
                     <MarqueeText>{track.name}</MarqueeText>
                   </td>
                   <td className="hidden sm:table-cell px-2 py-2 text-right text-neutral-400 tabular-nums">
-                    {track.bpm ?? "—"}
+                    {formatBpmCell(track)}
                   </td>
                   <td className="hidden sm:table-cell px-2 py-2 text-right text-neutral-400 tabular-nums">
                     {formatTrackDuration(track.durationMs)}

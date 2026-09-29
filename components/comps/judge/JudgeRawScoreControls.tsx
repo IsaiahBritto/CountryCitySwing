@@ -5,6 +5,11 @@ import AutomatedRawBadge from "@/components/comps/judge/AutomatedRawBadge";
 import { judgeTieBadgeClass } from "@/lib/comps/judgeStyles";
 import { isPointerNearRangeThumb } from "@/lib/comps/rangeSliderThumb";
 
+function formatTiedWithLabel(bibs: number[]): string {
+  if (bibs.length === 0) return "tied with: —";
+  return `tied with: ${bibs.join(", ")}`;
+}
+
 const SLIDER_MIN = 0;
 const SLIDER_MAX = 100;
 
@@ -23,6 +28,7 @@ function JudgeRawScoreControlsInner({
   sliderDraftValue,
   locked,
   isTied,
+  tiedWithBibs = [],
   isAutomatedRaw = false,
   showThumbs = true,
   thumbsUp,
@@ -37,6 +43,7 @@ function JudgeRawScoreControlsInner({
   sliderDraftValue: number | undefined;
   locked: boolean;
   isTied?: boolean;
+  tiedWithBibs?: number[];
   isAutomatedRaw?: boolean;
   showThumbs?: boolean;
   thumbsUp: number;
@@ -115,7 +122,9 @@ function JudgeRawScoreControlsInner({
         </span>
         {isAutomatedRaw && <AutomatedRawBadge />}
         {isTied && (
-          <span className={judgeTieBadgeClass}>tied — adjust</span>
+          <span className={judgeTieBadgeClass}>
+            {formatTiedWithLabel(tiedWithBibs)}
+          </span>
         )}
       </div>
       <input

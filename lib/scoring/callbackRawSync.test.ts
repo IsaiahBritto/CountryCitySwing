@@ -4,7 +4,10 @@ import {
   applyCallbackVote,
   applyRawChangeForCallback,
   callbackPlacementConflicts,
+  callbackMaterialRawTieGroups,
+  callbackMaterialRawTiedEntryIds,
   callbackRawTiedEntryIds,
+  callbackRawTieGroups,
   callbacksFromRawOrder,
   canSubmitCallbackPlacements,
   conflictedCallbackEntryIds,
@@ -13,6 +16,8 @@ import {
   rawScoreForPlacementVote,
   repackPlacementRaws,
   seedRawFromCallbacks,
+  syncIntentionalPlacementTies,
+  isStaleNoRawOnAltVote,
   yesPlacementRaw,
   type CallbackVote,
 } from "@/lib/scoring/callbackRawSync";
@@ -69,6 +74,75 @@ describe("callbackRawSync", () => {
     expect(votes.get("B")).toBe("yes");
     expect(votes.get("A")).toBe("alt1");
     expect(votes.get("C")).toBe("no");
+  });
+
+  it("respects yes and alt quotas when many competitors share one raw", () => {
+    const entryIds = Array.from({ length: 12 }, (_, i) => `E${i}`);
+    const raw = new Map<string, number | null>(
+      entryIds.map((id) => [id, 100])
+    );
+    const limits = { callbackCount: 10, alternateCount: 1 };
+    const votes = callbacksFromRawOrder(entryIds, raw, limits);
+    const yesCount = [...votes.values()].filter((v) => v === "yes").length;
+    const alt1Count = [...votes.values()].filter((v) => v === "alt1").length;
+    const noCount = [...votes.values()].filter((v) => v === "no").length;
+    expect(yesCount).toBe(10);
+    expect(alt1Count).toBe(1);
+    expect(noCount).toBe(1);
+  });
+
+  it("assigns consecutive quota slots for tied raw at the top", () => {
+    const raw = new Map<string, number | null>([
+      ["A", 75],
+      ["B", 75],
+      ["C", 20],
+    ]);
+    const votes = callbacksFromRawOrder(["A", "B", "C"], raw, {
+      callbackCount: 1,
+      alternateCount: 1,
+    });
+    expect(votes.get("A")).toBe("yes");
+    expect(votes.get("B")).toBe("alt1");
+    expect(votes.get("C")).toBe("no");
+  });
+
+  it("gives both competitors alt1 when raw ties at the alternate band", () => {
+    const raw = new Map<string, number | null>([
+      ["A", 100],
+      ["B", 49],
+      ["C", 49],
+    ]);
+    const votes = callbacksFromRawOrder(["A", "B", "C"], raw, {
+      callbackCount: 1,
+      alternateCount: 1,
+    });
+    expect(votes.get("A")).toBe("yes");
+    expect(votes.get("B")).toBe("alt1");
+    expect(votes.get("C")).toBe("alt1");
+  });
+
+  it("assigns both alt1 when a lower raw is moved to match existing alt1", () => {
+    const entryIds = ["A", "B", "C"];
+    const votes = new Map<string, CallbackVote>([
+      ["A", "yes"],
+      ["B", "alt1"],
+      ["C", "no"],
+    ]);
+    const raw = new Map<string, number | null>([
+      ["A", 100],
+      ["B", 49],
+      ["C", 20],
+    ]);
+    const next = applyRawChangeForCallback(
+      entryIds,
+      votes,
+      raw,
+      "C",
+      49,
+      { callbackCount: 1, alternateCount: 1 }
+    );
+    expect(next.votes.get("B")).toBe("alt1");
+    expect(next.votes.get("C")).toBe("alt1");
   });
 
   it("ignores unscored competitors when assigning callbacks from raw rank", () => {
@@ -631,7 +705,7 @@ describe("callbackRawSync", () => {
       expect(conflictedCallbackEntryIds(votes, limits, raw)).toEqual([]);
     });
 
-    it("returns only competitors with duplicate raw scores", () => {
+    it("returns empty when duplicate raw is same placement vote", () => {
       const votes = new Map([
         ["A", "yes" as const],
         ["B", "yes" as const],
@@ -641,11 +715,94 @@ describe("callbackRawSync", () => {
         ["B", 49],
         ["C", 90],
       ]);
+      expect(conflictedCallbackEntryIds(votes, limits, raw)).toEqual([]);
+      expect(callbackRawTiedEntryIds(raw).sort()).toEqual(["A", "B"]);
+    });
+
+    it("returns ids when duplicate raw crosses placement votes", () => {
+      const votes = new Map([
+        ["A", "yes" as const],
+        ["B", "no" as const],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["A", 49],
+        ["B", 49],
+      ]);
       expect(conflictedCallbackEntryIds(votes, limits, raw).sort()).toEqual([
         "A",
         "B",
       ]);
-      expect(callbackRawTiedEntryIds(raw).sort()).toEqual(["A", "B"]);
+    });
+  });
+
+  describe("callbackMaterialRawTieGroups", () => {
+    it("ignores all No rows sharing the same raw", () => {
+      const votes = new Map<string, CallbackVote>([
+        ["A", "yes"],
+        ["B", "alt1"],
+        ["C", "no"],
+        ["D", "no"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["A", 100],
+        ["B", 60],
+        ["C", 2],
+        ["D", 2],
+      ]);
+      expect(callbackMaterialRawTieGroups(votes, raw)).toEqual([]);
+      expect(
+        canSubmitCallbackPlacements(
+          votes,
+          { callbackCount: 1, alternateCount: 1 },
+          ["A", "B", "C", "D"],
+          raw
+        )
+      ).toBe(true);
+    });
+
+    it("allows two Yes at same raw when quotas match", () => {
+      const votes = new Map<string, CallbackVote>([
+        ["A", "yes"],
+        ["B", "yes"],
+        ["C", "no"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["A", 88],
+        ["B", 88],
+        ["C", 1],
+      ]);
+      expect(callbackMaterialRawTieGroups(votes, raw)).toEqual([]);
+      expect(
+        canSubmitCallbackPlacements(
+          votes,
+          { callbackCount: 2, alternateCount: 0 },
+          ["A", "B", "C"],
+          raw
+        )
+      ).toBe(true);
+    });
+
+    it("flags Yes vs No at same raw", () => {
+      const votes = new Map<string, CallbackVote>([
+        ["A", "yes"],
+        ["B", "no"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["A", 49],
+        ["B", 49],
+      ]);
+      expect(callbackMaterialRawTiedEntryIds(votes, raw).sort()).toEqual([
+        "A",
+        "B",
+      ]);
+      expect(
+        canSubmitCallbackPlacements(
+          votes,
+          { callbackCount: 1, alternateCount: 0 },
+          ["A", "B"],
+          raw
+        )
+      ).toBe(false);
     });
   });
 
@@ -669,22 +826,20 @@ describe("callbackRawSync", () => {
       ).toBe(false);
     });
 
-    it("is false when raw score ties exist", () => {
+    it("is false when material cross-vote raw ties exist", () => {
       const votes = new Map([
         ["A", "yes" as const],
-        ["B", "yes" as const],
-        ["C", "no" as const],
+        ["B", "no" as const],
       ]);
       const raw = new Map<string, number | null>([
         ["A", 49],
         ["B", 49],
-        ["C", 1],
       ]);
       expect(
         canSubmitCallbackPlacements(
           votes,
           { callbackCount: 1, alternateCount: 0 },
-          ["A", "B", "C"],
+          ["A", "B"],
           raw
         )
       ).toBe(false);
@@ -740,6 +895,309 @@ describe("callbackRawSync", () => {
           ["A", "B", "C"]
         )
       ).toBe(true);
+    });
+  });
+
+  describe("syncIntentionalPlacementTies and overflow at quota 10", () => {
+    it("gives 11th yes the same raw as lowest in-quota yes", () => {
+      const limits = { callbackCount: 10, alternateCount: 0 };
+      const entryIds = Array.from({ length: 11 }, (_, i) => `E${i}`);
+      let votes = new Map<string, CallbackVote>();
+      let raw = new Map<string, number | null>();
+      const automated = new Set<string>();
+
+      for (const id of entryIds) {
+        const next = applyCallbackVote(
+          entryIds,
+          votes,
+          raw,
+          id,
+          "yes",
+          limits,
+          automated
+        );
+        votes = next.votes;
+        raw = next.rawById;
+        automated.add(id);
+      }
+
+      const yesRaws = entryIds.map((id) => raw.get(id)!);
+      const minRaw = Math.min(...yesRaws);
+      const atMin = yesRaws.filter((r) => r === minRaw).length;
+      expect(atMin).toBeGreaterThanOrEqual(2);
+      expect(new Set(yesRaws.filter((r) => r === minRaw)).size).toBe(1);
+    });
+
+    it("syncs duplicate alt1 holders including manual raw", () => {
+      const votes = new Map([
+        ["A", "yes" as const],
+        ["B", "alt1" as const],
+        ["C", "alt1" as const],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["A", 90],
+        ["B", 45],
+        ["C", 60],
+      ]);
+      const synced = syncIntentionalPlacementTies(votes, raw, {
+        callbackCount: 1,
+        alternateCount: 1,
+      });
+      expect(synced.get("B")).toBe(45);
+      expect(synced.get("C")).toBe(45);
+    });
+  });
+
+  describe("callbackRawTieGroups", () => {
+    it("returns groups of duplicate raws only", () => {
+      const raw = new Map<string, number | null>([
+        ["A", 50],
+        ["B", 50],
+        ["C", 40],
+      ]);
+      expect(callbackRawTieGroups(raw)).toEqual([["A", "B"]]);
+    });
+  });
+
+  describe("Yes vs Alt raw bands", () => {
+    it("moves overflow Yes raw off alt1 after vote change", () => {
+      const entryIds = ["A", "B", "C"];
+      const limits = { callbackCount: 2, alternateCount: 1 };
+      let votes = new Map<string, CallbackVote>([
+        ["A", "yes"],
+        ["B", "yes"],
+        ["C", "no"],
+      ]);
+      let raw = new Map<string, number | null>([
+        ["A", 88],
+        ["B", 52],
+        ["C", 1],
+      ]);
+      const automated = new Set(["C"]);
+
+      let next = applyCallbackVote(
+        entryIds,
+        votes,
+        raw,
+        "C",
+        "yes",
+        limits,
+        automated
+      );
+      expect(next.rawById.get("C")).toBe(52);
+
+      next = applyCallbackVote(
+        entryIds,
+        next.votes,
+        next.rawById,
+        "C",
+        "alt1",
+        limits,
+        automated
+      );
+      const cRaw = next.rawById.get("C")!;
+      expect(cRaw).not.toBe(52);
+      expect(cRaw).not.toBe(88);
+      expect(cRaw).toBe(51);
+    });
+
+    it("does not tie Yes and Alt1 raws on a full quota sheet", () => {
+      const limits = { callbackCount: 10, alternateCount: 1 };
+      const yesIds = Array.from({ length: 10 }, (_, i) => `Y${i}`);
+      const entryIds = [...yesIds, "ALT"];
+      let votes = new Map<string, CallbackVote>();
+      let raw = new Map<string, number | null>();
+      const automated = new Set<string>();
+
+      for (const id of yesIds) {
+        const next = applyCallbackVote(
+          entryIds,
+          votes,
+          raw,
+          id,
+          "yes",
+          limits,
+          automated
+        );
+        votes = next.votes;
+        raw = next.rawById;
+        automated.add(id);
+      }
+
+      const altNext = applyCallbackVote(
+        entryIds,
+        votes,
+        raw,
+        "ALT",
+        "alt1",
+        limits,
+        automated
+      );
+      raw = altNext.rawById;
+      const altRaw = raw.get("ALT")!;
+      for (const yid of yesIds) {
+        expect(raw.get(yid)).not.toBe(altRaw);
+      }
+      expect(callbackRawTiedEntryIds(raw)).not.toContain("ALT");
+    });
+
+    it("preserves valid manual alt raw but clears stale Yes on alt", () => {
+      const votes = new Map<string, CallbackVote>([
+        ["A", "yes"],
+        ["B", "alt1"],
+      ]);
+      const validManual = new Map<string, number | null>([
+        ["A", 93],
+        ["B", 45],
+      ]);
+      const repackedValid = repackPlacementRaws(
+        votes,
+        validManual,
+        { callbackCount: 1, alternateCount: 1 },
+        new Set()
+      );
+      expect(repackedValid.get("B")).toBe(45);
+
+      const stale = new Map<string, number | null>([
+        ["A", 93],
+        ["B", 93],
+      ]);
+      const fixed = repackPlacementRaws(
+        votes,
+        stale,
+        { callbackCount: 1, alternateCount: 1 },
+        new Set()
+      );
+      expect(fixed.get("B")).toBe(60);
+      expect(fixed.get("A")).toBe(93);
+    });
+
+    it("clears stale Yes raw when eleventh Yes becomes alt1 after overflow", () => {
+      const limits = { callbackCount: 10, alternateCount: 1 };
+      const yesIds = Array.from({ length: 10 }, (_, i) => `Y${i}`);
+      const entryIds = [...yesIds, "OVERFLOW"];
+      let votes = new Map<string, CallbackVote>();
+      let raw = new Map<string, number | null>();
+      const automated = new Set(yesIds);
+
+      for (let i = 0; i < 10; i++) {
+        votes.set(yesIds[i]!, "yes");
+      }
+      for (let i = 0; i < 10; i++) {
+        raw.set(yesIds[i]!, yesPlacementRaw(i, 10));
+      }
+      votes.set("OVERFLOW", "yes");
+      raw.set("OVERFLOW", 91);
+
+      let next = applyCallbackVote(
+        entryIds,
+        votes,
+        raw,
+        "OVERFLOW",
+        "alt1",
+        limits,
+        new Set([...automated, "OVERFLOW"])
+      );
+      const overflowRaw = next.rawById.get("OVERFLOW")!;
+      const minYes = Math.min(
+        ...yesIds.map((id) => next.rawById.get(id)!).filter(Boolean)
+      );
+      expect(overflowRaw).not.toBe(minYes);
+      expect(overflowRaw).toBe(60);
+    });
+  });
+
+  describe("duplicate Alt and stale No-band raw", () => {
+    it("isStaleNoRawOnAltVote flags No-band leftovers only", () => {
+      expect(isStaleNoRawOnAltVote(18)).toBe(true);
+      expect(isStaleNoRawOnAltVote(30)).toBe(true);
+      expect(isStaleNoRawOnAltVote(45)).toBe(false);
+      expect(isStaleNoRawOnAltVote(60)).toBe(false);
+    });
+
+    it("ties second A1 to existing holder at 60 not newcomer No raw 18", () => {
+      const entryIds = ["Comp10", "Comp11", "A"];
+      const votes = new Map<string, CallbackVote>([
+        ["Comp10", "no"],
+        ["Comp11", "alt1"],
+        ["A", "yes"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["Comp10", 18],
+        ["Comp11", 60],
+        ["A", 100],
+      ]);
+
+      const next = applyCallbackVote(
+        entryIds,
+        votes,
+        raw,
+        "Comp10",
+        "alt1",
+        { callbackCount: 1, alternateCount: 1 },
+        new Set(["Comp10"])
+      );
+
+      expect(next.votes.get("Comp10")).toBe("alt1");
+      expect(next.votes.get("Comp11")).toBe("alt1");
+      expect(next.rawById.get("Comp11")).toBe(60);
+      expect(next.rawById.get("Comp10")).toBe(60);
+    });
+
+    it("ties second alt2 to incumbent at 59 not newcomer No raw 18", () => {
+      const entryIds = ["Comp10", "Comp11", "A"];
+      const votes = new Map<string, CallbackVote>([
+        ["Comp10", "no"],
+        ["Comp11", "alt2"],
+        ["A", "yes"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["Comp10", 18],
+        ["Comp11", 59],
+        ["A", 100],
+      ]);
+
+      const next = applyCallbackVote(
+        entryIds,
+        votes,
+        raw,
+        "Comp10",
+        "alt2",
+        { callbackCount: 1, alternateCount: 2 },
+        new Set(["Comp10"])
+      );
+
+      expect(next.votes.get("Comp10")).toBe("alt2");
+      expect(next.votes.get("Comp11")).toBe("alt2");
+      expect(next.rawById.get("Comp11")).toBe(59);
+      expect(next.rawById.get("Comp10")).toBe(59);
+    });
+
+    it("ties second alt2 to incumbent when newcomer has valid high leftover raw", () => {
+      const entryIds = ["Comp10", "Comp11", "A"];
+      const votes = new Map<string, CallbackVote>([
+        ["Comp10", "no"],
+        ["Comp11", "alt2"],
+        ["A", "yes"],
+      ]);
+      const raw = new Map<string, number | null>([
+        ["Comp10", 58],
+        ["Comp11", 59],
+        ["A", 100],
+      ]);
+
+      const next = applyCallbackVote(
+        entryIds,
+        votes,
+        raw,
+        "Comp10",
+        "alt2",
+        { callbackCount: 1, alternateCount: 2 },
+        new Set(["Comp10"])
+      );
+
+      expect(next.rawById.get("Comp11")).toBe(59);
+      expect(next.rawById.get("Comp10")).toBe(59);
     });
   });
 });

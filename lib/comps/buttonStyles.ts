@@ -11,7 +11,7 @@ export const compBtnVoteYesSm = "comp-btn-vote-yes-sm";
 
 /** Sticky bars on judge scoring sheets — matched top/bottom so they feel part of the page. */
 export const judgeSheetStickyTop =
-  "sticky top-16 z-40 -mx-4 mb-4 border-b border-neutral-800 bg-neutral-900/95 px-4 py-3 backdrop-blur";
+  "sticky z-40 -mx-4 border-b border-neutral-800 bg-neutral-900/95 px-4 py-3 backdrop-blur top-[calc(var(--site-nav-bar-height)+env(safe-area-inset-top))]";
 export const judgeSheetStickyBottom =
   "sticky bottom-0 -mx-4 mt-4 border-t border-neutral-800 bg-neutral-900/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur";
 

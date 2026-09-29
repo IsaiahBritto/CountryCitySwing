@@ -226,6 +226,135 @@ export function nextSpreadSlot(
   return null;
 }
 
+/** Minimum raw among in-quota Yes rows (same slice as overflow logic). */
+export function minInQuotaYesRaw(
+  votes: Map<string, CallbackVote>,
+  rawById: Map<string, number | null>,
+  limits: CallbackLimits
+): number | null {
+  const yesIds = [...votes.entries()]
+    .filter(([, vote]) => vote === "yes")
+    .map(([id]) => id);
+  if (yesIds.length === 0) return null;
+  const yesSorted = sortEntryIdsByRaw(yesIds, rawById, "desc");
+  const inQuotaYes = yesSorted.slice(0, limits.callbackCount);
+  const raws = inQuotaYes
+    .map((id) => rawById.get(id))
+    .filter((raw): raw is number => raw != null);
+  return raws.length > 0 ? clampScore(Math.min(...raws)) : null;
+}
+
+/** True when an alt vote still carries a Yes-band raw (e.g. after Yes → Alt change). */
+export function isStaleYesRawOnAltVote(
+  raw: number,
+  votes: Map<string, CallbackVote>,
+  rawById: Map<string, number | null>,
+  limits: CallbackLimits
+): boolean {
+  const minInQuota = minInQuotaYesRaw(votes, rawById, limits);
+  if (minInQuota != null && raw >= minInQuota) return true;
+  const minYes = minYesRaw(votes, rawById);
+  if (minYes != null && minYes >= ALT_CEILING && raw > ALT_CEILING) return true;
+  return false;
+}
+
+/** True when an alt vote still carries a No-band raw (e.g. after No → Alt change). */
+export function isStaleNoRawOnAltVote(raw: number): boolean {
+  return clampScore(raw) <= NO_CEILING;
+}
+
+function isValidAltHolderRaw(
+  raw: number,
+  votes: Map<string, CallbackVote>,
+  rawById: Map<string, number | null>,
+  limits: CallbackLimits
+): boolean {
+  return (
+    !isStaleYesRawOnAltVote(raw, votes, rawById, limits) &&
+    !isStaleNoRawOnAltVote(raw)
+  );
+}
+
+function pickDuplicateAltGroupRaw(
+  holders: string[],
+  votes: Map<string, CallbackVote>,
+  out: Map<string, number | null>,
+  limits: CallbackLimits,
+  canonical: number,
+  placementChangedEntryId: string | null
+): number {
+  const pickFirstValid = (excludeChanged: boolean): number | null => {
+    for (const id of holders) {
+      if (
+        excludeChanged &&
+        placementChangedEntryId != null &&
+        id === placementChangedEntryId
+      ) {
+        continue;
+      }
+      const existing = out.get(id);
+      if (
+        existing != null &&
+        isValidAltHolderRaw(existing, votes, out, limits)
+      ) {
+        return existing;
+      }
+    }
+    return null;
+  };
+
+  if (placementChangedEntryId != null) {
+    const incumbent = pickFirstValid(true);
+    if (incumbent != null) return incumbent;
+  }
+  const any = pickFirstValid(false);
+  return any ?? canonical;
+}
+
+function applyAltGroupRaws(
+  rank: CallbackVote,
+  holders: string[],
+  votes: Map<string, CallbackVote>,
+  out: Map<string, number | null>,
+  limits: CallbackLimits,
+  automatedEntryIds: Set<string>,
+  placementChangedEntryId: string | null = null
+): void {
+  if (holders.length === 0) return;
+
+  const anchorId = holders[0]!;
+  const canonical = altPlacementRaw(rank, votes, out, anchorId, {
+    skipDuplicateMatch: holders.length === 1,
+  });
+
+  if (holders.length >= 2) {
+    const groupRaw = pickDuplicateAltGroupRaw(
+      holders,
+      votes,
+      out,
+      limits,
+      canonical,
+      placementChangedEntryId
+    );
+    for (const id of holders) {
+      out.set(id, groupRaw);
+    }
+    return;
+  }
+
+  const id = holders[0]!;
+  if (automatedEntryIds.has(id)) {
+    out.set(id, canonical);
+    return;
+  }
+  const stored = out.get(id);
+  if (stored != null && isValidAltHolderRaw(stored, votes, out, limits)) {
+    out.set(id, stored);
+  } else {
+    out.set(id, canonical);
+  }
+}
+
 /**
  * Reassigns spread raws within Yes / Alt / No bands. Manual rows (not in
  * automatedEntryIds) keep their raw; automated rows fill dense sequences
@@ -235,7 +364,8 @@ export function repackPlacementRaws(
   votes: Map<string, CallbackVote>,
   rawById: Map<string, number | null>,
   limits: CallbackLimits,
-  automatedEntryIds: Set<string>
+  automatedEntryIds: Set<string>,
+  placementChangedEntryId: string | null = null
 ): Map<string, number | null> {
   const out = new Map(rawById);
   const blocked = new Set<number>();
@@ -279,7 +409,6 @@ export function repackPlacementRaws(
       : yesPlacementRaw(0, limits.callbackCount);
 
   for (const id of overflowYes) {
-    if (!automatedEntryIds.has(id)) continue;
     out.set(id, overflowRaw);
   }
 
@@ -288,26 +417,15 @@ export function repackPlacementRaws(
     const holders = [...votes.entries()]
       .filter(([, vote]) => vote === rank)
       .map(([id]) => id);
-    if (holders.length === 0) continue;
-
-    const sorted = sortEntryIdsByRaw(holders, out, "desc");
-    const manualHolders = sorted.filter((id) => !automatedEntryIds.has(id));
-    const automatedHolders = sorted.filter((id) => automatedEntryIds.has(id));
-
-    let groupRaw: number | null = null;
-    if (manualHolders.length > 0) {
-      groupRaw = out.get(manualHolders[0]) ?? null;
-    } else if (automatedHolders.length > 0) {
-      groupRaw = altPlacementRaw(rank, votes, out, automatedHolders[0], {
-        skipDuplicateMatch: true,
-      });
-    }
-
-    if (groupRaw != null) {
-      for (const id of automatedHolders) {
-        out.set(id, groupRaw);
-      }
-    }
+    applyAltGroupRaws(
+      rank,
+      holders,
+      votes,
+      out,
+      limits,
+      automatedEntryIds,
+      placementChangedEntryId
+    );
   }
 
   const noIds = [...votes.entries()]
@@ -332,10 +450,68 @@ export function repackPlacementRaws(
     noSlot += 1;
   }
 
+  return syncIntentionalPlacementTies(
+    votes,
+    out,
+    limits,
+    automatedEntryIds,
+    placementChangedEntryId
+  );
+}
+
+/**
+ * Ensures overflow Yes and duplicate Alt placements share one raw per band
+ * (intentional ties visible in Raw view).
+ */
+export function syncIntentionalPlacementTies(
+  votes: Map<string, CallbackVote>,
+  rawById: Map<string, number | null>,
+  limits: CallbackLimits,
+  automatedEntryIds: Set<string> = new Set(),
+  placementChangedEntryId: string | null = null
+): Map<string, number | null> {
+  const out = new Map(rawById);
+
+  const yesIds = [...votes.entries()]
+    .filter(([, vote]) => vote === "yes")
+    .map(([id]) => id);
+  if (yesIds.length > limits.callbackCount) {
+    const yesSorted = sortEntryIdsByRaw(yesIds, out, "desc");
+    const inQuotaYes = yesSorted.slice(0, limits.callbackCount);
+    const overflowYes = yesSorted.slice(limits.callbackCount);
+    const inQuotaRaws = inQuotaYes
+      .map((id) => out.get(id))
+      .filter((raw): raw is number => raw != null);
+    const overflowRaw =
+      inQuotaRaws.length > 0
+        ? clampScore(Math.min(...inQuotaRaws))
+        : yesPlacementRaw(0, limits.callbackCount);
+    for (const id of overflowYes) {
+      out.set(id, overflowRaw);
+    }
+  }
+
+  for (let rankIndex = 1; rankIndex <= 3; rankIndex++) {
+    const rank = `alt${rankIndex}` as CallbackVote;
+    const holders = [...votes.entries()]
+      .filter(([, vote]) => vote === rank)
+      .map(([id]) => id);
+    if (holders.length === 0) continue;
+    applyAltGroupRaws(
+      rank,
+      holders,
+      votes,
+      out,
+      limits,
+      automatedEntryIds,
+      placementChangedEntryId
+    );
+  }
+
   return out;
 }
 
-/** Rank-based callback assignment from raw scores (descending). Only competitors with a non-null raw score are ranked; unscored entries are omitted from the result. Tied raw scores receive the same vote (one rank slot per score group). */
+/** Rank-based callback assignment from raw scores (descending). Only competitors with a non-null raw score are ranked; unscored entries are omitted from the result. Equal raw scores usually consume consecutive quota slots; tied raws in an alternate band share the same Alt vote (duplicate A1/A2/A3 until resolved). */
 export function callbacksFromRawOrder(
   entryIds: string[],
   rawById: Map<string, number | null>,
@@ -356,13 +532,33 @@ export function callbacksFromRawOrder(
   }
 
   const out = new Map<string, CallbackVote>();
-  let slot = 0;
+  let startIndex = 0;
   for (const group of groups) {
-    const vote = voteForRankSlot(slot, callbackCount, alternateCount);
-    for (const id of group.ids) {
-      out.set(id, vote);
+    const size = group.ids.length;
+    const firstVote = voteForRankSlot(startIndex, callbackCount, alternateCount);
+    const lastVote = voteForRankSlot(
+      startIndex + size - 1,
+      callbackCount,
+      alternateCount
+    );
+    const shareOneVote =
+      size === 1 ||
+      firstVote === lastVote ||
+      firstVote.startsWith("alt");
+
+    if (shareOneVote) {
+      for (const id of group.ids) {
+        out.set(id, firstVote);
+      }
+    } else {
+      for (let j = 0; j < size; j++) {
+        out.set(
+          group.ids[j]!,
+          voteForRankSlot(startIndex + j, callbackCount, alternateCount)
+        );
+      }
     }
-    slot += 1;
+    startIndex += size;
   }
   return out;
 }
@@ -379,20 +575,50 @@ function voteForRankSlot(
   return "no";
 }
 
-/** Entry ids with duplicate non-null raw scores (must be resolved before submit). */
-export function callbackRawTiedEntryIds(
+/** Groups of entry ids sharing the same non-null raw score. */
+export function callbackRawTieGroups(
   rawById: Map<string, number | null>
-): string[] {
+): string[][] {
   const byRaw = new Map<number, string[]>();
   for (const [id, raw] of rawById) {
     if (raw == null) continue;
     byRaw.set(raw, [...(byRaw.get(raw) ?? []), id]);
   }
-  const tied: string[] = [];
-  for (const group of byRaw.values()) {
-    if (group.length > 1) tied.push(...group);
-  }
-  return tied;
+  return [...byRaw.values()].filter((group) => group.length > 1);
+}
+
+/** Entry ids with duplicate non-null raw scores (must be resolved before submit). */
+export function callbackRawTiedEntryIds(
+  rawById: Map<string, number | null>
+): string[] {
+  return callbackRawTieGroups(rawById).flat();
+}
+
+function isMaterialRawTieGroup(
+  group: string[],
+  votes: Map<string, CallbackVote>
+): boolean {
+  const voteValues = group.map((id) => votes.get(id));
+  const defined = voteValues.filter((v): v is CallbackVote => v != null);
+  if (defined.length !== group.length) return true;
+  return new Set(defined).size !== 1;
+}
+
+/** Duplicate raw groups that span different placement votes (block submit / tie UI). */
+export function callbackMaterialRawTieGroups(
+  votes: Map<string, CallbackVote>,
+  rawById: Map<string, number | null>
+): string[][] {
+  return callbackRawTieGroups(rawById).filter((group) =>
+    isMaterialRawTieGroup(group, votes)
+  );
+}
+
+export function callbackMaterialRawTiedEntryIds(
+  votes: Map<string, CallbackVote>,
+  rawById: Map<string, number | null>
+): string[] {
+  return callbackMaterialRawTieGroups(votes, rawById).flat();
 }
 
 export function itemsFromVotesAndRaw(
@@ -451,14 +677,14 @@ export function callbackPlacementConflicts(
 }
 
 export function conflictedCallbackEntryIds(
-  _votes: Map<string, CallbackVote>,
+  votes: Map<string, CallbackVote>,
   _limits: CallbackLimits,
   rawById?: Map<string, number | null>
 ): string[] {
-  return rawById ? callbackRawTiedEntryIds(rawById) : [];
+  return rawById ? callbackMaterialRawTiedEntryIds(votes, rawById) : [];
 }
 
-/** Submit gate: every entry voted, exact quotas, no vote-level or raw-score ties. */
+/** Submit gate: every entry voted, exact quotas, no vote-level or material raw-score ties. */
 export function canSubmitCallbackPlacements(
   votes: Map<string, CallbackVote>,
   limits: CallbackLimits,
@@ -468,7 +694,12 @@ export function canSubmitCallbackPlacements(
   if (entryIds.length > 0 && entryIds.some((id) => !votes.has(id))) {
     return false;
   }
-  if (rawById && callbackRawTiedEntryIds(rawById).length > 0) return false;
+  if (
+    rawById &&
+    callbackMaterialRawTiedEntryIds(votes, rawById).length > 0
+  ) {
+    return false;
+  }
   if (callbackPlacementConflicts(votes, limits).length > 0) return false;
   const yesCount = [...votes.values()].filter((v) => v === "yes").length;
   if (yesCount !== limits.callbackCount) return false;
@@ -502,7 +733,13 @@ export function applyCallbackVote(
   nextVotes.set(entryId, vote);
 
   const automated = automatedEntryIds ?? new Set(nextVotes.keys());
-  const nextRaw = repackPlacementRaws(nextVotes, rawById, limits, automated);
+  const nextRaw = repackPlacementRaws(
+    nextVotes,
+    rawById,
+    limits,
+    automated,
+    entryId
+  );
 
   return { votes: nextVotes, rawById: nextRaw };
 }
@@ -523,7 +760,6 @@ export function applyRawChangeForCallback(
   const nextRaw = new Map(rawById);
   nextRaw.set(entryId, clampScore(newRaw));
 
-  const scoredIds = entryIds.filter((id) => nextRaw.get(id) != null);
-  const nextVotes = callbacksFromRawOrder(scoredIds, nextRaw, limits);
+  const nextVotes = callbacksFromRawOrder(entryIds, nextRaw, limits);
   return { votes: nextVotes, rawById: nextRaw };
 }

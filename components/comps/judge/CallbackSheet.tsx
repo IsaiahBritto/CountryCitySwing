@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnOutlineLg, judgeSheetStickyBottom, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import { judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import { judgeTieRowClass } from "@/lib/comps/judgeStyles";
 import HeatSectionDivider from "@/components/comps/judge/HeatSectionDivider";
 import JudgeCallbackRow from "@/components/comps/judge/JudgeCallbackRow";
+import JudgeSheetStickyFooter from "@/components/comps/judge/JudgeSheetStickyFooter";
 import CallbackJudgingMethodModal from "@/components/comps/judge/CallbackJudgingMethodModal";
 import JudgeConfirmDialog from "@/components/comps/judge/JudgeConfirmDialog";
 import JudgeSheetHeader from "@/components/comps/judge/JudgeSheetHeader";
@@ -19,6 +21,7 @@ import { useJudgeShowThumbs } from "@/lib/comps/useJudgeShowThumbs";
 import {
   applyCallbackVote,
   applyRawChangeForCallback,
+  callbackMaterialRawTieGroups,
   canSubmitCallbackPlacements,
   conflictedCallbackEntryIds,
   rawScoreForCallback,
@@ -554,6 +557,25 @@ export default function CallbackSheet({
     () => new Set(conflictedCallbackEntryIds(votes, limits, rawById)),
     [votes, limits, rawById]
   );
+  const tieGroups = useMemo(
+    () => callbackMaterialRawTieGroups(votes, rawById),
+    [votes, rawById]
+  );
+  const tiedWithBibsByEntryId = useMemo(() => {
+    const bibById = new Map(entries.map((e) => [e.roundEntryId, e.bibNumber]));
+    const out = new Map<string, number[]>();
+    for (const group of tieGroups) {
+      for (const entryId of group) {
+        const bibs = group
+          .filter((id) => id !== entryId)
+          .map((id) => bibById.get(id))
+          .filter((b): b is number => b != null)
+          .sort((a, b) => a - b);
+        out.set(entryId, bibs);
+      }
+    }
+    return out;
+  }, [tieGroups, entries]);
   const hasTies = conflictedIds.size > 0;
   const canSubmit = canSubmitCallbackPlacements(
     votes,
@@ -561,6 +583,40 @@ export default function CallbackSheet({
     entryIds,
     rawById
   );
+
+  const callbackFooterProgressMessage = useMemo((): string | null => {
+    if (canSubmit) return null;
+    if (unknownCount > 0) {
+      return `Mark ${unknownCount} unknown${unknownCount === 1 ? "" : "s"} to submit`;
+    }
+    if (yesCount > effectiveCallbacks) {
+      const extra = yesCount - effectiveCallbacks;
+      return `Remove ${extra} Yes vote${extra === 1 ? "" : "s"} to submit`;
+    }
+    if (yesCount !== effectiveCallbacks) {
+      return `Select ${effectiveCallbacks - yesCount} more Yes`;
+    }
+    if (hasTies) return null;
+    return "Assign all alternate ranks to submit";
+  }, [
+    canSubmit,
+    unknownCount,
+    yesCount,
+    effectiveCallbacks,
+    hasTies,
+  ]);
+
+  const scrollToFirstTie = useCallback(() => {
+    const first = visibleDisplayRows.find((row) =>
+      conflictedIds.has(row.entryId)
+    );
+    if (!first) return;
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`judge-entry-${first.entryId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [visibleDisplayRows, conflictedIds]);
 
   const submit = async () => {
     setSubmitting(true);
@@ -725,6 +781,7 @@ export default function CallbackSheet({
                   vote={vote}
                   raw={raw}
                   isConflicted={isConflicted}
+                  tiedWithBibs={tiedWithBibsByEntryId.get(e.roundEntryId) ?? []}
                   isAutomatedRaw={placementAutomatedRawIds.has(e.roundEntryId)}
                   rowTone={callbackRowTone(vote, isConflicted)}
                   locked={locked}
@@ -748,28 +805,25 @@ export default function CallbackSheet({
       ))}
 
       {!locked && (
-        <div className={judgeSheetStickyBottom}>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!canSubmit || submitting}
-            className={compBtnOutlineLg}
-          >
-            {submitting
-              ? "Submitting…"
-              : canSubmit
-                ? "Submit sheet"
-                : unknownCount > 0
-                  ? `Mark ${unknownCount} unknown${unknownCount === 1 ? "" : "s"} to submit`
-                  : hasTies
-                    ? "Resolve tied raw scores to submit"
-                    : yesCount > effectiveCallbacks
-                      ? `Remove ${yesCount - effectiveCallbacks} Yes vote${yesCount - effectiveCallbacks === 1 ? "" : "s"} to submit`
-                    : yesCount !== effectiveCallbacks
-                      ? `Select ${effectiveCallbacks - yesCount} more Yes`
-                      : "Assign all alternate ranks to submit"}
-          </button>
-        </div>
+        <JudgeSheetStickyFooter
+          hint={callbackFooterProgressMessage}
+          primary={
+            canSubmit
+              ? {
+                  label: "Submit sheet",
+                  onClick: () => void submit(),
+                  disabled: submitting,
+                  loading: submitting,
+                  loadingLabel: "Submitting…",
+                }
+              : hasTies
+                ? {
+                    label: "Resolve ties",
+                    onClick: scrollToFirstTie,
+                  }
+                : null
+          }
+        />
       )}
       </div>
     </div>
@@ -780,7 +834,7 @@ function callbackRowTone(
   vote: CallbackVote | undefined,
   isConflicted: boolean
 ): string {
-  if (isConflicted) return "border-blue-500/70 bg-blue-500/10";
+  if (isConflicted) return judgeTieRowClass;
   if (vote === "yes") return "border-green-500/60 bg-green-500/10";
   if (vote === "no") return "border-red-500/60 bg-red-500/10";
   if (vote?.startsWith("alt")) return "border-amber-500/60 bg-amber-500/10";

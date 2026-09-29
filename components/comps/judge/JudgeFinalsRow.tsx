@@ -53,6 +53,7 @@ function JudgeFinalsRowInner({
 
   return (
     <div
+      id={entryId ? `judge-entry-${entryId}` : undefined}
       className={
         "mb-1 flex min-w-0 items-center gap-2 rounded-xl border bg-neutral-800/60 p-2 " +
         (isTied ? judgeTieRowClass : "border-neutral-700") +

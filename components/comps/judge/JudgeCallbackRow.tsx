@@ -15,12 +15,18 @@ interface SheetEntry {
   heatNumber: number | null;
 }
 
+function formatTiedWithLabel(bibs: number[]): string {
+  if (bibs.length === 0) return "tied with: —";
+  return `tied with: ${bibs.join(", ")}`;
+}
+
 function JudgeCallbackRowInner({
   entry,
   mode,
   vote,
   raw,
   isConflicted,
+  tiedWithBibs = [],
   isAutomatedRaw = false,
   rowTone,
   locked,
@@ -42,6 +48,7 @@ function JudgeCallbackRowInner({
   vote: CallbackVote | undefined;
   raw: number | null;
   isConflicted: boolean;
+  tiedWithBibs?: number[];
   isAutomatedRaw?: boolean;
   rowTone: string;
   locked: boolean;
@@ -71,6 +78,7 @@ function JudgeCallbackRowInner({
 
   return (
     <div
+      id={`judge-entry-${entry.roundEntryId}`}
       className={
         (mode === "raw"
           ? `flex min-w-0 items-center gap-2 rounded-xl border p-2 ${rowTone}`
@@ -103,7 +111,7 @@ function JudgeCallbackRowInner({
           </div>
           {isConflicted && mode !== "raw" && (
             <span className={`mt-0.5 inline-block ${judgeTieBadgeClass}`}>
-              tied — adjust
+              {formatTiedWithLabel(tiedWithBibs)}
             </span>
           )}
           {mode === "raw" && (
@@ -113,6 +121,7 @@ function JudgeCallbackRowInner({
               sliderDraftValue={sliderDraftValue}
               locked={locked}
               isTied={isConflicted}
+              tiedWithBibs={tiedWithBibs}
               isAutomatedRaw={isAutomatedRaw}
               showThumbs={showThumbs}
               thumbsUp={thumbUp}

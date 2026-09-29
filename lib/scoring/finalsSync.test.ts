@@ -4,11 +4,12 @@ import {
   canOpenVerify,
   finalizeAllRankings,
   fitRawInSlot,
-  reorderMovedEntry,
+  moveEntryToRank,
   reseedAllRawFromOrdinals,
   respreadRawScores,
   seedRawFromRankOrder,
   tiedEntryIds,
+  finalsTiedWithBibsByEntryId,
   toOrdinals,
 } from "@/lib/scoring/finalsSync";
 
@@ -17,6 +18,17 @@ const item = (
   ordinal: number | null,
   raw: number | null
 ) => ({ entryId, ordinal, raw });
+
+function expectOnlyMovedRawChanged(
+  before: ReturnType<typeof item>[],
+  after: ReturnType<typeof item>[],
+  movedEntryId: string
+) {
+  for (const row of before) {
+    if (row.entryId === movedEntryId) continue;
+    expect(after.find((i) => i.entryId === row.entryId)?.raw).toBe(row.raw);
+  }
+}
 
 describe("finalsSync", () => {
   it("seeds raw from rank order 100 to 20", () => {
@@ -51,139 +63,200 @@ describe("finalsSync", () => {
     expect(finalized!.find((i) => i.entryId === "B")?.ordinal).toBe(2);
   });
 
-  describe("reorderMovedEntry", () => {
-    it("regression: move 4th to 3rd adjusts only the moved couple (screenshot scores)", () => {
+  describe("moveEntryToRank", () => {
+    it("moves 4th to 2nd with midpoint 85; only D raw changes", () => {
       const items = [
-        item("A", 1, 100),
-        item("B", 2, 97.8),
-        item("C", 3, 95.6),
-        item("D", 4, 73.3),
-        item("E", 5, 64.4),
+        item("A", 1, 90),
+        item("B", 2, 80),
+        item("C", 3, 70),
+        item("D", 4, 60),
       ];
-      const next = reorderMovedEntry(items, "D", "C");
-      expect(next.find((i) => i.entryId === "D")?.ordinal).toBe(3);
-      expect(next.find((i) => i.entryId === "D")?.raw).toBe(96.7);
-      expect(next.find((i) => i.entryId === "C")?.ordinal).toBe(4);
-      expect(next.find((i) => i.entryId === "C")?.raw).toBe(95.6);
-      expect(next.find((i) => i.entryId === "A")?.raw).toBe(100);
-      expect(next.find((i) => i.entryId === "B")?.raw).toBe(97.8);
-      expect(next.find((i) => i.entryId === "E")?.raw).toBe(64.4);
+      const next = moveEntryToRank(items, "D", 2);
+      expect(next.find((i) => i.entryId === "A")).toMatchObject({
+        ordinal: 1,
+        raw: 90,
+      });
+      expect(next.find((i) => i.entryId === "D")).toMatchObject({
+        ordinal: 2,
+        raw: 85,
+      });
+      expect(next.find((i) => i.entryId === "B")).toMatchObject({
+        ordinal: 3,
+        raw: 80,
+      });
+      expect(next.find((i) => i.entryId === "C")).toMatchObject({
+        ordinal: 4,
+        raw: 70,
+      });
+      expectOnlyMovedRawChanged(items, next, "D");
       expect(tiedEntryIds(next)).toEqual([]);
     });
 
-    it("move 3rd up to 2nd adjusts only the moved entry", () => {
+    it("move 3rd up to 2nd uses midpoint of neighbors above and below", () => {
       const items = [
         item("A", 1, 100),
         item("B", 2, 80),
         item("C", 3, 60),
         item("D", 4, 20),
       ];
-      const next = reorderMovedEntry(items, "C", "B");
+      const next = moveEntryToRank(items, "C", 2);
       expect(next.find((i) => i.entryId === "C")?.ordinal).toBe(2);
       expect(next.find((i) => i.entryId === "C")?.raw).toBe(90);
-      expect(next.find((i) => i.entryId === "B")?.raw).toBe(80);
-      expect(next.find((i) => i.entryId === "A")?.raw).toBe(100);
-      expect(next.find((i) => i.entryId === "D")?.raw).toBe(20);
+      expectOnlyMovedRawChanged(items, next, "C");
     });
 
-    it("move 2nd down to 3rd adjusts only the moved entry", () => {
+    it("move 2nd to 3rd uses midpoint between 70 and 60", () => {
       const items = [
-        item("A", 1, 100),
+        item("A", 1, 90),
         item("B", 2, 80),
-        item("C", 3, 60),
-        item("D", 4, 20),
+        item("C", 3, 70),
+        item("D", 4, 60),
       ];
-      const next = reorderMovedEntry(items, "B", "C");
+      const next = moveEntryToRank(items, "B", 3);
       expect(next.find((i) => i.entryId === "B")?.ordinal).toBe(3);
-      expect(next.find((i) => i.entryId === "B")?.raw).toBe(40);
-      expect(next.find((i) => i.entryId === "C")?.raw).toBe(60);
-      expect(next.find((i) => i.entryId === "A")?.raw).toBe(100);
-      expect(next.find((i) => i.entryId === "D")?.raw).toBe(20);
-    });
-
-    it("move to 1st uses ceiling and nudges below neighbor if tied", () => {
-      const items = [
-        item("A", 1, 100),
-        item("B", 2, 99.9),
-        item("C", 3, 60),
-      ];
-      const next = reorderMovedEntry(items, "B", "A");
-      expect(next.find((i) => i.entryId === "B")?.ordinal).toBe(1);
-      expect(next.find((i) => i.entryId === "B")?.raw).toBe(100);
-      expect(next.find((i) => i.entryId === "A")?.raw).toBe(99.9);
+      expect(next.find((i) => i.entryId === "B")?.raw).toBe(65);
+      expectOnlyMovedRawChanged(items, next, "B");
       expect(tiedEntryIds(next)).toEqual([]);
     });
 
-    it("move to 2nd adjusts only the moved entry", () => {
+    it("move to last uses midpoint of neighbor above and 0.1", () => {
       const items = [
-        item("A", 1, 100),
+        item("A", 1, 90),
+        item("B", 2, 80),
+        item("C", 3, 70),
+        item("D", 4, 60),
+      ];
+      const next = moveEntryToRank(items, "B", 4);
+      expect(next.find((i) => i.entryId === "B")?.ordinal).toBe(4);
+      expect(next.find((i) => i.entryId === "B")?.raw).toBe(30.1);
+      expectOnlyMovedRawChanged(items, next, "B");
+    });
+
+    it("move to 1st uses midpoint of 100 and below neighbor", () => {
+      const items = [
+        item("A", 1, 90),
         item("B", 2, 80),
         item("C", 3, 60),
       ];
-      const next = reorderMovedEntry(items, "C", "B");
-      expect(next.find((i) => i.entryId === "C")?.ordinal).toBe(2);
-      expect(next.find((i) => i.entryId === "C")?.raw).toBe(90);
-      expect(next.find((i) => i.entryId === "B")?.raw).toBe(80);
+      const next = moveEntryToRank(items, "C", 1);
+      expect(next.find((i) => i.entryId === "C")?.ordinal).toBe(1);
+      expect(next.find((i) => i.entryId === "C")?.raw).toBe(95);
+      expectOnlyMovedRawChanged(items, next, "C");
     });
 
-    it("move to last place stays below neighbor above", () => {
+    it("move to 1st above 100 nudges former leader to 99.9", () => {
+      const items = [
+        item("two", 1, 100),
+        item("nine", 2, 85),
+      ];
+      const next = moveEntryToRank(items, "nine", 1);
+      expect(next.find((i) => i.entryId === "nine")).toMatchObject({
+        ordinal: 1,
+        raw: 100,
+      });
+      expect(next.find((i) => i.entryId === "two")?.raw).toBe(99.9);
+      expect(tiedEntryIds(next)).toEqual([]);
+    });
+
+    it("move to last below 0.1 nudges neighbor up", () => {
+      const items = [
+        item("A", 1, 50),
+        item("B", 2, 30),
+        item("C", 3, 0.1),
+      ];
+      const next = moveEntryToRank(items, "A", 3);
+      expect(next.find((i) => i.entryId === "C")?.raw).toBe(0.2);
+      expect(next.find((i) => i.entryId === "A")).toMatchObject({
+        ordinal: 3,
+        raw: 0.1,
+      });
+      expect(tiedEntryIds(next)).toEqual([]);
+    });
+
+    it("move to last uses midpoint of above and 0.1", () => {
       const items = [
         item("A", 1, 100),
         item("B", 2, 80),
         item("C", 3, 60),
         item("D", 4, 40),
-        item("E", 5, 30),
-        item("F", 6, 25),
-        item("G", 7, 22),
-        item("H", 8, 37.8),
-        item("I", 9, 20),
-        item("J", 10, 64.4),
       ];
-      const next = reorderMovedEntry(items, "I", "J");
-      expect(next.find((i) => i.entryId === "I")?.ordinal).toBe(10);
-      expect(next.find((i) => i.entryId === "I")?.raw).toBeLessThan(64.4);
-      expect(next.find((i) => i.entryId === "I")?.raw).toBeGreaterThanOrEqual(0.1);
-      expect(next.find((i) => i.entryId === "J")?.raw).toBe(64.4);
-      expect(tiedEntryIds(next)).toEqual([]);
+      const next = moveEntryToRank(items, "A", 4);
+      expect(next.find((i) => i.entryId === "A")?.ordinal).toBe(4);
+      expect(next.find((i) => i.entryId === "A")?.raw).toBe(20.1);
+      expectOnlyMovedRawChanged(items, next, "A");
     });
 
-    it("move to last place fits below neighbor without nudging (screenshot case)", () => {
+    it("wide neighbor gap keeps unique raw without ties", () => {
       const items = [
         item("A", 1, 100),
         item("B", 2, 80),
-        item("C", 3, 60),
-        item("D", 4, 40),
-        item("E", 5, 30),
-        item("F", 6, 25),
-        item("G", 7, 22),
-        item("H", 8, 37.8),
-        item("I", 9, 20),
-        item("J", 10, 64.4),
+        item("C", 3, 80.1),
       ];
-      const next = reorderMovedEntry(items, "H", "J");
-      expect(next.find((i) => i.entryId === "H")?.ordinal).toBe(10);
-      expect(next.find((i) => i.entryId === "H")?.raw).toBe(19.9);
-      expect(next.find((i) => i.entryId === "I")?.raw).toBe(20);
+      const next = moveEntryToRank(items, "C", 2);
+      expect(next.find((i) => i.entryId === "C")?.ordinal).toBe(2);
+      expect(next.find((i) => i.entryId === "C")?.raw).toBeGreaterThan(80);
+      expect(next.find((i) => i.entryId === "C")?.raw).toBeLessThan(100);
+      expect(next.find((i) => i.entryId === "B")?.raw).toBe(80);
       expect(tiedEntryIds(next)).toEqual([]);
     });
 
-    it("move to last place nudges above when gap is tighter than 0.1", () => {
+    it("0.1 neighbor gap nudges below neighbor and midpoints moved entry", () => {
       const items = [
         item("A", 1, 100),
-        item("B", 2, 50),
-        item("C", 3, 0.15),
+        item("B", 2, 91.1),
+        item("C", 3, 91.0),
+        item("D", 4, 89.4),
       ];
-      const next = reorderMovedEntry(items, "B", "C");
-      expect(next.find((i) => i.entryId === "B")?.ordinal).toBe(3);
-      expect(next.find((i) => i.entryId === "B")?.raw).toBe(0.1);
-      expect(next.find((i) => i.entryId === "B")?.raw).toBeLessThan(
-        next.find((i) => i.entryId === "C")?.raw!
-      );
-      expect(next.find((i) => i.entryId === "C")?.raw).toBe(0.15);
+      const next = moveEntryToRank(items, "D", 3);
+      expect(next.find((i) => i.entryId === "B")?.raw).toBe(91.1);
+      expect(next.find((i) => i.entryId === "D")).toMatchObject({
+        ordinal: 3,
+        raw: 91.0,
+      });
+      expect(next.find((i) => i.entryId === "C")?.raw).toBe(90.9);
       expect(tiedEntryIds(next)).toEqual([]);
     });
 
-    it("fitRawInSlot last rank never scores above neighbor", () => {
+    it("steps below nudge further when 90.9 is already taken", () => {
+      const items = [
+        item("A", 1, 92),
+        item("B", 2, 91.1),
+        item("C", 3, 91.0),
+        item("E", 4, 90.9),
+        item("D", 5, 89.4),
+      ];
+      const next = moveEntryToRank(items, "D", 3);
+      expect(next.find((i) => i.entryId === "C")?.raw).toBe(90.8);
+      expect(next.find((i) => i.entryId === "D")?.raw).toBe(91.0);
+      expect(tiedEntryIds(next)).toEqual([]);
+    });
+
+    it("nudges above when below neighbor cannot move down", () => {
+      const items = [
+        item("A", 1, 0.3),
+        item("B", 2, 0.2),
+        item("C", 3, 0.1),
+        item("D", 4, 0.05),
+      ];
+      const next = moveEntryToRank(items, "D", 2);
+      expect(next.find((i) => i.entryId === "A")?.raw).toBe(0.4);
+      expect(next.find((i) => i.entryId === "D")).toMatchObject({
+        ordinal: 2,
+        raw: 0.3,
+      });
+      expect(next.find((i) => i.entryId === "B")?.raw).toBe(0.2);
+      expect(tiedEntryIds(next)).toEqual([]);
+    });
+
+    it("no-op when target rank equals current rank", () => {
+      const items = [item("A", 1, 90), item("B", 2, 80)];
+      const next = moveEntryToRank(items, "B", 2);
+      expect(next).toEqual(items);
+    });
+  });
+
+  describe("fitRawInSlot (legacy helper)", () => {
+    it("last rank never scores above neighbor", () => {
       const snapshot = new Map([
         ["above", 20],
         ["other", 64.4],
@@ -193,23 +266,7 @@ describe("finalsSync", () => {
       expect(result.nudgeAbove).toBeUndefined();
     });
 
-    it("non-adjacent move adjusts only the moved entry", () => {
-      const items = [
-        item("A", 1, 100),
-        item("B", 2, 80),
-        item("C", 3, 60),
-        item("D", 4, 20),
-      ];
-      const next = reorderMovedEntry(items, "D", "B");
-      expect(next.find((i) => i.entryId === "D")?.ordinal).toBe(2);
-      // mid(100, 60) = 80, but B still holds 80 at rank 4 — avoid tie
-      expect(next.find((i) => i.entryId === "D")?.raw).toBe(79.9);
-      expect(next.find((i) => i.entryId === "B")?.raw).toBe(80);
-      expect(next.find((i) => i.entryId === "C")?.raw).toBe(60);
-      expect(tiedEntryIds(next)).toEqual([]);
-    });
-
-    it("fitRawInSlot nudges below neighbor when gap is too tight", () => {
+    it("may nudge below neighbor when gap is too tight", () => {
       const snapshot = new Map([
         ["A", 100],
         ["B", 100],
@@ -231,6 +288,34 @@ describe("finalsSync", () => {
     const next = applyRawChange(items, "C", 80);
     expect(next.find((i) => i.entryId === "C")?.ordinal).toBe(2);
     expect(tiedEntryIds(next).sort()).toEqual(["B", "C"]);
+  });
+
+  describe("finalsTiedWithBibsByEntryId", () => {
+    it("maps each tied entry to peer bib numbers", () => {
+      const items = [
+        item("A", 1, 80),
+        item("B", 2, 80),
+        item("C", 3, 60),
+      ];
+      const bibById = new Map<string, number | null>([
+        ["A", 10],
+        ["B", 20],
+        ["C", 30],
+      ]);
+      const map = finalsTiedWithBibsByEntryId(items, bibById);
+      expect(map.get("A")).toEqual([20]);
+      expect(map.get("B")).toEqual([10]);
+      expect(map.has("C")).toBe(false);
+    });
+
+    it("returns empty map when no duplicate raws", () => {
+      const items = [item("A", 1, 80), item("B", 2, 70)];
+      const bibById = new Map<string, number | null>([
+        ["A", 1],
+        ["B", 2],
+      ]);
+      expect(finalsTiedWithBibsByEntryId(items, bibById).size).toBe(0);
+    });
   });
 
   it("reseedAllRawFromOrdinals updates every ranked entry", () => {

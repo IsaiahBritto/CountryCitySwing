@@ -22,6 +22,7 @@ import {
   respreadRawScores,
   rankedEntryIds,
   tiedEntryIds,
+  finalsTiedWithBibsByEntryId,
   type FinalsScoreItem,
 } from "@/lib/scoring/finalsSync";
 import {
@@ -246,6 +247,12 @@ export default function FinalsSheet({
   }, []);
 
   const tied = useMemo(() => new Set(tiedEntryIds(items)), [items]);
+  const tiedWithBibsByEntryId = useMemo(() => {
+    const bibById = new Map(
+      entries.map((e) => [e.roundEntryId, e.bibNumber] as const)
+    );
+    return finalsTiedWithBibsByEntryId(items, bibById);
+  }, [items, entries]);
   const scoredCount = items.filter((i) => i.raw != null).length;
   const readyForVerify = canOpenVerify(items);
 
@@ -456,6 +463,7 @@ export default function FinalsSheet({
                       : null
                   }
                   isTied={isTied}
+                  tiedWithBibs={tiedWithBibsByEntryId.get(item.entryId) ?? []}
                   locked={locked}
                   showThumbs={showThumbs}
                   thumbUp={thumbState.up}

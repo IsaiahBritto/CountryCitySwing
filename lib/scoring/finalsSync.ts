@@ -24,9 +24,10 @@ export function clampScore(value: number): number {
   return roundScore(Math.min(100, Math.max(0, value)));
 }
 
-/** Average of two scores, rounded to one decimal. */
+/** Average of two scores, rounded to one decimal (tenths math avoids float drift). */
 export function midpointScore(a: number, b: number): number {
-  return roundScore((a + b) / 2);
+  const midTenths = Math.round((Math.round(a * 10) + Math.round(b * 10)) / 2);
+  return midTenths / 10;
 }
 
 function otherRaws(
@@ -52,6 +53,394 @@ function withoutTie(
     steps++;
   }
   return value;
+}
+
+function isTightNeighborGap(
+  aboveRaw: number | null,
+  belowRaw: number | null
+): boolean {
+  return (
+    aboveRaw != null &&
+    belowRaw != null &&
+    aboveRaw - belowRaw <= NUDGE_STEP
+  );
+}
+
+function isTightEdgeAtFirst(belowRaw: number | null): boolean {
+  return (
+    belowRaw != null && RAW_CEILING - belowRaw <= NUDGE_STEP
+  );
+}
+
+function isTightEdgeAtLast(aboveRaw: number | null): boolean {
+  return (
+    aboveRaw != null && aboveRaw - SLOT_MIN_RAW <= NUDGE_STEP
+  );
+}
+
+function usedRawsForEntries(
+  rawById: Map<string, number>,
+  excludeEntryIds: string[]
+): Set<number> {
+  const exclude = new Set(excludeEntryIds);
+  const used = new Set<number>();
+  for (const [id, raw] of rawById) {
+    if (exclude.has(id)) continue;
+    used.add(roundScore(raw));
+  }
+  return used;
+}
+
+function findUniqueNudgeDown(fromRaw: number, used: Set<number>): number | null {
+  const fromTenths = Math.round(fromRaw * 10);
+  for (let tenths = fromTenths - 1; tenths >= 1; tenths--) {
+    const value = roundScore(tenths / 10);
+    if (Math.round(value * 10) >= fromTenths) continue;
+    if (!used.has(value)) return value;
+  }
+  return null;
+}
+
+function findUniqueNudgeUp(fromRaw: number, used: Set<number>): number | null {
+  const fromTenths = Math.round(fromRaw * 10);
+  for (let tenths = fromTenths + 1; tenths <= 1000; tenths++) {
+    const value = roundScore(tenths / 10);
+    if (Math.round(value * 10) <= fromTenths) continue;
+    if (!used.has(value)) return value;
+  }
+  return null;
+}
+
+function finalsItemsWithRaws(
+  reordered: FinalsScoreItem[],
+  rawById: Map<string, number>
+): FinalsScoreItem[] {
+  return reordered.map((row, index) => ({
+    entryId: row.entryId,
+    ordinal: index + 1,
+    raw: rawById.get(row.entryId) ?? null,
+  }));
+}
+
+/** Midpoint for inserted rank when only the moved entry's raw changes (wide neighbor gap). */
+function movedRawForRank(
+  targetRank: number,
+  lastRank: number,
+  aboveRaw: number | null,
+  belowRaw: number | null,
+  usedOtherRaws: Set<number>
+): number {
+  let candidate: number;
+  if (targetRank === 1) {
+    candidate =
+      belowRaw != null
+        ? midpointScore(RAW_CEILING, belowRaw)
+        : RAW_CEILING;
+    if (belowRaw != null && candidate <= belowRaw) {
+      candidate = roundScore(belowRaw + NUDGE_STEP);
+    }
+    candidate = Math.min(candidate, RAW_CEILING);
+  } else if (targetRank === lastRank) {
+    candidate =
+      aboveRaw != null
+        ? midpointScore(aboveRaw, SLOT_MIN_RAW)
+        : SLOT_MIN_RAW;
+    if (aboveRaw != null && candidate >= aboveRaw) {
+      candidate = roundScore(aboveRaw - NUDGE_STEP);
+    }
+    candidate = Math.max(candidate, SLOT_MIN_RAW);
+  } else {
+    candidate = midpointScore(aboveRaw!, belowRaw!);
+    if (candidate >= aboveRaw!) {
+      candidate = roundScore(aboveRaw! - NUDGE_STEP);
+    }
+    if (candidate <= belowRaw!) {
+      candidate = roundScore(belowRaw! + NUDGE_STEP);
+    }
+  }
+
+  let raw = withoutTie(candidate, usedOtherRaws, true);
+  raw = Math.max(raw, SLOT_MIN_RAW);
+
+  if (aboveRaw != null && raw >= aboveRaw) {
+    raw = withoutTie(roundScore(aboveRaw - NUDGE_STEP), usedOtherRaws, true);
+  }
+  if (belowRaw != null && raw <= belowRaw) {
+    raw = withoutTie(roundScore(belowRaw + NUDGE_STEP), usedOtherRaws, true);
+  }
+
+  if (aboveRaw != null && belowRaw != null) {
+    raw = Math.min(raw, aboveRaw);
+    raw = Math.max(raw, belowRaw);
+  }
+
+  return clampScore(Math.max(raw, SLOT_MIN_RAW));
+}
+
+function midpointMovedRawAtFirst(
+  nudgedBelow: number,
+  usedOtherRaws: Set<number>
+): number {
+  let raw = midpointScore(RAW_CEILING, nudgedBelow);
+  if (raw <= nudgedBelow) {
+    raw = roundScore(nudgedBelow + NUDGE_STEP);
+  }
+  raw = withoutTie(raw, usedOtherRaws, true);
+  raw = Math.min(raw, RAW_CEILING);
+  if (raw <= nudgedBelow) {
+    raw = RAW_CEILING;
+  }
+  return clampScore(raw);
+}
+
+function midpointMovedRawAtLast(
+  nudgedAbove: number,
+  usedOtherRaws: Set<number>
+): number {
+  let raw = midpointScore(nudgedAbove, SLOT_MIN_RAW);
+  if (raw >= nudgedAbove) {
+    raw = roundScore(nudgedAbove - NUDGE_STEP);
+  }
+  raw = withoutTie(raw, usedOtherRaws, true);
+  raw = Math.min(raw, roundScore(nudgedAbove - NUDGE_STEP));
+  raw = Math.max(raw, SLOT_MIN_RAW);
+  return clampScore(raw);
+}
+
+function midpointMovedRaw(
+  aboveRaw: number,
+  belowRaw: number,
+  usedOtherRaws: Set<number>
+): number {
+  let raw = midpointScore(aboveRaw, belowRaw);
+  if (raw >= aboveRaw) raw = roundScore(aboveRaw - NUDGE_STEP);
+  if (raw <= belowRaw) raw = roundScore(belowRaw + NUDGE_STEP);
+  raw = withoutTie(raw, usedOtherRaws, true);
+  raw = Math.min(raw, aboveRaw);
+  raw = Math.max(raw, belowRaw);
+  return clampScore(Math.max(raw, SLOT_MIN_RAW));
+}
+
+type InsertStrategy = "nudgeBelow" | "nudgeAbove" | "movedOnly";
+
+function tryInsertStrategy(
+  strategy: InsertStrategy,
+  reordered: FinalsScoreItem[],
+  targetRank: number,
+  lastRank: number,
+  movedEntryId: string,
+  baseRawById: Map<string, number>
+): Map<string, number> | null {
+  const aboveEntry =
+    targetRank > 1 ? reordered[targetRank - 2]! : undefined;
+  const belowEntry =
+    targetRank < lastRank ? reordered[targetRank]! : undefined;
+  const aboveRaw = aboveEntry?.raw ?? null;
+  const belowRaw = belowEntry?.raw ?? null;
+
+  const rawById = new Map(baseRawById);
+
+  if (strategy === "nudgeBelow") {
+    if (targetRank === 1 && belowEntry && belowRaw != null) {
+      const usedBelow = usedRawsForEntries(rawById, [
+        movedEntryId,
+        belowEntry.entryId,
+      ]);
+      const nudgedBelow = findUniqueNudgeDown(belowRaw, usedBelow);
+      if (nudgedBelow == null) return null;
+      rawById.set(belowEntry.entryId, nudgedBelow);
+      const usedMoved = usedRawsForEntries(rawById, [movedEntryId]);
+      rawById.set(
+        movedEntryId,
+        midpointMovedRawAtFirst(nudgedBelow, usedMoved)
+      );
+    } else if (aboveRaw == null || belowRaw == null || !belowEntry) {
+      return null;
+    } else {
+      const usedBelow = usedRawsForEntries(rawById, [
+        movedEntryId,
+        belowEntry.entryId,
+      ]);
+      const nudgedBelow = findUniqueNudgeDown(belowRaw, usedBelow);
+      if (nudgedBelow == null) return null;
+      rawById.set(belowEntry.entryId, nudgedBelow);
+      const usedMoved = usedRawsForEntries(rawById, [movedEntryId]);
+      const movedRaw = midpointMovedRaw(aboveRaw, nudgedBelow, usedMoved);
+      rawById.set(movedEntryId, movedRaw);
+    }
+  } else if (strategy === "nudgeAbove") {
+    if (targetRank === lastRank && aboveEntry && aboveRaw != null) {
+      const usedAbove = usedRawsForEntries(rawById, [
+        movedEntryId,
+        aboveEntry.entryId,
+      ]);
+      const nudgedAbove = findUniqueNudgeUp(aboveRaw, usedAbove);
+      if (nudgedAbove == null) return null;
+      rawById.set(aboveEntry.entryId, nudgedAbove);
+      const usedMoved = usedRawsForEntries(rawById, [movedEntryId]);
+      rawById.set(
+        movedEntryId,
+        midpointMovedRawAtLast(nudgedAbove, usedMoved)
+      );
+    } else if (aboveRaw == null || belowRaw == null || !aboveEntry) {
+      return null;
+    } else {
+      const usedAbove = usedRawsForEntries(rawById, [
+        movedEntryId,
+        aboveEntry.entryId,
+      ]);
+      const nudgedAbove = findUniqueNudgeUp(aboveRaw, usedAbove);
+      if (nudgedAbove == null) return null;
+      rawById.set(aboveEntry.entryId, nudgedAbove);
+      const usedMoved = usedRawsForEntries(rawById, [movedEntryId]);
+      const movedRaw = midpointMovedRaw(nudgedAbove, belowRaw, usedMoved);
+      rawById.set(movedEntryId, movedRaw);
+    }
+  } else {
+    const used = usedRawsForEntries(rawById, [movedEntryId]);
+    const movedRaw = movedRawForRank(
+      targetRank,
+      lastRank,
+      aboveRaw,
+      belowRaw,
+      used
+    );
+    rawById.set(movedEntryId, movedRaw);
+  }
+
+  if (tiedEntryIds(finalsItemsWithRaws(reordered, rawById)).length > 0) {
+    return null;
+  }
+  return rawById;
+}
+
+/** Assign raws after insert; may nudge one immediate neighbor when gap ≤ 0.1. */
+function assignRawsForInsertAtRank(
+  reordered: FinalsScoreItem[],
+  targetRank: number,
+  movedEntryId: string,
+  items: FinalsScoreItem[]
+): Map<string, number> {
+  const lastRank = reordered.length;
+  const baseRawById = new Map<string, number>();
+  for (const row of items) {
+    if (row.raw != null) baseRawById.set(row.entryId, roundScore(row.raw));
+  }
+
+  const aboveRaw =
+    targetRank > 1 ? (reordered[targetRank - 2]!.raw ?? null) : null;
+  const belowRaw =
+    targetRank < lastRank ? (reordered[targetRank]!.raw ?? null) : null;
+
+  const tightMiddle =
+    targetRank !== 1 &&
+    targetRank !== lastRank &&
+    isTightNeighborGap(aboveRaw, belowRaw);
+  const tightEdgeFirst =
+    targetRank === 1 && isTightEdgeAtFirst(belowRaw);
+  const tightEdgeLast =
+    targetRank === lastRank && isTightEdgeAtLast(aboveRaw);
+
+  const tryStrategies = (strategies: InsertStrategy[]) => {
+    for (const strategy of strategies) {
+      const result = tryInsertStrategy(
+        strategy,
+        reordered,
+        targetRank,
+        lastRank,
+        movedEntryId,
+        baseRawById
+      );
+      if (result) return result;
+    }
+    return null;
+  };
+
+  if (tightMiddle) {
+    const result = tryStrategies([
+      "nudgeBelow",
+      "nudgeAbove",
+      "movedOnly",
+    ]);
+    if (result) return result;
+  }
+
+  if (tightEdgeFirst) {
+    const result = tryStrategies([
+      "nudgeBelow",
+      "nudgeAbove",
+      "movedOnly",
+    ]);
+    if (result) return result;
+  }
+
+  if (tightEdgeLast) {
+    const result = tryStrategies([
+      "nudgeAbove",
+      "nudgeBelow",
+      "movedOnly",
+    ]);
+    if (result) return result;
+  }
+
+  const movedOnly = tryInsertStrategy(
+    "movedOnly",
+    reordered,
+    targetRank,
+    lastRank,
+    movedEntryId,
+    baseRawById
+  );
+  if (movedOnly) return movedOnly;
+
+  const rawById = new Map(baseRawById);
+  const used = usedRawsForEntries(rawById, [movedEntryId]);
+  rawById.set(
+    movedEntryId,
+    movedRawForRank(targetRank, lastRank, aboveRaw, belowRaw, used)
+  );
+  return rawById;
+}
+
+/**
+ * Inserts the moved entry at targetRank (1..N). Moved raw is the midpoint
+ * between neighbors (100 / 0.1 at edges). When gap ≤ 0.1, may nudge one
+ * immediate neighbor ±0.1 so all raws stay unique.
+ */
+export function moveEntryToRank(
+  items: FinalsScoreItem[],
+  movedEntryId: string,
+  targetRank: number
+): FinalsScoreItem[] {
+  const ordered = itemsInRankOrder(items);
+  const fromIdx = ordered.findIndex((i) => i.entryId === movedEntryId);
+  if (fromIdx === -1) return items;
+
+  const n = ordered.length;
+  if (targetRank < 1 || targetRank > n) return items;
+
+  const currentRank = fromIdx + 1;
+  if (targetRank === currentRank) return items;
+
+  const moved = ordered[fromIdx]!;
+  if (moved.raw == null) return items;
+
+  const reordered = [...ordered];
+  const [entry] = reordered.splice(fromIdx, 1);
+  reordered.splice(targetRank - 1, 0, entry);
+
+  const rawById = assignRawsForInsertAtRank(
+    reordered,
+    targetRank,
+    movedEntryId,
+    items
+  );
+
+  return reordered.map((row, index) => ({
+    entryId: row.entryId,
+    ordinal: index + 1,
+    raw: rawById.get(row.entryId) ?? null,
+  }));
 }
 
 /**
@@ -145,81 +534,27 @@ export function fitRawInSlot(
 }
 
 /**
- * Swaps ordinals with a target row and adjusts only the moved entry's raw
- * to fit between unchanged neighbor scores at the new rank.
+ * @deprecated Prefer moveEntryToRank — inserts at the partner's rank (not a raw swap).
  */
 export function reorderMovedEntry(
   items: FinalsScoreItem[],
   movedEntryId: string,
   swapWithEntryId: string
 ): FinalsScoreItem[] {
-  const next = items.map((i) => ({ ...i }));
-  const moved = next.find((i) => i.entryId === movedEntryId);
-  const partner = next.find((i) => i.entryId === swapWithEntryId);
-  if (!moved || !partner || moved.ordinal == null || partner.ordinal == null) {
-    return items;
-  }
-  if (moved.ordinal === partner.ordinal || moved.raw == null) return items;
-
-  const snapshot = new Map(
-    next
-      .filter((i) => i.raw != null)
-      .map((i) => [i.entryId, i.raw!] as const)
-  );
-  const lastRank = next.filter((i) => i.ordinal != null).length;
-
-  const tmp = moved.ordinal;
-  moved.ordinal = partner.ordinal;
-  partner.ordinal = tmp;
-
-  const newRank = moved.ordinal!;
-  const aboveEntry = next.find((i) => i.ordinal === newRank - 1);
-  const belowEntry = next.find((i) => i.ordinal === newRank + 1);
-
-  const aboveRaw = aboveEntry ? (snapshot.get(aboveEntry.entryId) ?? null) : null;
-  const belowRaw = belowEntry ? (snapshot.get(belowEntry.entryId) ?? null) : null;
-
-  let candidate: number;
-  if (newRank === 1) {
-    candidate =
-      belowRaw != null
-        ? midpointScore(RAW_CEILING, belowRaw)
-        : RAW_CEILING;
-  } else if (newRank === lastRank) {
-    candidate =
-      aboveRaw != null
-        ? Math.max(roundScore(aboveRaw - NUDGE_STEP), SLOT_MIN_RAW)
-        : SLOT_MIN_RAW;
-  } else {
-    candidate = midpointScore(aboveRaw!, belowRaw!);
-  }
-
-  const { raw, nudgeAbove, nudgeBelow } = fitRawInSlot(
-    candidate,
-    newRank === 1 ? null : aboveRaw,
-    newRank === lastRank ? null : belowRaw,
-    snapshot,
-    movedEntryId
-  );
-
-  moved.raw = raw;
-  if (nudgeAbove != null && aboveEntry) {
-    aboveEntry.raw = nudgeAbove;
-  }
-  if (nudgeBelow != null && belowEntry) {
-    belowEntry.raw = nudgeBelow;
-  }
-
-  return next;
+  const partner = items.find((i) => i.entryId === swapWithEntryId);
+  if (!partner || partner.ordinal == null) return items;
+  return moveEntryToRank(items, movedEntryId, partner.ordinal);
 }
 
-/** @deprecated Use reorderMovedEntry — pass the row being moved as the first id. */
+/** @deprecated Use moveEntryToRank. */
 export function reorderRankedAndSeedAll(
   items: FinalsScoreItem[],
   movedEntryId: string,
   swapWithEntryId: string
 ): FinalsScoreItem[] {
-  return reorderMovedEntry(items, movedEntryId, swapWithEntryId);
+  const partner = items.find((i) => i.entryId === swapWithEntryId);
+  if (!partner?.ordinal) return items;
+  return moveEntryToRank(items, movedEntryId, partner.ordinal);
 }
 
 /** Assigns raw 100→floor for every id in rank order (all receive a score). */
@@ -346,6 +681,31 @@ export function tiedEntryIds(items: FinalsScoreItem[]): string[] {
     if (group.length > 1) tied.push(...group);
   }
   return tied;
+}
+
+/** For each entry in a duplicate-raw group, bib numbers of the other tied entries. */
+export function finalsTiedWithBibsByEntryId(
+  items: FinalsScoreItem[],
+  bibByEntryId: Map<string, number | null>
+): Map<string, number[]> {
+  const byRaw = new Map<number, string[]>();
+  for (const item of items) {
+    if (item.raw == null) continue;
+    byRaw.set(item.raw, [...(byRaw.get(item.raw) ?? []), item.entryId]);
+  }
+  const out = new Map<string, number[]>();
+  for (const group of byRaw.values()) {
+    if (group.length < 2) continue;
+    for (const entryId of group) {
+      const bibs = group
+        .filter((id) => id !== entryId)
+        .map((id) => bibByEntryId.get(id))
+        .filter((b): b is number => b != null)
+        .sort((a, b) => a - b);
+      out.set(entryId, bibs);
+    }
+  }
+  return out;
 }
 
 export function toOrdinals(items: FinalsScoreItem[]): Record<string, number> {

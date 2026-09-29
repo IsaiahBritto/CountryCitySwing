@@ -21,6 +21,7 @@ function JudgeFinalsRowInner({
   raw,
   displayOrdinal,
   isTied,
+  tiedWithBibs = [],
   locked,
   showThumbs,
   thumbUp,
@@ -37,6 +38,7 @@ function JudgeFinalsRowInner({
   raw: number | null;
   displayOrdinal: number | null;
   isTied: boolean;
+  tiedWithBibs?: number[];
   locked: boolean;
   showThumbs: boolean;
   thumbUp: number;
@@ -50,13 +52,15 @@ function JudgeFinalsRowInner({
   reorderFading?: boolean;
 }) {
   const entryId = entry?.roundEntryId ?? "";
+  const rowSurface = isTied
+    ? judgeTieRowClass
+    : "border-neutral-700 bg-neutral-800/60";
 
   return (
     <div
       id={entryId ? `judge-entry-${entryId}` : undefined}
       className={
-        "mb-1 flex min-w-0 items-center gap-2 rounded-xl border bg-neutral-800/60 p-2 " +
-        (isTied ? judgeTieRowClass : "border-neutral-700") +
+        `mb-1 flex min-w-0 items-center gap-2 rounded-xl border p-2 ${rowSurface}` +
         (reorderFading ? ` ${judgeRowReorderFadeClass}` : "")
       }
     >
@@ -92,6 +96,7 @@ function JudgeFinalsRowInner({
           sliderDraftValue={sliderDraftValue}
           locked={locked}
           isTied={isTied}
+          tiedWithBibs={tiedWithBibs}
           showThumbs={showThumbs}
           thumbsUp={thumbUp}
           thumbsDown={thumbDown}

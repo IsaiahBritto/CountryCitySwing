@@ -555,8 +555,29 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
 
   if (!open || !event) return null;
 
+  const submitFooter = (
+    <div className="space-y-2">
+      {submitError && (
+        <p className="text-red-400 text-sm" role="alert">
+          {submitError}
+        </p>
+      )}
+      {submitSuccessMessage && (
+        <p className="text-green-400 text-sm">{submitSuccessMessage}</p>
+      )}
+      <button
+        type="submit"
+        form="event-signup-form"
+        disabled={isSubmitting}
+        className="w-full bg-accent text-white px-6 py-3 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] hover:shadow-[0_0_25px_rgba(187,134,252,0.8)] disabled:opacity-50"
+      >
+        {isSubmitting ? "Submitting..." : "Submit Signup"}
+      </button>
+    </div>
+  );
+
   return (
-    <SignupModalShell title={event.title} onClose={onClose}>
+    <SignupModalShell title={event.title} onClose={onClose} footer={submitFooter}>
       <p className="text-gray-300 text-sm">
             <strong>When:</strong>{" "}
             {event.starts_at
@@ -619,7 +640,7 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             </div>
           )}
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+          <form id="event-signup-form" onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             {profileNeedsName && (
               <p className="rounded-lg border border-amber-600/50 bg-amber-950/40 px-3 py-2 text-sm text-amber-100">
                 Your account is missing a name — enter it below. We&apos;ll save it to
@@ -1082,27 +1103,6 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                 Please fill in all required fields.
               </p>
             )}
-
-            {submitSuccessMessage && (
-              <div className="bg-green-900/20 border border-green-500 rounded-lg p-3">
-                <p className="text-green-400 text-sm">{submitSuccessMessage}</p>
-              </div>
-            )}
-            {submitError && (
-              <div className="bg-red-900/20 border border-red-500 rounded-lg p-3">
-                <p className="text-red-400 text-sm">{submitError}</p>
-              </div>
-            )}
-
-            <div className="flex justify-center">
-              <button
-                disabled={isSubmitting}
-                type="submit"
-                className="bg-accent text-white px-6 py-2 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] hover:shadow-[0_0_25px_rgba(187,134,252,0.8)]"
-              >
-                {isSubmitting ? "Submitting..." : "Submit Signup"}
-              </button>
-            </div>
 
             {isSubmitSuccessful && (
               <p className="text-green-400 mt-2">

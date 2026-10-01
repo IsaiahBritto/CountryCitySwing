@@ -170,7 +170,7 @@ export function buildSocialDoormanSlotWindows(
 /** Sort schedule slots chronologically (Doorman hours use slot_starts_at). */
 export function compareScheduleSlotsByTime<
   T extends {
-    position?: string;
+    position?: string | null;
     slot_starts_at?: string | null;
     created_at?: string | null;
   },

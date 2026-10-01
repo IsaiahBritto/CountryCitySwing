@@ -182,3 +182,41 @@ export function compareScheduleSlotsByTime<
   if (!Number.isNaN(bStart)) return 1;
   return (a.created_at || "").localeCompare(b.created_at || "");
 }
+
+/** Display order for untimed slots: Lead, Follow, Doorman, then other. */
+export function schedulePositionDisplayRank(position: string | null | undefined): number {
+  const p = (position || "").trim();
+  if (/Beginner Lead Teacher Week/i.test(p)) return 1;
+  if (/Beginner Follow Teacher Week/i.test(p)) return 2;
+  if (isDoormanPosition(p)) return 3;
+  return 4;
+}
+
+type ScheduleSlotSortFields = {
+  id?: string | number | null;
+  position?: string | null;
+  slot_starts_at?: string | null;
+  created_at?: string | null;
+};
+
+/** Sort for schedule UI/API: timed Social doorman hours by time; class slots by role. */
+export function compareScheduleSlotsForDisplay<T extends ScheduleSlotSortFields>(a: T, b: T): number {
+  const aTimed = Boolean(a.slot_starts_at);
+  const bTimed = Boolean(b.slot_starts_at);
+  if (aTimed || bTimed) {
+    return compareScheduleSlotsByTime(a, b);
+  }
+
+  const rankDiff =
+    schedulePositionDisplayRank(a.position) - schedulePositionDisplayRank(b.position);
+  if (rankDiff !== 0) return rankDiff;
+
+  const createdCmp = (a.created_at || "").localeCompare(b.created_at || "");
+  if (createdCmp !== 0) return createdCmp;
+
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+}
+
+export function sortScheduleSlotsForDisplay<T extends ScheduleSlotSortFields>(slots: T[]): T[] {
+  return [...slots].sort(compareScheduleSlotsForDisplay);
+}

@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { isValidSchedulePosition } from "@/lib/socialScheduleSlots";
+import {
+  isValidSchedulePosition,
+  sortScheduleSlotsForDisplay,
+} from "@/lib/socialScheduleSlots";
 import { syncUpcomingSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
+import {
+  isClassScheduleOpen,
+  syncDueClassSchedules,
+} from "@/lib/classScheduleSlotsServer";
 
 export const SCHEDULE_POSITIONS = [
   "Beginner Lead Teacher Week A",
@@ -59,6 +66,9 @@ export async function GET(req: NextRequest) {
     }
 
     await syncUpcomingSocialDoormanSlots();
+    await syncDueClassSchedules();
+
+    const viewerIsAdmin = isAdmin(profile.role);
 
     const { searchParams } = new URL(req.url);
     const eventId = searchParams.get("event_id");
@@ -69,7 +79,7 @@ export async function GET(req: NextRequest) {
     let query = supabaseServer
       .from("team_slots")
       .select(
-        "id, position, event_id, assignee_id, assigned_at, created_at, updated_at, slot_starts_at, slot_ends_at, event:events(id, title, starts_at, ends_at, location, type, time_zone)"
+        "id, position, event_id, assignee_id, assigned_at, created_at, updated_at, slot_starts_at, slot_ends_at, event:events(id, title, starts_at, ends_at, location, type, time_zone, schedule_opens_at, class_week_override)"
       );
 
     if (eventId) query = query.eq("event_id", eventId);
@@ -92,7 +102,15 @@ export async function GET(req: NextRequest) {
       ...s,
       event: s.event ?? null,
       assignee: s.assignee_id ? profilesMap.get(s.assignee_id) || null : null,
+      scheduleNotYetOpen:
+        s.event?.schedule_opens_at && !isClassScheduleOpen(s.event),
     }));
+
+    result = result.filter((s: any) => {
+      if (!s.event?.schedule_opens_at) return true;
+      if (isClassScheduleOpen(s.event)) return true;
+      return viewerIsAdmin;
+    });
 
     if (fromDate || toDate) {
       result = result.filter((s: any) => {
@@ -103,6 +121,18 @@ export async function GET(req: NextRequest) {
         if (toDate && d > toDate) return false;
         return true;
       });
+    }
+
+    const byEvent = new Map<string, typeof result>();
+    for (const slot of result) {
+      const key = String(slot.event_id);
+      const list = byEvent.get(key) || [];
+      list.push(slot);
+      byEvent.set(key, list);
+    }
+    result = [];
+    for (const group of byEvent.values()) {
+      result.push(...sortScheduleSlotsForDisplay(group));
     }
 
     return NextResponse.json({ slots: result });

@@ -25,6 +25,8 @@ interface EventOption {
   location?: string;
   type?: string;
   time_zone?: string | null;
+  schedule_opens_at?: string | null;
+  class_week_override?: string | null;
 }
 
 interface InstructorOption {
@@ -48,6 +50,10 @@ export default function SchedulePage() {
   const [addEventId, setAddEventId] = useState<string>("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [anchorDate, setAnchorDate] = useState("");
+  const [anchorWeek, setAnchorWeek] = useState<"A" | "B" | "C">("A");
+  const [rotationSaving, setRotationSaving] = useState(false);
+  const [rotationLoaded, setRotationLoaded] = useState(false);
 
   const getAuthHeaders = useCallback(async (): Promise<HeadersInit> => {
     const { data: { session } } = await supabaseBrowser.auth.getSession();
@@ -103,6 +109,8 @@ export default function SchedulePage() {
                 location: ev.location,
                 type: ev.type,
                 time_zone: ev.time_zone ?? null,
+                schedule_opens_at: ev.schedule_opens_at ?? null,
+                class_week_override: ev.class_week_override ?? null,
               }
             : null),
       };
@@ -145,7 +153,25 @@ export default function SchedulePage() {
           return;
         }
         setRole(isAdmin ? "admin" : "instructor");
-        if (!cancelled) await loadData();
+        if (!cancelled) {
+          await loadData();
+          if (isAdmin) {
+            try {
+              const cfgRes = await fetch("/api/schedule/rotation-config", {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              if (cfgRes.ok) {
+                const cfgData = await cfgRes.json();
+                setAnchorDate(cfgData.config?.anchor_date || "2025-09-29");
+                const w = cfgData.config?.anchor_week;
+                if (w === "A" || w === "B" || w === "C") setAnchorWeek(w);
+              }
+            } catch {
+              /* ignore */
+            }
+            setRotationLoaded(true);
+          }
+        }
       } catch {
         setRole(null);
         setLoading(false);
@@ -157,6 +183,25 @@ export default function SchedulePage() {
       cancelled = true;
     };
   }, [router, loadData]);
+
+  const handleSaveRotationConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRotationSaving(true);
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch("/api/schedule/rotation-config", {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ anchor_date: anchorDate, anchor_week: anchorWeek }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || "Failed to save rotation settings");
+      }
+    } finally {
+      setRotationSaving(false);
+    }
+  };
 
   const handleAddSlot = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -223,6 +268,51 @@ export default function SchedulePage() {
 
       {error && (
         <p className="text-red-400 mb-4">{error}</p>
+      )}
+
+      {role === "admin" && rotationLoaded && (
+        <form
+          onSubmit={handleSaveRotationConfig}
+          className="mb-6 text-left rounded-lg border border-neutral-700 bg-neutral-900/60 p-4 max-w-xl mx-auto"
+        >
+          <h3 className="text-lg font-semibold text-primary mb-2">
+            Tuesday class rotation anchor
+          </h3>
+          <p className="text-sm text-gray-400 mb-3">
+            Used when auto-assigning Beginner Week A/B/C. Override per event in the event editor if needed.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm text-gray-300 mb-1">Anchor date</label>
+              <input
+                type="date"
+                value={anchorDate}
+                onChange={(e) => setAnchorDate(e.target.value)}
+                className="w-full rounded-md bg-neutral-800 border border-neutral-600 text-white px-3 py-2"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-300 mb-1">Anchor week</label>
+              <select
+                value={anchorWeek}
+                onChange={(e) => setAnchorWeek(e.target.value as "A" | "B" | "C")}
+                className="w-full rounded-md bg-neutral-800 border border-neutral-600 text-white px-3 py-2"
+              >
+                <option value="A">Week A</option>
+                <option value="B">Week B</option>
+                <option value="C">Week C</option>
+              </select>
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={rotationSaving}
+            className="mt-3 btn-signup text-sm px-4 py-2 rounded-md disabled:opacity-50"
+          >
+            {rotationSaving ? "Saving…" : "Save anchor"}
+          </button>
+        </form>
       )}
 
       <ScheduleCalendar

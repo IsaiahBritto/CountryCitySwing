@@ -5,6 +5,7 @@ import { updateClassEventDescriptionFromSchedule } from "@/lib/classDescriptionS
 import { syncClassFinanceTeachersFromSchedule } from "@/lib/classFinanceSync";
 import { syncSocialDoorPayoutsFromSchedule } from "@/lib/socialDoorFinanceSync";
 import { isEventPastInChicago } from "@/lib/utils/dateHelpers";
+import { isClassScheduleOpen } from "@/lib/classScheduleSlotsServer";
 
 async function getAuthUser(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -108,9 +109,16 @@ export async function POST(
 
     const { data: event } = await supabaseServer
       .from("events")
-      .select("starts_at, ends_at")
+      .select("starts_at, ends_at, schedule_opens_at")
       .eq("id", slot.event_id)
       .maybeSingle();
+
+    if (!isAdmin(role) && event && !isClassScheduleOpen(event)) {
+      return NextResponse.json(
+        { error: "Staff schedule for this event is not open yet." },
+        { status: 403 }
+      );
+    }
 
     if (!isAdmin(role) && event?.starts_at && isEventPastInChicago(event.starts_at, event.ends_at)) {
       return NextResponse.json(

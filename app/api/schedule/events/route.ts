@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { ensureSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
+import { syncDueClassSchedules } from "@/lib/classScheduleSlotsServer";
 import { isEventPastInChicago } from "@/lib/utils/dateHelpers";
 
 async function getAuthUser(req: NextRequest) {
@@ -44,9 +45,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    await syncDueClassSchedules();
+
     const { data: events, error } = await supabaseServer
       .from("events")
-      .select("id, title, starts_at, ends_at, location, type, time_zone")
+      .select(
+        "id, title, starts_at, ends_at, location, type, time_zone, schedule_opens_at, class_week_override"
+      )
       .order("starts_at", { ascending: true });
 
     if (error) {

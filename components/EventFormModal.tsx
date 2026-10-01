@@ -130,6 +130,10 @@ interface Event {
   allThreeClasses?: boolean;
   upper_level_lead_capacity?: number | null;
   upper_level_follow_capacity?: number | null;
+  schedule_opens_at?: string | null;
+  scheduleOpensAt?: string | null;
+  class_week_override?: string | null;
+  classWeekOverride?: string | null;
 }
 
 interface EventFormModalProps {
@@ -178,6 +182,9 @@ export default function EventFormModal({
   const [classBeginnerPart, setClassBeginnerPart] = useState(DEFAULT_BEGINNER_SENTENCE);
   const [classAutoDescription, setClassAutoDescription] = useState(false);
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleOpensAtLocal, setScheduleOpensAtLocal] = useState("");
+  const [classWeekOverride, setClassWeekOverride] = useState<"auto" | "A" | "B" | "C">("auto");
+  const [computedClassWeek, setComputedClassWeek] = useState<string | null>(null);
   const upperNamesRef = useRef(classUpperLevelNames);
   upperNamesRef.current = classUpperLevelNames;
 
@@ -222,6 +229,16 @@ export default function EventFormModal({
         setClassBeginnerPart(beginnerPart);
         setClassAutoDescription(autoDesc);
 
+        const scheduleOpensIso =
+          event.schedule_opens_at || event.scheduleOpensAt || null;
+        setScheduleOpensAtLocal(
+          scheduleOpensIso ? toDateTimeLocalInTimeZone(scheduleOpensIso, tz) : ""
+        );
+        const weekOv = event.class_week_override || event.classWeekOverride;
+        setClassWeekOverride(
+          weekOv === "A" || weekOv === "B" || weekOv === "C" ? weekOv : "auto"
+        );
+
         setFormData({
           title: event.title || "",
           starts_at: startsAtStr,
@@ -252,6 +269,9 @@ export default function EventFormModal({
         setClassUpperLevelNames(DEFAULT_UPPER_LEVEL_NAMES);
         setClassBeginnerPart(DEFAULT_BEGINNER_SENTENCE);
         setClassAutoDescription(false);
+        setScheduleOpensAtLocal("");
+        setClassWeekOverride("auto");
+        setComputedClassWeek(null);
         setFormData({
           title: "",
           starts_at: "",
@@ -340,6 +360,61 @@ export default function EventFormModal({
       cancelled = true;
     };
   }, [open, event?.id, event?.type]);
+
+  useEffect(() => {
+    if (!open || !isClassType) {
+      setComputedClassWeek(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { data: { session } } = await supabaseBrowser.auth.getSession();
+        if (!session?.access_token || cancelled) return;
+
+        const tz = formData.time_zone || DEFAULT_TIME_ZONE;
+        const startsIso = formData.starts_at
+          ? fromDateTimeLocalInTimeZone(formData.starts_at, tz)
+          : null;
+        if (!startsIso && !event?.id) {
+          setComputedClassWeek(null);
+          return;
+        }
+
+        const params = new URLSearchParams();
+        if (event?.id) params.set("event_id", String(event.id));
+        else if (startsIso) params.set("starts_at", startsIso);
+        params.set("time_zone", tz);
+        params.set("class_week_override", classWeekOverride);
+
+        const res = await fetch(`/api/schedule/class-week-preview?${params}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (data.isTuesdayClass && data.week) {
+          setComputedClassWeek(String(data.week));
+        } else {
+          setComputedClassWeek(null);
+        }
+      } catch {
+        if (!cancelled) setComputedClassWeek(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    isClassType,
+    event?.id,
+    formData.starts_at,
+    formData.time_zone,
+    classWeekOverride,
+  ]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -446,6 +521,17 @@ export default function EventFormModal({
           ? event!.ends_at!
           : fromDateTimeLocalInTimeZone(formData.ends_at, tz)
         : null;
+
+      if (isClassType) {
+        submitData.scheduleOpensAt = scheduleOpensAtLocal
+          ? fromDateTimeLocalInTimeZone(scheduleOpensAtLocal, tz)
+          : null;
+        submitData.classWeekOverride =
+          classWeekOverride === "auto" ? null : classWeekOverride;
+      } else {
+        submitData.scheduleOpensAt = null;
+        submitData.classWeekOverride = null;
+      }
 
       const response = await authedFetch(url, {
         method,
@@ -702,6 +788,50 @@ export default function EventFormModal({
                   ? "Required. One Doorman slot is opened on the schedule for each hour from start to end."
                   : "Usually same day as start (e.g. end time). Leave blank if not needed."}
               </p>
+            </div>
+          )}
+
+          {isClassType && (
+            <div className="rounded-lg border border-neutral-600 bg-neutral-800/50 p-4 space-y-3">
+              <p className="text-sm font-medium text-primary">Staff schedule (Tuesday class)</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Schedule opens at (optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={scheduleOpensAtLocal}
+                  onChange={(e) => setScheduleOpensAtLocal(e.target.value)}
+                  className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Instructors can sign up after this time. Leave blank to open immediately when saved.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Beginner week
+                </label>
+                <select
+                  value={classWeekOverride}
+                  onChange={(e) =>
+                    setClassWeekOverride(e.target.value as typeof classWeekOverride)
+                  }
+                  className="w-full px-3 py-2 rounded bg-neutral-700 border border-neutral-600 text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="auto">Auto (rotation)</option>
+                  <option value="A">Week A</option>
+                  <option value="B">Week B</option>
+                  <option value="C">Week C</option>
+                </select>
+              </div>
+              {computedClassWeek && (
+                <p className="text-sm text-gray-300">
+                  At open time, slots will include{" "}
+                  <span className="text-primary font-semibold">Beginner Week {computedClassWeek}</span>{" "}
+                  (lead + follow) and <span className="text-primary font-semibold">3 door spots</span>.
+                </p>
+              )}
             </div>
           )}
 

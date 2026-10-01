@@ -187,6 +187,7 @@ export default function InstructorSlotEditModal({
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
+                bookingId: bookingInfo.id,
                 instructorId: slot.instructor_id,
                 studentEmail,
                 studentFirstName,

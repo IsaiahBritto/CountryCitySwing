@@ -6,6 +6,7 @@ import {
   buildPrivateLessonStudentSubject,
   createPrivateLessonStudentEmailHtml,
 } from "@/lib/email/privateLessonStudentEmail";
+import { getPrivateLessonCancelUrlForBooking } from "@/lib/privateLessonEmailHelpers";
 
 async function markConfirmationEmailFailed(bookingId: string | undefined) {
   if (!bookingId) return;
@@ -68,6 +69,8 @@ export async function POST(req: Request) {
       year: "numeric",
     });
 
+    const cancelUrl = await getPrivateLessonCancelUrlForBooking(bookingId);
+
     const html = createPrivateLessonStudentEmailHtml({
       kind: "booking",
       recipientFirstName: firstName,
@@ -80,6 +83,7 @@ export async function POST(req: Request) {
       lessonPrice,
       lessonLocation,
       disclaimer: instructorProfile.private_lesson_disclaimer,
+      cancelUrl,
     });
 
     const subject = buildPrivateLessonStudentSubject(

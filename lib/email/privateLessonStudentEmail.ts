@@ -12,6 +12,7 @@ export type PrivateLessonStudentEmailArgs = {
   lessonPrice?: number | null;
   lessonLocation?: string | null;
   disclaimer?: string | null;
+  cancelUrl?: string | null;
 };
 
 function escapeHtml(value: string): string {
@@ -53,6 +54,7 @@ export function createPrivateLessonStudentEmailHtml({
   lessonPrice,
   lessonLocation,
   disclaimer,
+  cancelUrl,
 }: PrivateLessonStudentEmailArgs): string {
   const safeFirstName = escapeHtml(recipientFirstName?.trim() || "there");
   const safeInstructorName = escapeHtml(instructorName);
@@ -88,10 +90,26 @@ export function createPrivateLessonStudentEmailHtml({
           </tr>
         </table>`;
 
+  const safeCancelUrl = cancelUrl?.trim() ? escapeHtml(cancelUrl.trim()) : "";
+
   const outro =
     kind === "booking"
-      ? "We're excited for your lesson! If you need to cancel or reschedule, please contact your instructor as soon as possible."
-      : "If you have any questions or need to reschedule, please contact your instructor as soon as possible.";
+      ? safeCancelUrl
+        ? "We're excited for your lesson! Use the button below to cancel if your plans change, or contact your instructor to reschedule."
+        : "We're excited for your lesson! If you need to cancel or reschedule, please contact your instructor as soon as possible."
+      : safeCancelUrl
+        ? "If you need to cancel, use the link below. For other changes, contact your instructor as soon as possible."
+        : "If you have any questions or need to reschedule, please contact your instructor as soon as possible.";
+
+  const cancelBlock = safeCancelUrl
+    ? `<tr>
+        <td style="padding:8px 24px 0 24px;text-align:center;">
+          <a href="${safeCancelUrl}" style="display:inline-block;background-color:#111827;color:#F2C94C;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;text-decoration:none;padding:14px 28px;border-radius:6px;border:2px solid #F2C94C;">
+            Cancel this lesson
+          </a>
+        </td>
+      </tr>`
+    : "";
 
   const hasPrice = lessonPrice != null && !Number.isNaN(Number(lessonPrice));
   const hasFocus = Boolean(safeFocus);
@@ -167,6 +185,7 @@ export function createPrivateLessonStudentEmailHtml({
               </td>
             </tr>
             ${disclaimerBlock}
+            ${cancelBlock}
             <tr>
               <td style="padding:16px 24px 0 24px;font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:16px;line-height:1.6;">
                 <p style="margin:0;">${outro}</p>

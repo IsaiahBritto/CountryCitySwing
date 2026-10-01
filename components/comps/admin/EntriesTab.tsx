@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import { compBtnOutline, compBtnSecondary, compBtnTabActive } from "@/lib/comps/buttonStyles";
 
@@ -14,6 +15,8 @@ interface EntryRow {
   follow_first_name: string;
   follow_last_name: string;
   follow_email: string | null;
+  lead_profile_id?: string | null;
+  follow_profile_id?: string | null;
   lead_bib: { bib_number: number | null } | null;
   follow_bib: { bib_number: number | null } | null;
   source_lead_entry_id: string | null;
@@ -42,11 +45,13 @@ function importableSignupIdsFromRows(rows: ImportRow[]): string[] {
 
 export default function EntriesTab({
   competitionId,
+  eventId,
   compType,
   entries,
   onChanged,
 }: {
   competitionId: string;
+  eventId?: string | null;
   compType: "jack_and_jill" | "strictly";
   entries: EntryRow[];
   onChanged: () => void;
@@ -70,6 +75,67 @@ export default function EntriesTab({
   const [wuFollowLast, setWuFollowLast] = useState("");
   const [wuFollowEmail, setWuFollowEmail] = useState("");
   const [addingWalkup, setAddingWalkup] = useState(false);
+
+  const [editEntry, setEditEntry] = useState<EntryRow | null>(null);
+  const [editTier, setEditTier] = useState<"full" | "limited">("full");
+  const [editSaving, setEditSaving] = useState(false);
+  const [editLeadFirst, setEditLeadFirst] = useState("");
+  const [editLeadLast, setEditLeadLast] = useState("");
+  const [editLeadEmail, setEditLeadEmail] = useState("");
+  const [editFollowFirst, setEditFollowFirst] = useState("");
+  const [editFollowLast, setEditFollowLast] = useState("");
+  const [editFollowEmail, setEditFollowEmail] = useState("");
+  const [editRefreshNames, setEditRefreshNames] = useState(false);
+
+  const openEdit = async (e: EntryRow) => {
+    setEditEntry(e);
+    setEditLeadFirst(e.lead_first_name);
+    setEditLeadLast(e.lead_last_name);
+    setEditLeadEmail(e.lead_email ?? "");
+    setEditFollowFirst(e.follow_first_name);
+    setEditFollowLast(e.follow_last_name);
+    setEditFollowEmail(e.follow_email ?? "");
+    setEditRefreshNames(false);
+    setEditTier("full");
+    const res = await authedFetch(
+      `/api/admin/comps/${competitionId}/entries?entry_id=${encodeURIComponent(e.id)}`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      setEditTier(data.tier === "limited" ? "limited" : "full");
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editEntry) return;
+    setEditSaving(true);
+    setError(null);
+    const body: Record<string, unknown> = {
+      entry_id: editEntry.id,
+      refreshPublishedNames: editRefreshNames,
+    };
+    if (editEntry.entry_kind === "couple" || editEntry.role === "lead") {
+      body.lead_first_name = editLeadFirst;
+      body.lead_last_name = editLeadLast;
+      body.lead_email = editLeadEmail.trim() || null;
+    }
+    if (editEntry.entry_kind === "couple" || editEntry.role === "follow") {
+      body.follow_first_name = editFollowFirst;
+      body.follow_last_name = editFollowLast;
+      body.follow_email = editFollowEmail.trim() || null;
+    }
+    const res = await authedFetch(`/api/admin/comps/${competitionId}/entries`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    setEditSaving(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    setEditEntry(null);
+    onChanged();
+  };
 
   useEffect(() => {
     if (!importOpen) return;
@@ -442,8 +508,16 @@ export default function EntriesTab({
                 <td className="py-2 pr-3 text-xs text-neutral-500">
                   {e.comp_signup_id ? "Signup" : "Walk-up"}
                 </td>
-                <td className="py-2 text-right">
+                <td className="py-2 text-right space-x-3">
                   <button
+                    type="button"
+                    onClick={() => void openEdit(e)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => removeEntry(e.id)}
                     className="text-xs text-neutral-500 hover:text-red-400"
                   >
@@ -475,6 +549,115 @@ export default function EntriesTab({
             </tbody>
           </table>
         </>
+      )}
+
+      {editEntry && (
+        <div
+          className="fixed inset-0 z-[55] flex items-end justify-center bg-black/60 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-neutral-700 bg-neutral-900 p-5 shadow-xl">
+            <h2 className="text-lg font-semibold text-white">Edit entry</h2>
+            {editTier === "limited" && (
+              <p className="mt-2 text-sm text-amber-200">
+                Scoring has started — name and email only.
+              </p>
+            )}
+            {eventId && (
+              <p className="mt-2 text-sm text-neutral-400">
+                <Link
+                  href={`/admin/comps/events/${eventId}/bibs`}
+                  className="text-primary hover:underline"
+                >
+                  Open event roster
+                </Link>{" "}
+                to change divisions or roles.
+              </p>
+            )}
+            <div className="mt-4 space-y-3">
+              {(editEntry.entry_kind === "couple" ||
+                editEntry.role === "lead") && (
+                <>
+                  <p className="text-xs font-medium uppercase text-neutral-500">
+                    Lead
+                  </p>
+                  <input
+                    className={inputCls + " w-full"}
+                    placeholder="First name"
+                    value={editLeadFirst}
+                    onChange={(ev) => setEditLeadFirst(ev.target.value)}
+                  />
+                  <input
+                    className={inputCls + " w-full"}
+                    placeholder="Last name"
+                    value={editLeadLast}
+                    onChange={(ev) => setEditLeadLast(ev.target.value)}
+                  />
+                  <input
+                    className={inputCls + " w-full"}
+                    placeholder="Email"
+                    value={editLeadEmail}
+                    onChange={(ev) => setEditLeadEmail(ev.target.value)}
+                  />
+                </>
+              )}
+              {(editEntry.entry_kind === "couple" ||
+                editEntry.role === "follow") && (
+                <>
+                  <p className="text-xs font-medium uppercase text-neutral-500">
+                    Follow
+                  </p>
+                  <input
+                    className={inputCls + " w-full"}
+                    placeholder="First name"
+                    value={editFollowFirst}
+                    onChange={(ev) => setEditFollowFirst(ev.target.value)}
+                  />
+                  <input
+                    className={inputCls + " w-full"}
+                    placeholder="Last name"
+                    value={editFollowLast}
+                    onChange={(ev) => setEditFollowLast(ev.target.value)}
+                  />
+                  <input
+                    className={inputCls + " w-full"}
+                    placeholder="Email"
+                    value={editFollowEmail}
+                    onChange={(ev) => setEditFollowEmail(ev.target.value)}
+                  />
+                </>
+              )}
+              <label className="flex items-start gap-2 text-sm text-neutral-300">
+                <input
+                  type="checkbox"
+                  checked={editRefreshNames}
+                  onChange={(ev) => setEditRefreshNames(ev.target.checked)}
+                  className="mt-1"
+                />
+                Update published result labels (placements unchanged)
+              </label>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                className={compBtnSecondary}
+                disabled={editSaving}
+                onClick={() => setEditEntry(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={compBtnOutline}
+                disabled={editSaving}
+                onClick={() => void saveEdit()}
+              >
+                {editSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

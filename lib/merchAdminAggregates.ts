@@ -156,7 +156,7 @@ export function aggregateByProductAndSize(
 
   for (const order of orders) {
     if (!isMerchOrderEligibleForStats(order)) continue;
-    for (const item of order.items ?? []) {
+    for (const item of normalizeMerchOrderItems(order.items)) {
       const name = item.productName;
       if (!name || !productNames.has(name)) continue;
       const size = item.size?.trim() || "—";

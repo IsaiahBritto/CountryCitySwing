@@ -45,6 +45,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { isLineDanceLevel } from "@/lib/spotify/lineDanceLevels";
 import { readActivePlaylistSnapshotId } from "@/lib/spotify/spotifyServerCache";
 import { resolveMasterGenreForSocialRequest } from "@/lib/spotify/socialRequestMasterGenre";
+import { resolveCanonicalSocialRequestFromMaster } from "@/lib/spotify/socialRequestIsrc";
 
 const ACTIVE_ID = "default";
 
@@ -383,9 +384,16 @@ async function submitSocialSongRequestUnlocked(
           accessToken,
         })
       : genre;
+
   const cachedSnapshotId = await readActivePlaylistSnapshotId();
   let rows = await loadSnapshotTracks();
   let snapshot = toSnapshot(rows);
+
+  input = await resolveCanonicalSocialRequestFromMaster({
+    request: input,
+    masterGenre,
+    accessToken,
+  });
 
   const session = await getActiveSessionRow();
   const liveView = buildLivePlaylistViewFromSession(

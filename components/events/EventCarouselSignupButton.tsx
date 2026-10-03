@@ -29,7 +29,14 @@ export default function EventCarouselSignupButton({
   className = "",
   ...rest
 }: Props) {
-  const style = eventCarouselSignupStyleVars(theme) as CSSProperties;
+  const { signup } = theme;
+  const style = {
+    ...eventCarouselSignupStyleVars(theme),
+    backgroundColor: signup.background,
+    color: signup.color,
+    borderColor: signup.borderColor,
+    boxShadow: signup.shadow,
+  } as CSSProperties;
   const classes = `event-carousel-signup-btn ${className}`.trim();
 
   if (rest.as === "link") {

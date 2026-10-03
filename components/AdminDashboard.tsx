@@ -1,8 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ArrowLeftIcon, XMarkIcon, TruckIcon } from "@heroicons/react/24/outline";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
+import {
+  isMerchOrderEligibleForHoodiePreorderStats,
+  isMerchOrderEligibleForStats,
+} from "@/lib/merchAdminAggregates";
+import HoodiePreorderSummary from "@/components/merch/HoodiePreorderSummary";
+import BaseMerchSizePlanner from "@/components/merch/BaseMerchSizePlanner";
+import { baseCcsMerchProductNameSet } from "@/lib/merchBaseProductNames";
 
 interface Product {
   id: string;
@@ -54,6 +61,43 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
   }>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [baseMerchTargetQty, setBaseMerchTargetQty] = useState(0);
+
+  const eligibleOrders = useMemo(
+    () => allOrders.filter(isMerchOrderEligibleForStats),
+    [allOrders]
+  );
+
+  const hoodiePreorderOrders = useMemo(
+    () => allOrders.filter(isMerchOrderEligibleForHoodiePreorderStats),
+    [allOrders]
+  );
+
+  const hoodieProducts = useMemo(
+    () =>
+      products
+        .filter((p) => p.type === "hoodie")
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          availableSizes: p.availableSizes,
+        })),
+    [products]
+  );
+
+  const baseMerchOnHandByKey = useMemo(() => {
+    const baseNames = baseCcsMerchProductNameSet();
+    const map = new Map<string, number>();
+    for (const product of products) {
+      if (!baseNames.has(product.name)) continue;
+      for (const size of product.availableSizes) {
+        const key = `${product.id}-${size}`;
+        const qty = editingInventory[key] ?? 0;
+        map.set(`${product.name}\0${size}`, Math.max(0, qty));
+      }
+    }
+    return map;
+  }, [products, editingInventory]);
 
   useEffect(() => {
     loadData();
@@ -548,6 +592,11 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
           </div>
         )}
 
+        <HoodiePreorderSummary
+          orders={hoodiePreorderOrders}
+          hoodieProducts={hoodieProducts}
+        />
+
         {/* DNA Merch Orders summary */}
         {hasDNAOrders && (
           <div className="mb-6 p-4 bg-neutral-700/80 rounded-lg border border-neutral-600">
@@ -718,6 +767,20 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
           </div>
         )}
       </div>
+
+      <BaseMerchSizePlanner
+        orders={eligibleOrders}
+        products={products
+          .filter((p) => baseCcsMerchProductNameSet().has(p.name))
+          .map((p) => ({
+            id: p.id,
+            name: p.name,
+            availableSizes: p.availableSizes,
+          }))}
+        onHandByKey={baseMerchOnHandByKey}
+        targetTotal={baseMerchTargetQty}
+        onTargetTotalChange={setBaseMerchTargetQty}
+      />
 
       {/* Order Detail Modal */}
       {selectedOrder && (

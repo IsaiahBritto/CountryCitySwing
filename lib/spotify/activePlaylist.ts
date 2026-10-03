@@ -383,7 +383,8 @@ export async function ensureTrackOnMaster(input: {
 }): Promise<{ addedToMaster: boolean }> {
   const map =
     input.masterGenreMap ?? (await buildMasterGenreMap(input.accessToken));
-  if (map.has(input.track.id)) {
+  const existingGenre = map.get(input.track.id);
+  if (existingGenre === input.genre) {
     return { addedToMaster: false };
   }
 

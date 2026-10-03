@@ -3,6 +3,7 @@
 import {
   ALL_GENRES,
   GENRE_LABELS,
+  GENRE_POOL_KEYS,
   defaultRequestLimits,
   type RequestLimits,
 } from "@/lib/spotify/requestLimits";
@@ -15,7 +16,7 @@ export function limitsToDraft(
   availableGenres: GenrePool[]
 ): RequestLimitsDraft {
   const draft = {} as RequestLimitsDraft;
-  for (const genre of ALL_GENRES) {
+  for (const genre of GENRE_POOL_KEYS) {
     draft[genre] = "";
   }
   for (const genre of availableGenres) {

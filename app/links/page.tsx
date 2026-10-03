@@ -3,10 +3,15 @@ import BioLinkList from "@/components/bio/BioLinkList";
 import BioTheSocialSection from "@/components/bio/BioTheSocialSection";
 import BioSocialRow from "@/components/bio/BioSocialRow";
 import { BIO_FOOTER_LINE } from "@/lib/bioLinks";
-import { getTheSocialPlaylistLinks } from "@/lib/theSocialPlaylistLinks";
+import {
+  filterBioVisiblePlaylistLinks,
+  getTheSocialPlaylistLinks,
+} from "@/lib/theSocialPlaylistLinks";
 
 export default async function LinksPage() {
-  const links = await getTheSocialPlaylistLinks();
+  const links = filterBioVisiblePlaylistLinks(
+    await getTheSocialPlaylistLinks()
+  );
 
   return (
     <div className="link-tree min-h-[100dvh] text-neutral-100 px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))]">

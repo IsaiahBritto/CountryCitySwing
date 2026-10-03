@@ -612,14 +612,24 @@ export default function SpotifyPageClient() {
                   className="flex flex-wrap items-center justify-between gap-2 rounded bg-neutral-800/60 px-3 py-2"
                 >
                   <span className="text-sm text-gray-200">{m.label}</span>
-                  <button
-                    type="button"
-                    onClick={() => runSync(m.spotifyPlaylistId)}
-                    disabled={busy}
-                    className="px-3 py-1 rounded text-xs border border-neutral-600 hover:border-amber-600/50 disabled:opacity-50"
-                  >
-                    {syncingId === m.spotifyPlaylistId ? "Syncing…" : "Sync"}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {m.linkId === "country-swing-playlist" && (
+                      <Link
+                        href="/spotify/verify-music"
+                        className="px-3 py-1 rounded text-xs border border-amber-600/50 text-amber-200 hover:bg-amber-900/30"
+                      >
+                        Verify Music
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => runSync(m.spotifyPlaylistId)}
+                      disabled={busy}
+                      className="px-3 py-1 rounded text-xs border border-neutral-600 hover:border-amber-600/50 disabled:opacity-50"
+                    >
+                      {syncingId === m.spotifyPlaylistId ? "Syncing…" : "Sync"}
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

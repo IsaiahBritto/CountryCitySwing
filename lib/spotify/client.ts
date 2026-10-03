@@ -193,6 +193,103 @@ export async function fetchPlaylistTracks(
   });
 }
 
+export type PlaylistTrackAtPosition = {
+  track: SpotifyTrack;
+  position: number;
+};
+
+/** Playlist items with stable indices (includes duplicate track ids). */
+export async function fetchPlaylistTracksWithPositions(
+  accessToken: string,
+  playlistId: string
+): Promise<PlaylistTrackAtPosition[]> {
+  const items: PlaylistTrackAtPosition[] = [];
+  const tryPaths = [
+    `/playlists/${playlistId}/items?limit=100`,
+    `/playlists/${playlistId}/tracks?limit=100`,
+  ];
+
+  let path: string | null = null;
+  let firstError: Error | null = null;
+  let position = 0;
+
+  for (const candidate of tryPaths) {
+    try {
+      const page = await spotifyFetch<{
+        items?: unknown[];
+        next?: string | null;
+      }>(accessToken, candidate);
+      path = candidate.split("?")[0];
+      for (const item of page.items ?? []) {
+        const mapped = mapPlaylistItem(item);
+        if (mapped) {
+          items.push({ track: mapped, position });
+          position += 1;
+        }
+      }
+      let next = page.next ?? null;
+      while (next) {
+        const url = new URL(next);
+        const relative = `${url.pathname.replace(/^\/v1/, "")}${url.search}`;
+        const nextPage = await spotifyFetch<{
+          items?: unknown[];
+          next?: string | null;
+        }>(accessToken, relative);
+        for (const item of nextPage.items ?? []) {
+          const mapped = mapPlaylistItem(item);
+          if (mapped) {
+            items.push({ track: mapped, position });
+            position += 1;
+          }
+        }
+        next = nextPage.next ?? null;
+      }
+      break;
+    } catch (err) {
+      firstError = err instanceof Error ? err : new Error(String(err));
+      if (shouldSkipPlaylistTracksFallback(err)) {
+        break;
+      }
+    }
+  }
+
+  if (!path) {
+    throw firstError ?? new Error(`Failed to fetch playlist ${playlistId}`);
+  }
+
+  return items;
+}
+
+/** Remove playlist items from highest position first (stable for shifting indices). */
+export async function removePlaylistItemsAtPositions(
+  accessToken: string,
+  playlistId: string,
+  entries: Array<{ uri: string; position: number }>
+): Promise<void> {
+  if (entries.length === 0) return;
+
+  const sorted = [...entries].sort((a, b) => b.position - a.position);
+  for (const entry of sorted) {
+    await removePlaylistItemAtPosition(
+      accessToken,
+      playlistId,
+      entry.uri,
+      entry.position
+    );
+  }
+}
+
+export async function fetchTrackIsrc(
+  accessToken: string,
+  trackId: string
+): Promise<string | null> {
+  const data = await spotifyFetch<{
+    external_ids?: { isrc?: string };
+  }>(accessToken, `/tracks/${encodeURIComponent(trackId)}`);
+  const isrc = data.external_ids?.isrc;
+  return typeof isrc === "string" && isrc.trim() ? isrc.trim() : null;
+}
+
 export async function fetchCurrentUserId(accessToken: string): Promise<string> {
   const me = await spotifyFetch<{ id: string }>(accessToken, "/me");
   return me.id;

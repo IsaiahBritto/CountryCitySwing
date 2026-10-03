@@ -44,6 +44,7 @@ import {
 import { supabaseServer } from "@/lib/supabaseServer";
 import { isLineDanceLevel } from "@/lib/spotify/lineDanceLevels";
 import { readActivePlaylistSnapshotId } from "@/lib/spotify/spotifyServerCache";
+import { resolveMasterGenreForSocialRequest } from "@/lib/spotify/socialRequestMasterGenre";
 
 const ACTIVE_ID = "default";
 
@@ -336,7 +337,13 @@ async function submitSocialSongRequestUnlocked(
   }
 
   const genre = input.genre;
-  if (genre !== "cs" && genre !== "wcs" && genre !== "ld" && genre !== "ts") {
+  if (
+    genre !== "cs" &&
+    genre !== "wcs" &&
+    genre !== "ld" &&
+    genre !== "ts" &&
+    genre !== "wz"
+  ) {
     throw new SocialRequestError("Invalid genre.");
   }
 
@@ -366,6 +373,16 @@ async function submitSocialSongRequestUnlocked(
   };
 
   const { accessToken } = await getValidAccessToken();
+  const masterGenre =
+    genre === "cs"
+      ? await resolveMasterGenreForSocialRequest({
+          requestGenre: genre,
+          trackId: input.trackId,
+          name: input.name,
+          primaryArtist: input.primaryArtist,
+          accessToken,
+        })
+      : genre;
   const cachedSnapshotId = await readActivePlaylistSnapshotId();
   let rows = await loadSnapshotTracks();
   let snapshot = toSnapshot(rows);
@@ -455,7 +472,7 @@ async function submitSocialSongRequestUnlocked(
       const { addedToMaster } = await ensureTrackOnMaster({
         accessToken,
         track: { id: input.trackId, uri: input.uri },
-        genre,
+        genre: masterGenre,
       });
       await applyLineDanceIfNeeded(input, genre);
 
@@ -562,7 +579,7 @@ async function submitSocialSongRequestUnlocked(
   const { addedToMaster } = await ensureTrackOnMaster({
     accessToken,
     track: { id: input.trackId, uri: input.uri },
-    genre,
+    genre: masterGenre,
   });
   await applyLineDanceIfNeeded(input, genre);
 

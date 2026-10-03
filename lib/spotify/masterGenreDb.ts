@@ -1,4 +1,4 @@
-import type { GenrePool } from "@/lib/spotify/playlistIds";
+import { isGenrePool, type GenrePool } from "@/lib/spotify/playlistIds";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getMasterPlaylistRefs } from "@/lib/spotify/masters";
 import {
@@ -18,7 +18,7 @@ export async function lookupMasterGenreFromDb(
 
   if (error || !data?.genre) return null;
   const genre = data.genre;
-  if (genre === "cs" || genre === "wcs" || genre === "ld" || genre === "ts") {
+  if (isGenrePool(genre)) {
     return genre;
   }
   return null;
@@ -81,7 +81,8 @@ export async function buildMasterGenreMapFromDb(): Promise<Map<string, GenrePool
     const genre = row.genre;
     if (
       typeof id === "string" &&
-      (genre === "cs" || genre === "wcs" || genre === "ld" || genre === "ts") &&
+      typeof genre === "string" &&
+      isGenrePool(genre) &&
       !map.has(id)
     ) {
       map.set(id, genre);

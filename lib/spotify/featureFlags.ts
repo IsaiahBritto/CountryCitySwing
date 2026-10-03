@@ -84,7 +84,8 @@ export function needsAnalysisLookup(
     row.danceability == null ||
     row.valence == null ||
     row.mood_label == null ||
-    row.camelot == null
+    row.camelot == null ||
+    row.time_signature == null
   );
 }
 

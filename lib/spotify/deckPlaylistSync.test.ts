@@ -37,6 +37,7 @@ function deckWithPlaylist(
     playbackSource: "playlist",
     afterQueueBehavior: "continue",
     afterQueueContinueDeck: "A",
+    handoffToOtherDeckAfterSong: false,
     playedPlaylistIndices: [],
     track: playlist[0] ?? null,
     savedPositionMs: 0,

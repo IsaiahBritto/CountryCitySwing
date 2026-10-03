@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   let publishedQuery = supabaseServer
     .from("comp_rounds")
     .select(
-      "id, competition_id, round_type, judged_role, status, scoring_mode, tabulation, published_at, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at, location, test_event))"
+      "id, competition_id, round_type, judged_role, status, scoring_mode, tabulation, published_at, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at, location, test_event, strictly_level, jnj_level))"
     )
     .eq("status", "published")
     .order("published_at", { ascending: false });
@@ -123,6 +123,8 @@ export async function GET(req: NextRequest) {
     title: string;
     starts_at: string | null;
     location: string | null;
+    strictly_level: string | null;
+    jnj_level: string | null;
     test_event: boolean;
     competitions: PastComp[];
   };
@@ -139,6 +141,8 @@ export async function GET(req: NextRequest) {
       title: string;
       starts_at: string | null;
       location: string | null;
+      strictly_level?: string | null;
+      jnj_level?: string | null;
       test_event?: boolean;
     };
 
@@ -148,6 +152,8 @@ export async function GET(req: NextRequest) {
         title: event.title,
         starts_at: event.starts_at,
         location: event.location,
+        strictly_level: event.strictly_level ?? null,
+        jnj_level: event.jnj_level ?? null,
         test_event: event.test_event ?? false,
         competitions: [],
       });

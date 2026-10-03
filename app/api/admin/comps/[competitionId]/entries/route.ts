@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { findOrCreateBibRecord } from "@/lib/comps/bibs";
+import { editTierForEntries } from "@/lib/comps/registrantEditPolicy";
+import { refreshTabulationDisplayNamesForCompetitions } from "@/lib/comps/refreshTabulationDisplayNames";
 
 async function loadCompetition(competitionId: string) {
   const { data } = await supabaseServer
@@ -10,6 +12,35 @@ async function loadCompetition(competitionId: string) {
     .eq("id", competitionId)
     .maybeSingle();
   return data;
+}
+
+/** GET ?entry_id=… — edit tier for one entry. */
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ competitionId: string }> }
+) {
+  const auth = await requireAdminAuth(req);
+  if (!auth.ok) return auth.response;
+  const { competitionId } = await params;
+  const entryId = req.nextUrl.searchParams.get("entry_id");
+  if (!entryId) {
+    return NextResponse.json({ error: "entry_id is required" }, { status: 400 });
+  }
+  const { data: entry } = await supabaseServer
+    .from("comp_entries")
+    .select("id")
+    .eq("id", entryId)
+    .eq("competition_id", competitionId)
+    .maybeSingle();
+  if (!entry) {
+    return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+  }
+  const tier = await editTierForEntries([entryId]);
+  const competition = await loadCompetition(competitionId);
+  return NextResponse.json({
+    tier,
+    eventId: competition?.event_id ?? null,
+  });
 }
 
 /** Emails of assigned judges: competitors cannot also judge this comp. */
@@ -143,8 +174,24 @@ export async function PATCH(
     "follow_first_name",
     "follow_last_name",
     "follow_email",
+    "lead_profile_id",
+    "follow_profile_id",
   ]) {
-    if (typeof body[field] === "string") update[field] = body[field].trim();
+    if (field.endsWith("_email")) {
+      if (body[field] === null) update[field] = null;
+      else if (typeof body[field] === "string")
+        update[field] = body[field].trim().toLowerCase() || null;
+    } else if (field.endsWith("_profile_id")) {
+      if (body[field] === null) update[field] = null;
+      else if (typeof body[field] === "string")
+        update[field] = body[field].trim() || null;
+    } else if (typeof body[field] === "string") {
+      update[field] = body[field].trim();
+    }
+  }
+
+  if (Object.keys(update).length === 0) {
+    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
   const { data, error } = await supabaseServer
@@ -157,7 +204,16 @@ export async function PATCH(
   if (error) {
     return NextResponse.json({ error: "Failed to update entry" }, { status: 500 });
   }
-  return NextResponse.json({ entry: data });
+
+  let tabulationRoundIds: string[] = [];
+  if (body.refreshPublishedNames === true) {
+    const refresh = await refreshTabulationDisplayNamesForCompetitions([
+      competitionId,
+    ]);
+    tabulationRoundIds = refresh.roundIds;
+  }
+
+  return NextResponse.json({ entry: data, tabulationRoundIds });
 }
 
 /** DELETE: remove an entry that has not danced yet. */

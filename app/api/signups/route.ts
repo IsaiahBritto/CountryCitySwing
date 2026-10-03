@@ -30,9 +30,11 @@ import {
   validatePlannedClassAndRole,
   type DanceRole,
 } from "@/lib/upperLevelRegistration";
+import { summarizeCompDivisionRegistrations } from "@/lib/compRegistrationCounts";
+import type { CompSignupRow } from "@/lib/comps/types";
 
 const COMP_SIGNUPS_SELECT =
-  "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled";
+  "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_profile_id,jnj_follow_profile_id,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled";
 
 const SIGNUPS_SELECT =
   "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code,planned_class_level,planned_dance_role";
@@ -153,6 +155,10 @@ export async function GET(req: NextRequest) {
         enrichedList,
         eventStartsAt
       );
+      const comp_division_summary = summarizeCompDivisionRegistrations(
+        enrichedList as unknown as CompSignupRow[]
+      );
+
       let compSignups = enrichedList;
       if (filter === "not_checked_in") {
         compSignups = enrichedList.filter((c) => c.checked_in !== true);
@@ -167,6 +173,7 @@ export async function GET(req: NextRequest) {
         total: enrichedList.length,
         checked_in: compCheckedIn,
         check_in_arrival_buckets,
+        comp_division_summary,
       });
     }
 

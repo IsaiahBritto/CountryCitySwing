@@ -33,6 +33,24 @@ describe("createPrivateLessonStudentEmailHtml", () => {
     expect(html).not.toContain("contact.us@countrycityswing.dance");
   });
 
+  it("includes cancel link when cancelUrl is provided", () => {
+    const html = createPrivateLessonStudentEmailHtml({
+      kind: "booking",
+      recipientFirstName: "Taylor",
+      instructorName: "Jordan Lee",
+      instructorEmail: "jordan@example.com",
+      lessonDateFormatted: "Friday, April 24, 2026",
+      lessonTime: "6:00 PM CT",
+      lessonDuration: 60,
+      cancelUrl: "https://countrycityswing.dance/private-lessons/cancel?token=abc-123",
+    });
+
+    expect(html).toContain("Cancel this lesson");
+    expect(html).toContain(
+      "https://countrycityswing.dance/private-lessons/cancel?token=abc-123"
+    );
+  });
+
   it("renders update variant and omits disclaimer when unset", () => {
     const html = createPrivateLessonStudentEmailHtml({
       kind: "update",

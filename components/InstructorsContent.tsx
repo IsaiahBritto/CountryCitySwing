@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { nameToSlug } from "@/lib/utils/slugHelpers";
 import InstructorMapSection from "@/components/InstructorMapSection";
@@ -14,6 +14,7 @@ export type InstructorRow = {
   photo_url: string | null;
   specialty: string | null;
   role: string | null;
+  accepting_new_students: boolean;
 };
 
 interface InstructorsContentProps {
@@ -24,6 +25,14 @@ interface InstructorsContentProps {
   initialCountiesGeography: FeatureCollection | null | undefined;
 }
 
+function filterInstructorRow(
+  row: InstructorRow,
+  filterAcceptingOnly: boolean
+): boolean {
+  if (!filterAcceptingOnly) return true;
+  return row.accepting_new_students;
+}
+
 export default function InstructorsContent({
   byState,
   instructorsForMap,
@@ -32,6 +41,46 @@ export default function InstructorsContent({
   initialCountiesGeography,
 }: InstructorsContentProps) {
   const [expandedStates, setExpandedStates] = useState<Set<string>>(new Set());
+  const [filterAcceptingOnly, setFilterAcceptingOnly] = useState(false);
+
+  const acceptingIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const group of byState) {
+      for (const inst of group.instructors) {
+        if (inst.accepting_new_students) ids.add(inst.id);
+      }
+    }
+    return ids;
+  }, [byState]);
+
+  const filteredByState = useMemo(() => {
+    if (!filterAcceptingOnly) return byState;
+    return byState
+      .map(({ state, instructors }) => ({
+        state,
+        instructors: instructors.filter((i) => filterInstructorRow(i, true)),
+      }))
+      .filter((g) => g.instructors.length > 0);
+  }, [byState, filterAcceptingOnly]);
+
+  const filteredInstructorsForMap = useMemo(() => {
+    if (!filterAcceptingOnly) return instructorsForMap;
+    return instructorsForMap.filter((m) => acceptingIds.has(m.id));
+  }, [instructorsForMap, filterAcceptingOnly, acceptingIds]);
+
+  const filteredStatesWithInstructors = useMemo(() => {
+    if (!filterAcceptingOnly) return statesWithInstructors;
+    const states = new Set(
+      filteredInstructorsForMap
+        .map((m) => (m.state ?? "").trim())
+        .filter(Boolean)
+    );
+    return [...states].sort();
+  }, [
+    statesWithInstructors,
+    filterAcceptingOnly,
+    filteredInstructorsForMap,
+  ]);
 
   const toggleState = (state: string) => {
     setExpandedStates((prev) => {
@@ -49,24 +98,63 @@ export default function InstructorsContent({
     }, 150);
   }, []);
 
-  const instructorList = byState.flatMap((g) => g.instructors.map((p) => ({ id: p.id, first_name: p.first_name, last_name: p.last_name })));
+  const instructorList = filteredByState.flatMap((g) =>
+    g.instructors.map((p) => ({
+      id: p.id,
+      first_name: p.first_name,
+      last_name: p.last_name,
+    }))
+  );
+
+  const totalInDirectory = byState.reduce((n, g) => n + g.instructors.length, 0);
+  const totalAfterFilter = filteredByState.reduce(
+    (n, g) => n + g.instructors.length,
+    0
+  );
 
   return (
     <>
+      <div className="flex flex-col items-center gap-3 mb-8">
+        <button
+          type="button"
+          aria-pressed={filterAcceptingOnly}
+          onClick={() => setFilterAcceptingOnly((v) => !v)}
+          className={`px-5 py-2.5 rounded-full text-sm font-semibold border transition-all duration-300 ${
+            filterAcceptingOnly
+              ? "bg-yellow-400 text-black border-yellow-400 shadow-[0_0_16px_rgba(242,201,76,0.35)]"
+              : "bg-neutral-800/80 text-neutral-200 border-neutral-600 hover:border-primary/60 hover:text-primary"
+          }`}
+        >
+          {filterAcceptingOnly
+            ? "Accepting new students only"
+            : "Show only instructors accepting new students"}
+        </button>
+        {filterAcceptingOnly && totalAfterFilter === 0 && totalInDirectory > 0 && (
+          <p className="text-center text-neutral-500 text-sm max-w-md">
+            No instructors are marked as accepting new students yet. Check back
+            soon or turn off the filter to see everyone in the directory.
+          </p>
+        )}
+      </div>
+
       <InstructorMapSection
-        instructorsForMap={instructorsForMap}
+        instructorsForMap={filteredInstructorsForMap}
         instructorList={instructorList}
-        statesWithInstructors={statesWithInstructors}
+        statesWithInstructors={filteredStatesWithInstructors}
         initialGeography={initialGeography}
         initialCountiesGeography={initialCountiesGeography}
         onInstructorClick={handleInstructorClickFromMap}
       />
 
-      {byState.length === 0 ? (
-        <p className="text-center text-neutral-500">No instructors in the directory yet.</p>
+      {filteredByState.length === 0 ? (
+        <p className="text-center text-neutral-500">
+          {filterAcceptingOnly
+            ? "No instructors match this filter."
+            : "No instructors in the directory yet."}
+        </p>
       ) : (
         <div className="space-y-2">
-          {byState.map(({ state, instructors }) => {
+          {filteredByState.map(({ state, instructors }) => {
             const isExpanded = expandedStates.has(state);
             return (
               <div
@@ -145,6 +233,11 @@ function InstructorListItem({ member }: { member: InstructorRow }) {
           )}
           {isCore && (
             <span className="text-xs text-neutral-500">CCS Team</span>
+          )}
+          {member.accepting_new_students && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-400/15 text-yellow-400/95 border border-yellow-400/30">
+              Accepting students
+            </span>
           )}
         </div>
       </div>

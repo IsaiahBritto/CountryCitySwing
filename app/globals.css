@@ -15,6 +15,16 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+:root {
+  --site-nav-bar-height: 3.5rem;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --site-nav-bar-height: 4rem;
+  }
+}
+
 /* Site navbar (scoped so in-page <nav>s are not boxed) */
 nav.sticky {
   background-color: #111218;            /* deep charcoal */

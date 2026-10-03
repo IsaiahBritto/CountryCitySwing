@@ -32,7 +32,7 @@ export default async function InstructorsPage() {
   const [profilesResult, geography, countiesGeography] = await Promise.all([
     supabaseServer
       .from("profiles")
-      .select("id,first_name,last_name,photo_url,bio_long,specialty,role,state,zip_code,latitude,longitude")
+      .select("id,first_name,last_name,photo_url,bio_long,specialty,role,state,zip_code,latitude,longitude,accepting_new_students")
       .order("first_name", { ascending: true }),
     getUsStatesGeography(),
     getUsCountiesGeography(),
@@ -132,6 +132,7 @@ export default async function InstructorsPage() {
             photo_url: p.photo_url ?? null,
             specialty: p.specialty ?? null,
             role: p.role ?? null,
+            accepting_new_students: p.accepting_new_students === true,
           })),
         }))}
         instructorsForMap={instructorsForMap}

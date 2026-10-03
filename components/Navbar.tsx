@@ -148,8 +148,8 @@ export default function Navbar() {
   const dnaLinkStyle = isDnaPage ? { color: colors.brandDna } : undefined;
 
   return (
-    <nav className={navClassName} style={dnaNavStyle}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-3">
+    <nav className={`${navClassName} pt-[env(safe-area-inset-top)]`} style={dnaNavStyle}>
+      <div className="mx-auto flex min-h-14 max-w-7xl items-center gap-3 px-4 sm:min-h-16 sm:px-6">
         {/* Logo */}
         <Link
           href="/"

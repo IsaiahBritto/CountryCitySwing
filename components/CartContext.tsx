@@ -10,6 +10,9 @@ export interface CartItem {
   price: number;
   quantity: number;
   imageUrl: string;
+  /** ISO timestamp when preorder closes; from merch_products.preorder_end_at */
+  preorderEndAt?: string | null;
+  unlimitedInventory?: boolean;
 }
 
 interface CartContextType {

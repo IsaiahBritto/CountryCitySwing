@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { ensureSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
+import { maybeEnsureClassTeamSlotsForEvent } from "@/lib/classScheduleSlotsServer";
+import {
+  parseClassWeekOverrideInput,
+  parseScheduleOpensAtInput,
+} from "@/lib/classScheduleEventFields";
 import { parseUpperLevelCapacity } from "@/lib/upperLevelRegistration";
 
 function parseCapacityField(value: unknown): number | null {
@@ -14,7 +19,7 @@ export async function GET() {
     const { data, error } = await supabaseServer
       .from("events")
       .select(
-        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,strictly_level,jnj_level,type,refund_statement,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity"
+        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,strictly_level,jnj_level,type,refund_statement,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity,schedule_opens_at,class_week_override"
       )
       .order("starts_at", { ascending: true });
 
@@ -109,6 +114,20 @@ export async function POST(req: NextRequest) {
       insertData.upper_level_follow_capacity = null;
     }
 
+    if (eventData.schedule_opens_at !== undefined || eventData.scheduleOpensAt !== undefined) {
+      insertData.schedule_opens_at = parseScheduleOpensAtInput(
+        eventData.schedule_opens_at ?? eventData.scheduleOpensAt
+      );
+    }
+    if (
+      eventData.class_week_override !== undefined ||
+      eventData.classWeekOverride !== undefined
+    ) {
+      insertData.class_week_override = parseClassWeekOverrideInput(
+        eventData.class_week_override ?? eventData.classWeekOverride
+      );
+    }
+
     const { data, error } = await supabaseServer
       .from("events")
       .insert([insertData])
@@ -127,6 +146,12 @@ export async function POST(req: NextRequest) {
       await ensureSocialDoormanSlots(data.id, data);
     } catch (slotErr) {
       console.error("Error creating Social Doorman slots:", slotErr);
+    }
+
+    try {
+      await maybeEnsureClassTeamSlotsForEvent(data.id, data);
+    } catch (slotErr) {
+      console.error("Error creating Class team slots:", slotErr);
     }
 
     return NextResponse.json({ success: true, event: data });

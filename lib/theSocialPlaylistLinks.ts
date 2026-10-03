@@ -5,6 +5,10 @@ import {
 import { supabaseServer } from "@/lib/supabaseServer";
 
 export type { ExternalPlaylistLink };
+export {
+  BIO_HIDDEN_PLAYLIST_LINK_IDS,
+  filterBioVisiblePlaylistLinks,
+} from "@/lib/theSocialPlaylistLinksFilter";
 
 export type TheSocialPlaylistLinkInput = {
   id?: string;

@@ -31,7 +31,7 @@ export default async function InstructorProfileBySlugPage({
     .select(
       `id, first_name, last_name, photo_url, role, bio, bio_long, instagram_url,
        teaching_since, favorite_song, teaching_style, specialty, phone_number,
-       private_lessons, private_lessons_link, scheduling_enabled, prayer`
+       private_lessons, private_lessons_link, scheduling_enabled, accepting_new_students, prayer`
     );
 
   if (error || !allProfiles) {

@@ -6,6 +6,7 @@ import {
   buildPrivateLessonStudentSubject,
   createPrivateLessonStudentEmailHtml,
 } from "@/lib/email/privateLessonStudentEmail";
+import { getPrivateLessonCancelUrlForBooking } from "@/lib/privateLessonEmailHelpers";
 
 export async function POST(req: Request) {
   try {
@@ -19,6 +20,7 @@ export async function POST(req: Request) {
       lessonFocus,
       lessonPrice,
       lessonLocation,
+      bookingId,
     } = await req.json();
 
     if (
@@ -59,6 +61,10 @@ export async function POST(req: Request) {
       year: "numeric",
     });
 
+    const cancelUrl = await getPrivateLessonCancelUrlForBooking(
+      bookingId ? String(bookingId) : undefined
+    );
+
     const html = createPrivateLessonStudentEmailHtml({
       kind: "update",
       recipientFirstName: studentFirstName,
@@ -71,6 +77,7 @@ export async function POST(req: Request) {
       lessonPrice,
       lessonLocation,
       disclaimer: instructorProfile.private_lesson_disclaimer,
+      cancelUrl,
     });
 
     const subject = buildPrivateLessonStudentSubject(

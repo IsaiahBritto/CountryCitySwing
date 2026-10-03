@@ -10,6 +10,10 @@ import {
   syncClockFromSdk,
   type PlaybackClockState,
 } from "@/lib/spotify/usePlaybackClock";
+import { shouldReRenderAfterClockSync } from "@/lib/spotify/playbackClockSync";
+
+/** Display refresh while the clock is running (matches deck track-end poll). */
+const CLOCK_DISPLAY_TICK_MS = 250;
 
 export type UsePlaybackClockOptions = {
   /** When false, auto-pause the clock (e.g. SDK reports playback stopped). */
@@ -33,7 +37,13 @@ export function usePlaybackClock(
   const clockRef = useRef<PlaybackClockState>(createInitialClockState());
   const prevTrackUriRef = useRef<string | null>(null);
   const prevSdkPlayingRef = useRef(false);
+  const sdkIsPlayingRef = useRef(sdkIsPlaying);
+  sdkIsPlayingRef.current = sdkIsPlaying;
+  const durationMsRef = useRef(durationMs);
+  durationMsRef.current = durationMs;
+  const isRunningRef = useRef(false);
   const [isRunning, setIsRunning] = useState(false);
+  isRunningRef.current = isRunning;
   const [, setTick] = useState(0);
 
   const bump = useCallback(() => {
@@ -59,17 +69,24 @@ export function usePlaybackClock(
   }, [bump]);
 
   const syncFromSdk = useCallback(
-    (positionMs: number, playing = sdkIsPlaying) => {
-      clockRef.current = syncClockFromSdk(
-        clockRef.current,
-        positionMs,
-        playing,
-        Date.now()
-      );
+    (positionMs: number, playing = sdkIsPlayingRef.current) => {
+      const before = clockRef.current;
+      const next = syncClockFromSdk(before, positionMs, playing, Date.now());
+      clockRef.current = next;
+      if (
+        !shouldReRenderAfterClockSync(
+          before,
+          next,
+          playing,
+          isRunningRef.current
+        )
+      ) {
+        return;
+      }
       setIsRunning(playing);
       bump();
     },
-    [bump, sdkIsPlaying]
+    [bump]
   );
 
   useEffect(() => {
@@ -87,22 +104,32 @@ export function usePlaybackClock(
   // Pause the clock when SDK stops unexpectedly (device transfer), not at track end.
   useEffect(() => {
     if (prevSdkPlayingRef.current && !sdkIsPlaying && isRunning) {
-      clockRef.current = pauseClock(clockRef.current, Date.now());
-      setIsRunning(false);
-      bump();
+      const nowMs = Date.now();
+      const displayMs = computeDisplayPositionMs({
+        offsetMs: clockRef.current.offsetMs,
+        startedAtMs: clockRef.current.startedAtMs,
+        isPlaying: true,
+        durationMs: durationMsRef.current,
+        nowMs,
+      });
+      const pinnedAtEnd =
+        durationMsRef.current > 0 &&
+        displayMs >= durationMsRef.current - 1;
+      if (!pinnedAtEnd) {
+        clockRef.current = pauseClock(clockRef.current, nowMs);
+        setIsRunning(false);
+        bump();
+      }
     }
     prevSdkPlayingRef.current = sdkIsPlaying;
   }, [sdkIsPlaying, isRunning, bump]);
 
   useEffect(() => {
     if (!isRunning) return;
-    let frameId = 0;
-    const loop = () => {
+    const intervalId = window.setInterval(() => {
       bump();
-      frameId = requestAnimationFrame(loop);
-    };
-    frameId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(frameId);
+    }, CLOCK_DISPLAY_TICK_MS);
+    return () => window.clearInterval(intervalId);
   }, [isRunning, bump]);
 
   const displayPositionMs = computeDisplayPositionMs({

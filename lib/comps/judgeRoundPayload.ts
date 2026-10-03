@@ -27,6 +27,7 @@ export interface JudgeRoundViewPayload {
   sheet: {
     status: string;
     submitted_at: string | null;
+    judging_method: "placement" | "raw" | null;
   };
   entries: {
     roundEntryId: string;
@@ -116,8 +117,12 @@ export async function buildJudgeRoundViewPayload(
       complete: unresolvedCheckin === 0 && presentCount > 0,
     },
     sheet: sheet
-      ? { status: sheet.status, submitted_at: sheet.submitted_at }
-      : { status: "draft", submitted_at: null },
+      ? {
+          status: sheet.status,
+          submitted_at: sheet.submitted_at,
+          judging_method: sheet.judging_method ?? null,
+        }
+      : { status: "draft", submitted_at: null, judging_method: null },
     entries: active
       .map((re) => ({
         ...entryDisplay(re),

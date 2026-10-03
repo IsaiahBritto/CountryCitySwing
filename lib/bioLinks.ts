@@ -41,9 +41,14 @@ export const DEFAULT_THE_SOCIAL_PLAYLIST_LINKS: ExternalPlaylistLink[] = [
     href: "https://open.spotify.com/playlist/2QHnuDywacKhgKZTScSpC7?si=6XAc15WmQZCsMADENP8nHw&pt=574b2357938dee8e4390415f14763ce8&pi=_PESQqtLRQ-vm",
   },
   {
-    id: "two-step-playlist",
-    label: "Two Step Playlist",
+    id: "two-step",
+    label: "CLS: Two Step",
     href: "https://open.spotify.com/playlist/placeholderTwoStep00000000",
+  },
+  {
+    id: "waltz-playlist",
+    label: "CLS: Waltz",
+    href: "https://open.spotify.com/playlist/placeholderWaltz0000000000",
   },
 ];
 

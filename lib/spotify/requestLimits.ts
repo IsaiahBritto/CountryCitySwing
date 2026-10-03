@@ -18,7 +18,11 @@ export const GENRE_LABELS: Record<GenrePool, string> = {
   wcs: "West Coast Swing",
   ld: "Line Dance",
   ts: "Two Step",
+  wz: "Waltz",
 };
+
+/** All genre pool keys (includes verify-only wz). Social limits use ALL_GENRES. */
+export const GENRE_POOL_KEYS: GenrePool[] = ["cs", "wcs", "ld", "ts", "wz"];
 
 const MAX_LIMIT = 10;
 

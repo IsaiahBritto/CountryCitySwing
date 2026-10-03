@@ -47,6 +47,7 @@ const TOP_K: Record<GenrePool, number> = {
   wcs: 10,
   ld: 15,
   ts: 10,
+  wz: 10,
 };
 
 const SAD_MOODS = new Set(["sad", "melancholic"]);

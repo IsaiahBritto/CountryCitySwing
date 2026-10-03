@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
-import { compBtnOutlineLg, judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import { judgeSheetStickyTop } from "@/lib/comps/buttonStyles";
+import JudgeSheetStickyFooter from "@/components/comps/judge/JudgeSheetStickyFooter";
 import HeatSectionDivider from "@/components/comps/judge/HeatSectionDivider";
 import JudgeConfirmDialog from "@/components/comps/judge/JudgeConfirmDialog";
 import JudgeFinalsRow from "@/components/comps/judge/JudgeFinalsRow";
@@ -21,6 +22,7 @@ import {
   respreadRawScores,
   rankedEntryIds,
   tiedEntryIds,
+  finalsTiedWithBibsByEntryId,
   type FinalsScoreItem,
 } from "@/lib/scoring/finalsSync";
 import {
@@ -245,8 +247,32 @@ export default function FinalsSheet({
   }, []);
 
   const tied = useMemo(() => new Set(tiedEntryIds(items)), [items]);
+  const tiedWithBibsByEntryId = useMemo(() => {
+    const bibById = new Map(
+      entries.map((e) => [e.roundEntryId, e.bibNumber] as const)
+    );
+    return finalsTiedWithBibsByEntryId(items, bibById);
+  }, [items, entries]);
   const scoredCount = items.filter((i) => i.raw != null).length;
   const readyForVerify = canOpenVerify(items);
+
+  const finalsFooterProgressMessage = useMemo((): string | null => {
+    if (readyForVerify) return null;
+    if (scoredCount < items.length) {
+      return `Score all couples (${scoredCount}/${items.length})`;
+    }
+    return null;
+  }, [readyForVerify, scoredCount, items.length]);
+
+  const scrollToFirstTiedFinalsRow = useCallback(() => {
+    const first = visibleDisplayRows.find((row) => tied.has(row.entryId));
+    if (!first) return;
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`judge-entry-${first.entryId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [visibleDisplayRows, tied]);
 
   const displayOrdinals = useMemo(() => {
     const effective = items.map((item) => ({
@@ -297,14 +323,7 @@ export default function FinalsSheet({
   };
 
   const openVerify = async () => {
-    if (!readyForVerify) {
-      if (tied.size > 0) {
-        setError("Two entries share the same raw score — adjust before reviewing");
-      } else if (scoredCount < items.length) {
-        setError("Score every couple before reviewing placements");
-      }
-      return;
-    }
+    if (!readyForVerify) return;
     setError(null);
     const finalized = finalizeAllRankings(items);
     if (!finalized) {
@@ -338,12 +357,6 @@ export default function FinalsSheet({
     autosave.clearDraft();
     setVerifyOpen(false);
     onSubmitted();
-  };
-
-  const reviewButtonLabel = () => {
-    if (tied.size > 0) return "Resolve tied scores to review";
-    if (scoredCount < items.length) return `Score all couples (${scoredCount}/${items.length})`;
-    return "Review placements";
   };
 
   const thumbsToggle = (
@@ -450,6 +463,7 @@ export default function FinalsSheet({
                       : null
                   }
                   isTied={isTied}
+                  tiedWithBibs={tiedWithBibsByEntryId.get(item.entryId) ?? []}
                   locked={locked}
                   showThumbs={showThumbs}
                   thumbUp={thumbState.up}
@@ -469,16 +483,22 @@ export default function FinalsSheet({
       </div>
 
       {!locked && (
-        <div className="sticky bottom-0 -mx-4 mt-4 border-t border-neutral-800 bg-neutral-900/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
-          <button
-            type="button"
-            onClick={openVerify}
-            disabled={!readyForVerify}
-            className={compBtnOutlineLg}
-          >
-            {reviewButtonLabel()}
-          </button>
-        </div>
+        <JudgeSheetStickyFooter
+          hint={finalsFooterProgressMessage}
+          primary={
+            readyForVerify
+              ? {
+                  label: "Review placements",
+                  onClick: () => void openVerify(),
+                }
+              : tied.size > 0
+                ? {
+                    label: "Resolve ties",
+                    onClick: scrollToFirstTiedFinalsRow,
+                  }
+                : null
+          }
+        />
       )}
     </div>
   );

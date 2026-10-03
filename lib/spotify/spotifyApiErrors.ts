@@ -5,6 +5,7 @@ export type SpotifyPlayerErrorCode =
   | "SESSION_EXPIRED"
   | "RECONNECT_REQUIRED"
   | "RATE_LIMITED"
+  | "QUOTA_EXCEEDED"
   | "UNKNOWN";
 
 export type SpotifyPlayerErrorAction =
@@ -121,6 +122,19 @@ function mapMessageToError(message: string, status?: number): SpotifyPlayerError
       title: "Spotify reconnect required",
       message: "Reconnect Spotify on /spotify to restore DJ deck playback.",
       action: "reconnect_spotify",
+    };
+  }
+
+  if (
+    lower.includes("quota_exceeded") ||
+    lower.includes("quota exceeded") ||
+    lower.includes("development mode")
+  ) {
+    return {
+      code: "QUOTA_EXCEEDED",
+      title: "Spotify sync paused",
+      message:
+        "Spotify API quota is temporarily exhausted. Cached library and playback may still work.",
     };
   }
 

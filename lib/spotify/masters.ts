@@ -21,7 +21,8 @@ const LINK_ID_BY_GENRE: Record<GenrePool, MasterPlaylistLinkId> = {
   cs: "country-swing-playlist",
   wcs: "west-coast-swing-playlist",
   ld: "line-dance-playlist",
-  ts: "two-step-playlist",
+  ts: "two-step",
+  wz: "waltz-playlist",
 };
 
 export async function getMasterPlaylistRefs(): Promise<MasterPlaylistRef[]> {

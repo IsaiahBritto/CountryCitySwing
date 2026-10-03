@@ -17,6 +17,7 @@ const REMOTE_ACTION_TYPES = new Set([
   "CLEAR_PLAY_QUEUE",
   "SET_AFTER_QUEUE_BEHAVIOR",
   "SET_AFTER_QUEUE_CONTINUE_DECK",
+  "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
   "SKIP_UP_NEXT",
   "SET_SHUFFLE_ENABLED",
   "SELECT_PLAYLIST",
@@ -63,6 +64,11 @@ export type RemoteDeckAction =
       deck: DeckId;
       targetDeck: DeckId;
     }
+  | {
+      type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG";
+      deck: DeckId;
+      enabled: boolean;
+    }
   | { type: "SKIP_UP_NEXT"; deck: DeckId }
   | { type: "SET_SHUFFLE_ENABLED"; deck: DeckId; enabled: boolean }
   | {
@@ -98,6 +104,24 @@ function parseDeckTrack(raw: unknown): DeckTrack | null {
   };
   if (typeof o.bpm === "number" && Number.isFinite(o.bpm)) {
     track.bpm = o.bpm;
+  }
+  if (o.isrc !== undefined) {
+    track.isrc = typeof o.isrc === "string" ? o.isrc : null;
+  }
+  if (typeof o.camelot === "string") {
+    track.camelot = o.camelot;
+  } else if (o.camelot === null) {
+    track.camelot = null;
+  }
+  if (typeof o.energy === "number" && Number.isFinite(o.energy)) {
+    track.energy = o.energy;
+  }
+  if (
+    o.analysisStatus === "complete" ||
+    o.analysisStatus === "pending" ||
+    o.analysisStatus === "unavailable"
+  ) {
+    track.analysisStatus = o.analysisStatus;
   }
   return track;
 }
@@ -240,6 +264,14 @@ export function parseRemoteDeckAction(raw: unknown): RemoteDeckAction | null {
             type: "SET_AFTER_QUEUE_CONTINUE_DECK",
             deck: o.deck,
             targetDeck: o.targetDeck,
+          }
+        : null;
+    case "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG":
+      return isDeckId(o.deck) && typeof o.enabled === "boolean"
+        ? {
+            type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+            deck: o.deck,
+            enabled: o.enabled,
           }
         : null;
     case "SKIP_UP_NEXT":

@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import {
-  COMP_TYPE_LABEL,
-  ordinalLabel,
-  type HubPastEvent,
-} from "@/lib/comps/hubTypes";
+import CompPodiumPreview from "@/components/comps/hub/CompPodiumPreview";
 import TestBadge from "@/components/comps/hub/TestBadge";
+import { COMP_TYPE_LABEL, type HubPastEvent } from "@/lib/comps/hubTypes";
 
-export default function PastCompsSection({ past }: { past: HubPastEvent[] }) {
+export default function PastCompsSection({
+  past,
+  hideHeading = false,
+}: {
+  past: HubPastEvent[];
+  hideHeading?: boolean;
+}) {
   if (past.length === 0) {
+    if (hideHeading) return null;
     return (
       <section className="mb-4">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-400">
@@ -23,10 +27,12 @@ export default function PastCompsSection({ past }: { past: HubPastEvent[] }) {
   }
 
   return (
-    <section className="mb-4">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-400">
-        Past comps &amp; results
-      </h2>
+    <section className={hideHeading ? "" : "mb-4"}>
+      {!hideHeading && (
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-neutral-400">
+          Past comps &amp; results
+        </h2>
+      )}
       <div className="space-y-6">
         {past.map((event) => (
           <div key={event.id}>
@@ -60,28 +66,7 @@ export default function PastCompsSection({ past }: { past: HubPastEvent[] }) {
                       </div>
                     </div>
                   </div>
-                  {comp.podium && comp.podium.length > 0 ? (
-                    <ol className="mt-3 space-y-1 border-t border-neutral-700/80 pt-3">
-                      {comp.podium.map((p) => (
-                        <li
-                          key={`${p.placement}-${p.displayName}`}
-                          className="flex items-baseline gap-2 text-sm"
-                        >
-                          <span className="w-8 shrink-0 font-semibold text-primary">
-                            {ordinalLabel(p.placement)}
-                          </span>
-                          <span className="w-10 shrink-0 font-mono text-neutral-500">
-                            {p.bibNumber ?? "—"}
-                          </span>
-                          <span className="text-neutral-200">{p.displayName}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  ) : (
-                    <p className="mt-2 text-xs text-neutral-500">
-                      Results in progress
-                    </p>
-                  )}
+                  <CompPodiumPreview podium={comp.podium} />
                 </Link>
               ))}
             </div>

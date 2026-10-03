@@ -48,7 +48,8 @@ export function parsePlaylistStructure(raw: unknown): PlaylistStructure | null {
       genre !== "cs" &&
       genre !== "wcs" &&
       genre !== "ld" &&
-      genre !== "ts"
+      genre !== "ts" &&
+      genre !== "wz"
     ) {
       return null;
     }

@@ -167,10 +167,14 @@ export async function getStoredSpotifyCredentials(): Promise<{
   refreshToken: string;
   spotifyUserId: string;
   grantedScopes: string | null;
+  accessToken: string | null;
+  accessTokenExpiresAt: string | null;
 } | null> {
   const { data, error } = await supabaseServer
     .from("spotify_oauth_credentials")
-    .select("refresh_token, spotify_user_id, granted_scopes")
+    .select(
+      "refresh_token, spotify_user_id, granted_scopes, access_token, access_token_expires_at"
+    )
     .eq("id", "default")
     .maybeSingle();
 
@@ -183,7 +187,42 @@ export async function getStoredSpotifyCredentials(): Promise<{
     spotifyUserId: data.spotify_user_id,
     grantedScopes:
       typeof data.granted_scopes === "string" ? data.granted_scopes : null,
+    accessToken:
+      typeof data.access_token === "string" ? data.access_token : null,
+    accessTokenExpiresAt:
+      typeof data.access_token_expires_at === "string"
+        ? data.access_token_expires_at
+        : null,
   };
+}
+
+const ACCESS_TOKEN_SKEW_MS = 120_000;
+
+async function persistAccessToken(input: {
+  accessToken: string;
+  expiresIn: number;
+  refreshToken?: string;
+  spotifyUserId: string;
+  grantedScopes: string | null;
+}): Promise<void> {
+  const expiresAt = new Date(
+    Date.now() + input.expiresIn * 1000
+  ).toISOString();
+  const { error } = await supabaseServer
+    .from("spotify_oauth_credentials")
+    .update({
+      access_token: input.accessToken,
+      access_token_expires_at: expiresAt,
+      updated_at: new Date().toISOString(),
+      ...(input.refreshToken ? { refresh_token: input.refreshToken } : {}),
+      ...(input.grantedScopes != null
+        ? { granted_scopes: input.grantedScopes }
+        : {}),
+    })
+    .eq("id", "default");
+  if (error) {
+    throw new Error(`Failed to save Spotify access token: ${error.message}`);
+  }
 }
 
 export async function getValidAccessToken(): Promise<{
@@ -196,14 +235,39 @@ export async function getValidAccessToken(): Promise<{
   if (!creds) {
     throw new Error("Spotify is not connected. Connect Spotify on /spotify first.");
   }
-  const tokens = await refreshAccessToken(creds.refreshToken);
-  if (tokens.refresh_token && tokens.refresh_token !== creds.refreshToken) {
-    await saveSpotifyCredentials({
-      refreshToken: tokens.refresh_token,
+
+  const expiresAtMs = creds.accessTokenExpiresAt
+    ? new Date(creds.accessTokenExpiresAt).getTime()
+    : 0;
+  if (
+    creds.accessToken &&
+    expiresAtMs - Date.now() > ACCESS_TOKEN_SKEW_MS
+  ) {
+    const remainingSec = Math.max(
+      1,
+      Math.floor((expiresAtMs - Date.now()) / 1000)
+    );
+    return {
+      accessToken: creds.accessToken,
       spotifyUserId: creds.spotifyUserId,
-      grantedScopes: tokens.scope?.trim() || creds.grantedScopes,
-    });
+      expiresIn: remainingSec,
+      grantedScopes: creds.grantedScopes,
+    };
   }
+
+  const tokens = await refreshAccessToken(creds.refreshToken);
+  const nextRefresh = tokens.refresh_token ?? creds.refreshToken;
+  await persistAccessToken({
+    accessToken: tokens.access_token,
+    expiresIn: tokens.expires_in,
+    refreshToken:
+      tokens.refresh_token && tokens.refresh_token !== creds.refreshToken
+        ? tokens.refresh_token
+        : undefined,
+    spotifyUserId: creds.spotifyUserId,
+    grantedScopes: tokens.scope?.trim() || creds.grantedScopes,
+  });
+
   return {
     accessToken: tokens.access_token,
     spotifyUserId: creds.spotifyUserId,

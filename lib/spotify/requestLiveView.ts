@@ -39,9 +39,17 @@ export function buildLivePlaylistViewFromSession(
   const deckState = sessionDeckState(session.deck_state);
   const playback = parsePlaybackSnapshot(session.playback_snapshot);
   const activeDeck = playback.activeDeck;
-  const deck = getDeckState(deckState, activeDeck);
 
-  if (!deck.playlistId || deck.playlistId !== socialPlaylistId) {
+  const deckA = getDeckState(deckState, "A");
+  const deckB = getDeckState(deckState, "B");
+  const matchingDeck: DeckId | null =
+    deckA.playlistId === socialPlaylistId
+      ? "A"
+      : deckB.playlistId === socialPlaylistId
+        ? "B"
+        : null;
+
+  if (!matchingDeck) {
     return createEmptyLivePlaylistView();
   }
 

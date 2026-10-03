@@ -2,7 +2,6 @@
 
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   DEFAULT_TIME_ZONE,
   formatDateInTimeZone,
@@ -27,53 +26,45 @@ interface LessonBookingModalProps {
 }
 
 export default function LessonBookingModal({ slot, onClose }: LessonBookingModalProps) {
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
+  const [user, setUser] = useState<{ id: string } | null>(null);
   const [instructorName, setInstructorName] = useState<string | null>(null);
   const [instructorDisclaimer, setInstructorDisclaimer] = useState<string | null>(null);
   const [disclaimerAcknowledged, setDisclaimerAcknowledged] = useState(false);
-  const [slotPrice, setSlotPrice] = useState<number | null>(null);
+  const [instructorLoading, setInstructorLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   const hasDisclaimer = Boolean(instructorDisclaimer?.trim());
-  
-  // Form fields
+
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [lessonFocus, setLessonFocus] = useState<"Follow Focused" | "Lead Focused" | "Lead/Follow Focused" | "">("");
 
-  // Check authentication and fetch user profile
   useEffect(() => {
     async function checkAuth() {
       const { data: { user: currentUser } } = await supabaseBrowser.auth.getUser();
-      setUser(currentUser);
+      setUser(currentUser ? { id: currentUser.id } : null);
 
       if (currentUser) {
-        // Fetch user profile
         const { data: profileData } = await supabaseBrowser
           .from("profiles")
           .select("first_name, last_name, email, phone_number")
           .eq("id", currentUser.id)
           .single();
-        setProfile(profileData);
-        
-        // Pre-fill form fields
+
         setFirstName(profileData?.first_name || currentUser.user_metadata?.first_name || "");
         setLastName(profileData?.last_name || currentUser.user_metadata?.last_name || "");
         setEmail(profileData?.email || currentUser.email || "");
         setPhoneNumber(profileData?.phone_number || "");
       }
-      setLoading(false);
     }
     checkAuth();
   }, []);
 
-  // Fetch instructor name and optional booking disclaimer
   useEffect(() => {
     async function fetchInstructor() {
+      setInstructorLoading(true);
       const { data } = await supabaseBrowser
         .from("profiles")
         .select("first_name, last_name, private_lesson_disclaimer")
@@ -85,25 +76,20 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
         setInstructorDisclaimer(disclaimer);
         setDisclaimerAcknowledged(false);
       }
+      setInstructorLoading(false);
     }
     fetchInstructor();
   }, [slot.instructor_id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      alert("Please sign in to book a lesson");
-      return;
-    }
 
-    // Check if slot is in the past
     const slotStartTime = new Date(slot.start);
     if (slotStartTime < new Date()) {
       alert("❌ Cannot book a lesson that has already started.");
       return;
     }
 
-    // Validate required fields
     if (!firstName.trim()) {
       alert("First name is required");
       return;
@@ -131,194 +117,115 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
 
     setSaving(true);
 
-    // Combine first and last name for student_name (backward compatibility)
-    const studentName = `${firstName.trim()} ${lastName.trim()}`.trim();
-
-    // Try to insert with all new fields first
-    let bookingData: any = {
-      slot_id: slot.id,
-      instructor_id: slot.instructor_id,
-      student_name: studentName,
-      student_email: email.trim(),
-      first_name: firstName.trim(),
-      last_name: lastName.trim(),
-      email: email.trim(),
-      phone_number: phoneNumber.trim(),
-      lesson_focus: lessonFocus,
-      user_id: user.id,
-    };
-
-    let bookingId: string | null = null;
-
-    let { data: insertedBooking, error } = await supabaseBrowser
-      .from("lesson_bookings")
-      .insert(bookingData)
-      .select("id")
-      .single();
-
-    if (!error && insertedBooking?.id) {
-      bookingId = insertedBooking.id;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const { data: { session } } = await supabaseBrowser.auth.getSession();
+    if (session?.access_token) {
+      headers.Authorization = `Bearer ${session.access_token}`;
     }
 
-    // If new columns don't exist, try with just basic fields
-    if (error && (error.message.includes("user_id") || error.message.includes("first_name") || error.message.includes("lesson_focus"))) {
-      bookingData = {
-        slot_id: slot.id,
-        instructor_id: slot.instructor_id,
-        student_name: studentName,
-        student_email: email.trim(),
-      };
-      
-      // Try to add optional fields if they exist
-      const retryResult = await supabaseBrowser
-        .from("lesson_bookings")
-        .insert(bookingData)
-        .select("id")
-        .single();
-      error = retryResult.error;
-      if (!error && retryResult.data?.id) bookingId = retryResult.data.id;
-      
-      if (error) {
-        // Last resort: try with just required fields
-        bookingData = {
-          slot_id: slot.id,
-          instructor_id: slot.instructor_id,
-          student_name: studentName,
-          student_email: email.trim(),
-        };
-        const finalResult = await supabaseBrowser
-          .from("lesson_bookings")
-          .insert(bookingData)
-          .select("id")
-          .single();
-        error = finalResult.error;
-        if (!error && finalResult.data?.id) bookingId = finalResult.data.id;
-      }
+    const createRes = await fetch("/api/private-lesson-bookings", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        slotId: slot.id,
+        instructorId: slot.instructor_id,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        phoneNumber: phoneNumber.trim(),
+        lessonFocus,
+      }),
+    });
+
+    if (!createRes.ok) {
+      const errBody = await createRes.json().catch(() => ({}));
+      alert("❌ Booking failed: " + (errBody.error || createRes.statusText));
+      setSaving(false);
+      return;
     }
 
-    if (!error) {
-      // Mark the slot as booked
-      await supabaseBrowser
-        .from("lesson_slots")
-        .update({ is_booked: true })
-        .eq("id", slot.id);
+    const { bookingId } = (await createRes.json()) as { bookingId?: string };
 
-      // Send confirmation emails
-      let studentEmailFailed = false;
-      try {
-        const tz = slot.time_zone || DEFAULT_TIME_ZONE;
-        const { startTime, tzAbbrev } = formatTimeRangeWithTimeZone(slot.start, slot.end, tz);
-        const lessonTime = `${startTime}${tzAbbrev ? ` ${tzAbbrev}` : ""}`;
-        const lessonDuration = slot.duration_minutes || Math.round((new Date(slot.end).getTime() - new Date(slot.start).getTime()) / 60000);
-        
-        // Send email to student
-        const studentEmailRes = await fetch("/api/lesson-booking", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingId,
-            instructorId: slot.instructor_id,
-            studentEmail: email.trim(),
-            firstName: firstName.trim(),
-            lastName: lastName.trim(),
-            lessonDate: slot.start,
-            lessonTime,
-            lessonDuration,
-            lessonFocus,
-            lessonPrice: slot.price,
-            lessonLocation: slot.location?.trim() || null,
-          }),
-        });
-        if (!studentEmailRes.ok) {
-          studentEmailFailed = true;
-          console.error(
-            "Student lesson confirmation email failed:",
-            studentEmailRes.status,
-            await studentEmailRes.text()
-          );
-        }
+    let studentEmailFailed = false;
+    try {
+      const tz = slot.time_zone || DEFAULT_TIME_ZONE;
+      const { startTime, tzAbbrev } = formatTimeRangeWithTimeZone(slot.start, slot.end, tz);
+      const lessonTime = `${startTime}${tzAbbrev ? ` ${tzAbbrev}` : ""}`;
+      const lessonDuration =
+        slot.duration_minutes ||
+        Math.round((new Date(slot.end).getTime() - new Date(slot.start).getTime()) / 60000);
 
-        // Send email to instructor
-        const instructorEmailRes = await fetch("/api/lesson-booking-instructor-notification", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            instructorId: slot.instructor_id,
-            studentFirstName: firstName.trim(),
-            studentLastName: lastName.trim(),
-            studentEmail: email.trim(),
-            studentPhone: phoneNumber.trim(),
-            lessonDate: slot.start,
-            lessonTime,
-            lessonDuration,
-            lessonFocus,
-            lessonPrice: slot.price,
-            lessonLocation: slot.location?.trim() || null,
-          }),
-        });
-        if (!instructorEmailRes.ok) {
-          console.error(
-            "Instructor lesson notification email failed:",
-            instructorEmailRes.status,
-            await instructorEmailRes.text()
-          );
-        }
-      } catch (emailError) {
+      const studentEmailRes = await fetch("/api/lesson-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId,
+          instructorId: slot.instructor_id,
+          studentEmail: email.trim(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          lessonDate: slot.start,
+          lessonTime,
+          lessonDuration,
+          lessonFocus,
+          lessonPrice: slot.price,
+          lessonLocation: slot.location?.trim() || null,
+        }),
+      });
+      if (!studentEmailRes.ok) {
         studentEmailFailed = true;
-        console.error("Failed to send confirmation email:", emailError);
-        // Don't fail the booking if email fails
+        console.error(
+          "Student lesson confirmation email failed:",
+          studentEmailRes.status,
+          await studentEmailRes.text()
+        );
       }
 
-      if (studentEmailFailed) {
-        emitCcsWarningToast(
-          "Your lesson was booked, but the confirmation email could not be sent. Please contact your instructor or check spam."
+      const instructorEmailRes = await fetch("/api/lesson-booking-instructor-notification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instructorId: slot.instructor_id,
+          studentFirstName: firstName.trim(),
+          studentLastName: lastName.trim(),
+          studentEmail: email.trim(),
+          studentPhone: phoneNumber.trim(),
+          lessonDate: slot.start,
+          lessonTime,
+          lessonDuration,
+          lessonFocus,
+          lessonPrice: slot.price,
+          lessonLocation: slot.location?.trim() || null,
+        }),
+      });
+      if (!instructorEmailRes.ok) {
+        console.error(
+          "Instructor lesson notification email failed:",
+          instructorEmailRes.status,
+          await instructorEmailRes.text()
         );
-      } else {
-        emitCcsSuccessToast("Private lesson booked successfully.");
       }
-      setTimeout(() => onClose(), 400); // trigger calendar refresh + close modal
-    } else {
-      alert("❌ Booking failed: " + error.message);
+    } catch (emailError) {
+      studentEmailFailed = true;
+      console.error("Failed to send confirmation email:", emailError);
     }
+
+    if (studentEmailFailed) {
+      emitCcsWarningToast(
+        "Your lesson was booked, but the confirmation email could not be sent. Please contact your instructor or check spam."
+      );
+    } else {
+      emitCcsSuccessToast("Private lesson booked successfully.");
+    }
+    setTimeout(() => onClose(), 400);
 
     setSaving(false);
   };
 
-  if (loading) {
+  if (instructorLoading) {
     return (
       <LessonModalShell title="Book Private Lesson" onClose={onClose} maxWidthClassName="max-w-md">
         <p className="text-center text-gray-300">Loading...</p>
-      </LessonModalShell>
-    );
-  }
-
-  if (!user) {
-    return (
-      <LessonModalShell
-        title="Sign In Required"
-        onClose={onClose}
-        maxWidthClassName="max-w-sm"
-        footer={
-          <div className="flex justify-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-gray-400 transition-colors hover:text-red-400"
-            >
-              Cancel
-            </button>
-            <Link
-              href="/auth"
-              className="btn-signup rounded-md px-4 py-2 text-center"
-            >
-              Sign In
-            </Link>
-          </div>
-        }
-      >
-        <p className="text-center text-sm text-gray-300">
-          You must be signed in to book a private lesson.
-        </p>
       </LessonModalShell>
     );
   }
@@ -352,6 +259,11 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
           {instructorName && (
             <p className="mb-1 text-yellow-400 font-semibold">
               {instructorName}
+            </p>
+          )}
+          {user && (
+            <p className="mb-2 text-xs text-gray-400">
+              Signed in — this booking will be linked to your account.
             </p>
           )}
           {(() => {
@@ -457,7 +369,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
                   name="lessonFocus"
                   value="Follow Focused"
                   checked={lessonFocus === "Follow Focused"}
-                  onChange={(e) => setLessonFocus(e.target.value as any)}
+                  onChange={(e) => setLessonFocus(e.target.value as typeof lessonFocus)}
                   required
                   className="mr-2 accent-yellow-400"
                 />
@@ -469,7 +381,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
                   name="lessonFocus"
                   value="Lead Focused"
                   checked={lessonFocus === "Lead Focused"}
-                  onChange={(e) => setLessonFocus(e.target.value as any)}
+                  onChange={(e) => setLessonFocus(e.target.value as typeof lessonFocus)}
                   required
                   className="mr-2 accent-yellow-400"
                 />
@@ -481,7 +393,7 @@ export default function LessonBookingModal({ slot, onClose }: LessonBookingModal
                   name="lessonFocus"
                   value="Lead/Follow Focused"
                   checked={lessonFocus === "Lead/Follow Focused"}
-                  onChange={(e) => setLessonFocus(e.target.value as any)}
+                  onChange={(e) => setLessonFocus(e.target.value as typeof lessonFocus)}
                   required
                   className="mr-2 accent-yellow-400"
                 />

@@ -12,7 +12,8 @@ import { compBtnOutlineLg, compBtnOutlineSm } from "@/lib/comps/buttonStyles";
 import {
   itemsInRankOrder,
   ordinalLabel,
-  reorderMovedEntry,
+  moveEntryToRank,
+  tiedEntryIds,
   type FinalsScoreItem,
 } from "@/lib/scoring/finalsSync";
 
@@ -50,6 +51,8 @@ export default function FinalsVerifyPlacementsModal({
   );
 
   const rankedRows = useMemo(() => itemsInRankOrder(items), [items]);
+
+  const hasRawTies = useMemo(() => tiedEntryIds(items).length > 0, [items]);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<{
@@ -97,8 +100,9 @@ export default function FinalsVerifyPlacementsModal({
       if (d && d.over !== d.index) {
         const rows = rankedRef.current;
         const fromId = rows[d.index].entryId;
-        const toId = rows[d.over].entryId;
-        onItemsChange(reorderMovedEntry(itemsRef.current, fromId, toId));
+        onItemsChange(
+          moveEntryToRank(itemsRef.current, fromId, d.over + 1)
+        );
       }
       setDrag(null);
     };
@@ -136,11 +140,10 @@ export default function FinalsVerifyPlacementsModal({
     return { transition: "transform 120ms" };
   };
 
-  const moveTo = (index: number, target: number) => {
-    if (target < 0 || target >= rankedRows.length) return;
+  const moveTo = (index: number, targetIndex: number) => {
+    if (targetIndex < 0 || targetIndex >= rankedRows.length) return;
     const fromId = rankedRows[index].entryId;
-    const toId = rankedRows[target].entryId;
-    onItemsChange(reorderMovedEntry(items, fromId, toId));
+    onItemsChange(moveEntryToRank(items, fromId, targetIndex + 1));
   };
 
   const startDrag = (index: number, clientY: number) => {
@@ -170,8 +173,10 @@ export default function FinalsVerifyPlacementsModal({
             Verify Placements
           </h2>
           <p className="mt-1 text-sm text-neutral-400">
-            Confirm rank order before submitting. Reordering adjusts only the
-            moved couple&apos;s raw score to fit between neighbors.
+            Confirm rank order before submitting. Reordering inserts at the
+            new rank with a midpoint raw between neighbors (100 above 1st, 0.1
+            below last). If neighbors are only 0.1 apart, the entry below may
+            be nudged down 0.1 (or above if needed) so scores stay unique.
           </p>
         </header>
 
@@ -188,16 +193,19 @@ export default function FinalsVerifyPlacementsModal({
                   data-verify-row
                   style={rowStyle(index)}
                   className={
-                    "flex min-w-0 items-center gap-3 rounded-xl border bg-neutral-800/60 p-3 " +
+                    "flex min-w-0 items-start gap-3 rounded-xl border bg-neutral-800/60 p-3 " +
                     (drag?.index === index
                       ? "border-primary shadow-lg"
                       : "border-neutral-700")
                   }
                 >
-                  <div className="w-14 shrink-0 text-center">
-                    <div className="text-lg font-bold text-primary">
+                  <div className="shrink-0 self-start pt-0.5">
+                    <div className="text-xl font-bold text-primary">
                       {ordinalLabel(index + 1)}
                     </div>
+                  </div>
+                  <div className="w-14 shrink-0 text-center">
+                    <div className="text-xs text-neutral-500">Bib</div>
                     <div className="text-2xl font-bold text-white">
                       {entry?.bibNumber ?? "—"}
                     </div>
@@ -272,6 +280,11 @@ export default function FinalsVerifyPlacementsModal({
       </div>
 
       <footer className="shrink-0 border-t border-neutral-800 bg-neutral-950 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+        {hasRawTies && (
+          <p className="mx-auto mb-3 w-full max-w-2xl text-sm text-amber-300">
+            Duplicate raw scores — adjust on the scoring sheet before submit.
+          </p>
+        )}
         <div className="mx-auto flex w-full max-w-2xl flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
@@ -287,7 +300,7 @@ export default function FinalsVerifyPlacementsModal({
           <button
             type="button"
             onClick={onFinalSubmit}
-            disabled={submitting}
+            disabled={submitting || hasRawTies}
             className={compBtnOutlineLg + " min-h-11 w-full sm:w-auto"}
           >
             {submitting ? "Submitting…" : "Submit sheet"}

@@ -175,12 +175,15 @@ export interface CompJudgeAssignmentRow {
   drops_finals: boolean;
 }
 
+export type CallbackJudgingMethod = "placement" | "raw";
+
 export interface CompJudgeSheetRow {
   id: string;
   round_id: string;
   judge_assignment_id: string;
   status: SheetStatus;
   submitted_at: string | null;
+  judging_method?: CallbackJudgingMethod | null;
   updated_at: string;
 }
 

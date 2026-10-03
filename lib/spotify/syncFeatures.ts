@@ -39,7 +39,7 @@ async function syncOnePlaylist(
 }
 
 /**
- * Sync FreqBlog features for one or more Spotify playlists.
+ * Sync Musicae analysis (ISRC cache) for one or more Spotify playlists.
  * When playlistIds is empty/omitted, syncs all three master playlists.
  */
 export async function syncPlaylistFeatures(input?: {

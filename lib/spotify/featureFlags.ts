@@ -1,3 +1,4 @@
+import type { TrackAudioAnalysisRow } from "@/lib/musicae/types";
 import type { SpotifyTrack } from "@/lib/spotify/client";
 
 export type TrackFeaturesRow = {
@@ -21,6 +22,7 @@ export type TrackFeaturesRow = {
   true_camelot: boolean;
   last_lookup_at: string;
   updated_at: string;
+  analysis_provider?: string | null;
 };
 
 export const FEATURE_DEFAULTS = {
@@ -65,4 +67,44 @@ export function selectTracksNeedingLookup(
   const needs =
     retryMode === "bpm_energy" ? needsBpmOrEnergyLookup : needsFeatureLookup;
   return tracks.filter((t) => needs(cached.get(t.id)));
+}
+
+/** Musicae cache: retry when row missing or not complete. */
+export function needsAnalysisLookup(
+  row: TrackAudioAnalysisRow | null | undefined,
+  retryMode: FeatureRetryMode = "all_flags"
+): boolean {
+  if (!row || row.analysis_status !== "complete") return true;
+  if (retryMode === "bpm_energy") {
+    return row.bpm == null || row.energy == null;
+  }
+  return (
+    row.bpm == null ||
+    row.energy == null ||
+    row.danceability == null ||
+    row.valence == null ||
+    row.mood_label == null ||
+    row.camelot == null ||
+    row.time_signature == null
+  );
+}
+
+/** Errors that should not block the next Musicae attempt (e.g. our parser bug). */
+export function isRetryImmediatelyAnalysisError(lastError: string | null): boolean {
+  if (!lastError) return false;
+  return (
+    lastError === "unexpected_batch_shape" ||
+    lastError === "invalid_batch_entry" ||
+    lastError === "provider_unavailable"
+  );
+}
+
+export function selectTracksNeedingAnalysisLookup(
+  tracks: SpotifyTrack[],
+  cached: Map<string, TrackAudioAnalysisRow | null>,
+  retryMode: FeatureRetryMode = "all_flags"
+): SpotifyTrack[] {
+  return tracks.filter((t) =>
+    needsAnalysisLookup(cached.get(t.id) ?? null, retryMode)
+  );
 }

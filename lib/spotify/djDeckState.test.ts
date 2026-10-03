@@ -221,6 +221,19 @@ describe("djDeckReducer", () => {
     expect(isPlayQueueExhausted(state, "A")).toBe(true);
   });
 
+  it("ADVANCE_TRACK marks departing playlist index as played", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_PLAYLIST_INDEX",
+      deck: "A",
+      index: 0,
+    });
+    state = djDeckReducer(state, { type: "ADVANCE_TRACK", deck: "A" });
+    expect(state.deckA.playlistIndex).toBe(1);
+    expect(state.deckA.playedPlaylistIndices).toContain(0);
+    expect(state.deckA.playedPlaylistIndices).not.toContain(1);
+  });
+
   it("ADVANCE_TRACK clears playlistResumeIndex on playlist advance", () => {
     let state = withPlaylist();
     state = djDeckReducer(state, {
@@ -263,6 +276,21 @@ describe("djDeckReducer", () => {
 });
 
 describe("selectors", () => {
+  it("playlistRowStatus uses track id not index alone for current row", () => {
+    const state = withPlaylist();
+    expect(playlistRowStatus(state, "A", 0)).toBe("current");
+    const desynced = {
+      ...state,
+      deckA: {
+        ...state.deckA,
+        track: track(1),
+        playlistIndex: 0,
+      },
+    };
+    expect(playlistRowStatus(desynced, "A", 0)).toBe("upcoming");
+    expect(playlistRowStatus(desynced, "A", 1)).toBe("current");
+  });
+
   it("getUpNext returns queue head when playlist playing with pending queue", () => {
     let state = withPlaylist();
     state = djDeckReducer(state, {
@@ -561,6 +589,18 @@ describe("shuffle", () => {
     });
     expect(state.deckA.shuffleEnabled).toBe(false);
     expect(state.deckA.originalPlaylist).toBeNull();
+  });
+
+  it("SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG and serialize round-trip", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+      deck: "A",
+      enabled: true,
+    });
+    expect(state.deckA.handoffToOtherDeckAfterSong).toBe(true);
+    const roundTripped = deserializeDjDeckState(serializeDjDeckState(state));
+    expect(roundTripped.deckA.handoffToOtherDeckAfterSong).toBe(true);
   });
 
   it("serialize and deserialize preserve shuffle fields", () => {

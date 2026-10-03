@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseServer
       .from("profiles")
-      .select("id,first_name,last_name,role,photo_url,instagram_url,teaching_since,favorite_song,teaching_style,bio_long,specialty,phone_number,private_lessons,private_lessons_link,private_lesson_disclaimer,scheduling_enabled,prayer,state,zip_code,latitude,longitude,newsletter_opt_in")
+      .select("id,first_name,last_name,role,photo_url,instagram_url,teaching_since,favorite_song,teaching_style,bio_long,specialty,phone_number,private_lessons,private_lessons_link,private_lesson_disclaimer,scheduling_enabled,accepting_new_students,prayer,state,zip_code,latitude,longitude,newsletter_opt_in")
       .eq("id", user.id)
       .single();
 
@@ -201,6 +201,9 @@ export async function PATCH(req: NextRequest) {
       if (body.phone_number !== undefined) updateData.phone_number = emptyToNull(body.phone_number);
       if (body.private_lessons !== undefined) updateData.private_lessons = emptyToNull(body.private_lessons);
       if (body.private_lessons_link !== undefined) updateData.private_lessons_link = emptyToNull(body.private_lessons_link);
+      if (body.accepting_new_students !== undefined) {
+        updateData.accepting_new_students = body.accepting_new_students === true;
+      }
       if (body.prayer !== undefined) updateData.prayer = emptyToNull(body.prayer);
       if (body.state !== undefined) updateData.state = emptyToNull(body.state);
       if (body.zip_code !== undefined) updateData.zip_code = emptyToNull(body.zip_code);

@@ -17,6 +17,7 @@ import MixerBar from "@/components/dj/MixerBar";
 import PlayQueuePanel from "@/components/dj/PlayQueuePanel";
 import PlaylistPanel from "@/components/dj/PlaylistPanel";
 import PlaylistSelector from "@/components/dj/PlaylistSelector";
+import { useOwnedPlaylists } from "@/components/dj/useOwnedPlaylists";
 import SessionBar from "@/components/dj/SessionBar";
 import VolumeSlider from "@/components/dj/VolumeSlider";
 import { apiError, authedFetchWithRetry, getAccessToken } from "@/lib/clientAuth";
@@ -43,11 +44,13 @@ import {
   type DeckId,
   type DeckTrack,
 } from "@/lib/spotify/djDeckState";
+import { useDeckAudioAnalysis } from "@/lib/spotify/useDeckAudioAnalysis";
 import {
   computeEffectiveVolume,
   createVolumeRamp,
-  isNearTrackEnd,
 } from "@/lib/spotify/playerFade";
+import { evaluateTrackEndTick } from "@/lib/spotify/deckTrackEndTick";
+import { isPlaybackConfirmed } from "@/lib/spotify/playbackStartConfirmation";
 import { trackUrisMatch } from "@/lib/spotify/trackUri";
 import {
   createPauseActiveHandler,
@@ -59,7 +62,10 @@ import {
   type RemoteDeckAction,
 } from "@/lib/spotify/djDeckActionWire";
 import type { DjSessionCommand } from "@/lib/spotify/djSessionCommands";
-import { resumeHostFromSnapshot } from "@/lib/spotify/hostSessionResume";
+import {
+  resumeHostFromSnapshot,
+  snapshotMatchesDeckTrack,
+} from "@/lib/spotify/hostSessionResume";
 import {
   heartbeatHostTab,
   isOtherHostTabActive,
@@ -79,6 +85,12 @@ import {
 } from "@/lib/spotify/djSession";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import { isLastSongOfCycle } from "@/lib/spotify/playlistStructure";
+import { stabilizeControllerSnapshot } from "@/lib/spotify/controllerPlaybackSnapshot";
+import {
+  shouldSyncClockFromSdk,
+  type LastClockSdkSync,
+} from "@/lib/spotify/playbackClockSync";
+import type { ControllerPlaybackSnapshot } from "@/lib/spotify/useSpotifyPlayer";
 
 const REMOTE_VOLUME_DEBOUNCE_MS = 150;
 
@@ -119,9 +131,15 @@ export default function DjDeckPageClient() {
   const [takingOver, setTakingOver] = useState(false);
   const [pendingTakeover, setPendingTakeover] = useState(false);
 
+  const ownedPlaylistsState = useOwnedPlaylists(
+    isAdmin && Boolean(authToken) && !loading
+  );
+
   const [state, dispatch] = useReducer(djDeckReducer, INITIAL_DJ_DECK_STATE);
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  const { enrichPlaylist } = useDeckAudioAnalysis(dispatch);
 
   const playbackSnapshotRef = useRef<DjPlaybackSnapshot>(
     createEmptyPlaybackSnapshot()
@@ -142,6 +160,8 @@ export default function DjDeckPageClient() {
   );
 
   const trackEndTriggeredRef = useRef(false);
+  const pendingAdvanceUriRef = useRef<string | null>(null);
+  const handoffInProgressRef = useRef(false);
   const wasPlayingActiveTrackRef = useRef(false);
   const prevActivePositionRef = useRef(0);
   const lastBackKeyAtRef = useRef(0);
@@ -152,6 +172,11 @@ export default function DjDeckPageClient() {
   const autoPrimeEnabledRef = useRef(true);
   const resumeInProgressRef = useRef(false);
   const pendingHostResumeRef = useRef<DjPlaybackSnapshot | null>(null);
+  const takeoverEffectStartedRef = useRef(false);
+  const controllerSnapshotRef = useRef<ControllerPlaybackSnapshot | null>(null);
+  const lastHostSdkClockSyncRef = useRef<LastClockSdkSync | null>(null);
+  const lastControllerClockSyncRef = useRef<LastClockSdkSync | null>(null);
+  const prevSdkOnActiveTrackRef = useRef(false);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -180,6 +205,8 @@ export default function DjDeckPageClient() {
   const playerPlaybackRef = useRef({
     isPlaying: false,
     currentTrackUri: null as string | null,
+    positionMs: 0,
+    durationMs: 0,
   });
 
   const shouldApplyDeckState = useCallback(
@@ -223,10 +250,10 @@ export default function DjDeckPageClient() {
     djSession.isEffectiveRemoteController && !pendingTakeover;
 
   useEffect(() => {
-    if (isControllerMode) {
+    if (isControllerMode && !pendingTakeover) {
       setAudioUnlocked(true);
     }
-  }, [isControllerMode]);
+  }, [isControllerMode, pendingTakeover]);
 
   useEffect(() => {
     if (djSession.role !== "host" || djSession.session?.status !== "active") {
@@ -240,17 +267,40 @@ export default function DjDeckPageClient() {
     return () => window.clearInterval(intervalId);
   }, [djSession.role, djSession.session?.status]);
 
+  const nowPlayingForController = getNowPlaying(state);
+  const nowPlayingDurationMs = nowPlayingForController?.durationMs ?? 0;
+  const sessionSnapIsPlaying =
+    djSession.session?.playbackSnapshot.isPlaying ?? false;
+  const sessionSnapPositionMs =
+    djSession.session?.playbackSnapshot.positionMs ?? 0;
+  const sessionSnapTrackUri =
+    djSession.session?.playbackSnapshot.currentTrackUri ?? null;
+
   const controllerSnapshot = useMemo(() => {
-    if (!isControllerMode || !djSession.session) return null;
-    const snap = djSession.session.playbackSnapshot;
-    const track = getNowPlaying(state);
-    return {
-      isPlaying: snap.isPlaying,
-      positionMs: snap.positionMs,
-      durationMs: track?.durationMs ?? 0,
-      currentTrackUri: snap.currentTrackUri,
+    if (!isControllerMode || !djSession.session) {
+      controllerSnapshotRef.current = null;
+      return null;
+    }
+    const next: ControllerPlaybackSnapshot = {
+      isPlaying: sessionSnapIsPlaying,
+      positionMs: sessionSnapPositionMs,
+      durationMs: nowPlayingDurationMs,
+      currentTrackUri: sessionSnapTrackUri,
     };
-  }, [djSession.session, isControllerMode, state]);
+    const stable = stabilizeControllerSnapshot(
+      controllerSnapshotRef.current,
+      next
+    );
+    controllerSnapshotRef.current = stable;
+    return stable;
+  }, [
+    isControllerMode,
+    djSession.session,
+    sessionSnapIsPlaying,
+    sessionSnapPositionMs,
+    sessionSnapTrackUri,
+    nowPlayingDurationMs,
+  ]);
 
   const player = useSpotifyPlayer({
     authToken,
@@ -264,10 +314,15 @@ export default function DjDeckPageClient() {
     onPlaybackInterrupted: showToast,
   });
 
+  const setVolumeRef = useRef(player.setVolume);
+  setVolumeRef.current = player.setVolume;
+
   hostDeviceIdRef.current = player.deviceId;
   playerPlaybackRef.current = {
     isPlaying: player.isPlaying,
     currentTrackUri: player.currentTrackUri,
+    positionMs: player.positionMs,
+    durationMs: player.durationMs,
   };
 
   const activeTrack = useMemo(() => getNowPlaying(state), [state]);
@@ -299,11 +354,43 @@ export default function DjDeckPageClient() {
     trackUri: activeTrackUri,
   });
 
-  // Keep the local clock aligned with Spotify SDK position for the active deck.
+  const syncFromSdkRef = useRef(syncFromSdk);
+  syncFromSdkRef.current = syncFromSdk;
+
+  const clockPositionMsRef = useRef(clockPositionMs);
+  clockPositionMsRef.current = clockPositionMs;
+
+  // Keep the local clock aligned with Spotify SDK position for the active deck (host).
   useEffect(() => {
-    if (!isSdkOnActiveTrack) return;
-    syncFromSdk(player.positionMs, player.isPlaying);
-  }, [isSdkOnActiveTrack, player.isPlaying, player.positionMs, syncFromSdk]);
+    if (isControllerMode) return;
+    if (!isSdkOnActiveTrack) {
+      prevSdkOnActiveTrackRef.current = false;
+      lastHostSdkClockSyncRef.current = null;
+      return;
+    }
+    const input: LastClockSdkSync = {
+      trackUri: activeTrackUri,
+      isPlaying: isActiveTrackPlaying,
+      positionMs: player.positionMs,
+    };
+    const justAligned = !prevSdkOnActiveTrackRef.current;
+    prevSdkOnActiveTrackRef.current = true;
+    if (
+      !justAligned &&
+      !shouldSyncClockFromSdk(lastHostSdkClockSyncRef.current, input)
+    ) {
+      return;
+    }
+    syncFromSdkRef.current(input.positionMs, input.isPlaying);
+    lastHostSdkClockSyncRef.current = input;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncFromSdkRef is stable; imperative clock sync
+  }, [
+    isControllerMode,
+    isSdkOnActiveTrack,
+    activeTrackUri,
+    isActiveTrackPlaying,
+    player.positionMs,
+  ]);
 
   useEffect(() => {
     playbackSnapshotRef.current = {
@@ -321,11 +408,25 @@ export default function DjDeckPageClient() {
   ]);
 
   useEffect(() => {
-    if (isControllerMode && djSession.session?.playbackSnapshot) {
-      const snap = djSession.session.playbackSnapshot;
-      syncFromSdk(snap.positionMs, snap.isPlaying);
+    if (!isControllerMode || !djSession.session) return;
+    const input: LastClockSdkSync = {
+      trackUri: sessionSnapTrackUri,
+      isPlaying: sessionSnapIsPlaying,
+      positionMs: sessionSnapPositionMs,
+    };
+    if (!shouldSyncClockFromSdk(lastControllerClockSyncRef.current, input)) {
+      return;
     }
-  }, [djSession.session?.playbackSnapshot, isControllerMode, syncFromSdk]);
+    syncFromSdkRef.current(input.positionMs, input.isPlaying);
+    lastControllerClockSyncRef.current = input;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncFromSdkRef is stable; imperative clock sync
+  }, [
+    isControllerMode,
+    sessionSnapIsPlaying,
+    sessionSnapPositionMs,
+    sessionSnapTrackUri,
+    djSession.session,
+  ]);
 
   const playerStatus = player.status;
   const playerCurrentTrackUri = player.currentTrackUri;
@@ -377,6 +478,9 @@ export default function DjDeckPageClient() {
       primeTrack,
     ]
   );
+
+  const tryPrimeActiveTrackRef = useRef(tryPrimeActiveTrack);
+  tryPrimeActiveTrackRef.current = tryPrimeActiveTrack;
 
   useEffect(() => {
     if (!activeTrackUri) {
@@ -506,7 +610,11 @@ export default function DjDeckPageClient() {
           ? djSession.session.playbackSnapshot
           : null);
 
-      if (djSession.role === "host" && pendingResume?.currentTrackUri) {
+      if (
+        djSession.role === "host" &&
+        pendingResume?.currentTrackUri &&
+        snapshotMatchesDeckTrack(pendingResume, stateRef.current)
+      ) {
         resumeInProgressRef.current = true;
         autoPrimeEnabledRef.current = false;
         try {
@@ -530,6 +638,7 @@ export default function DjDeckPageClient() {
           autoPrimeEnabledRef.current = true;
         }
       } else {
+        pendingHostResumeRef.current = null;
         void tryPrimeActiveTrack();
       }
     } catch (err) {
@@ -547,8 +656,8 @@ export default function DjDeckPageClient() {
       masterVolume: current.masterVolume,
       activeDeck: current.activeDeck,
     });
-    player.setVolume(volume);
-  }, [player]);
+    setVolumeRef.current(volume);
+  }, []);
 
   useEffect(() => {
     applyLiveVolume();
@@ -627,14 +736,32 @@ export default function DjDeckPageClient() {
   const startPlayback = useCallback(
     async (deck: DeckId, track: DeckTrack, positionMs = 0) => {
       try {
-        if (
-          player.currentTrackUri &&
-          trackUrisMatch(player.currentTrackUri, track.uri) &&
-          !player.isPlaying &&
-          positionMs === 0
-        ) {
+        let sdkUri = player.currentTrackUri;
+        let sdkPlaying = player.isPlaying;
+        if (!isControllerMode) {
+          const mapped = await player.syncState();
+          if (mapped) {
+            sdkUri = mapped.currentTrackUri;
+            sdkPlaying = mapped.isPlaying;
+          }
+        }
+
+        const uriMatch = trackUrisMatch(sdkUri, track.uri);
+        if (uriMatch && !sdkPlaying && positionMs === 0) {
           await player.resume();
           resumeClock();
+          if (!isControllerMode) {
+            const after = await player.syncState();
+            if (after) {
+              syncFromSdk(after.positionMs, after.isPlaying);
+            }
+          }
+          return;
+        }
+
+        if (positionMs > 0 && !uriMatch) {
+          cancelCrossfade();
+          await playUriInstant(track, positionMs);
           return;
         }
 
@@ -642,10 +769,9 @@ export default function DjDeckPageClient() {
         const shouldCrossfade =
           positionMs === 0 &&
           deck === current.activeDeck &&
-          player.isPlaying &&
+          sdkPlaying &&
           crossfadeSecondsToMs(current.deckCrossfadeSeconds[deck]) > 0 &&
-          (!player.currentTrackUri ||
-            !trackUrisMatch(player.currentTrackUri, track.uri));
+          (!sdkUri || !trackUrisMatch(sdkUri, track.uri));
 
         if (shouldCrossfade) {
           await runDeckCrossfade(deck, track);
@@ -663,11 +789,13 @@ export default function DjDeckPageClient() {
     [
       applyLiveVolume,
       cancelCrossfade,
+      isControllerMode,
       playUriInstant,
       player,
       resumeClock,
       runDeckCrossfade,
       showPlayerError,
+      syncFromSdk,
     ]
   );
 
@@ -697,12 +825,13 @@ export default function DjDeckPageClient() {
       void (async () => {
         try {
           const res = await authedFetchWithRetry(
-            `/api/spotify/playlists/${encodeURIComponent(social.spotifyPlaylistId!)}/tracks`
+            "/api/spotify/active-playlist/deck-tracks"
           );
           const body = await res.json().catch(() => ({}));
           if (!res.ok) {
             throw new Error(
-              (body as { error?: string }).error ?? "Failed to reload playlist"
+              (body as { error?: string }).error ??
+                "Failed to sync playlist from snapshot"
             );
           }
           dispatch({
@@ -713,7 +842,7 @@ export default function DjDeckPageClient() {
               (body as { totalDurationMs?: number }).totalDurationMs ?? 0,
           });
         } catch (err) {
-          console.warn("Cycle boundary playlist reload failed:", err);
+          console.warn("Cycle boundary playlist sync failed:", err);
           lastBoundaryReloadAtCycleRef.current = null;
         } finally {
           boundaryReloadInFlightRef.current = false;
@@ -878,6 +1007,91 @@ export default function DjDeckPageClient() {
     [startPlayback, switchActiveDeck]
   );
 
+  const resumeOrStartDeckPlayback = useCallback(
+    async (deck: DeckId): Promise<boolean> => {
+      const deckState = getDeckState(stateRef.current, deck);
+      const track = deckState.track;
+      if (!track) return false;
+
+      const savedPosition = deckState.savedPositionMs;
+
+      let sdkUri = player.currentTrackUri;
+      let sdkPlaying = player.isPlaying;
+      if (!isControllerMode) {
+        const mapped = await player.syncState();
+        if (mapped) {
+          sdkUri = mapped.currentTrackUri;
+          sdkPlaying = mapped.isPlaying;
+        }
+      }
+
+      const sameUri = trackUrisMatch(sdkUri, track.uri);
+      const activeNowPlaying = getNowPlaying(stateRef.current);
+      const deckHasActiveTrack =
+        deck === stateRef.current.activeDeck &&
+        trackUrisMatch(activeNowPlaying?.uri, track.uri);
+
+      const resumeActiveTrack = async (positionMs: number) => {
+        if (positionMs > 0) {
+          await player.seek(positionMs);
+          syncFromSdk(positionMs, true);
+        } else {
+          resumeClock();
+        }
+        await player.resume();
+        if (!isControllerMode) {
+          const after = await player.syncState();
+          if (after) {
+            syncFromSdk(after.positionMs, after.isPlaying);
+          }
+        }
+      };
+
+      try {
+        if (sameUri && sdkPlaying) {
+          if (isControllerMode) return true;
+          const playing = await player.syncState();
+          return isPlaybackConfirmed(track.uri, playing);
+        }
+        if (sameUri && !sdkPlaying) {
+          await resumeActiveTrack(savedPosition);
+        } else if (!sameUri && deckHasActiveTrack) {
+          const resumeAt =
+            savedPosition > 0 ? savedPosition : clockPositionMs;
+          await resumeActiveTrack(resumeAt);
+          if (!isControllerMode) {
+            const after = await player.syncState();
+            const recovered =
+              after?.isPlaying &&
+              trackUrisMatch(after.currentTrackUri, track.uri);
+            if (!recovered) {
+              await startPlayback(deck, track, savedPosition);
+            }
+          }
+        } else if (!sameUri || !sdkPlaying) {
+          await startPlayback(deck, track, savedPosition);
+        }
+        autoPrimeEnabledRef.current = false;
+
+        if (isControllerMode) return true;
+        const after = await player.syncState();
+        return isPlaybackConfirmed(track.uri, after);
+      } catch (err) {
+        showPlayerError(err, "Playback failed");
+        return false;
+      }
+    },
+    [
+      clockPositionMs,
+      isControllerMode,
+      player,
+      resumeClock,
+      showPlayerError,
+      startPlayback,
+      syncFromSdk,
+    ]
+  );
+
   const playDeck = useCallback(
     async (deck: DeckId) => {
       const current = stateRef.current;
@@ -902,11 +1116,21 @@ export default function DjDeckPageClient() {
       }
 
       const track = deckState.track;
-      const savedPosition = deckState.savedPositionMs;
-      const sameUri = trackUrisMatch(player.currentTrackUri, track.uri);
+
+      let sdkUri = player.currentTrackUri;
+      let sdkPlaying = player.isPlaying;
+      if (!isControllerMode) {
+        const mapped = await player.syncState();
+        if (mapped) {
+          sdkUri = mapped.currentTrackUri;
+          sdkPlaying = mapped.isPlaying;
+        }
+      }
+
+      const sameUri = trackUrisMatch(sdkUri, track.uri);
 
       try {
-        if (sameUri && player.isPlaying) {
+        if (sameUri && sdkPlaying) {
           cancelCrossfade();
           applyLiveVolume();
           dispatch({
@@ -917,18 +1141,7 @@ export default function DjDeckPageClient() {
           await player.pause();
           pauseClock();
         } else {
-          if (sameUri && !player.isPlaying) {
-            if (savedPosition > 0) {
-              await player.seek(savedPosition);
-              syncFromSdk(savedPosition, true);
-            } else {
-              resumeClock();
-            }
-            await player.resume();
-          } else {
-            await startPlayback(deck, track, savedPosition);
-          }
-          autoPrimeEnabledRef.current = false;
+          await resumeOrStartDeckPlayback(deck);
         }
       } catch (err) {
         showPlayerError(err, "Playback failed");
@@ -938,13 +1151,12 @@ export default function DjDeckPageClient() {
       applyLiveVolume,
       cancelCrossfade,
       clockPositionMs,
+      isControllerMode,
       pauseClock,
       player,
-      resumeClock,
+      resumeOrStartDeckPlayback,
       showPlayerError,
-      startPlayback,
       switchActiveDeck,
-      syncFromSdk,
     ]
   );
 
@@ -1069,6 +1281,7 @@ export default function DjDeckPageClient() {
         totalDurationMs: number;
       }
     ) => {
+      pendingHostResumeRef.current = null;
       dispatch({
         type: "SET_PLAYLIST",
         deck,
@@ -1077,10 +1290,10 @@ export default function DjDeckPageClient() {
       });
       trackEndTriggeredRef.current = false;
       if (deck === stateRef.current.activeDeck) {
-        void tryPrimeActiveTrack();
+        void tryPrimeActiveTrackRef.current();
       }
     },
-    [tryPrimeActiveTrack]
+    []
   );
 
   const applyDisableSecondDeck = useCallback(async () => {
@@ -1371,10 +1584,13 @@ export default function DjDeckPageClient() {
           playlist: tracks,
           playlistTotalDurationMs: totalDurationMs,
         },
-        () => applyPlaylistLoaded(deck, { tracks, totalDurationMs })
+        () => {
+          applyPlaylistLoaded(deck, { tracks, totalDurationMs });
+          void enrichPlaylist(deck, tracks);
+        }
       );
     },
-    [applyPlaylistLoaded, runRemoteDeckAction]
+    [applyPlaylistLoaded, enrichPlaylist, runRemoteDeckAction]
   );
 
   const handleRemoveSecondDeck = useCallback(async () => {
@@ -1480,6 +1696,47 @@ export default function DjDeckPageClient() {
     [advanceTrack, runPlaybackCommand]
   );
 
+  const handoffToOtherDeck = useCallback(
+    async (finishingDeck: DeckId): Promise<boolean> => {
+      const current = stateRef.current;
+      if (!current.secondDeckEnabled) return false;
+      const finishing = getDeckState(current, finishingDeck);
+      if (!finishing.handoffToOtherDeckAfterSong) return false;
+
+      const otherDeck: DeckId = finishingDeck === "A" ? "B" : "A";
+      const other = getDeckState(current, otherDeck);
+      const otherTrack = other.track ?? other.playlist[0] ?? null;
+      if (!otherTrack) {
+        showToast("Other deck has no playlist loaded");
+        return false;
+      }
+
+      if (
+        finishing.playbackSource === "playlist" &&
+        finishing.playlistIndex != null
+      ) {
+        dispatch({
+          type: "MARK_PLAYLIST_INDEX_PLAYED",
+          deck: finishingDeck,
+          index: finishing.playlistIndex,
+        });
+      }
+
+      handoffInProgressRef.current = true;
+      try {
+        await switchActiveDeck(otherDeck);
+        const started = await resumeOrStartDeckPlayback(otherDeck);
+        if (!started) {
+          showToast("Handoff failed — tap Play on the other deck");
+        }
+        return started;
+      } finally {
+        handoffInProgressRef.current = false;
+      }
+    },
+    [dispatch, resumeOrStartDeckPlayback, showToast, switchActiveDeck]
+  );
+
   const remotePreviousTrack = useCallback(
     (deck: DeckId) => {
       void runPlaybackCommand(
@@ -1563,9 +1820,15 @@ export default function DjDeckPageClient() {
       const snap = djSession.session?.playbackSnapshot;
       const ok = await djSession.takeoverSession(player.deviceId);
       setTakingOver(false);
+      if (!ok) {
+        takeoverEffectStartedRef.current = false;
+        return;
+      }
       setPendingTakeover(false);
-      if (!ok) return;
-      if (snap?.currentTrackUri) {
+      if (
+        snap?.currentTrackUri &&
+        snapshotMatchesDeckTrack(snap, stateRef.current)
+      ) {
         await resumeHostFromSnapshot({
           snapshot: snap,
           deckState: stateRef.current,
@@ -1578,83 +1841,134 @@ export default function DjDeckPageClient() {
           syncClock: { syncFromSdk },
         });
         trackEndTriggeredRef.current = false;
+      } else if (getNowPlaying(stateRef.current)?.uri) {
+        const active = stateRef.current.activeDeck;
+        const t = getDeckState(stateRef.current, active).track;
+        if (t) {
+          await startPlayback(active, t, 0);
+        }
       }
       showToast("You are now hosting playback");
     } catch (err) {
+      takeoverEffectStartedRef.current = false;
       showPlayerError(err, "Takeover failed");
     } finally {
       setConnectingAudio(false);
       setTakingOver(false);
     }
-  }, [djSession, player, showToast]);
+  }, [djSession, player, showToast, startPlayback]);
+
+  const handleTakeoverRequest = useCallback(() => {
+    setAudioUnlocked(false);
+    setPendingTakeover(true);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingTakeover) {
+      takeoverEffectStartedRef.current = false;
+      return;
+    }
+    if (djSession.hostStatus !== "offline") return;
+    if (djSession.session?.status !== "active") return;
+    if (takeoverEffectStartedRef.current) return;
+    takeoverEffectStartedRef.current = true;
+    void handleTakeoverUnlock();
+  }, [
+    pendingTakeover,
+    djSession.hostStatus,
+    djSession.session?.status,
+    handleTakeoverUnlock,
+  ]);
+
+  useEffect(() => {
+    if (isControllerMode) return;
+    prevActivePositionRef.current = 0;
+  }, [activeTrackUri, isControllerMode]);
 
   useEffect(() => {
     if (isControllerMode) return;
 
-    const endDetectionUri = player.currentTrackUri ?? activeTrackUri;
-    if (!endDetectionUri) {
-      wasPlayingActiveTrackRef.current = false;
-      return;
-    }
+    const intervalId = window.setInterval(() => {
+      const playback = playerPlaybackRef.current;
+      const activeDeckTrackUri = getNowPlaying(stateRef.current)?.uri ?? null;
+      const current = stateRef.current;
+      const finishingDeck = current.activeDeck;
+      const finishingState = getDeckState(current, finishingDeck);
 
-    let endDurationMs = activeDurationMs;
-    if (!trackUrisMatch(endDetectionUri, activeTrackUri)) {
-      const deck = stateRef.current;
-      const deckState = getDeckState(deck, deck.activeDeck);
-      const matchedTrack =
-        (deckState.track &&
-        trackUrisMatch(deckState.track.uri, endDetectionUri)
-          ? deckState.track
-          : null) ??
-        deckState.playlist.find((t) => trackUrisMatch(t.uri, endDetectionUri)) ??
-        deckState.playQueue.find((t) => trackUrisMatch(t.uri, endDetectionUri));
-      endDurationMs = matchedTrack?.durationMs ?? activeDurationMs;
-    }
+      if (
+        pendingAdvanceUriRef.current &&
+        playback.currentTrackUri &&
+        !trackUrisMatch(
+          playback.currentTrackUri,
+          pendingAdvanceUriRef.current
+        )
+      ) {
+        pendingAdvanceUriRef.current = null;
+      }
 
-    if (endDurationMs <= 0) {
-      wasPlayingActiveTrackRef.current = false;
-      return;
-    }
+      const resolveTrackByUri = (uri: string) => {
+        const deckState = getDeckState(stateRef.current, finishingDeck);
+        if (deckState.track && trackUrisMatch(deckState.track.uri, uri)) {
+          return deckState.track;
+        }
+        return (
+          deckState.playlist.find((t) => trackUrisMatch(t.uri, uri)) ??
+          deckState.playQueue.find((t) => trackUrisMatch(t.uri, uri)) ??
+          null
+        );
+      };
 
-    const positionMs = Math.max(clockPositionMs, player.positionMs);
-    const wasPlaying = wasPlayingActiveTrackRef.current;
-    wasPlayingActiveTrackRef.current = player.isPlaying;
+      const result = evaluateTrackEndTick({
+        activeTrackUri,
+        activeDurationMs,
+        clockPositionMs: clockPositionMsRef.current,
+        sdkUri: playback.currentTrackUri,
+        sdkPositionMs: playback.positionMs,
+        sdkDurationMs: playback.durationMs,
+        sdkIsPlaying: playback.isPlaying,
+        activeDeckTrackUri,
+        handoffInProgress: handoffInProgressRef.current,
+        wasPlayingActiveTrack: wasPlayingActiveTrackRef.current,
+        prevActivePositionMs: prevActivePositionRef.current,
+        secondDeckEnabled: current.secondDeckEnabled,
+        handoffToOtherDeckAfterSong:
+          finishingState.handoffToOtherDeckAfterSong,
+        crossfadeSeconds: current.deckCrossfadeSeconds[finishingDeck],
+        trackEndAlreadyTriggered: trackEndTriggeredRef.current,
+        resolveTrackByUri,
+      });
 
-    const activeDeck = stateRef.current.activeDeck;
-    const fadeMs = crossfadeSecondsToMs(
-      stateRef.current.deckCrossfadeSeconds[activeDeck]
-    );
-    const endThresholdMs = fadeMs > 0 ? fadeMs : 500;
+      wasPlayingActiveTrackRef.current = result.nextWasPlayingActiveTrack;
+      prevActivePositionRef.current = result.nextPrevActivePositionMs;
 
-    const nearEndWhilePlaying =
-      player.isPlaying &&
-      (fadeMs > 0
-        ? isNearTrackEnd(positionMs, endDurationMs, fadeMs)
-        : positionMs >= endDurationMs - endThresholdMs);
-    const endedNaturally =
-      wasPlaying &&
-      !player.isPlaying &&
-      (positionMs >= endDurationMs - endThresholdMs ||
-        prevActivePositionRef.current >= endDurationMs - endThresholdMs);
+      if (result.clearTrackEndTriggered) {
+        trackEndTriggeredRef.current = false;
+      }
 
-    prevActivePositionRef.current = positionMs;
+      if (!result.setTrackEndTriggered) return;
 
-    if ((nearEndWhilePlaying || endedNaturally) && !trackEndTriggeredRef.current) {
       trackEndTriggeredRef.current = true;
-      void remoteAdvanceTrack(stateRef.current.activeDeck, true);
-    }
+      const capturedFinishingDeck = finishingDeck;
+      if (result.fireHandoff) {
+        void (async () => {
+          await handoffToOtherDeck(capturedFinishingDeck);
+        })();
+        return;
+      }
+      if (result.fireAdvance) {
+        if (playback.currentTrackUri) {
+          pendingAdvanceUriRef.current = playback.currentTrackUri;
+        }
+        void remoteAdvanceTrack(capturedFinishingDeck, true);
+      }
+    }, 250);
 
-    if (positionMs < endDurationMs - Math.max(endThresholdMs, 2000)) {
-      trackEndTriggeredRef.current = false;
-    }
+    return () => window.clearInterval(intervalId);
   }, [
     activeDurationMs,
     activeTrackUri,
-    clockPositionMs,
+    handoffToOtherDeck,
     isControllerMode,
-    player.currentTrackUri,
-    player.isPlaying,
-    player.positionMs,
     remoteAdvanceTrack,
   ]);
 
@@ -1813,6 +2127,15 @@ export default function DjDeckPageClient() {
             seconds,
           })
         }
+        handoffToOtherDeckAfterSong={deckState.handoffToOtherDeckAfterSong}
+        onHandoffToOtherDeckChange={(enabled) =>
+          dispatchRemoteDeckAction({
+            type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+            deck: deckId,
+            enabled,
+          })
+        }
+        secondDeckEnabled={state.secondDeckEnabled}
         disabled={!playerReady}
         playlistSelector={
           authToken ? (
@@ -1824,6 +2147,13 @@ export default function DjDeckPageClient() {
               disabled={!playerReady}
               disableAutoLoad={djSession.session?.status === "active"}
               tracksLoaded={deckState.playlist.length > 0}
+              ownedPlaylists={ownedPlaylistsState.playlists}
+              playlistsLoading={ownedPlaylistsState.loading}
+              playlistsError={ownedPlaylistsState.error}
+              playlistsStale={ownedPlaylistsState.stale}
+              quotaBlockedUntil={ownedPlaylistsState.quotaBlockedUntil}
+              onRefreshPlaylists={() => void ownedPlaylistsState.refresh()}
+              activeSocialPlaylistId={activeSocial?.spotifyPlaylistId ?? null}
             />
           ) : undefined
         }
@@ -1869,6 +2199,7 @@ export default function DjDeckPageClient() {
     <>
       {needsOverlay && (
         <AudioUnlockOverlay
+          variant={pendingTakeover ? "takeover" : "default"}
           onUnlock={() =>
             void (pendingTakeover ? handleTakeoverUnlock() : handleUnlockAudio())
           }
@@ -1929,7 +2260,7 @@ export default function DjDeckPageClient() {
           takingOver={takingOver}
           onStartSession={() => void handleStartSession()}
           onEndSession={() => void handleEndSession()}
-          onTakeover={() => setPendingTakeover(true)}
+          onTakeover={handleTakeoverRequest}
         />
 
         {isControllerMode && (

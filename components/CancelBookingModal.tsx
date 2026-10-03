@@ -39,83 +39,32 @@ export default function CancelBookingModal({
 
     setCanceling(true);
 
-    let bookingInfo: {
-      student_name?: string;
-      student_email?: string;
-      first_name?: string;
-      last_name?: string;
-      email?: string;
-    } | null = null;
-    if (slot.instructor_id) {
-      try {
-        const { data } = await supabaseBrowser
-          .from("lesson_bookings")
-          .select("student_name, student_email, first_name, last_name, email")
-          .eq("id", bookingId)
-          .single();
-        bookingInfo = data;
-      } catch (err) {
-        console.error("Error fetching booking info:", err);
-      }
-    }
-
-    const { error: bookingError } = await supabaseBrowser
-      .from("lesson_bookings")
-      .delete()
-      .eq("id", bookingId);
-
-    if (bookingError) {
-      alert("Error canceling booking: " + bookingError.message);
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const { data: { session } } = await supabaseBrowser.auth.getSession();
+    if (!session?.access_token) {
+      alert("Please sign in to cancel this booking from the calendar.");
       setCanceling(false);
       return;
     }
+    headers.Authorization = `Bearer ${session.access_token}`;
 
-    const { error: slotError } = await supabaseBrowser
-      .from("lesson_slots")
-      .update({ is_booked: false })
-      .eq("id", slot.id);
-
-    if (slot.instructor_id && bookingInfo) {
-      try {
-        const tz = slot.time_zone || DEFAULT_TIME_ZONE;
-        const { startTime, tzAbbrev } = formatTimeRangeWithTimeZone(
-          slot.start,
-          slot.end,
-          tz
-        );
-        const lessonTime = `${startTime}${tzAbbrev ? ` ${tzAbbrev}` : ""}`;
-
-        const studentName =
-          bookingInfo.first_name && bookingInfo.last_name
-            ? `${bookingInfo.first_name} ${bookingInfo.last_name}`
-            : bookingInfo.student_name || bookingInfo.student_email || "Student";
-        const studentEmail = bookingInfo.email || bookingInfo.student_email;
-
-        await fetch("/api/lesson-cancellation-instructor-notification", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            instructorId: slot.instructor_id,
-            studentName,
-            studentEmail,
-            lessonDate: slot.start,
-            lessonTime,
-          }),
-        });
-      } catch (emailError) {
-        console.error("Failed to send instructor notification email:", emailError);
-      }
-    }
+    const res = await fetch("/api/private-lesson-bookings/cancel", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ bookingId }),
+    });
 
     setCanceling(false);
 
-    if (slotError) {
-      alert("Error updating slot: " + slotError.message);
-    } else {
-      emitCcsSuccessToast("Lesson booking canceled successfully.");
-      onCancel();
-      setTimeout(() => onClose(), 400);
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      alert("Error canceling booking: " + (data.error || res.statusText));
+      return;
     }
+
+    emitCcsSuccessToast("Lesson booking canceled successfully.");
+    onCancel();
+    setTimeout(() => onClose(), 400);
   }
 
   return (

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import { formatRegistrantCompLabels, type EventRegistrantPerson } from "@/lib/comps/eventRegistrants";
+import EventRegistrantEditDialog from "@/components/comps/admin/EventRegistrantEditDialog";
 import EventStaffSection from "@/components/comps/admin/EventStaffSection";
 import {
   canAccessCompEventOps,
@@ -41,6 +42,10 @@ export default function EventBibsPage({
   const [roster, setRoster] = useState<EventRegistrantPerson[]>([]);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [editPerson, setEditPerson] = useState<EventRegistrantPerson | null>(
+    null
+  );
+  const [editOpen, setEditOpen] = useState(false);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
   const savedDraftRef = useRef<Record<string, string>>({});
@@ -328,7 +333,7 @@ export default function EventBibsPage({
         )}
       </div>
 
-      <h1 className="text-2xl font-bold text-white">Assign bib numbers</h1>
+      <h1 className="text-2xl font-bold text-white">Event roster &amp; bib numbers</h1>
       {event && (
         <>
           <p className="mt-1 text-lg text-neutral-200">{event.title}</p>
@@ -389,6 +394,16 @@ export default function EventBibsPage({
                   </label>
                   {renderBibField(person)}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditPerson(person);
+                    setEditOpen(true);
+                  }}
+                  className="text-sm text-primary hover:underline"
+                >
+                  Edit competitor
+                </button>
               </div>
               );
             })}
@@ -400,7 +415,8 @@ export default function EventBibsPage({
                 <tr className="text-left text-xs uppercase text-neutral-500">
                   <th className="py-2 pr-4">Name</th>
                   <th className="py-2 pr-4">Competing in</th>
-                  <th className="py-2">Bib #</th>
+                  <th className="py-2 pr-4">Bib #</th>
+                  <th className="py-2"></th>
                 </tr>
               </thead>
               <tbody>
@@ -413,6 +429,18 @@ export default function EventBibsPage({
                       {formatRegistrantCompLabels(person.roles).join(", ")}
                     </td>
                     <td className="py-2.5">{renderBibField(person)}</td>
+                    <td className="py-2.5 text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditPerson(person);
+                          setEditOpen(true);
+                        }}
+                        className="text-sm text-primary hover:underline"
+                      >
+                        Edit
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -426,6 +454,17 @@ export default function EventBibsPage({
           )}
         </>
       )}
+
+      <EventRegistrantEditDialog
+        eventId={eventId}
+        person={editPerson}
+        open={editOpen}
+        onClose={() => {
+          setEditOpen(false);
+          setEditPerson(null);
+        }}
+        onSaved={(rows) => applyRoster(rows)}
+      />
     </main>
   );
 }

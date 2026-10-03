@@ -8,7 +8,7 @@ import advancedFormat from "dayjs/plugin/advancedFormat";
 import { StarIcon, XMarkIcon } from "@heroicons/react/24/solid";
 import { isCcsInstructorRole } from "@/lib/instructorProfiles";
 import {
-  compareScheduleSlotsByTime,
+  compareScheduleSlotsForDisplay,
   getDoormanSlotDisplay,
   isDoormanPosition,
 } from "@/lib/socialScheduleSlots";
@@ -42,7 +42,10 @@ export interface ScheduleSlot {
     location?: string;
     type?: string;
     time_zone?: string | null;
+    schedule_opens_at?: string | null;
+    class_week_override?: string | null;
   } | null;
+  scheduleNotYetOpen?: boolean;
   assignee: {
     id: string;
     first_name?: string;
@@ -67,6 +70,8 @@ export interface ScheduleEventOption {
   location?: string;
   type?: string;
   time_zone?: string | null;
+  schedule_opens_at?: string | null;
+  class_week_override?: string | null;
 }
 
 interface ScheduleCalendarProps {
@@ -280,7 +285,7 @@ export default function ScheduleCalendar({
         : null;
 
   const sortSlotsForDisplay = (eventSlots: ScheduleSlot[]) =>
-    [...eventSlots].sort(compareScheduleSlotsByTime);
+    [...eventSlots].sort(compareScheduleSlotsForDisplay);
 
   const doormanIndexInEvent = (slot: ScheduleSlot, eventSlots: ScheduleSlot[]) => {
     const ordered = sortSlotsForDisplay(eventSlots.filter((s) => isDoormanPosition(s.position)));
@@ -497,8 +502,16 @@ export default function ScheduleCalendar({
                       {ev.location ? ` · ${ev.location}` : ""}
                     </p>
                     <p className="text-sm text-gray-500">
-                      No staff slots yet.
-                      {isAdmin ? " Use Add Slot above to create positions for this event." : ""}
+                      {ev.schedule_opens_at &&
+                      new Date(ev.schedule_opens_at).getTime() > Date.now()
+                        ? `Staff schedule opens ${new Date(ev.schedule_opens_at).toLocaleString(undefined, {
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}.`
+                        : "No staff slots yet."}
+                      {isAdmin && !ev.schedule_opens_at
+                        ? " Use Add Slot above to create positions for this event."
+                        : ""}
                     </p>
                   </div>
                 ))}
@@ -524,12 +537,20 @@ export default function ScheduleCalendar({
                             !!slot.event?.starts_at &&
                             isEventPastInChicago(slot.event.starts_at, slot.event.ends_at ?? null);
                           const canSelfEditSlot = isAdmin || !eventIsPast;
+                          const notOpen = Boolean(slot.scheduleNotYetOpen);
                           return (
                             <li
                               key={slot.id}
                               className="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-neutral-700 last:border-0"
                             >
-                              {slotPositionLabel(slot, eventSlots)}
+                              <span className="flex flex-wrap items-center gap-2">
+                                {slotPositionLabel(slot, eventSlots)}
+                                {notOpen && isAdmin && (
+                                  <span className="text-xs px-2 py-0.5 rounded bg-amber-900/50 text-amber-200 border border-amber-700/60">
+                                    Not open yet
+                                  </span>
+                                )}
+                              </span>
                               <div className="flex items-center gap-2 flex-wrap">
                                 {buttonLabel ? (
                                   <>
@@ -565,11 +586,13 @@ export default function ScheduleCalendar({
                                   <>
                                     <button
                                       type="button"
-                                      disabled={!!signingUp || !canSelfEditSlot}
+                                      disabled={!!signingUp || !canSelfEditSlot || (notOpen && !isAdmin)}
                                       onClick={() => handleSignUp(slot.id)}
                                       className="btn-signup text-sm px-3 py-1.5 rounded"
                                       title={
-                                        canSelfEditSlot
+                                        notOpen && !isAdmin
+                                          ? "Staff schedule is not open yet"
+                                          : canSelfEditSlot
                                           ? "Sign up for this slot"
                                           : "This event is locked for instructors after the event day"
                                       }

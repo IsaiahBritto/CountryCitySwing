@@ -3,6 +3,11 @@ import { requireAdminAuth } from "@/lib/adminAuth";
 import { deleteEventFully } from "@/lib/events/deleteEvent";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { ensureSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
+import { maybeEnsureClassTeamSlotsForEvent } from "@/lib/classScheduleSlotsServer";
+import {
+  parseClassWeekOverrideInput,
+  parseScheduleOpensAtInput,
+} from "@/lib/classScheduleEventFields";
 import { parseUpperLevelCapacity } from "@/lib/upperLevelRegistration";
 
 function parseCapacityField(value: unknown): number | null {
@@ -100,6 +105,20 @@ export async function PUT(
       updateData.upper_level_follow_capacity = null;
     }
 
+    if (eventData.schedule_opens_at !== undefined || eventData.scheduleOpensAt !== undefined) {
+      updateData.schedule_opens_at = parseScheduleOpensAtInput(
+        eventData.schedule_opens_at ?? eventData.scheduleOpensAt
+      );
+    }
+    if (
+      eventData.class_week_override !== undefined ||
+      eventData.classWeekOverride !== undefined
+    ) {
+      updateData.class_week_override = parseClassWeekOverrideInput(
+        eventData.class_week_override ?? eventData.classWeekOverride
+      );
+    }
+
     const { data, error } = await supabaseServer
       .from("events")
       .update(updateData)
@@ -137,6 +156,12 @@ export async function PUT(
       await ensureSocialDoormanSlots(data.id, data);
     } catch (slotErr) {
       console.error("Error syncing Social Doorman slots:", slotErr);
+    }
+
+    try {
+      await maybeEnsureClassTeamSlotsForEvent(data.id, data);
+    } catch (slotErr) {
+      console.error("Error syncing Class team slots:", slotErr);
     }
 
     return NextResponse.json({ success: true, event: data });

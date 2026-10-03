@@ -113,23 +113,19 @@ export type AudioOverlayInput = {
 export function shouldShowAudioOverlay(input: AudioOverlayInput): boolean {
   if (input.sessionLoading) return false;
   if (
-    !input.pendingTakeover &&
-    (input.isControllerMode || input.role === "controller")
-  ) {
-    return false;
-  }
-  if (
     !input.spotifyConnected ||
     input.needsDeckReconnect ||
     !input.isPremium
   ) {
     return false;
   }
-  return (
-    (input.pendingTakeover || input.role !== "controller") &&
-    !input.audioUnlocked &&
-    !input.playerReady
-  );
+  if (input.pendingTakeover) {
+    return !input.playerReady;
+  }
+  if (input.isControllerMode || input.role === "controller") {
+    return false;
+  }
+  return !input.audioUnlocked && !input.playerReady;
 }
 
 export function shouldSkipDeckRestore(

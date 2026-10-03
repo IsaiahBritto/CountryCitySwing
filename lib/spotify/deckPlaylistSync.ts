@@ -32,6 +32,24 @@ function parsePatchTrack(raw: unknown): DeckTrack | null {
   if (typeof o.bpm === "number" && Number.isFinite(o.bpm)) {
     track.bpm = o.bpm;
   }
+  if (o.isrc !== undefined) {
+    track.isrc = typeof o.isrc === "string" ? o.isrc : null;
+  }
+  if (typeof o.camelot === "string") {
+    track.camelot = o.camelot;
+  } else if (o.camelot === null) {
+    track.camelot = null;
+  }
+  if (typeof o.energy === "number" && Number.isFinite(o.energy)) {
+    track.energy = o.energy;
+  }
+  if (
+    o.analysisStatus === "complete" ||
+    o.analysisStatus === "pending" ||
+    o.analysisStatus === "unavailable"
+  ) {
+    track.analysisStatus = o.analysisStatus;
+  }
   return track;
 }
 

@@ -381,7 +381,7 @@ export default function CompSignupModal({
   );
 
   const formBlock = authState === "ready" ? (
-    <form onSubmit={onSubmit} className="space-y-4">
+    <form id="comp-signup-form" onSubmit={onSubmit} className="space-y-4">
       <p className="font-medium text-gray-200">Comp registration — at least one division required</p>
       {selfCard}
 
@@ -559,26 +559,50 @@ export default function CompSignupModal({
           </button>
         </div>
       )}
-      {submitError && (
+      {embedded && submitError && (
         <div className="bg-red-900/20 border border-red-500 rounded-lg p-3 text-red-400 text-sm">{submitError}</div>
       )}
-      {submitSuccess && (
+      {embedded && submitSuccess && (
         <div className="bg-green-900/20 border border-green-500 rounded-lg p-3 text-green-400 text-sm">{submitSuccess}</div>
       )}
 
-      <div className="flex justify-center">
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="bg-accent text-white px-6 py-2 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] disabled:opacity-50"
-        >
-          {isSubmitting ? "Submitting..." : "Submit Signup"}
-        </button>
-      </div>
+      {embedded && (
+        <div className="flex justify-center">
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="bg-accent text-white px-6 py-2 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] disabled:opacity-50"
+          >
+            {isSubmitting ? "Submitting..." : "Submit Signup"}
+          </button>
+        </div>
+      )}
     </form>
   ) : (
     authGateBlock
   );
+
+  const modalSubmitFooter =
+    authState === "ready" && !embedded ? (
+      <div className="space-y-2">
+        {submitError && (
+          <p className="text-red-400 text-sm" role="alert">
+            {submitError}
+          </p>
+        )}
+        {submitSuccess && (
+          <p className="text-green-400 text-sm">{submitSuccess}</p>
+        )}
+        <button
+          type="submit"
+          form="comp-signup-form"
+          disabled={isSubmitting}
+          className="w-full bg-accent text-white px-6 py-3 rounded-md font-semibold hover:bg-[#CF9FFF] transition-all shadow-[0_0_15px_rgba(187,134,252,0.5)] disabled:opacity-50"
+        >
+          {isSubmitting ? "Submitting..." : "Submit Signup"}
+        </button>
+      </div>
+    ) : undefined;
 
   if (embedded) {
     return (
@@ -591,7 +615,7 @@ export default function CompSignupModal({
   }
 
   return (
-    <SignupModalShell title={event.title} onClose={onClose}>
+    <SignupModalShell title={event.title} onClose={onClose} footer={modalSubmitFooter}>
       {dateBlock}
       {howsMyDancingBlock}
       {formBlock}

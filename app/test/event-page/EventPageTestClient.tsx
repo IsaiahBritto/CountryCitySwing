@@ -170,19 +170,16 @@ export default function EventPageTestClient() {
         <button
           type="button"
           onClick={() => scrollToSection("ncsn")}
-          className={`event-page-brand-link event-page-brand-link-ncsn max-w-[12rem] sm:max-w-[14rem] ${
+          className={`event-page-brand-link event-page-brand-link-ncsn max-w-[11rem] ${
             activeSection === "ncsn" ? "is-active" : ""
           }`}
-          aria-label="Jump to Nashville Country Swing Nights"
         >
-          <Image
-            src="/media/ncsn-logo.png"
-            alt="NCSN — Nashville Country Swing Nights"
-            width={1600}
-            height={859}
-            className="h-14 sm:h-16 w-auto object-contain"
-            priority
-          />
+          <span
+            className="font-bold uppercase leading-snug tracking-wide text-sm sm:text-base"
+            style={{ color: ACCENTS.ncsn.hex }}
+          >
+            Nashville Country Swing Nights
+          </span>
         </button>
 
         <button

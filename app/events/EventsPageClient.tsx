@@ -84,9 +84,13 @@ export default function EventsPageClient() {
         className="max-w-6xl mx-auto px-4 py-16 grid md:grid-cols-2 gap-10 items-center scroll-mt-6"
       >
         <div className="text-center md:text-left">
-          <div className="inline-block rounded-lg bg-brand-ncsn/10 p-6 mb-6">
-            <span className="royal-blue-wave text-2xl font-extrabold uppercase">NCSN</span>
-          </div>
+          <Image
+            src="/media/ncsn-logo.png"
+            alt="NCSN — Nashville Country Swing Nights"
+            width={1600}
+            height={859}
+            className="mx-auto md:mx-0 w-full max-w-md h-auto object-contain mb-6"
+          />
           <CcsButton href="/#upcoming-events" variant="ghostBrand">
             Sign Up
           </CcsButton>

@@ -385,15 +385,15 @@ async function submitSocialSongRequestUnlocked(
         })
       : genre;
 
+  const cachedSnapshotId = await readActivePlaylistSnapshotId();
+  let rows = await loadSnapshotTracks();
+  let snapshot = toSnapshot(rows);
+
   input = await resolveCanonicalSocialRequestFromMaster({
     request: input,
     masterGenre,
     accessToken,
   });
-
-  const cachedSnapshotId = await readActivePlaylistSnapshotId();
-  let rows = await loadSnapshotTracks();
-  let snapshot = toSnapshot(rows);
 
   const session = await getActiveSessionRow();
   const liveView = buildLivePlaylistViewFromSession(

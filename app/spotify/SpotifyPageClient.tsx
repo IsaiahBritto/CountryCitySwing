@@ -47,6 +47,22 @@ type SyncResult = {
   }>;
 };
 
+type DedupeIsrcResult = {
+  totals: {
+    scanned: number;
+    groupsWithDuplicates: number;
+    removed: number;
+    skippedNoIsrc: number;
+  };
+  byPlaylist: Array<{
+    label: string;
+    scanned: number;
+    groupsWithDuplicates: number;
+    removed: number;
+    skippedNoIsrc: number;
+  }>;
+};
+
 type GenerateResult = {
   id: string;
   url: string;
@@ -106,6 +122,11 @@ export default function SpotifyPageClient() {
   const [lookupFeatures, setLookupFeatures] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [dedupingId, setDedupingId] = useState<string | null>(null);
+  const [dedupingAll, setDedupingAll] = useState(false);
+  const [dedupeResult, setDedupeResult] = useState<DedupeIsrcResult | null>(
+    null
+  );
   const [generating, setGenerating] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
@@ -341,6 +362,39 @@ export default function SpotifyPageClient() {
     }
   };
 
+  const runDedupeIsrc = async (playlistId?: string) => {
+    setError(null);
+    setDedupeResult(null);
+    if (playlistId) setDedupingId(playlistId);
+    else setDedupingAll(true);
+    try {
+      const token = await getFreshAdminToken();
+      const res = await fetch("/api/spotify/dedupe-master-isrc", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(playlistId ? { playlistId } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error ??
+            "Failed to dedupe master playlists"
+        );
+      }
+      setDedupeResult(data as DedupeIsrcResult);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to dedupe master playlists"
+      );
+    } finally {
+      setDedupingId(null);
+      setDedupingAll(false);
+    }
+  };
+
   const runGenerate = async () => {
     setError(null);
     setGenerateResult(null);
@@ -518,6 +572,8 @@ export default function SpotifyPageClient() {
   const busy =
     syncingAll ||
     Boolean(syncingId) ||
+    dedupingAll ||
+    Boolean(dedupingId) ||
     generating ||
     connecting ||
     activating ||
@@ -592,18 +648,30 @@ export default function SpotifyPageClient() {
               <h2 className="text-lg font-semibold text-amber-200">
                 Sync features
               </h2>
-              <button
-                type="button"
-                onClick={() => runSync()}
-                disabled={busy || masters.length === 0}
-                className="px-3 py-1.5 rounded border border-amber-600/60 text-amber-200 hover:bg-amber-900/30 disabled:opacity-50 text-sm"
-              >
-                {syncingAll ? "Syncing all…" : "Sync all"}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => runSync()}
+                  disabled={busy || masters.length === 0}
+                  className="px-3 py-1.5 rounded border border-amber-600/60 text-amber-200 hover:bg-amber-900/30 disabled:opacity-50 text-sm"
+                >
+                  {syncingAll ? "Syncing all…" : "Sync all"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => runDedupeIsrc()}
+                  disabled={busy || masters.length === 0}
+                  className="px-3 py-1.5 rounded border border-neutral-600 text-gray-200 hover:bg-neutral-800/80 disabled:opacity-50 text-sm"
+                >
+                  {dedupingAll ? "Deduping all…" : "Dedupe ISRC all"}
+                </button>
+              </div>
             </div>
             <p className="text-xs text-gray-500">
               Pulls tracks from Spotify and fills Musicae analysis cache (ISRC).
-              Run this before generate for best results.
+              Run this before generate for best results. Dedupe ISRC removes
+              duplicate recordings on each master (keeps the earliest row per
+              ISRC).
             </p>
             <ul className="space-y-2">
               {masters.map((m) => (
@@ -629,10 +697,32 @@ export default function SpotifyPageClient() {
                     >
                       {syncingId === m.spotifyPlaylistId ? "Syncing…" : "Sync"}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => runDedupeIsrc(m.spotifyPlaylistId)}
+                      disabled={busy}
+                      className="px-3 py-1 rounded text-xs border border-neutral-600 hover:border-amber-600/50 disabled:opacity-50"
+                    >
+                      {dedupingId === m.spotifyPlaylistId
+                        ? "Deduping…"
+                        : "Dedupe ISRC"}
+                    </button>
                   </div>
                 </li>
               ))}
             </ul>
+            {dedupeResult && (
+              <p className="text-sm text-gray-400">
+                Last ISRC dedupe: scanned {dedupeResult.totals.scanned}, removed{" "}
+                {dedupeResult.totals.removed} duplicate
+                {dedupeResult.totals.removed === 1 ? "" : "s"} across{" "}
+                {dedupeResult.totals.groupsWithDuplicates} ISRC
+                {dedupeResult.totals.groupsWithDuplicates === 1
+                  ? " group"
+                  : " groups"}
+                .
+              </p>
+            )}
             {syncResult && (
               <p className="text-sm text-gray-400">
                 Last sync: scanned {syncResult.scanned}, looked up{" "}

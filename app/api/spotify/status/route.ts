@@ -5,7 +5,8 @@ import {
   getValidAccessToken,
 } from "@/lib/spotify/auth";
 import { fetchSpotifyUserProfile } from "@/lib/spotify/client";
-import { getMasterPlaylistRefs } from "@/lib/spotify/masters";
+import { getMasterPlaylistRefsForGenres } from "@/lib/spotify/masters";
+import type { GenrePool } from "@/lib/spotify/playlistIds";
 import { needsDeckReconnect } from "@/lib/spotify/scopes";
 
 export async function GET(req: NextRequest) {
@@ -22,7 +23,8 @@ export async function GET(req: NextRequest) {
     }> = [];
 
     try {
-      masters = (await getMasterPlaylistRefs()).map((m) => ({
+      const allGenres: GenrePool[] = ["cs", "wcs", "ld", "ts", "wz"];
+      masters = (await getMasterPlaylistRefsForGenres(allGenres)).map((m) => ({
         linkId: m.linkId,
         label: m.label,
         spotifyPlaylistId: m.spotifyPlaylistId,

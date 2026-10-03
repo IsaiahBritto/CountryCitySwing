@@ -3,8 +3,12 @@ import {
   addTracksToPlaylist,
   fetchPlaylistMeta,
   fetchPlaylistTracks,
+  fetchPlaylistTracksWithPositions,
+  fetchTrackIsrc,
   type SpotifyTrack,
 } from "@/lib/spotify/client";
+import { normalizeIsrc } from "@/lib/musicae/isrc";
+import { buildCanonicalTrackByIsrc } from "@/lib/spotify/masterIsrcIndex";
 import {
   DEFAULT_SOCIAL_STRUCTURE,
   expandStructure,
@@ -392,6 +396,35 @@ export async function ensureTrackOnMaster(input: {
   const master = masters[0];
   if (!master) {
     throw new Error(`No master playlist for genre ${input.genre}`);
+  }
+
+  const masterItems = await fetchPlaylistTracksWithPositions(
+    input.accessToken,
+    master.spotifyPlaylistId
+  );
+  const canonicalByIsrc = buildCanonicalTrackByIsrc(masterItems);
+
+  let requestIsrc = normalizeIsrc(
+    "isrc" in input.track ? input.track.isrc : null
+  );
+  if (!requestIsrc) {
+    try {
+      requestIsrc = normalizeIsrc(
+        await fetchTrackIsrc(input.accessToken, input.track.id)
+      );
+    } catch {
+      requestIsrc = null;
+    }
+  }
+
+  if (requestIsrc) {
+    const canonical = canonicalByIsrc.get(requestIsrc);
+    if (canonical) {
+      if (canonical.id !== input.track.id) {
+        await upsertMasterGenreRow(canonical.id, input.genre);
+      }
+      return { addedToMaster: false };
+    }
   }
 
   await addTracksToPlaylist(input.accessToken, master.spotifyPlaylistId, [

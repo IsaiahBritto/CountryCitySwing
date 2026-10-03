@@ -321,3 +321,43 @@
   box-shadow: 0 0 20px rgba(0, 0, 0, 0.35);
 }
 
+.event-carousel-signup-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.5rem 1.35rem;
+  border-radius: var(--radius-ccs-md);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--text-caption);
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+  cursor: pointer;
+  text-decoration: none;
+  border: 1px solid var(--ecs-signup-border, var(--color-primary));
+  background-color: var(--ecs-signup-bg, var(--color-primary-bright));
+  color: var(--ecs-signup-fg, #000);
+  box-shadow: var(--ecs-signup-shadow, 0 0 16px rgba(242, 201, 76, 0.4));
+}
+
+.event-carousel-signup-btn:hover:not(:disabled),
+.event-carousel-signup-btn:focus-visible {
+  background-color: var(--ecs-signup-bg-hover, var(--color-primary-hover));
+  box-shadow: var(--ecs-signup-shadow-hover, 0 0 24px rgba(242, 201, 76, 0.55));
+  color: var(--ecs-signup-fg, #000);
+  transform: translateY(-1px);
+}
+
+.event-carousel-signup-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.event-carousel-signup-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+

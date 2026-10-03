@@ -1,7 +1,7 @@
 "use client";
 
-import { CcsButton } from "@/components/ccs";
 import type { EventCarouselTheme } from "@/lib/design/eventCarouselTheme";
+import EventCarouselSignupButton from "@/components/events/EventCarouselSignupButton";
 import {
   DEFAULT_TIME_ZONE,
   formatEventScheduleSubtitle,
@@ -124,23 +124,17 @@ export default function EventCarouselCard({
             Closed
           </button>
         ) : event.type === "Convention" && (event.signupLink || event.signup_link) ? (
-          <a
+          <EventCarouselSignupButton
+            as="link"
+            theme={theme}
             href={event.signupLink || event.signup_link || "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ccs-btn ccs-btn--solid-gold normal-case"
           >
             Sign Up
-          </a>
+          </EventCarouselSignupButton>
         ) : (
-          <CcsButton
-            type="button"
-            variant="solidGold"
-            onClick={() => onSignUp(event)}
-            className="normal-case"
-          >
+          <EventCarouselSignupButton as="button" theme={theme} onClick={() => onSignUp(event)}>
             Sign Up
-          </CcsButton>
+          </EventCarouselSignupButton>
         )}
         {isAdmin && onEdit && (
           <button

@@ -51,4 +51,14 @@ describe("resolveEventCarouselTheme", () => {
     });
     expect(t.key).toBe("cityLights");
   });
+
+  it("includes signup button colors aligned with each theme", () => {
+    const social = resolveEventCarouselTheme({ type: "Social" });
+    expect(social.signup.background).toBe(colors.accent);
+    expect(social.signup.color).toBe(colors.black);
+
+    const workshop = resolveEventCarouselTheme({ type: "Workshop" });
+    expect(workshop.signup.background).toBe(colors.brandNcsn);
+    expect(workshop.signup.color).toBe(colors.white);
+  });
 });

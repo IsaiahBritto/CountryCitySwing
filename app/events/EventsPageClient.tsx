@@ -87,9 +87,9 @@ export default function EventsPageClient() {
           <Image
             src="/media/ncsn-logo.png"
             alt="NCSN — Nashville Country Swing Nights"
-            width={1600}
-            height={859}
-            className="mx-auto md:mx-0 w-full max-w-md h-auto object-contain mb-6"
+            width={320}
+            height={172}
+            className="mx-auto md:mx-0 h-20 w-auto object-contain mb-4"
           />
           <CcsButton href="/#upcoming-events" variant="ghostBrand">
             Sign Up

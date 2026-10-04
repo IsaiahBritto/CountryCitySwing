@@ -74,41 +74,20 @@ export default function EventCarousel({
   const slideWidth = viewportWidth > 0 ? slideWidthForViewport(viewportWidth) : 0;
   const useCenteredTrack = slideWidth > 0;
 
-  const lastDocWidthRef = useRef(0);
-
-  const alignViewportToScreen = useCallback(() => {
-    if (isTransitioningRef.current) return;
+  useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
-    const docW = document.documentElement.clientWidth;
-    const left = el.getBoundingClientRect().left;
-    el.style.width = `${docW}px`;
-    el.style.maxWidth = `${docW}px`;
-    el.style.marginLeft = `${-left}px`;
-    el.style.marginRight = "0";
-    if (lastDocWidthRef.current !== docW) {
-      lastDocWidthRef.current = docW;
-      setViewportWidth(docW);
-    }
-    setLayoutReady(true);
+
+    const update = () => {
+      setViewportWidth(el.clientWidth);
+      setLayoutReady(true);
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
-
-  useLayoutEffect(() => {
-    alignViewportToScreen();
-  }, [alignViewportToScreen]);
-
-  useEffect(() => {
-    let raf = 0;
-    const onResize = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(alignViewportToScreen);
-    };
-    window.addEventListener("resize", onResize, { passive: true });
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [alignViewportToScreen]);
 
   useEffect(() => {
     if (currentIndex >= count && count > 0) {
@@ -217,7 +196,7 @@ export default function EventCarousel({
     <>
       <section
         ref={regionRef}
-        className="relative mt-10 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-900 rounded-lg"
+        className="event-carousel-root relative mt-10 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-900 rounded-lg"
         aria-roledescription="carousel"
         aria-label="Event details"
         tabIndex={0}
@@ -253,12 +232,13 @@ export default function EventCarousel({
           {activeTitle}
         </p>
 
-        <div
-          ref={viewportRef}
-          className="event-carousel-viewport event-carousel-viewport--screen overflow-hidden touch-pan-y"
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
-        >
+        <div className="event-carousel-bleed">
+          <div
+            ref={viewportRef}
+            className="event-carousel-viewport event-carousel-viewport--screen overflow-hidden touch-pan-y"
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
           <div
             onTransitionEnd={handleTrackTransitionEnd}
             className={`event-carousel-track flex items-stretch ${
@@ -299,6 +279,7 @@ export default function EventCarousel({
               );
             })}
           </div>
+        </div>
         </div>
       </section>
 

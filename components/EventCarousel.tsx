@@ -38,9 +38,9 @@ interface EventCarouselProps {
   onEditEvent?: (event: CarouselEvent) => void;
 }
 
-const GAP_PX = 10;
-const SLIDE_WIDTH_RATIO_MOBILE = 0.56;
-const SLIDE_WIDTH_RATIO_DESKTOP = 0.52;
+const GAP_PX = 8;
+const SLIDE_WIDTH_RATIO_MOBILE = 0.46;
+const SLIDE_WIDTH_RATIO_DESKTOP = 0.5;
 const SLIDE_MAX_WIDTH_PX = 480;
 export const CAROUSEL_CARD_MIN_HEIGHT_PX = 380;
 
@@ -71,15 +71,31 @@ export default function EventCarousel({
   const slideWidth = viewportWidth > 0 ? slideWidthForViewport(viewportWidth) : 0;
   const useCenteredTrack = slideWidth > 0;
 
-  useEffect(() => {
-    const update = () => {
-      setViewportWidth(document.documentElement.clientWidth);
-      setLayoutReady(true);
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+  const alignViewportToScreen = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const docW = document.documentElement.clientWidth;
+    const left = el.getBoundingClientRect().left;
+    el.style.width = `${docW}px`;
+    el.style.maxWidth = `${docW}px`;
+    el.style.marginLeft = `${-left}px`;
+    el.style.marginRight = "0";
+    setViewportWidth(docW);
+    setLayoutReady(true);
   }, []);
+
+  useEffect(() => {
+    alignViewportToScreen();
+    window.addEventListener("resize", alignViewportToScreen);
+    window.addEventListener("scroll", alignViewportToScreen, { passive: true });
+    const ro = new ResizeObserver(alignViewportToScreen);
+    ro.observe(document.documentElement);
+    return () => {
+      window.removeEventListener("resize", alignViewportToScreen);
+      window.removeEventListener("scroll", alignViewportToScreen);
+      ro.disconnect();
+    };
+  }, [alignViewportToScreen]);
 
   useEffect(() => {
     if (currentIndex >= count && count > 0) {
@@ -145,7 +161,7 @@ export default function EventCarousel({
     <>
       <section
         ref={regionRef}
-        className="relative mt-10 overflow-x-hidden outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-900 rounded-lg"
+        className="relative mt-10 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-900 rounded-lg"
         aria-roledescription="carousel"
         aria-label="Event details"
         tabIndex={0}

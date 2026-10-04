@@ -52,7 +52,7 @@ export default function SiteShell({ children }: { children: ReactNode }) {
     return (
       <>
         <Navbar />
-        <main className="flex-grow w-full min-w-0">{children}</main>
+        <main className="flex-grow w-full min-w-0 overflow-x-hidden">{children}</main>
         <Footer />
       </>
     );

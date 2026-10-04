@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireJudgeAuth } from "@/lib/judgeAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
+import { filterActiveJudgeAssignments } from "@/lib/comps/activeJudgeAssignments";
 import { judgeScoresRound, siblingRoundFor } from "@/lib/comps/judgeScope";
 
 interface JudgeRoundPayload {
@@ -43,10 +44,10 @@ export async function GET(req: NextRequest) {
   }
 
   const competitionById = new Map((competitions ?? []).map((c) => [c.id, c]));
-  const activeAssignments = auth.assignments.filter((a) => {
-    const comp = competitionById.get(a.competition_id);
-    return comp != null && comp.status !== "completed";
-  });
+  const activeAssignments = filterActiveJudgeAssignments(
+    auth.assignments,
+    (competitions ?? []) as { id: string; status: string }[]
+  );
   const competitionIds = activeAssignments.map((a) => a.competition_id);
   if (competitionIds.length === 0) {
     return NextResponse.json({ assignments: [] });

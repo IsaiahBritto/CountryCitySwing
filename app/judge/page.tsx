@@ -16,7 +16,12 @@ interface CompetitionSummary {
   id: string;
   name: string;
   comp_type: string;
+  status?: string;
   event: { title: string; starts_at: string } | null;
+}
+
+function isActiveJudgeCompetition(comp: CompetitionSummary | null | undefined): boolean {
+  return comp != null && comp.status !== "completed";
 }
 
 interface JudgeAssignment {
@@ -61,7 +66,8 @@ export default function JudgeHomePage() {
         setAssignments([]);
       } else {
         const data = await res.json();
-        setAssignments(data.assignments ?? []);
+        const rows = (data.assignments ?? []) as JudgeAssignment[];
+        setAssignments(rows.filter((a) => isActiveJudgeCompetition(a.competition)));
         setForbidden(false);
       }
       setLoading(false);

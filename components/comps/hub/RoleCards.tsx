@@ -55,7 +55,10 @@ export default function RoleCards() {
 
       if (judgeRes.ok) {
         const data = await judgeRes.json();
-        const assignments = data.assignments ?? [];
+        const assignments = (data.assignments ?? []).filter(
+          (a: { competition?: { status?: string } | null }) =>
+            a.competition?.status !== "completed"
+        );
         setHasJudgeAssignment(assignments.length > 0);
         let ready = 0;
         for (const a of assignments) {

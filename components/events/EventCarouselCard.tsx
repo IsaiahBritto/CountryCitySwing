@@ -49,10 +49,10 @@ export default function EventCarouselCard({
 
   return (
     <article
-      className={`event-carousel-slide w-full h-full flex flex-col bg-neutral-800 p-6 text-center shadow-lg transition-all duration-300 ${
+      className={`event-carousel-slide w-full h-full flex flex-col bg-neutral-800 rounded-lg p-6 text-center shadow-lg transition-all duration-300 ${
         isActive
-          ? "event-carousel-slide--active opacity-100 rounded-lg"
-          : "event-carousel-slide--peek opacity-80 border border-neutral-700 rounded-none sm:rounded-lg"
+          ? "event-carousel-slide--active opacity-100"
+          : "event-carousel-slide--peek opacity-55 border border-neutral-700"
       }`}
       style={{ ...borderStyle, minHeight: CAROUSEL_CARD_MIN_HEIGHT_PX }}
       aria-hidden={!isActive}

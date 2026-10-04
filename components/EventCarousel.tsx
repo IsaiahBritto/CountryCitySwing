@@ -148,13 +148,13 @@ export default function EventCarousel({
     <>
       <section
         ref={regionRef}
-        className="relative mt-10 overflow-x-hidden outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-900 rounded-lg"
+        className="relative mx-auto mt-10 max-w-5xl px-4 sm:px-8 outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-900 rounded-lg"
         aria-roledescription="carousel"
         aria-label="Event details"
         tabIndex={0}
         onKeyDown={onKeyDown}
       >
-        <div className="mx-auto max-w-5xl px-4 sm:px-8 flex items-center justify-center gap-3 sm:gap-4 mb-6">
+        <div className="flex items-center justify-center gap-3 sm:gap-4 mb-6">
           <button
             type="button"
             onClick={prev}
@@ -186,7 +186,7 @@ export default function EventCarousel({
 
         <div
           ref={viewportRef}
-          className="event-carousel-viewport relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 overflow-hidden"
+          className="event-carousel-viewport overflow-hidden w-full"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >

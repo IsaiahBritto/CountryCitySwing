@@ -31,7 +31,7 @@ export default function UpcomingEventsSection({
   modals,
 }: Props) {
   return (
-    <section className="max-w-5xl mx-auto text-center px-4 pt-10 pb-16 min-h-screen">
+    <section className="max-w-5xl mx-auto text-center px-4 pt-10 pb-16 min-h-screen overflow-x-clip">
       <div
         id="upcoming-events"
         className="relative mb-4 flex flex-col items-center gap-3 md:block md:gap-0 scroll-mt-6"

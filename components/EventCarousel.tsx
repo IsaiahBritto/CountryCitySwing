@@ -72,13 +72,16 @@ export default function EventCarousel({
   const useCenteredTrack = slideWidth > 0;
 
   useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
     const update = () => {
-      setViewportWidth(document.documentElement.clientWidth);
+      setViewportWidth(el.clientWidth);
       setLayoutReady(true);
     };
     update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   useEffect(() => {
@@ -183,7 +186,7 @@ export default function EventCarousel({
 
         <div
           ref={viewportRef}
-          className="event-carousel-viewport event-carousel-viewport--screen overflow-hidden"
+          className="event-carousel-viewport relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 overflow-hidden"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >

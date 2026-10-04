@@ -49,9 +49,9 @@ export default function EventCarouselCard({
 
   return (
     <article
-      className={`event-carousel-slide w-full h-full flex flex-col bg-neutral-800 p-6 text-center shadow-lg transition-all duration-300 ${
+      className={`event-carousel-slide w-full h-full flex flex-col bg-neutral-800 p-6 text-center ${
         isActive
-          ? "event-carousel-slide--active opacity-100 rounded-lg"
+          ? "event-carousel-slide--active opacity-100 rounded-lg shadow-lg"
           : "event-carousel-slide--peek opacity-[0.72] rounded-none border-0 shadow-none"
       }`}
       style={{ ...borderStyle, minHeight: CAROUSEL_CARD_MIN_HEIGHT_PX }}

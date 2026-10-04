@@ -56,12 +56,16 @@ export default function EventCarousel({
   onEditEvent,
 }: EventCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [settledIndex, setSettledIndex] = useState(0);
   const [selectedEvent, setSelectedEvent] = useState<CarouselEvent | null>(null);
   const [viewportWidth, setViewportWidth] = useState(0);
   const [layoutReady, setLayoutReady] = useState(false);
   const touchStartX = useRef<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const regionRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const indexRef = useRef(0);
+  const isTransitioningRef = useRef(false);
 
   const filteredEvents = events.filter(
     (e) => !isEventPast(e.starts_at, e.ends_at ?? undefined, e.time_zone || DEFAULT_TIME_ZONE)
@@ -74,6 +78,7 @@ export default function EventCarousel({
   const lastDocWidthRef = useRef(0);
 
   const alignViewportToScreen = useCallback(() => {
+    if (isTransitioningRef.current) return;
     const el = viewportRef.current;
     if (!el) return;
     const docW = document.documentElement.clientWidth;
@@ -99,29 +104,68 @@ export default function EventCarousel({
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(alignViewportToScreen);
     };
-    window.addEventListener("resize", onResize);
-    const ro = new ResizeObserver(onResize);
-    if (regionRef.current) ro.observe(regionRef.current);
+    window.addEventListener("resize", onResize, { passive: true });
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
-      ro.disconnect();
     };
   }, [alignViewportToScreen]);
 
   useEffect(() => {
     if (currentIndex >= count && count > 0) {
+      indexRef.current = 0;
       setCurrentIndex(0);
+      setSettledIndex(0);
     }
   }, [count, currentIndex]);
 
+  const goToIndex = useCallback(
+    (computeNext: (index: number) => number) => {
+      if (count <= 1 || isTransitioningRef.current) return;
+      const nextIndex = computeNext(indexRef.current);
+      if (nextIndex === indexRef.current) return;
+      indexRef.current = nextIndex;
+      setCurrentIndex(nextIndex);
+
+      const reducedMotion =
+        typeof window !== "undefined" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (reducedMotion) {
+        setSettledIndex(nextIndex);
+        return;
+      }
+
+      isTransitioningRef.current = true;
+    },
+    [count]
+  );
+
+  useEffect(() => {
+    if (!isTransitioningRef.current) return;
+    const timeout = window.setTimeout(() => {
+      if (!isTransitioningRef.current) return;
+      isTransitioningRef.current = false;
+      setSettledIndex(indexRef.current);
+    }, 560);
+    return () => window.clearTimeout(timeout);
+  }, [currentIndex]);
+
   const next = useCallback(() => {
-    setCurrentIndex((i) => (count <= 1 ? 0 : i === count - 1 ? 0 : i + 1));
-  }, [count]);
+    goToIndex((i) => (i === count - 1 ? 0 : i + 1));
+  }, [count, goToIndex]);
 
   const prev = useCallback(() => {
-    setCurrentIndex((i) => (count <= 1 ? 0 : i === 0 ? count - 1 : i - 1));
-  }, [count]);
+    goToIndex((i) => (i === 0 ? count - 1 : i - 1));
+  }, [count, goToIndex]);
+
+  const handleTrackTransitionEnd = useCallback(
+    (e: React.TransitionEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget || e.propertyName !== "transform") return;
+      isTransitioningRef.current = false;
+      setSettledIndex(indexRef.current);
+    },
+    []
+  );
 
   const handleSignUp = (event: CarouselEvent) => {
     if (event.type === "Convention" && (event.signupLink || event.signup_link)) {
@@ -160,11 +204,12 @@ export default function EventCarousel({
     );
   }
 
+  const step = slideWidth + GAP_PX;
   const translateX =
     slideWidth > 0
-      ? viewportWidth / 2 -
-        currentIndex * (slideWidth + GAP_PX) -
-        slideWidth / 2
+      ? Math.round(
+          (viewportWidth - slideWidth) / 2 - currentIndex * step
+        )
       : 0;
 
   const activeTitle = filteredEvents[currentIndex]?.title ?? "";
@@ -211,13 +256,17 @@ export default function EventCarousel({
 
         <div
           ref={viewportRef}
-          className="event-carousel-viewport event-carousel-viewport--screen overflow-hidden"
+          className="event-carousel-viewport event-carousel-viewport--screen overflow-hidden touch-pan-y"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
           <div
+            ref={trackRef}
+            onTransitionEnd={handleTrackTransitionEnd}
             className={`event-carousel-track flex items-stretch ${
-              layoutReady && slideWidth > 0 ? "opacity-100" : "opacity-0"
+              layoutReady && slideWidth > 0
+                ? "event-carousel-track--interactive opacity-100"
+                : "opacity-0"
             }`}
             style={{
               gap: GAP_PX,
@@ -229,7 +278,7 @@ export default function EventCarousel({
                 type: event.type,
                 title: event.title,
               });
-              const isActive = index === currentIndex;
+              const isActive = index === settledIndex;
               return (
                 <div
                   key={event.id}

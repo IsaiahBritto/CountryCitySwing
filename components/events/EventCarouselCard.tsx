@@ -52,7 +52,7 @@ export default function EventCarouselCard({
       className={`event-carousel-slide w-full h-full flex flex-col bg-neutral-800 p-6 text-center shadow-lg transition-all duration-300 ${
         isActive
           ? "event-carousel-slide--active opacity-100 rounded-lg"
-          : "event-carousel-slide--peek opacity-90 border border-neutral-700 rounded-none"
+          : "event-carousel-slide--peek opacity-[0.72] rounded-none border-0 shadow-none"
       }`}
       style={{ ...borderStyle, minHeight: CAROUSEL_CARD_MIN_HEIGHT_PX }}
       aria-hidden={!isActive}

@@ -297,31 +297,51 @@
 
 /* Full width set in JS (pinned to viewport left edge) */
 .event-carousel-viewport--screen {
-  --carousel-edge-fade-px: 14px;
-  -webkit-mask-image: linear-gradient(
+  position: relative;
+  --carousel-edge-fade-px: 32px;
+}
+
+.event-carousel-viewport--screen::before,
+.event-carousel-viewport--screen::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--carousel-edge-fade-px);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.event-carousel-viewport--screen::before {
+  left: 0;
+  background: linear-gradient(
     to right,
-    transparent 0,
-    #000 var(--carousel-edge-fade-px),
-    #000 calc(100% - var(--carousel-edge-fade-px)),
+    var(--color-neutral-900) 0%,
+    rgb(13 13 13 / 0.55) 45%,
     transparent 100%
   );
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 var(--carousel-edge-fade-px),
-    #000 calc(100% - var(--carousel-edge-fade-px)),
+}
+
+.event-carousel-viewport--screen::after {
+  right: 0;
+  background: linear-gradient(
+    to left,
+    var(--color-neutral-900) 0%,
+    rgb(13 13 13 / 0.55) 45%,
     transparent 100%
   );
 }
 
 @media (min-width: 640px) {
   .event-carousel-viewport--screen {
-    --carousel-edge-fade-px: 18px;
+    --carousel-edge-fade-px: 40px;
   }
 }
 
 .event-carousel-track {
-  transition: transform 500ms ease-in-out;
+  transition: transform 480ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 .event-carousel-nav-btn {

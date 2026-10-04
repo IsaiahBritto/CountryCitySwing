@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/solid";
 import {
   DEFAULT_TIME_ZONE,
@@ -38,15 +38,15 @@ interface EventCarouselProps {
   onEditEvent?: (event: CarouselEvent) => void;
 }
 
-const GAP_PX = 8;
-const SLIDE_WIDTH_RATIO_MOBILE = 0.46;
-const SLIDE_WIDTH_RATIO_DESKTOP = 0.5;
+const GAP_PX = 12;
+/** Each side peek shows at most 1/4 of the active card width: W = (viewport - 2×gap) / 1.5 */
+const PEEK_RATIO = 0.25;
 const SLIDE_MAX_WIDTH_PX = 480;
 export const CAROUSEL_CARD_MIN_HEIGHT_PX = 380;
 
 function slideWidthForViewport(viewportWidth: number): number {
-  if (viewportWidth < 640) return viewportWidth * SLIDE_WIDTH_RATIO_MOBILE;
-  return Math.min(SLIDE_MAX_WIDTH_PX, viewportWidth * SLIDE_WIDTH_RATIO_DESKTOP);
+  const fromPeekLayout = (viewportWidth - 2 * GAP_PX) / (1 + 2 * PEEK_RATIO);
+  return Math.min(SLIDE_MAX_WIDTH_PX, Math.round(fromPeekLayout));
 }
 
 export default function EventCarousel({
@@ -71,6 +71,8 @@ export default function EventCarousel({
   const slideWidth = viewportWidth > 0 ? slideWidthForViewport(viewportWidth) : 0;
   const useCenteredTrack = slideWidth > 0;
 
+  const lastDocWidthRef = useRef(0);
+
   const alignViewportToScreen = useCallback(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -80,19 +82,29 @@ export default function EventCarousel({
     el.style.maxWidth = `${docW}px`;
     el.style.marginLeft = `${-left}px`;
     el.style.marginRight = "0";
-    setViewportWidth(docW);
+    if (lastDocWidthRef.current !== docW) {
+      lastDocWidthRef.current = docW;
+      setViewportWidth(docW);
+    }
     setLayoutReady(true);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     alignViewportToScreen();
-    window.addEventListener("resize", alignViewportToScreen);
-    window.addEventListener("scroll", alignViewportToScreen, { passive: true });
-    const ro = new ResizeObserver(alignViewportToScreen);
-    ro.observe(document.documentElement);
+  }, [alignViewportToScreen]);
+
+  useEffect(() => {
+    let raf = 0;
+    const onResize = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(alignViewportToScreen);
+    };
+    window.addEventListener("resize", onResize);
+    const ro = new ResizeObserver(onResize);
+    if (regionRef.current) ro.observe(regionRef.current);
     return () => {
-      window.removeEventListener("resize", alignViewportToScreen);
-      window.removeEventListener("scroll", alignViewportToScreen);
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
       ro.disconnect();
     };
   }, [alignViewportToScreen]);
@@ -204,12 +216,12 @@ export default function EventCarousel({
           onTouchEnd={handleTouchEnd}
         >
           <div
-            className={`event-carousel-track flex items-stretch transition-opacity duration-200 ${
+            className={`event-carousel-track flex items-stretch ${
               layoutReady && slideWidth > 0 ? "opacity-100" : "opacity-0"
             }`}
             style={{
               gap: GAP_PX,
-              transform: useCenteredTrack ? `translateX(${translateX}px)` : undefined,
+              transform: useCenteredTrack ? `translate3d(${translateX}px, 0, 0)` : undefined,
             }}
           >
             {filteredEvents.map((event, index) => {

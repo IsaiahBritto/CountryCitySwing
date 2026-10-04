@@ -24,17 +24,17 @@ export async function GET(req: NextRequest) {
   const auth = await requireJudgeAuth(req);
   if (!auth.ok) return auth.response;
 
-  const competitionIds = auth.assignments.map((a) => a.competition_id);
-  if (competitionIds.length === 0) {
+  const assignmentCompetitionIds = auth.assignments.map((a) => a.competition_id);
+  if (assignmentCompetitionIds.length === 0) {
     return NextResponse.json({ assignments: [] });
   }
 
   const { data: competitions, error: competitionError } = await supabaseServer
     .from("competitions")
     .select(
-      "id, name, comp_type, lead_head_judge_assignment_id, follow_head_judge_assignment_id, event:events(title, starts_at)"
+      "id, name, comp_type, status, lead_head_judge_assignment_id, follow_head_judge_assignment_id, event:events(title, starts_at)"
     )
-    .in("id", competitionIds);
+    .in("id", assignmentCompetitionIds);
   if (competitionError) {
     return NextResponse.json(
       { error: "Failed to load competitions" },
@@ -43,6 +43,14 @@ export async function GET(req: NextRequest) {
   }
 
   const competitionById = new Map((competitions ?? []).map((c) => [c.id, c]));
+  const activeAssignments = auth.assignments.filter((a) => {
+    const comp = competitionById.get(a.competition_id);
+    return comp != null && comp.status !== "completed";
+  });
+  const competitionIds = activeAssignments.map((a) => a.competition_id);
+  if (competitionIds.length === 0) {
+    return NextResponse.json({ assignments: [] });
+  }
 
   const { data: rounds, error } = await supabaseServer
     .from("comp_rounds")
@@ -64,10 +72,10 @@ export async function GET(req: NextRequest) {
   }
 
   const assignmentByCompetition = new Map(
-    auth.assignments.map((a) => [a.competition_id, a])
+    activeAssignments.map((a) => [a.competition_id, a])
   );
   const roundIds = (rounds ?? []).map((r) => r.id);
-  const assignmentIds = auth.assignments.map((a) => a.id);
+  const assignmentIds = activeAssignments.map((a) => a.id);
   const { data: sheets } = roundIds.length
     ? await supabaseServer
         .from("comp_judge_sheets")
@@ -127,7 +135,7 @@ export async function GET(req: NextRequest) {
     roundsByCompetitionPayload.set(round.competition_id, list);
   }
 
-  const assignmentsPayload = auth.assignments.map((a) => ({
+  const assignmentsPayload = activeAssignments.map((a) => ({
     id: a.id,
     competitionId: a.competition_id,
     judgeRole: a.judge_role,

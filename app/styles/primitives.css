@@ -293,6 +293,27 @@
 
 .event-carousel-viewport {
   overflow: hidden;
+  --carousel-edge-fade: 14%;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    #000 var(--carousel-edge-fade),
+    #000 calc(100% - var(--carousel-edge-fade)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    #000 var(--carousel-edge-fade),
+    #000 calc(100% - var(--carousel-edge-fade)),
+    transparent 100%
+  );
+}
+
+@media (min-width: 640px) {
+  .event-carousel-viewport {
+    --carousel-edge-fade: 10%;
+  }
 }
 
 .event-carousel-track {

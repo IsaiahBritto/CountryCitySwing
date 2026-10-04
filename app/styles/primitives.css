@@ -291,14 +291,27 @@
   --carousel-slide-max-width: 480px;
 }
 
+/* Carousel-only full bleed: clip overflow here so the page layout is unchanged */
+.event-carousel-root {
+  width: 100%;
+  overflow-x: clip;
+}
+
+.event-carousel-bleed {
+  width: 100%;
+  overflow-x: clip;
+}
+
 .event-carousel-viewport {
   overflow: hidden;
   transform: translateZ(0);
 }
 
-/* Full width set in JS (pinned to viewport left edge) */
 .event-carousel-viewport--screen {
   position: relative;
+  width: 100dvw;
+  max-width: 100dvw;
+  margin-inline: calc(50% - 50dvw);
   --carousel-edge-fade-px: 32px;
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/solid";
 import {
   DEFAULT_TIME_ZONE,
@@ -63,7 +63,6 @@ export default function EventCarousel({
   const touchStartX = useRef<number | null>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const regionRef = useRef<HTMLDivElement>(null);
-  const trackRef = useRef<HTMLDivElement>(null);
   const indexRef = useRef(0);
   const isTransitioningRef = useRef(false);
 
@@ -261,7 +260,6 @@ export default function EventCarousel({
           onTouchEnd={handleTouchEnd}
         >
           <div
-            ref={trackRef}
             onTransitionEnd={handleTrackTransitionEnd}
             className={`event-carousel-track flex items-stretch ${
               layoutReady && slideWidth > 0

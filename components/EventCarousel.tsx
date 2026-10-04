@@ -38,9 +38,9 @@ interface EventCarouselProps {
   onEditEvent?: (event: CarouselEvent) => void;
 }
 
-const GAP_PX = 16;
-const SLIDE_WIDTH_RATIO_MOBILE = 0.68;
-const SLIDE_WIDTH_RATIO_DESKTOP = 0.6;
+const GAP_PX = 10;
+const SLIDE_WIDTH_RATIO_MOBILE = 0.56;
+const SLIDE_WIDTH_RATIO_DESKTOP = 0.52;
 const SLIDE_MAX_WIDTH_PX = 480;
 export const CAROUSEL_CARD_MIN_HEIGHT_PX = 380;
 

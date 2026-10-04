@@ -301,7 +301,7 @@
   max-width: 100vw;
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
-  --carousel-edge-fade: 14%;
+  --carousel-edge-fade: 4%;
   -webkit-mask-image: linear-gradient(
     to right,
     transparent 0%,

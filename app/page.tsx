@@ -201,13 +201,13 @@ export default function Home() {
                 onEditEvent={handleEditEvent}
               />
               <CompsHubBanner />
-              <EventCarousel
-                events={upcomingEvents}
-                isAdmin={isAdmin}
-                isInstructor={isInstructor}
-                onEditEvent={handleEditEvent}
-              />
             </section>
+            <EventCarousel
+              events={upcomingEvents}
+              isAdmin={isAdmin}
+              isInstructor={isInstructor}
+              onEditEvent={handleEditEvent}
+            />
           </div>
         }
         listView={

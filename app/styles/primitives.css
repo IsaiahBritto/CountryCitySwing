@@ -293,6 +293,14 @@
 
 .event-carousel-viewport {
   overflow: hidden;
+}
+
+/* Break out of max-width/padded ancestors; span the full screen width */
+.event-carousel-viewport--screen {
+  width: 100vw;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
   --carousel-edge-fade: 14%;
   -webkit-mask-image: linear-gradient(
     to right,
@@ -311,7 +319,7 @@
 }
 
 @media (min-width: 640px) {
-  .event-carousel-viewport {
+  .event-carousel-viewport--screen {
     --carousel-edge-fade: 10%;
   }
 }

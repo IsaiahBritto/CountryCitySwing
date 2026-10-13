@@ -4,6 +4,7 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import {
   canViewClassLevelBreakdown,
+  canViewSignupPlannedClassLevel,
   isClassLevelBreakdownViewer,
 } from "@/lib/classLevelRegistrationAccess";
 
@@ -52,5 +53,32 @@ describe("canViewClassLevelBreakdown", () => {
     expect(canViewClassLevelBreakdown(OTHER_ID, "instructor", classEvent, during)).toBe(
       false
     );
+  });
+});
+
+describe("canViewSignupPlannedClassLevel", () => {
+  it("returns false when all three classes is off", () => {
+    const during = dayjs.tz("2026-08-11 18:00", TZ).toDate();
+    expect(
+      canViewSignupPlannedClassLevel("admin", classEvent, false, during)
+    ).toBe(false);
+  });
+
+  it("allows admin anytime when all three classes is on", () => {
+    const before = dayjs.tz("2026-08-10 12:00", TZ).toDate();
+    expect(
+      canViewSignupPlannedClassLevel("admin", classEvent, true, before)
+    ).toBe(true);
+  });
+
+  it("allows any instructor during the event window", () => {
+    const before = dayjs.tz("2026-08-10 12:00", TZ).toDate();
+    const during = dayjs.tz("2026-08-11 18:00", TZ).toDate();
+    expect(
+      canViewSignupPlannedClassLevel("instructor", classEvent, true, before)
+    ).toBe(false);
+    expect(
+      canViewSignupPlannedClassLevel("instructor", classEvent, true, during)
+    ).toBe(true);
   });
 });

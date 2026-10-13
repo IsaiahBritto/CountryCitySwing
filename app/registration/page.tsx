@@ -15,7 +15,10 @@ import {
 } from "@/lib/utils/dateHelpers";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { canMutateRegistrationEvent } from "@/lib/registrationAuthPolicy";
-import { canViewClassLevelBreakdown } from "@/lib/classLevelRegistrationAccess";
+import {
+  canViewClassLevelBreakdown,
+  canViewSignupPlannedClassLevel,
+} from "@/lib/classLevelRegistrationAccess";
 import {
   type CheckInArrivalBuckets,
   EMPTY_CHECK_IN_ARRIVAL_BUCKETS,
@@ -668,16 +671,28 @@ export default function RegistrationPage() {
   const showAllThreeClasses =
     !isCompEvent &&
     (selectedEvent?.all_three_classes === true || classLevelSummary != null);
+  const registrationEventRow = selectedEvent
+    ? {
+        type: selectedEvent.type,
+        starts_at: selectedEvent.starts_at,
+        ends_at: selectedEvent.ends_at ?? null,
+        time_zone: selectedEvent.time_zone,
+      }
+    : null;
+  const canShowSignupClassLevel =
+    showAllThreeClasses &&
+    registrationEventRow != null &&
+    registrationAccess != null &&
+    canViewSignupPlannedClassLevel(
+      registrationAccess,
+      registrationEventRow,
+      selectedEvent?.all_three_classes === true
+    );
   const canShowClassLevelBreakdown =
     showAllThreeClasses &&
-    selectedEvent != null &&
+    registrationEventRow != null &&
     registrationAccess != null &&
-    canViewClassLevelBreakdown(userId, registrationAccess, {
-      type: selectedEvent.type,
-      starts_at: selectedEvent.starts_at,
-      ends_at: selectedEvent.ends_at ?? null,
-      time_zone: selectedEvent.time_zone,
-    });
+    canViewClassLevelBreakdown(userId, registrationAccess, registrationEventRow);
 
   const scheduleDueForSignup = (signup: Signup): number => {
     if (!eventPricing) return Number(signup.amount_owed) || 0;
@@ -1417,7 +1432,7 @@ export default function RegistrationPage() {
                         ) : (
                           <>{signupLabel}</>
                         )}
-                        {canShowClassLevelBreakdown && (
+                        {canShowSignupClassLevel && (
                           isAdmin && signup.planned_class_level ? (
                             <button
                               type="button"
@@ -1430,7 +1445,7 @@ export default function RegistrationPage() {
                             <PlannedClassLevelBadge level={signup.planned_class_level} />
                           )
                         )}
-                        {canShowClassLevelBreakdown &&
+                        {canShowSignupClassLevel &&
                           signup.planned_class_level === "upper_level" && (
                             <DanceRoleBadge role={signup.planned_dance_role} />
                           )}
@@ -1577,7 +1592,7 @@ export default function RegistrationPage() {
                     <h3 className="font-semibold text-white flex flex-wrap items-center gap-2">
                       {(scannedResult.signup as Signup).first_name}{" "}
                       {(scannedResult.signup as Signup).last_name}
-                      {canShowClassLevelBreakdown && (
+                      {canShowSignupClassLevel && (
                         <>
                           <PlannedClassLevelBadge
                             level={(scannedResult.signup as Signup).planned_class_level}

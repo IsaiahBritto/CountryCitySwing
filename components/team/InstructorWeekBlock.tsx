@@ -1,5 +1,4 @@
 import type { InstructorWeek } from "@/lib/team/teamMemberResources";
-import { colors } from "@/lib/design/tokens";
 import InstructorVideoEmbed from "@/components/team/InstructorVideoEmbed";
 
 type Props = {
@@ -22,10 +21,7 @@ function PoiColumn({ heading, items }: { heading: string; items: string[] }) {
 export default function InstructorWeekBlock({ week }: Props) {
   const copyBlock = (
     <div className="flex flex-col justify-center">
-      <p
-        className="text-2xl sm:text-3xl font-bold mb-3 tracking-wide"
-        style={{ color: colors.accent }}
-      >
+      <p className="text-2xl sm:text-3xl font-bold mb-3 tracking-wide text-accent">
         {week.label}
       </p>
       <h3 className="text-primary font-semibold text-lg mb-3">{week.bigPictureTitle}</h3>

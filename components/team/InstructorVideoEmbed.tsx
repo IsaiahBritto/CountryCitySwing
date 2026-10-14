@@ -24,11 +24,16 @@ export default function InstructorVideoEmbed({ videoUrl, title }: Props) {
 
   return (
     <div
-      className="aspect-video w-full rounded-lg bg-neutral-700"
+      className="relative aspect-video w-full rounded-lg bg-neutral-700 flex items-center justify-center"
       role="img"
-      aria-label={`${title} video placeholder`}
+      aria-label={`${title} — video coming soon`}
     >
-      <span className="sr-only">Video coming soon</span>
+      <span
+        className="text-sm sm:text-base font-semibold uppercase tracking-wider text-neutral-300/90 pointer-events-none select-none"
+        aria-hidden="true"
+      >
+        Coming soon
+      </span>
     </div>
   );
 }

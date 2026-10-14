@@ -200,7 +200,7 @@ export default function Navbar() {
           )}
           {showSchedule && (
             <Link href="/schedule" className={linkClass}>
-              Schedule
+              (Team Member)
             </Link>
           )}
           {showFinances && (
@@ -241,7 +241,7 @@ export default function Navbar() {
           )}
           {showSchedule && (
             <Link href="/schedule" onClick={() => setMenuOpen(false)} className={"block " + linkClass}>
-              Schedule
+              (Team Member)
             </Link>
           )}
           {showFinances && (

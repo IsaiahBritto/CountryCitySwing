@@ -1,3 +1,4 @@
+import CcsHeading from "@/components/ccs/CcsHeading";
 import type { RepresentEachOtherWellContent } from "@/lib/team/teamMemberResources";
 
 export default function TeamExpectationsSection({
@@ -8,9 +9,9 @@ export default function TeamExpectationsSection({
 }: RepresentEachOtherWellContent) {
   return (
     <section id="team-expectations" aria-label="Represent Each Other Well">
-      <h2 className="gold-wave text-3xl font-extrabold text-center mb-6 pb-1">
+      <CcsHeading level={2} variant="goldWave" className="text-center mb-6">
         Represent Each Other Well!
-      </h2>
+      </CcsHeading>
 
       <p className="text-gray-300 text-center max-w-3xl mx-auto mb-10">{intro}</p>
 

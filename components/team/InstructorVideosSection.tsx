@@ -1,3 +1,4 @@
+import CcsHeading from "@/components/ccs/CcsHeading";
 import InstructorWeekBlock from "@/components/team/InstructorWeekBlock";
 import type { InstructorWeek } from "@/lib/team/teamMemberResources";
 
@@ -9,9 +10,9 @@ type Props = {
 export default function InstructorVideosSection({ subtitle, weeks }: Props) {
   return (
     <section id="instructor-videos" aria-label="Instructor Videos">
-      <h2 className="gold-wave text-3xl font-extrabold text-center mb-3 pb-1">
+      <CcsHeading level={2} variant="goldWave" className="text-center mb-3">
         Instructor Videos
-      </h2>
+      </CcsHeading>
       <p className="text-gray-300 text-center mb-12">{subtitle}</p>
 
       <div className="space-y-12">

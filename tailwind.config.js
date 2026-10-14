@@ -12,6 +12,7 @@ export default {
       "neutral-700": "#2A2A2A",
       "neutral-800": "#1A1A1A",
       "neutral-900": "#0D0D0D",
+      "surface-team": "#3D3D2D",
       white: "#FFFFFF",
       black: "#000000",
     },

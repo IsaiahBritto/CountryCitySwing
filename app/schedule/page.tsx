@@ -244,8 +244,12 @@ export default function SchedulePage() {
   if (role === null && !loading) {
     return (
       <section className="max-w-5xl mx-auto text-center px-4 py-10">
-        <h2 className="text-2xl font-semibold text-primary mb-4">Schedule</h2>
-        <p className="text-gray-400">You must be an instructor or admin to view the schedule.</p>
+        <h2 className="ccs-text-gold-wave gold-wave text-3xl font-extrabold pb-1 mb-4">
+          Team Schedule
+        </h2>
+        <p className="text-gray-400">
+          You must be a CCS instructor or admin to view the team schedule.
+        </p>
         <button
           type="button"
           onClick={() => router.push("/auth")}
@@ -264,7 +268,9 @@ export default function SchedulePage() {
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-3">
             <div className="hidden sm:block" aria-hidden="true" />
             <div className="text-center">
-              <h2 className="gold-wave text-3xl font-extrabold pb-1">Team Schedule</h2>
+              <h2 className="ccs-text-gold-wave gold-wave text-3xl font-extrabold pb-1">
+                Team Schedule
+              </h2>
               <p className="text-gray-300 text-sm mt-1">
                 Sign up to teach or volunteer to help out here!
               </p>
@@ -281,7 +287,9 @@ export default function SchedulePage() {
           </div>
         ) : (
           <div className="text-center">
-            <h2 className="gold-wave text-3xl font-extrabold pb-1">Team Schedule</h2>
+            <h2 className="ccs-text-gold-wave gold-wave text-3xl font-extrabold pb-1">
+              Team Schedule
+            </h2>
             <p className="text-gray-300 text-sm mt-1">
               Sign up to teach or volunteer to help out here!
             </p>
@@ -346,6 +354,7 @@ export default function SchedulePage() {
         instructors={instructors}
         onRefresh={loadData}
         getAuthHeaders={getAuthHeaders}
+        variant="team"
       />
 
       <div className="mt-16 space-y-16 text-left">

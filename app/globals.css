@@ -293,6 +293,32 @@ img {
   line-height: 1.2;
 }
 
+/* CCS typography (team member / marketing sections) */
+.ccs-section-title {
+  font-size: 1.875rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: #f2c94c;
+}
+
+.ccs-text-gold-wave {
+  background-image: linear-gradient(
+    270deg,
+    #f2c94c,
+    #f3dc97,
+    #fafaf8,
+    #f3dc97,
+    #f2c94c
+  );
+  background-size: 300% 300%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: goldWave 8s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(242, 201, 76, 0.4));
+  line-height: 1.2;
+}
+
 /* optional global transition helpers */
 .transition-opacity {
   transition: opacity 1s ease-in-out;

@@ -588,7 +588,11 @@ export default function ScheduleCalendar({
                                       type="button"
                                       disabled={!!signingUp || !canSelfEditSlot || (notOpen && !isAdmin)}
                                       onClick={() => handleSignUp(slot.id)}
-                                      className="btn-signup text-sm px-3 py-1.5 rounded"
+                                      className={
+                                        isTeamVariant
+                                          ? "ccs-btn ccs-btn--sign-in text-sm px-3 py-1.5 rounded-md"
+                                          : "btn-signup text-sm px-3 py-1.5 rounded"
+                                      }
                                       title={
                                         notOpen && !isAdmin
                                           ? "Staff schedule is not open yet"

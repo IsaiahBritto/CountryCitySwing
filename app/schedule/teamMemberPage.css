@@ -1,0 +1,157 @@
+/**
+ * Team Member route (/schedule) — visual parity with ccs_redesign.
+ * Scoped to .team-member-page so the rest of main is unchanged.
+ */
+
+.team-member-page {
+  --tm-primary: #f2c94c;
+  --tm-primary-hover: #ffe375;
+  --tm-accent: #bb86fc;
+  --tm-surface-team: #3d3d2d;
+  --tm-text-h2: 1.875rem;
+  --tm-leading-tight: 1.2;
+  --tm-radius-md: 0.5rem;
+}
+
+/* Brand utilities (mirror ccs_redesign tokens; Tailwind theme may not expose these on main) */
+.team-member-page .text-primary {
+  color: var(--tm-primary);
+}
+
+.team-member-page .text-accent,
+.team-member-page .team-week-label {
+  color: var(--tm-accent);
+}
+
+.team-member-page .bg-surface-team {
+  background-color: var(--tm-surface-team);
+}
+
+.team-member-page .border-primary {
+  border-color: var(--tm-primary);
+}
+
+.team-member-page .border-primary\/10 {
+  border-color: rgba(242, 201, 76, 0.1);
+}
+
+.team-member-page .ring-accent {
+  --tw-ring-color: var(--tm-accent);
+}
+
+.team-member-page .hover\:text-primary:hover {
+  color: var(--tm-primary);
+}
+
+@keyframes teamMemberCcsGoldWave {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+@keyframes teamMemberCcsYellowPulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 10px rgba(242, 201, 76, 0.4),
+      0 0 20px rgba(242, 201, 76, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 10px rgba(242, 201, 76, 0.7),
+      0 0 15px rgba(242, 201, 76, 0.5);
+  }
+}
+
+.team-member-page .ccs-section-title {
+  font-size: var(--tm-text-h2);
+  font-weight: 800;
+  line-height: var(--tm-leading-tight);
+  color: var(--tm-primary);
+}
+
+.team-member-page .ccs-text-gold-wave {
+  background-image: linear-gradient(
+    270deg,
+    #f2c94c,
+    #f3dc97,
+    #fafaf8,
+    #f3dc97,
+    #f2c94c
+  );
+  background-size: 300% 300%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: teamMemberCcsGoldWave 8s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(242, 201, 76, 0.4));
+  line-height: var(--tm-leading-tight);
+}
+
+/* CcsHeading stacks ccs-text-gold-wave + gold-wave — one animation, redesign-like glow */
+.team-member-page .gold-wave:not(.ccs-text-gold-wave) {
+  background-image: linear-gradient(
+    270deg,
+    #f2c94c,
+    #f3dc97,
+    #fafaf8,
+    #f3dc97,
+    #f2c94c
+  );
+  background-size: 300% 300%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: teamMemberCcsGoldWave 8s ease-in-out infinite;
+  filter: drop-shadow(0 0 8px rgba(242, 201, 76, 0.4));
+  line-height: var(--tm-leading-tight);
+  text-shadow: 0 0 4px rgba(242, 201, 76, 0.25);
+}
+
+.team-member-page .ccs-text-gold-wave.gold-wave {
+  text-shadow: 0 0 4px rgba(242, 201, 76, 0.25);
+}
+
+.team-member-page .ccs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--tm-radius-md);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: none;
+  text-decoration: none;
+}
+
+.team-member-page .ccs-btn--sign-in {
+  background-color: transparent;
+  border: 1px solid var(--tm-primary);
+  color: var(--tm-primary);
+  animation: teamMemberCcsYellowPulse 4s ease-in-out infinite;
+}
+
+.team-member-page .ccs-btn--sign-in:hover,
+.team-member-page .ccs-btn--sign-in:focus-visible {
+  background-color: rgba(242, 201, 76, 0.25);
+  box-shadow: 0 0 20px rgba(242, 201, 76, 0.8);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-member-page .ccs-text-gold-wave,
+  .team-member-page .gold-wave,
+  .team-member-page .ccs-btn--sign-in {
+    animation: none;
+  }
+}

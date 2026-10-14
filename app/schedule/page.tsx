@@ -1,5 +1,6 @@
 "use client";
 
+import "./teamMemberPage.css";
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
@@ -22,6 +23,9 @@ const POSITIONS = [
   "Doorman",
   "Other Help",
 ] as const;
+
+const PAGE_SHELL = "team-member-page max-w-5xl mx-auto text-center px-4";
+const TEAM_SIGNUP_BTN = "ccs-btn ccs-btn--sign-in";
 
 interface EventOption {
   id: string;
@@ -235,7 +239,7 @@ export default function SchedulePage() {
 
   if (loading) {
     return (
-      <section className="max-w-5xl mx-auto text-center px-4 py-10">
+      <section className={`${PAGE_SHELL} py-10`}>
         <p className="text-gray-400">Loading schedule…</p>
       </section>
     );
@@ -243,17 +247,13 @@ export default function SchedulePage() {
 
   if (role === null && !loading) {
     return (
-      <section className="max-w-5xl mx-auto text-center px-4 py-10">
-        <h2 className="ccs-text-gold-wave gold-wave text-3xl font-extrabold pb-1 mb-4">
-          Team Schedule
-        </h2>
-        <p className="text-gray-400">
-          You must be a CCS instructor or admin to view the team schedule.
-        </p>
+      <section className={`${PAGE_SHELL} py-10`}>
+        <h2 className="text-2xl font-semibold text-primary mb-4">Schedule</h2>
+        <p className="text-gray-400">You must be an instructor or admin to view the schedule.</p>
         <button
           type="button"
           onClick={() => router.push("/auth")}
-          className="mt-4 btn-signup px-4 py-2 rounded"
+          className={`mt-4 ${TEAM_SIGNUP_BTN} text-sm px-4 py-2 rounded-md`}
         >
           Sign In
         </button>
@@ -262,7 +262,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <section className="max-w-5xl mx-auto text-center px-4">
+    <section className={PAGE_SHELL}>
       <div className="mb-4">
         {role === "admin" ? (
           <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-3">
@@ -279,7 +279,7 @@ export default function SchedulePage() {
               <button
                 type="button"
                 onClick={() => setShowAddSlot(true)}
-                className="btn-signup text-sm px-4 py-2 rounded-md shrink-0"
+                className={`${TEAM_SIGNUP_BTN} text-sm px-4 py-2 rounded-md shrink-0`}
               >
                 Add Slot
               </button>
@@ -339,7 +339,7 @@ export default function SchedulePage() {
           <button
             type="submit"
             disabled={rotationSaving}
-            className="mt-3 btn-signup text-sm px-4 py-2 rounded-md disabled:opacity-50"
+            className={`mt-3 ${TEAM_SIGNUP_BTN} text-sm px-4 py-2 rounded-md disabled:opacity-50`}
           >
             {rotationSaving ? "Saving…" : "Save anchor"}
           </button>
@@ -427,7 +427,7 @@ export default function SchedulePage() {
                 <button
                   type="submit"
                   disabled={adding || !addEventId}
-                  className="btn-signup px-4 py-2 rounded disabled:opacity-50"
+                  className={`${TEAM_SIGNUP_BTN} px-4 py-2 rounded-md disabled:opacity-50`}
                 >
                   {adding ? "Adding…" : "Add Slot"}
                 </button>

@@ -4,6 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import ScheduleCalendar, { type ScheduleSlot } from "@/components/ScheduleCalendar";
+import TeamExpectationsSection from "@/components/team/TeamExpectationsSection";
+import InstructorVideosSection from "@/components/team/InstructorVideosSection";
+import {
+  instructorVideos,
+  representEachOtherWell,
+} from "@/lib/team/teamMemberResources";
 import { XMarkIcon } from "@heroicons/react/24/solid";
 
 const POSITIONS = [
@@ -253,21 +259,37 @@ export default function SchedulePage() {
 
   return (
     <section className="max-w-5xl mx-auto text-center px-4">
-      <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
-        <div className="text-left">
-          <h2 className="ccs-text-gold-wave gold-wave text-3xl font-extrabold pb-1">Team Schedule</h2>
-          <p className="text-gray-300 text-sm mt-1">
-            Sign up to teach or volunteer to help out here!
-          </p>
-        </div>
-        {role === "admin" && (
-          <button
-            type="button"
-            onClick={() => setShowAddSlot(true)}
-            className="btn-signup text-sm px-4 py-2 rounded-md"
-          >
-            Add Slot
-          </button>
+      <div className="mb-4">
+        {role === "admin" ? (
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] items-center gap-3">
+            <div className="hidden sm:block" aria-hidden="true" />
+            <div className="text-center">
+              <h2 className="ccs-text-gold-wave gold-wave text-3xl font-extrabold pb-1">
+                Team Schedule
+              </h2>
+              <p className="text-gray-300 text-sm mt-1">
+                Sign up to teach or volunteer to help out here!
+              </p>
+            </div>
+            <div className="flex justify-center sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setShowAddSlot(true)}
+                className="btn-signup text-sm px-4 py-2 rounded-md shrink-0"
+              >
+                Add Slot
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center">
+            <h2 className="ccs-text-gold-wave gold-wave text-3xl font-extrabold pb-1">
+              Team Schedule
+            </h2>
+            <p className="text-gray-300 text-sm mt-1">
+              Sign up to teach or volunteer to help out here!
+            </p>
+          </div>
         )}
       </div>
 
@@ -330,6 +352,14 @@ export default function SchedulePage() {
         getAuthHeaders={getAuthHeaders}
         variant="team"
       />
+
+      <div className="mt-16 space-y-16 text-left">
+        <TeamExpectationsSection {...representEachOtherWell} />
+        <InstructorVideosSection
+          subtitle={instructorVideos.subtitle}
+          weeks={instructorVideos.weeks}
+        />
+      </div>
 
       {showAddSlot && (
         <div

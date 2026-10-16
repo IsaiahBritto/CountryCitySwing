@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActivePlaylistStatus } from "@/lib/spotify/activePlaylist";
+import { activeCatalogPlaylistId } from "@/lib/spotify/activeCatalogPlaylist";
 import { buildQuotaSnapshot } from "@/lib/spotify/requestQuota";
 import { readSocialRequesterCookie } from "@/lib/spotify/socialRequesterCookie";
 import { getOptionalUser } from "@/lib/optionalAuth";
@@ -9,7 +10,7 @@ export async function GET(req: NextRequest) {
     const status = await getActivePlaylistStatus();
     if (
       !status.isActive ||
-      !status.spotifyPlaylistId ||
+      !activeCatalogPlaylistId(status) ||
       !status.activationId
     ) {
       return NextResponse.json(

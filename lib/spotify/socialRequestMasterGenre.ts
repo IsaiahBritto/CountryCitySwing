@@ -1,5 +1,6 @@
 import { loadCachedAnalysisForTracks } from "@/lib/audioAnalysis/cache";
 import { resolveAudioAnalysis } from "@/lib/audioAnalysis/service";
+import { isServerAppleMusic } from "@/lib/music/serverProvider";
 import { fetchTrackIsrc } from "@/lib/spotify/client";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 
@@ -15,19 +16,21 @@ export async function resolveTimeSignatureForSocialRequest(input: {
   name?: string;
   primaryArtist?: string;
   accessToken: string;
+  requestIsrc?: string | null;
 }): Promise<string | null> {
+  const appleCatalogId = (await isServerAppleMusic()) ? input.trackId : null;
   const cached = await loadCachedAnalysisForTracks([
-    { id: input.trackId },
+    { id: input.trackId, isrc: input.requestIsrc ?? null },
   ]);
   const row = cached.get(input.trackId) ?? null;
   if (row?.analysis_status === "complete" && row.time_signature?.trim()) {
     return row.time_signature.trim();
   }
 
-  let isrc: string | null = null;
-  if (row?.isrc) {
+  let isrc: string | null = input.requestIsrc?.trim() ?? null;
+  if (!isrc && row?.isrc) {
     isrc = row.isrc;
-  } else {
+  } else if (!isrc && !(await isServerAppleMusic())) {
     try {
       isrc = await fetchTrackIsrc(input.accessToken, input.trackId);
     } catch {
@@ -39,6 +42,7 @@ export async function resolveTimeSignatureForSocialRequest(input: {
     [
       {
         spotifyTrackId: input.trackId,
+        appleMusicCatalogId: appleCatalogId,
         isrc,
         name: input.name,
         primaryArtist: input.primaryArtist,
@@ -47,7 +51,11 @@ export async function resolveTimeSignatureForSocialRequest(input: {
     { allowExternalLookup: true, retryMode: "all_flags" }
   );
 
-  const resolved = analysis.analysisRowsByTrackId.get(input.trackId) ?? null;
+  const resolved =
+    analysis.analysisRowsByTrackId.get(input.trackId) ??
+    (appleCatalogId
+      ? analysis.analysisRowsByTrackId.get(appleCatalogId) ?? null
+      : null);
   if (resolved?.analysis_status === "complete" && resolved.time_signature?.trim()) {
     return resolved.time_signature.trim();
   }
@@ -61,6 +69,7 @@ export async function resolveMasterGenreForSocialRequest(input: {
   name?: string;
   primaryArtist?: string;
   accessToken: string;
+  requestIsrc?: string | null;
 }): Promise<GenrePool> {
   if (input.requestGenre !== "cs") {
     return input.requestGenre;
@@ -71,6 +80,7 @@ export async function resolveMasterGenreForSocialRequest(input: {
     name: input.name,
     primaryArtist: input.primaryArtist,
     accessToken: input.accessToken,
+    requestIsrc: input.requestIsrc,
   });
 
   return isThreeFourTimeSignature(timeSignature) ? "wz" : "cs";

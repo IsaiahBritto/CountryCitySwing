@@ -10,6 +10,10 @@ vi.mock("@/lib/spotify/masters", () => ({
   getMasterPlaylistRefsForGenres: vi.fn(),
 }));
 
+vi.mock("@/lib/music/serverProvider", () => ({
+  isServerAppleMusic: vi.fn(async () => false),
+}));
+
 import { fetchTrackIsrc } from "@/lib/spotify/client";
 import { resolveCanonicalSocialRequestFromMaster } from "@/lib/spotify/socialRequestIsrc";
 

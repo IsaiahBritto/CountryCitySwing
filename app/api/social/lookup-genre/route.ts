@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json().catch(() => ({}))) as {
       trackId?: string;
+      isrc?: string | null;
     };
     if (typeof body.trackId !== "string" || !body.trackId.trim()) {
       return NextResponse.json(
@@ -44,7 +45,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const genre = await lookupTrackGenreInMasters(body.trackId.trim());
+    const requestIsrc =
+      typeof body.isrc === "string" && body.isrc.trim()
+        ? body.isrc.trim()
+        : null;
+
+    const genre = await lookupTrackGenreInMasters(body.trackId.trim(), {
+      isrc: requestIsrc,
+    });
     return NextResponse.json({ genre });
   } catch (error: unknown) {
     console.error("Social lookup-genre error:", error);

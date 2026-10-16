@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiError, authedFetchWithRetry } from "@/lib/clientAuth";
+import { musicApiExtraHeaders } from "@/lib/clientMusicApi";
+import { useMusicPlatform } from "@/components/music/MusicPlatformProvider";
 import type { OwnedPlaylist } from "@/components/dj/useOwnedPlaylists";
 import type { DeckId, DeckTrack } from "@/lib/spotify/djDeckState";
 
@@ -15,10 +17,16 @@ export type PlaylistSelectorProps = {
   onChange: (deck: DeckId, playlist: { id: string; name: string }) => void;
   onPlaylistLoaded: (
     deck: DeckId,
-    payload: { tracks: DeckTrack[]; totalDurationMs: number }
+    payload: {
+      playlistId: string;
+      tracks: DeckTrack[];
+      totalDurationMs: number;
+    }
   ) => void;
   disabled?: boolean;
   disableAutoLoad?: boolean;
+  /** When true, session join already restored this deck's playlist — skip autoload. */
+  sessionRestoreComplete?: boolean;
   tracksLoaded?: boolean;
   ownedPlaylists: OwnedPlaylist[];
   playlistsLoading?: boolean;
@@ -26,7 +34,11 @@ export type PlaylistSelectorProps = {
   playlistsStale?: boolean;
   quotaBlockedUntil?: string | null;
   onRefreshPlaylists?: () => void;
+  onSyncFromSnapshot?: () => void;
+  syncFromSnapshotLoading?: boolean;
   activeSocialPlaylistId?: string | null;
+  musicUserToken?: string | null;
+  storefrontId?: string | null;
 };
 
 export default function PlaylistSelector({
@@ -36,6 +48,7 @@ export default function PlaylistSelector({
   onPlaylistLoaded,
   disabled = false,
   disableAutoLoad = false,
+  sessionRestoreComplete = false,
   tracksLoaded = false,
   ownedPlaylists,
   playlistsLoading = false,
@@ -43,8 +56,13 @@ export default function PlaylistSelector({
   playlistsStale = false,
   quotaBlockedUntil = null,
   onRefreshPlaylists,
+  onSyncFromSnapshot,
+  syncFromSnapshotLoading = false,
   activeSocialPlaylistId = null,
+  musicUserToken = null,
+  storefrontId = null,
 }: PlaylistSelectorProps) {
+  const { isAppleMusic, apiPaths } = useMusicPlatform();
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [trackWarning, setTrackWarning] = useState<string | null>(null);
@@ -70,10 +88,16 @@ export default function PlaylistSelector({
           activeSocialPlaylistId != null &&
           playlistId === activeSocialPlaylistId;
         const path = useSnapshot
-          ? "/api/spotify/active-playlist/deck-tracks"
-          : `/api/spotify/playlists/${encodeURIComponent(playlistId)}/tracks`;
+          ? apiPaths.musicActiveDeckTracksPath()
+          : apiPaths.musicPlaylistTracksPath(playlistId);
 
-        const res = await authedFetchWithRetry(path);
+        const res = await authedFetchWithRetry(path, {
+          headers: musicApiExtraHeaders({
+            appleMusic: isAppleMusic,
+            musicUserToken,
+            storefrontId,
+          }),
+        });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
           throw new Error(
@@ -89,8 +113,11 @@ export default function PlaylistSelector({
               "Showing cached playlist data while Spotify sync is paused."
           );
         }
-        onChangeRef.current(deckId, { id: playlistId, name: playlistName });
+        if (value !== playlistId) {
+          onChangeRef.current(deckId, { id: playlistId, name: playlistName });
+        }
         onPlaylistLoadedRef.current(deckId, {
+          playlistId,
           tracks: (body as { tracks?: DeckTrack[] }).tracks ?? [],
           totalDurationMs:
             (body as { totalDurationMs?: number }).totalDurationMs ?? 0,
@@ -106,13 +133,13 @@ export default function PlaylistSelector({
   );
 
   useEffect(() => {
-    if (tracksLoaded) {
+    if (tracksLoaded || sessionRestoreComplete) {
       autoLoadAttemptedRef.current = true;
     }
-  }, [tracksLoaded]);
+  }, [sessionRestoreComplete, tracksLoaded]);
 
   useEffect(() => {
-    if (value || disableAutoLoad || tracksLoaded) return;
+    if (value || disableAutoLoad || sessionRestoreComplete || tracksLoaded) return;
     if (playlistsLoading || ownedPlaylists.length === 0) return;
     if (autoLoadAttemptedRef.current) return;
 
@@ -127,6 +154,7 @@ export default function PlaylistSelector({
   }, [
     deckId,
     disableAutoLoad,
+    sessionRestoreComplete,
     loadTracks,
     ownedPlaylists.length,
     playlistsLoading,
@@ -193,6 +221,16 @@ export default function PlaylistSelector({
             onClick={() => onRefreshPlaylists()}
           >
             Refresh
+          </button>
+        ) : null}
+        {onSyncFromSnapshot ? (
+          <button
+            type="button"
+            className="text-xs text-neutral-400 hover:text-white shrink-0"
+            disabled={disabled || syncFromSnapshotLoading || loadingTracks}
+            onClick={() => onSyncFromSnapshot()}
+          >
+            {syncFromSnapshotLoading ? "Syncing…" : "Sync snapshot"}
           </button>
         ) : null}
       </div>

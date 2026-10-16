@@ -25,6 +25,7 @@ export type SpotifySearchTrack = {
   albumName: string | null;
   imageUrl: string | null;
   durationMs: number;
+  isrc?: string | null;
 };
 
 type SpotifyApiErrorBody = { error?: { message?: string; status?: number } };

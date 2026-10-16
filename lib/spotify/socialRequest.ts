@@ -1,10 +1,14 @@
 import {
+  activeCatalogPlaylistId,
   ensureTrackOnMaster,
   getActivePlaylistStatus,
   loadSnapshotTracks,
+  snapshotRowTrackId,
   type SocialPlaylistTrackRow,
 } from "@/lib/spotify/activePlaylist";
-import { getValidAccessToken } from "@/lib/spotify/auth";
+import { tryGetSpotifyAccessTokenForMasters } from "@/lib/spotify/masterServiceAccess";
+import { isServerAppleMusic } from "@/lib/music/serverProvider";
+import type { MusicServiceAccess } from "@/lib/music/serviceAccess";
 import {
   addTracksToPlaylist,
   fetchPlaylistSnapshotIdOnly,
@@ -12,8 +16,12 @@ import {
   removePlaylistItemAtPosition,
   replacePlaylistItemAtPosition,
   swapPlaylistItemsAtPositions,
-  type SpotifySearchTrack,
-} from "@/lib/spotify/client";
+  type SearchTrackResult,
+} from "@/lib/music/playlistClient";
+import {
+  accessTokenFromService,
+  getMusicServiceAccess,
+} from "@/lib/music/serviceAccess";
 import { getActiveSessionRow } from "@/lib/spotify/djSessionServer";
 import {
   applyUserProvisional,
@@ -69,6 +77,7 @@ export type SocialRequestInput = {
   name: string;
   primaryArtist: string;
   durationMs?: number;
+  requestIsrc?: string | null;
   genre: GenrePool;
   lineDanceName?: string | null;
   lineDanceLevel?: string | null;
@@ -100,13 +109,31 @@ export { SocialRequestError };
 function toSnapshot(rows: SocialPlaylistTrackRow[]): SnapshotTrack[] {
   return rows.map((r) => ({
     position: r.position,
-    spotifyTrackId: r.spotify_track_id,
+    spotifyTrackId: snapshotRowTrackId(r),
     uri: r.uri,
     name: r.name,
     primaryArtist: r.primary_artist,
     genre: r.genre,
     source: r.source,
   }));
+}
+
+async function ensureTrackOnMasterBestEffort(input: {
+  track: { id: string; uri: string; isrc?: string | null };
+  genre: GenrePool;
+}): Promise<{ addedToMaster: boolean }> {
+  const spotifyAccessToken = await tryGetSpotifyAccessTokenForMasters();
+  if (!spotifyAccessToken) return { addedToMaster: false };
+  try {
+    return await ensureTrackOnMaster({
+      spotifyAccessToken,
+      track: input.track,
+      genre: input.genre,
+    });
+  } catch (err) {
+    console.warn("Master playlist update failed:", err);
+    return { addedToMaster: false };
+  }
 }
 
 async function assertRequesterQuota(input: {
@@ -157,37 +184,40 @@ async function applyLineDanceIfNeeded(
 }
 
 async function purgeStaleSnapshotTrack(input: {
-  accessToken: string;
-  spotifyPlaylistId: string;
+  serviceAccess: MusicServiceAccess;
+  playlistId: string;
   trackId: string;
   snapshot: SnapshotTrack[];
   cachedSnapshotId: string | null;
+  status: ActivePlaylistStatus;
 }): Promise<void> {
   const staleRows = input.snapshot.filter(
     (t) => t.spotifyTrackId === input.trackId
   );
   if (staleRows.length === 0) return;
 
-  const byPositionDesc = [...staleRows].sort(
-    (a, b) => b.position - a.position
-  );
-  for (const row of byPositionDesc) {
-    try {
-      await removePlaylistItemAtPosition(
-        input.accessToken,
-        input.spotifyPlaylistId,
-        row.uri,
-        row.position,
-        {
-          ...SOCIAL_PLAYLIST_MUTATE_OPTS,
-          cachedSnapshotId: input.cachedSnapshotId,
-        }
-      );
-    } catch (err) {
-      console.warn(
-        `Could not remove stale track at position ${row.position}:`,
-        err
-      );
+  if (input.serviceAccess.provider !== "apple_music") {
+    const byPositionDesc = [...staleRows].sort(
+      (a, b) => b.position - a.position
+    );
+    for (const row of byPositionDesc) {
+      try {
+        await removePlaylistItemAtPosition(
+          input.serviceAccess,
+          input.playlistId,
+          row.uri,
+          row.position,
+          {
+            ...SOCIAL_PLAYLIST_MUTATE_OPTS,
+            cachedSnapshotId: input.cachedSnapshotId,
+          }
+        );
+      } catch (err) {
+        console.warn(
+          `Could not remove stale track at position ${row.position}:`,
+          err
+        );
+      }
     }
   }
 
@@ -261,14 +291,14 @@ async function notifyDeckIfSynced(input: {
   patch: DeckPlaylistPatch | null;
 }): Promise<void> {
   if (!input.patch || input.liveView.deckAuthority !== "social_deck") return;
-  if (!input.session || !input.liveView.activeDeck) return;
+  if (!input.session || !input.liveView.socialDeck) return;
 
   const { notifyDeckPlaylistPatch } = await import(
     "@/lib/spotify/djSessionBroadcastServer"
   );
   await notifyDeckPlaylistPatch({
     sessionId: input.session.id,
-    deck: input.liveView.activeDeck,
+    deck: input.liveView.socialDeck,
     patch: input.patch,
   });
 }
@@ -318,9 +348,10 @@ async function submitSocialSongRequestUnlocked(
   input: SocialRequestInput
 ): Promise<SocialRequestResult> {
   const status = await getActivePlaylistStatus();
+  const catalogPlaylistId = activeCatalogPlaylistId(status);
   if (
     !status.isActive ||
-    !status.spotifyPlaylistId ||
+    !catalogPlaylistId ||
     !status.activatedAt ||
     !status.activationId
   ) {
@@ -373,7 +404,9 @@ async function submitSocialSongRequestUnlocked(
     requesterToken,
   };
 
-  const { accessToken } = await getValidAccessToken();
+  const serviceAccess = await getMusicServiceAccess();
+  const accessToken = accessTokenFromService(serviceAccess);
+  const spotifyMasterToken = await tryGetSpotifyAccessTokenForMasters();
   const masterGenre =
     genre === "cs"
       ? await resolveMasterGenreForSocialRequest({
@@ -382,23 +415,27 @@ async function submitSocialSongRequestUnlocked(
           name: input.name,
           primaryArtist: input.primaryArtist,
           accessToken,
+          requestIsrc: input.requestIsrc,
         })
       : genre;
 
-  const cachedSnapshotId = await readActivePlaylistSnapshotId();
+  const cachedSnapshotId = (await isServerAppleMusic())
+    ? null
+    : await readActivePlaylistSnapshotId();
   let rows = await loadSnapshotTracks();
   let snapshot = toSnapshot(rows);
 
   input = await resolveCanonicalSocialRequestFromMaster({
     request: input,
     masterGenre,
-    accessToken,
+    accessToken: spotifyMasterToken ?? accessToken,
+    requestIsrc: input.requestIsrc,
   });
 
   const session = await getActiveSessionRow();
   const liveView = buildLivePlaylistViewFromSession(
     session,
-    status.spotifyPlaylistId
+    catalogPlaylistId
   );
   let purgePositions: number[] = [];
 
@@ -408,7 +445,7 @@ async function submitSocialSongRequestUnlocked(
     (session != null && session.status === "active");
   if (!skipSpotifyPlayhead) {
     try {
-      spotifyPlaying = await getCurrentlyPlaying(accessToken);
+      spotifyPlaying = await getCurrentlyPlaying(serviceAccess);
     } catch (err) {
       console.warn("Could not read Spotify playback state:", err);
     }
@@ -421,7 +458,7 @@ async function submitSocialSongRequestUnlocked(
     snapshot,
     spotifyPlaying,
     contextPlaylistId,
-    status.spotifyPlaylistId
+    catalogPlaylistId
   );
   let currentIndex = resolveInsertPlayheadIndex(
     snapshot,
@@ -447,11 +484,12 @@ async function submitSocialSongRequestUnlocked(
         .filter((t) => t.spotifyTrackId === input.trackId)
         .map((t) => t.position);
       await purgeStaleSnapshotTrack({
-        accessToken,
-        spotifyPlaylistId: status.spotifyPlaylistId,
+        serviceAccess,
+        playlistId: catalogPlaylistId,
         trackId: input.trackId,
         snapshot,
         cachedSnapshotId,
+        status,
       });
       rows = await loadSnapshotTracks();
       snapshot = toSnapshot(rows);
@@ -462,7 +500,7 @@ async function submitSocialSongRequestUnlocked(
               snapshot,
               spotifyPlaying,
               contextPlaylistId,
-              status.spotifyPlaylistId
+              catalogPlaylistId
             );
       currentIndex = resolveInsertPlayheadIndex(
         snapshot,
@@ -477,25 +515,30 @@ async function submitSocialSongRequestUnlocked(
       }
 
       await assertRequesterQuota(quotaArgs);
-      const { addedToMaster } = await ensureTrackOnMaster({
-        accessToken,
-        track: { id: input.trackId, uri: input.uri },
+      const { addedToMaster } = await ensureTrackOnMasterBestEffort({
+        track: {
+          id: input.trackId,
+          uri: input.uri,
+          isrc: input.requestIsrc,
+        },
         genre: masterGenre,
       });
       await applyLineDanceIfNeeded(input, genre);
 
-      await swapPlaylistItemsAtPositions(
-        accessToken,
-        status.spotifyPlaylistId,
-        action.from,
-        fromTrack.uri,
-        action.to,
-        toTrack.uri,
-        {
-          ...SOCIAL_PLAYLIST_MUTATE_OPTS,
-          cachedSnapshotId,
-        }
-      );
+      if (serviceAccess.provider !== "apple_music") {
+        await swapPlaylistItemsAtPositions(
+          serviceAccess,
+          catalogPlaylistId,
+          action.from,
+          fromTrack.uri,
+          action.to,
+          toTrack.uri,
+          {
+            ...SOCIAL_PLAYLIST_MUTATE_OPTS,
+            cachedSnapshotId,
+          }
+        );
+      }
 
       const now = new Date().toISOString();
       const { error: toError } = await supabaseServer
@@ -543,7 +586,7 @@ async function submitSocialSongRequestUnlocked(
         addedToMaster,
         result: "swapped",
         position: action.to,
-        spotifyPlaylistId: status.spotifyPlaylistId,
+        spotifyPlaylistId: catalogPlaylistId,
         activationId: status.activationId,
       });
 
@@ -574,7 +617,7 @@ async function submitSocialSongRequestUnlocked(
         addedToMaster: false,
         result: "rejected",
         position: existing.position,
-        spotifyPlaylistId: status.spotifyPlaylistId,
+        spotifyPlaylistId: catalogPlaylistId,
         activationId: status.activationId,
         errorMessage,
       });
@@ -584,9 +627,12 @@ async function submitSocialSongRequestUnlocked(
 
   await assertRequesterQuota(quotaArgs);
 
-  const { addedToMaster } = await ensureTrackOnMaster({
-    accessToken,
-    track: { id: input.trackId, uri: input.uri },
+  const { addedToMaster } = await ensureTrackOnMasterBestEffort({
+    track: {
+      id: input.trackId,
+      uri: input.uri,
+      isrc: input.requestIsrc,
+    },
     genre: masterGenre,
   });
   await applyLineDanceIfNeeded(input, genre);
@@ -605,17 +651,19 @@ async function submitSocialSongRequestUnlocked(
       throw new SocialRequestError("Playlist snapshot is out of sync.", 500);
     }
 
-    await replacePlaylistItemAtPosition(
-      accessToken,
-      status.spotifyPlaylistId,
-      target.position,
-      existing.uri,
-      input.uri,
-      {
-        ...SOCIAL_PLAYLIST_MUTATE_OPTS,
-        cachedSnapshotId,
-      }
-    );
+    if (serviceAccess.provider !== "apple_music") {
+      await replacePlaylistItemAtPosition(
+        serviceAccess,
+        catalogPlaylistId,
+        target.position,
+        existing.uri,
+        input.uri,
+        {
+          ...SOCIAL_PLAYLIST_MUTATE_OPTS,
+          cachedSnapshotId,
+        }
+      );
+    }
 
     const { error } = await supabaseServer
       .from("social_playlist_tracks")
@@ -643,7 +691,7 @@ async function submitSocialSongRequestUnlocked(
       addedToMaster,
       result: "replaced",
       position: target.position,
-      spotifyPlaylistId: status.spotifyPlaylistId,
+      spotifyPlaylistId: catalogPlaylistId,
       activationId: status.activationId,
     });
 
@@ -659,13 +707,13 @@ async function submitSocialSongRequestUnlocked(
   }
 
   // Append
-  await addTracksToPlaylist(accessToken, status.spotifyPlaylistId, [
-    input.uri,
-  ]);
-  try {
-    await fetchPlaylistSnapshotIdOnly(accessToken, status.spotifyPlaylistId);
-  } catch (err) {
-    console.warn("Could not refresh playlist snapshot after append:", err);
+  if (serviceAccess.provider !== "apple_music") {
+    await addTracksToPlaylist(serviceAccess, catalogPlaylistId, [input.uri]);
+    try {
+      await fetchPlaylistSnapshotIdOnly(serviceAccess, catalogPlaylistId);
+    } catch (err) {
+      console.warn("Could not refresh playlist snapshot after append:", err);
+    }
   }
   const position = snapshot.length;
 
@@ -693,7 +741,7 @@ async function submitSocialSongRequestUnlocked(
     addedToMaster,
     result: "appended",
     position,
-    spotifyPlaylistId: status.spotifyPlaylistId,
+    spotifyPlaylistId: catalogPlaylistId,
     activationId: status.activationId,
   });
 
@@ -709,15 +757,17 @@ async function submitSocialSongRequestUnlocked(
 }
 
 export function searchTrackToRequestFields(
-  track: SpotifySearchTrack
+  track: SearchTrackResult
 ): Pick<
   SocialRequestInput,
-  "trackId" | "uri" | "name" | "primaryArtist"
+  "trackId" | "uri" | "name" | "primaryArtist" | "durationMs" | "requestIsrc"
 > {
   return {
     trackId: track.id,
     uri: track.uri,
     name: track.name,
     primaryArtist: track.primaryArtist,
+    durationMs: track.durationMs,
+    requestIsrc: track.isrc ?? null,
   };
 }

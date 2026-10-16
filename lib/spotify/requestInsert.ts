@@ -9,6 +9,7 @@ import {
 import {
   deckRowStatusForTrack,
   isTrackOnDeck,
+  resolveSocialPlayheadSnapshotIndex,
   type LivePlaylistView,
 } from "@/lib/spotify/requestLiveView";
 
@@ -118,18 +119,16 @@ export function findRequestInsertTarget(
 }
 
 /**
- * Snapshot index for genre-slot targeting. Prefers deck now-playing when available.
+ * Snapshot index for genre-slot targeting. Prefers social deck playhead when available.
  */
 export function resolveInsertPlayheadIndex(
   tracks: SnapshotTrack[],
   liveView: LivePlaylistView,
   spotifyPlayheadIndex: number
 ): number {
-  if (liveView.deckAuthority === "social_deck" && liveView.currentTrackId) {
-    const index = tracks.findIndex(
-      (t) => t.spotifyTrackId === liveView.currentTrackId
-    );
-    return index >= 0 ? index : -1;
+  if (liveView.deckAuthority === "social_deck") {
+    const index = resolveSocialPlayheadSnapshotIndex(tracks, liveView);
+    if (index >= 0) return index;
   }
   return spotifyPlayheadIndex;
 }

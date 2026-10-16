@@ -168,4 +168,35 @@ describe("evaluateTrackEndTick", () => {
     });
     expect(result.clearTrackEndTriggered).toBe(true);
   });
+
+  it("fires advance when SDK clears uri after natural end (deck clock)", () => {
+    const result = evaluateTrackEndTick({
+      ...base,
+      activeDurationMs: 120000,
+      clockPositionMs: 119800,
+      sdkUri: null,
+      sdkPositionMs: 0,
+      sdkIsPlaying: false,
+      wasPlayingActiveTrack: true,
+      prevActivePositionMs: 119700,
+    });
+    expect(result.fireAdvance).toBe(true);
+  });
+
+  it("fires near-end advance with playbackAligned and deck clock", () => {
+    const result = evaluateTrackEndTick({
+      ...base,
+      activeTrackUri: "appleMusic:songs:catalog-id",
+      activeDeckTrackUri: "appleMusic:songs:catalog-id",
+      activeDurationMs: 120000,
+      clockPositionMs: 119600,
+      sdkUri: "appleMusic:songs:library-id",
+      sdkPositionMs: 5000,
+      sdkDurationMs: 0,
+      sdkIsPlaying: true,
+      playbackAligned: true,
+      crossfadeSeconds: 0,
+    });
+    expect(result.fireAdvance).toBe(true);
+  });
 });

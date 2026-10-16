@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActivePlaylistStatus } from "@/lib/spotify/activePlaylist";
-import { getValidAccessToken } from "@/lib/spotify/auth";
-import { searchTracks } from "@/lib/spotify/client";
+import { searchCatalogTracks } from "@/lib/music/playlistClient";
+import { getMusicServiceAccess } from "@/lib/music/serviceAccess";
+import { MusicApiFetchError } from "@/lib/music/apiDiagnostics";
 import { SpotifyQuotaBlockedError } from "@/lib/spotify/spotifyQuotaGate";
+import { isServerAppleMusic } from "@/lib/music/serverProvider";
 import {
   clientIpFromRequest,
   rateLimit,
 } from "@/lib/spotify/rateLimit";
 
-type SearchCacheEntry = { tracks: Awaited<ReturnType<typeof searchTracks>>; expiresAt: number };
+type SearchCacheEntry = {
+  tracks: Awaited<ReturnType<typeof searchCatalogTracks>>;
+  expiresAt: number;
+};
 const searchCache = new Map<string, SearchCacheEntry>();
 const SEARCH_CACHE_TTL_MS = 60_000;
 
@@ -49,15 +54,22 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ tracks: cached.tracks, cached: true });
     }
 
-    const { accessToken } = await getValidAccessToken();
-    const tracks = await searchTracks(accessToken, q, { limit: 8 });
+    const access = await getMusicServiceAccess();
+    const tracks = await searchCatalogTracks(access, q);
+    const limitedTracks = tracks.slice(0, 8);
     searchCache.set(cacheKey, {
-      tracks,
+      tracks: limitedTracks,
       expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
     });
-    return NextResponse.json({ tracks });
+    return NextResponse.json({ tracks: limitedTracks });
   } catch (error: unknown) {
-    if (error instanceof SpotifyQuotaBlockedError) {
+    if (error instanceof MusicApiFetchError && error.isRateLimited) {
+      return NextResponse.json(
+        { error: "Search is temporarily rate limited. Try again shortly." },
+        { status: 429 }
+      );
+    }
+    if (!(await isServerAppleMusic()) && error instanceof SpotifyQuotaBlockedError) {
       return NextResponse.json(
         {
           error:
@@ -69,7 +81,7 @@ export async function GET(req: NextRequest) {
     }
     console.error("Social search error:", error);
     const message =
-      error instanceof Error ? error.message : "Failed to search Spotify";
+      error instanceof Error ? error.message : "Search failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

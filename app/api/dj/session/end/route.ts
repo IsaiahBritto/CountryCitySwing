@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
+import { mirrorApplePlaylistAtSessionEnd } from "@/lib/appleMusic/mirrorPlaylistAtSessionEnd";
 import { endSession, getSessionRowById } from "@/lib/spotify/djSessionServer";
 import { toSessionResponse } from "@/lib/spotify/djSession";
 
@@ -34,6 +35,8 @@ export async function POST(req: NextRequest) {
         { status: 404 }
       );
     }
+
+    await mirrorApplePlaylistAtSessionEnd(session);
 
     return NextResponse.json(toSessionResponse(session));
   } catch (error: unknown) {

@@ -26,6 +26,8 @@ import {
   structureAvailableGenres,
   type PlaylistStructure,
 } from "@/lib/spotify/playlistStructure";
+import { useMusicPlatform } from "@/components/music/MusicPlatformProvider";
+import { musicAdminPath, musicDeckPath } from "@/lib/music/providerSegments";
 
 type MasterInfo = {
   linkId: string;
@@ -65,11 +67,13 @@ type DedupeIsrcResult = {
 
 type GenerateResult = {
   id: string;
-  url: string;
+  url?: string;
+  name?: string;
   durationMs: number;
   trackCount: number;
   lookedUp: number;
   stillUnknown: number;
+  replacedForApple?: number;
   durationMinutes: number;
   structure: PlaylistStructure;
 };
@@ -77,6 +81,7 @@ type GenerateResult = {
 type ActivePlaylistStatus = {
   isActive: boolean;
   spotifyPlaylistId: string | null;
+  appleMusicPlaylistId?: string | null;
   playlistUrl: string | null;
   name: string | null;
   activatedAt: string | null;
@@ -111,6 +116,8 @@ function structureSegmentsKey(structure: PlaylistStructure): string {
 
 export default function SpotifyPageClient() {
   const searchParams = useSearchParams();
+  const { provider, isAppleMusic: appleMusicProvider, apiPaths } =
+    useMusicPlatform();
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -186,7 +193,7 @@ export default function SpotifyPageClient() {
   );
 
   const loadActivePlaylist = useCallback(async (token: string) => {
-    const res = await fetch("/api/spotify/active-playlist", {
+    const res = await fetch(apiPaths.musicActivePlaylistPath(), {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
@@ -201,33 +208,74 @@ export default function SpotifyPageClient() {
     syncBuilderFromActive(data);
   }, [syncLimitsDraft, syncBuilderFromActive]);
 
-  const loadOwnedPlaylists = useCallback(async (token: string) => {
-    setLoadingOwned(true);
-    try {
-      const res = await fetch("/api/spotify/playlists", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(
-          (body as { error?: string }).error ?? "Failed to list owned playlists"
-        );
+  const mergeGeneratedIntoOwnedList = useCallback(
+    (
+      list: OwnedPlaylist[],
+      generated: { id: string; name?: string; trackCount: number } | null
+    ): OwnedPlaylist[] => {
+      if (!generated?.id || list.some((p) => p.id === generated.id)) {
+        return list;
       }
-      const list = ((body as { playlists?: OwnedPlaylist[] }).playlists ??
-        []) as OwnedPlaylist[];
-      setOwnedPlaylists(list);
-      setSelectedOwnedId((prev) => {
-        if (prev && list.some((p) => p.id === prev)) return prev;
-        return list[0]?.id ?? "";
-      });
-    } finally {
-      setLoadingOwned(false);
-    }
-  }, []);
+      return [
+        {
+          id: generated.id,
+          name:
+            (generated.name ?? playlistName.trim()) || "Generated playlist",
+          url: "",
+          trackCount: generated.trackCount,
+          public: null,
+        },
+        ...list,
+      ];
+    },
+    [playlistName]
+  );
+
+  const loadOwnedPlaylists = useCallback(
+    async (
+      token: string,
+      options?: {
+        force?: boolean;
+        ensureGenerated?: { id: string; name?: string; trackCount: number };
+      }
+    ) => {
+      setLoadingOwned(true);
+      try {
+        const res = await fetch(
+          apiPaths.musicPlaylistsPath({ force: options?.force === true }),
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            (body as { error?: string }).error ??
+              "Failed to list owned playlists"
+          );
+        }
+        let list = ((body as { playlists?: OwnedPlaylist[] }).playlists ??
+          []) as OwnedPlaylist[];
+        if (options?.ensureGenerated) {
+          list = mergeGeneratedIntoOwnedList(list, options.ensureGenerated);
+        }
+        setOwnedPlaylists(list);
+        const preferId = options?.ensureGenerated?.id;
+        setSelectedOwnedId((prev) => {
+          if (preferId && list.some((p) => p.id === preferId)) return preferId;
+          if (prev && list.some((p) => p.id === prev)) return prev;
+          return list[0]?.id ?? "";
+        });
+      } finally {
+        setLoadingOwned(false);
+      }
+    },
+    [mergeGeneratedIntoOwnedList]
+  );
 
   const loadStatus = useCallback(
     async (token: string) => {
-      const res = await fetch("/api/spotify/status", {
+      const res = await fetch(apiPaths.musicStatusPath(), {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -237,8 +285,13 @@ export default function SpotifyPageClient() {
         );
       }
       const data = await res.json();
-      setConnected(Boolean(data.connected));
-      setNeedsDeckReconnect(Boolean(data.needsDeckReconnect));
+      setConnected(
+        Boolean(
+          data.connected ??
+            (data.configured && (data.hasMusicUserToken || data.connected))
+        )
+      );
+      setNeedsDeckReconnect(Boolean(data.needsDeckReconnect ?? data.needsAuthorization));
       setMasters((data.masters as MasterInfo[]) ?? []);
       await loadActivePlaylist(token);
       if (data.connected) {
@@ -323,11 +376,20 @@ export default function SpotifyPageClient() {
     setConnecting(true);
     setError(null);
     try {
+      if (appleMusicProvider) {
+        window.location.href = musicDeckPath(provider);
+        return;
+      }
       const token = await getFreshAdminToken();
-      const returnTo = encodeURIComponent("/spotify");
+      const returnTo = encodeURIComponent(
+        typeof window !== "undefined"
+          ? window.location.pathname
+          : musicAdminPath(provider)
+      );
       window.location.href = `/api/spotify/auth/start?returnTo=${returnTo}&token=${encodeURIComponent(token)}`;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to connect Spotify");
+      setError(err instanceof Error ? err.message : "Failed to connect music service");
+    } finally {
       setConnecting(false);
     }
   };
@@ -401,7 +463,7 @@ export default function SpotifyPageClient() {
     setGenerating(true);
     try {
       const token = await getFreshAdminToken();
-      const res = await fetch("/api/spotify/generate", {
+      const res = await fetch(apiPaths.musicGeneratePath(), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -429,12 +491,26 @@ export default function SpotifyPageClient() {
           })),
         },
       });
-      setSelectedOwnedId((data as GenerateResult).id);
+      const generated = data as GenerateResult;
+      setSelectedOwnedId(generated.id);
       try {
-        await loadOwnedPlaylists(token);
-        setSelectedOwnedId((data as GenerateResult).id);
+        await loadOwnedPlaylists(token, {
+          force: true,
+          ensureGenerated: {
+            id: generated.id,
+            name: generated.name,
+            trackCount: generated.trackCount,
+          },
+        });
+        setSelectedOwnedId(generated.id);
       } catch {
-        // list refresh is best-effort; selection still set to new id
+        setOwnedPlaylists((prev) =>
+          mergeGeneratedIntoOwnedList(prev, {
+            id: generated.id,
+            name: generated.name,
+            trackCount: generated.trackCount,
+          })
+        );
       }
     } catch (err) {
       setError(
@@ -445,12 +521,15 @@ export default function SpotifyPageClient() {
     }
   };
 
-  const runActivate = async (playlistIdOrUrl: string) => {
+  const runActivate = async (
+    playlistIdOrUrl: string,
+    ownedPlaylistName?: string
+  ) => {
     setError(null);
     setActivating(true);
     try {
       const token = await getFreshAdminToken();
-      const res = await fetch("/api/spotify/active-playlist", {
+      const res = await fetch(apiPaths.musicActivePlaylistPath(), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -459,6 +538,9 @@ export default function SpotifyPageClient() {
         body: JSON.stringify({
           action: "activate",
           playlistIdOrUrl,
+          ...(appleMusicProvider && ownedPlaylistName
+            ? { playlistName: ownedPlaylistName }
+            : {}),
           requestLimits: draftToLimits(limitsDraft, builderGenres),
           requestRefreshMinutes,
           structure: builderState.structure,
@@ -491,7 +573,7 @@ export default function SpotifyPageClient() {
         activePlaylist?.availableGenres?.length
           ? activePlaylist.availableGenres
           : builderGenres;
-      const res = await fetch("/api/spotify/active-playlist", {
+      const res = await fetch(apiPaths.musicActivePlaylistPath(), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -523,7 +605,7 @@ export default function SpotifyPageClient() {
     setDeactivating(true);
     try {
       const token = await getFreshAdminToken();
-      const res = await fetch("/api/spotify/active-playlist", {
+      const res = await fetch(apiPaths.musicActivePlaylistPath(), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -588,14 +670,17 @@ export default function SpotifyPageClient() {
   return (
     <section className="max-w-2xl mx-auto space-y-10">
       <header className="text-center space-y-2">
-        <h1 className="gold-wave text-4xl font-extrabold pb-2">Spotify Social</h1>
+        <h1 className="gold-wave text-4xl font-extrabold pb-2">
+          {appleMusicProvider ? "Apple Music Social" : "Spotify Social"}
+        </h1>
         <p className="text-gray-300 text-sm">
-          Sync master playlist features, then generate a private mix with your
-          chosen duration and dance section pattern.
+          {appleMusicProvider
+            ? "Activate an Apple Music library playlist for tonight’s guest requests. Master playlist additions still use Spotify when configured."
+            : "Sync master playlist features, then generate a private mix with your chosen duration and dance section pattern."}
         </p>
         {connected && (
           <Link
-            href="/spotify/deck"
+            href={musicDeckPath(provider)}
             className="inline-block text-sm text-amber-400 hover:text-amber-300 underline"
           >
             Open DJ Deck →
@@ -605,10 +690,9 @@ export default function SpotifyPageClient() {
 
       {needsDeckReconnect && connected && (
         <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
-          Reconnect Spotify to grant DJ deck playback scopes (
-          <code className="text-xs">streaming</code>,{" "}
-          <code className="text-xs">user-modify-playback-state</code>,{" "}
-          <code className="text-xs">user-read-currently-playing</code>).
+          {appleMusicProvider
+            ? "Reconnect Apple Music on the DJ deck so guest requests can update your library playlist."
+            : "Reconnect Spotify to grant DJ deck playback scopes (streaming, user-modify-playback-state, user-read-currently-playing)."}
         </div>
       )}
 
@@ -619,12 +703,20 @@ export default function SpotifyPageClient() {
       )}
 
       <div className="space-y-3 border border-neutral-700 rounded-lg p-5">
-        <h2 className="text-lg font-semibold text-amber-200">Spotify account</h2>
+        <h2 className="text-lg font-semibold text-amber-200">
+          {appleMusicProvider ? "Apple Music" : "Spotify account"}
+        </h2>
         {connected ? (
-          <p className="text-sm text-gray-300">Connected. Ready to sync and generate.</p>
+          <p className="text-sm text-gray-300">
+            {appleMusicProvider
+              ? "Connected. Choose a library playlist below to open guest requests."
+              : "Connected. Ready to sync and generate."}
+          </p>
         ) : (
           <p className="text-sm text-gray-400">
-            Connect the Spotify account that owns the master playlists.
+            {appleMusicProvider
+              ? "Authorize Apple Music on the DJ deck, then return here."
+              : "Connect the Spotify account that owns the master playlists."}
           </p>
         )}
         <button
@@ -636,13 +728,18 @@ export default function SpotifyPageClient() {
           {connecting
             ? "Redirecting…"
             : connected
-              ? "Reconnect Spotify"
-              : "Connect Spotify"}
+              ? appleMusicProvider
+                ? "Open DJ deck"
+                : "Reconnect Spotify"
+              : appleMusicProvider
+                ? "Connect Apple Music"
+                : "Connect Spotify"}
         </button>
       </div>
 
       {connected && (
         <>
+          {!appleMusicProvider && (
           <div className="space-y-4 border border-neutral-700 rounded-lg p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-amber-200">
@@ -730,6 +827,7 @@ export default function SpotifyPageClient() {
               </p>
             )}
           </div>
+          )}
 
           <div className="space-y-4 border border-neutral-700 rounded-lg p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -761,6 +859,13 @@ export default function SpotifyPageClient() {
             <h2 className="text-lg font-semibold text-amber-200">
               Generate Social
             </h2>
+            {appleMusicProvider && (
+              <p className="text-xs text-gray-500">
+                Masters are read from Spotify; the playlist is created in your
+                Apple Music library. Connect Spotify for master access and the
+                Apple Music deck for library writes.
+              </p>
+            )}
             <label className="block space-y-1">
               <span className="text-sm text-gray-400">Playlist name</span>
               <input
@@ -814,23 +919,41 @@ export default function SpotifyPageClient() {
                   {formatDuration(generateResult.durationMs)}). Gap-fill looked
                   up {generateResult.lookedUp}; still unknown{" "}
                   {generateResult.stillUnknown}.
+                  {typeof generateResult.replacedForApple === "number" &&
+                  generateResult.replacedForApple > 0
+                    ? ` Replaced ${generateResult.replacedForApple} track(s) with Apple-catalog alternatives.`
+                    : null}
                 </p>
-                <a
-                  href={generateResult.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-amber-400 underline"
-                >
-                  Open playlist in Spotify
-                </a>
+                {generateResult.url ? (
+                  <a
+                    href={generateResult.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-amber-400 underline"
+                  >
+                    Open playlist in Spotify
+                  </a>
+                ) : (
+                  <p className="text-gray-400">
+                    Library playlist:{" "}
+                    {generateResult.name ?? generateResult.id}
+                  </p>
+                )}
                 <div>
                   <button
                     type="button"
-                    onClick={() => runActivate(generateResult.url)}
+                    onClick={() =>
+                      runActivate(
+                        generateResult.url ?? generateResult.id,
+                        generateResult.name ?? playlistName
+                      )
+                    }
                     disabled={busy || !hasValidActivateStructure}
                     className="mt-2 px-3 py-1.5 rounded border border-amber-600/60 text-amber-200 hover:bg-amber-900/30 disabled:opacity-50 text-sm"
                   >
-                    {activating ? "Activating…" : "Activate for /social requests"}
+                    {activating
+                      ? "Activating…"
+                      : "Activate for /social requests"}
                   </button>
                 </div>
               </div>
@@ -846,10 +969,10 @@ export default function SpotifyPageClient() {
               <Link href="/social" className="text-amber-400 underline">
                 /social
               </Link>{" "}
-              link can request songs into this playlist. Only playlists{" "}
-              <span className="text-gray-300">owned</span> by the connected
-              Spotify account are listed (those are editable for requests).
-              Reconnect once after enabling DJ deck playback scopes.
+              link can request songs into tonight’s playlist.{" "}
+              {appleMusicProvider
+                ? "Pick a library playlist you own; guest slots follow the Supabase snapshot during the session. When you end the DJ session, that Apple playlist is updated to played songs only."
+                : "Only playlists owned by the connected Spotify account are listed (those are editable for requests). Reconnect once after enabling DJ deck playback scopes."}
             </p>
             {activePlaylist?.isActive ? (
               <div className="text-sm text-gray-300 space-y-2">
@@ -968,7 +1091,7 @@ export default function SpotifyPageClient() {
                 onClick={async () => {
                   try {
                     const token = await getFreshAdminToken();
-                    await loadOwnedPlaylists(token);
+                    await loadOwnedPlaylists(token, { force: true });
                   } catch (err) {
                     setError(
                       err instanceof Error
@@ -980,12 +1103,17 @@ export default function SpotifyPageClient() {
                 disabled={busy || loadingOwned}
                 className="px-3 py-2 rounded border border-neutral-600 text-sm text-gray-300 hover:border-amber-600/50 disabled:opacity-50"
               >
-                {loadingOwned ? "Refreshing…" : "Refresh list"}
+                {loadingOwned ? "Refreshing…" : "Refresh from Apple Music"}
               </button>
             </div>
             <button
               type="button"
-              onClick={() => runActivate(selectedOwnedId)}
+              onClick={() => {
+                const selected = ownedPlaylists.find(
+                  (p) => p.id === selectedOwnedId
+                );
+                runActivate(selectedOwnedId, selected?.name);
+              }}
               disabled={
                 busy || !selectedOwnedId.trim() || !hasValidActivateStructure
               }

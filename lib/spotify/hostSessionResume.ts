@@ -48,23 +48,33 @@ export async function resumeHostFromSnapshot(params: {
   player: HostResumePlayer;
   dispatch: Dispatch<DjDeckAction>;
   syncClock: HostResumeClock;
+  /** After join/refresh: play when heartbeat lags isPlaying but positionMs > 0. */
+  preferPlaying?: boolean;
 }): Promise<void> {
-  const { snapshot, deckState, player, dispatch, syncClock } = params;
+  const { snapshot, deckState, player, dispatch, syncClock, preferPlaying } =
+    params;
   const uri = snapshot.currentTrackUri;
   if (!uri) return;
 
-  if (!snapshotMatchesDeckTrack(snapshot, deckState)) {
+  const deck = snapshot.activeDeck;
+  const deckSlice = getDeckState(deckState, deck);
+  const uriInPlaylist = deckSlice.playlist.some((t) =>
+    trackUrisMatch(t.uri, uri)
+  );
+  if (uriInPlaylist) {
+    alignSnapshotToActiveDeckPlaylist(snapshot, deckState, dispatch);
+  } else if (!snapshotMatchesDeckTrack(snapshot, deckState)) {
     return;
   }
 
-  alignSnapshotToActiveDeckPlaylist(snapshot, deckState, dispatch);
-
-  const deck = snapshot.activeDeck;
   const positionMs = Math.max(0, snapshot.positionMs);
 
   dispatch({ type: "SET_SAVED_POSITION", deck, positionMs });
 
-  if (snapshot.isPlaying) {
+  const shouldPlay =
+    snapshot.isPlaying || (preferPlaying === true && positionMs > 0);
+
+  if (shouldPlay) {
     await player.playUri(uri, positionMs);
     syncClock.syncFromSdk(positionMs, true);
     return;

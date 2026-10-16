@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { INITIAL_DJ_DECK_STATE } from "@/lib/spotify/djDeckState";
+import {
+  djDeckReducer,
+  INITIAL_DJ_DECK_STATE,
+  type DeckTrack,
+} from "@/lib/spotify/djDeckState";
 import {
   shouldApplyPersistResponse,
   shouldFullRestoreOnJoin,
   shouldIgnoreOwnPersistEcho,
   shouldSchedulePersist,
   shouldShowAudioOverlay,
+  shouldAutoUnlockAppleHostAudio,
+  shouldMergePlaylistLoad,
+  shouldRestoreDeckOnPersistConflict,
   canActAsPlaybackHost,
   isEffectiveRemoteController,
   shouldPersistAsPlaybackHost,
@@ -211,5 +218,172 @@ describe("shouldShowAudioOverlay", () => {
         playerReady: true,
       })
     ).toBe(false);
+  });
+
+  it("shows enable-audio overlay for Apple when authorized but not unlocked", () => {
+    expect(
+      shouldShowAudioOverlay({
+        ...base,
+        role: "host",
+        isControllerMode: false,
+        useAppleMusic: true,
+        appleMusicConfigured: true,
+        appleMusicAuthorized: true,
+        audioUnlocked: false,
+        playerReady: false,
+      })
+    ).toBe(true);
+  });
+
+  it("hides enable-audio overlay for Apple when not yet authorized", () => {
+    expect(
+      shouldShowAudioOverlay({
+        ...base,
+        role: "host",
+        isControllerMode: false,
+        useAppleMusic: true,
+        appleMusicConfigured: true,
+        appleMusicAuthorized: false,
+        audioUnlocked: false,
+        playerReady: false,
+      })
+    ).toBe(false);
+  });
+
+  it("hides enable-audio overlay for Apple after auto audio unlock", () => {
+    expect(
+      shouldShowAudioOverlay({
+        ...base,
+        role: "host",
+        isControllerMode: false,
+        useAppleMusic: true,
+        appleMusicConfigured: true,
+        appleMusicAuthorized: true,
+        audioUnlocked: true,
+        playerReady: true,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("shouldAutoUnlockAppleHostAudio", () => {
+  const base = {
+    useAppleMusic: true,
+    isControllerMode: false,
+    pendingTakeover: false,
+    playerReady: true,
+    appleMusicAuthorized: true,
+  };
+
+  it("unlocks when Apple host is ready and authorized", () => {
+    expect(shouldAutoUnlockAppleHostAudio(base)).toBe(true);
+  });
+
+  it("does not unlock when not authorized", () => {
+    expect(
+      shouldAutoUnlockAppleHostAudio({ ...base, appleMusicAuthorized: false })
+    ).toBe(false);
+  });
+
+  it("does not unlock when player is not ready", () => {
+    expect(
+      shouldAutoUnlockAppleHostAudio({ ...base, playerReady: false })
+    ).toBe(false);
+  });
+
+  it("does not unlock in controller mode", () => {
+    expect(
+      shouldAutoUnlockAppleHostAudio({ ...base, isControllerMode: true })
+    ).toBe(false);
+  });
+
+  it("does not unlock during pending takeover", () => {
+    expect(
+      shouldAutoUnlockAppleHostAudio({ ...base, pendingTakeover: true })
+    ).toBe(false);
+  });
+
+  it("does not unlock on Spotify deck", () => {
+    expect(
+      shouldAutoUnlockAppleHostAudio({ ...base, useAppleMusic: false })
+    ).toBe(false);
+  });
+});
+
+describe("shouldMergePlaylistLoad", () => {
+  it("merges when session active and playlist id matches with tracks loaded", () => {
+    expect(
+      shouldMergePlaylistLoad({
+        sessionActive: true,
+        existingPlaylistId: "p-1",
+        incomingPlaylistId: "p-1",
+        existingPlaylistLength: 8,
+      })
+    ).toBe("merge");
+  });
+
+  it("replaces when session inactive", () => {
+    expect(
+      shouldMergePlaylistLoad({
+        sessionActive: false,
+        existingPlaylistId: "p-1",
+        incomingPlaylistId: "p-1",
+        existingPlaylistLength: 8,
+      })
+    ).toBe("replace");
+  });
+
+  it("replaces when playlist id changes", () => {
+    expect(
+      shouldMergePlaylistLoad({
+        sessionActive: true,
+        existingPlaylistId: "p-1",
+        incomingPlaylistId: "p-2",
+        existingPlaylistLength: 8,
+      })
+    ).toBe("replace");
+  });
+
+  it("replaces when no tracks loaded yet", () => {
+    expect(
+      shouldMergePlaylistLoad({
+        sessionActive: true,
+        existingPlaylistId: "p-1",
+        incomingPlaylistId: "p-1",
+        existingPlaylistLength: 0,
+      })
+    ).toBe("replace");
+  });
+});
+
+describe("shouldRestoreDeckOnPersistConflict", () => {
+  const t = (id: string): DeckTrack => ({
+    id,
+    uri: `spotify:track:${id}`,
+    name: id,
+    primaryArtist: "A",
+    durationMs: 180000,
+  });
+
+  function stateWithPlaylist(ids: string[]) {
+    const playlist = ids.map(t);
+    return djDeckReducer(INITIAL_DJ_DECK_STATE, {
+      type: "SET_PLAYLIST",
+      deck: "A",
+      playlist,
+      playlistTotalDurationMs: playlist.length * 180000,
+    });
+  }
+
+  it("allows restore when playlists match", () => {
+    const local = stateWithPlaylist(["a", "b"]);
+    const remote = stateWithPlaylist(["a", "b"]);
+    expect(shouldRestoreDeckOnPersistConflict(local, remote)).toBe(true);
+  });
+
+  it("blocks restore when local playlist differs from server", () => {
+    const local = stateWithPlaylist(["a", "b", "whiskey"]);
+    const remote = stateWithPlaylist(["a", "b", "teddy"]);
+    expect(shouldRestoreDeckOnPersistConflict(local, remote)).toBe(false);
   });
 });

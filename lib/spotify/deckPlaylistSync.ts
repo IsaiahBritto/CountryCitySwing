@@ -503,3 +503,19 @@ export function mergePlaylistPreservingPlayback(
     playQueue: filterPlayQueue(shuffled, deck.playQueue),
   };
 }
+
+/** Ordered track ids for comparing deck playlist to social snapshot. */
+export function playlistTrackIdsFingerprint(tracks: DeckTrack[]): string {
+  return tracks.map((t) => t.id).join("\n");
+}
+
+export function playlistsNeedSnapshotSync(
+  local: DeckTrack[],
+  remote: DeckTrack[]
+): boolean {
+  if (local.length !== remote.length) return true;
+  for (let i = 0; i < local.length; i++) {
+    if (local[i]?.id !== remote[i]?.id) return true;
+  }
+  return false;
+}

@@ -1,7 +1,11 @@
 import {
+  getDeckState,
+  getNowPlaying,
   serializeDjDeckState,
   type DjDeckState,
 } from "@/lib/spotify/djDeckState";
+import { playlistsNeedSnapshotSync } from "@/lib/spotify/deckPlaylistSync";
+import { trackUrisMatch } from "@/lib/spotify/trackUri";
 import type { DjSessionResponse, DjSessionRole } from "@/lib/spotify/djSession";
 
 export function deckStateContentHash(state: DjDeckState): string {
@@ -60,6 +64,17 @@ export function shouldApplyPersistResponse(
   return deckStateContentHash(currentDeck) === hashAtStart;
 }
 
+/** On 409, avoid RESTORE_SESSION when local playlist already diverged from server (newer snapshot). */
+export function shouldRestoreDeckOnPersistConflict(
+  localDeck: DjDeckState,
+  serverDeck: DjDeckState
+): boolean {
+  const deckId = localDeck.activeDeck;
+  const localPl = getDeckState(localDeck, deckId).playlist;
+  const remotePl = getDeckState(serverDeck, deckId).playlist;
+  return !playlistsNeedSnapshotSync(localPl, remotePl);
+}
+
 /** Only the playback host may PATCH deck state to the session. */
 export function shouldSchedulePersist(role: DjSessionRole): boolean {
   return role === "host";
@@ -107,12 +122,19 @@ export type AudioOverlayInput = {
   needsDeckReconnect: boolean;
   isPremium: boolean;
   sessionLoading: boolean;
+  useAppleMusic?: boolean;
+  appleMusicConfigured?: boolean;
+  appleMusicAuthorized?: boolean;
 };
 
 /** Whether the Enable audio overlay should show (host / takeover only). */
 export function shouldShowAudioOverlay(input: AudioOverlayInput): boolean {
   if (input.sessionLoading) return false;
-  if (
+  if (input.useAppleMusic) {
+    if (!input.appleMusicConfigured || !input.appleMusicAuthorized) {
+      return false;
+    }
+  } else if (
     !input.spotifyConnected ||
     input.needsDeckReconnect ||
     !input.isPremium
@@ -128,6 +150,86 @@ export function shouldShowAudioOverlay(input: AudioOverlayInput): boolean {
   return !input.audioUnlocked && !input.playerReady;
 }
 
+export type AppleHostAudioUnlockInput = {
+  useAppleMusic: boolean;
+  isControllerMode: boolean;
+  pendingTakeover: boolean;
+  playerReady: boolean;
+  appleMusicAuthorized: boolean;
+};
+
+/** Host Apple deck: treat audio as unlocked once MusicKit is ready and authorized. */
+export function shouldAutoUnlockAppleHostAudio(
+  input: AppleHostAudioUnlockInput
+): boolean {
+  if (!input.useAppleMusic) return false;
+  if (input.isControllerMode || input.pendingTakeover) return false;
+  return input.playerReady && input.appleMusicAuthorized;
+}
+
+export type PlaylistLoadStrategy = "merge" | "replace";
+
+export function shouldMergePlaylistLoad(input: {
+  sessionActive: boolean;
+  existingPlaylistId: string | null;
+  incomingPlaylistId: string;
+  existingPlaylistLength: number;
+}): PlaylistLoadStrategy {
+  if (
+    input.sessionActive &&
+    input.existingPlaylistLength > 0 &&
+    input.existingPlaylistId != null &&
+    input.existingPlaylistId === input.incomingPlaylistId
+  ) {
+    return "merge";
+  }
+  return "replace";
+}
+
+export type HostPlaybackContext = {
+  isPlaybackHost: boolean;
+  isSdkPlaying: boolean;
+  sdkTrackUri: string | null;
+};
+
+/** Host is playing; do not RESTORE deck from stale or lagging session rows. */
+export function shouldSkipDeckRestoreForPlaybackHost(
+  localDeck: DjDeckState,
+  incomingDeck: DjDeckState,
+  playback: Pick<HostPlaybackContext, "isSdkPlaying" | "sdkTrackUri">
+): boolean {
+  const localTrack = getNowPlaying(localDeck);
+  if (
+    playback.isSdkPlaying &&
+    localTrack?.uri &&
+    playback.sdkTrackUri &&
+    trackUrisMatch(localTrack.uri, playback.sdkTrackUri)
+  ) {
+    return true;
+  }
+
+  const deckId = localDeck.activeDeck;
+  const localPl = getDeckState(localDeck, deckId).playlist;
+  const remotePl = getDeckState(incomingDeck, deckId).playlist;
+  if (!playlistsNeedSnapshotSync(localPl, remotePl)) {
+    return false;
+  }
+
+  const localNow = getNowPlaying(localDeck);
+  const remoteNow = getNowPlaying(incomingDeck);
+  if (localNow?.id && remoteNow?.id && localNow.id === remoteNow.id) {
+    return true;
+  }
+  if (
+    localNow?.uri &&
+    remoteNow?.uri &&
+    trackUrisMatch(localNow.uri, remoteNow.uri)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function shouldSkipDeckRestore(
   incoming: DjSessionResponse,
   localDeck: DjDeckState,
@@ -135,10 +237,21 @@ export function shouldSkipDeckRestore(
     incoming: DjSessionResponse,
     current: DjSessionResponse | null
   ) => boolean,
-  currentSession?: DjSessionResponse | null
+  currentSession?: DjSessionResponse | null,
+  hostPlayback?: HostPlaybackContext | null
 ): boolean {
   if (deckStatesEqual(incoming.deckState, localDeck)) return true;
   if (shouldApplyDeckState && !shouldApplyDeckState(incoming, currentSession ?? null)) {
+    return true;
+  }
+  if (
+    hostPlayback?.isPlaybackHost &&
+    shouldSkipDeckRestoreForPlaybackHost(
+      localDeck,
+      incoming.deckState,
+      hostPlayback
+    )
+  ) {
     return true;
   }
   return false;

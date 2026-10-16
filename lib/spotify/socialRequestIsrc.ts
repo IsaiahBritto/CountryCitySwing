@@ -1,3 +1,4 @@
+import { isServerAppleMusic } from "@/lib/music/serverProvider";
 import { normalizeIsrc } from "@/lib/musicae/isrc";
 import {
   buildCanonicalTrackByIsrc,
@@ -29,6 +30,10 @@ export async function resolveCanonicalSocialRequestFromMaster<
   /** Avoid refetching the master playlist when caller already loaded it. */
   masterPlaylistItems?: PlaylistTrackAtPosition[];
 }): Promise<T> {
+  if (await isServerAppleMusic()) {
+    return input.request;
+  }
+
   let isrc = normalizeIsrc(input.requestIsrc);
   if (!isrc) {
     try {

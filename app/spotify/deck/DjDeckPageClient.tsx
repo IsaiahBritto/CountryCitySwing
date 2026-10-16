@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import AudioUnlockOverlay from "@/components/dj/AudioUnlockOverlay";
+import CatalogSearchPanel from "@/components/dj/CatalogSearchPanel";
 import SpotifyPlayerNotice from "@/components/dj/SpotifyPlayerNotice";
 import DeckPanel from "@/components/dj/DeckPanel";
 import MixerBar from "@/components/dj/MixerBar";
@@ -41,6 +42,8 @@ import {
   playQueueRowStatus,
   playlistRowStatus,
   shouldPlayQueueNext,
+  shouldShowHandoffToOtherDeckAfterSong,
+  isQueueDerivedHandoffToOtherDeck,
   type DeckId,
   type DeckTrack,
 } from "@/lib/spotify/djDeckState";
@@ -51,7 +54,20 @@ import {
 } from "@/lib/spotify/playerFade";
 import { evaluateTrackEndTick } from "@/lib/spotify/deckTrackEndTick";
 import { isPlaybackConfirmed } from "@/lib/spotify/playbackStartConfirmation";
-import { trackUrisMatch } from "@/lib/spotify/trackUri";
+import { computeDjPlayerEnabled } from "@/lib/dj/djPlayerEnabled";
+import { useDjMusicPlayer } from "@/lib/dj/useDjMusicPlayer";
+import { useMusicPlatform } from "@/components/music/MusicPlatformProvider";
+import { musicAdminPath } from "@/lib/music/providerSegments";
+import { musicApiExtraHeaders } from "@/lib/clientMusicApi";
+import {
+  tracksMatchForPlayback,
+  trackUrisMatch,
+} from "@/lib/music/trackIdentity";
+import {
+  trackEndActionFromPlaybackCompleted,
+  trackEndActionFromTick,
+  type TrackEndAction,
+} from "@/lib/spotify/deckTrackEndActions";
 import {
   createPauseActiveHandler,
   executeSessionCommand,
@@ -70,13 +86,20 @@ import {
   heartbeatHostTab,
   isOtherHostTabActive,
 } from "@/lib/spotify/djHostTabLeader";
-import { shouldShowAudioOverlay } from "@/lib/spotify/djSessionSync";
+import {
+  playlistTrackIdsFingerprint,
+  shouldSyncDeckToSnapshot,
+} from "@/lib/spotify/activeSocialDeckSync";
+import {
+  shouldAutoUnlockAppleHostAudio,
+  shouldMergePlaylistLoad,
+  shouldShowAudioOverlay,
+} from "@/lib/spotify/djSessionSync";
 import { useDjSession } from "@/lib/spotify/useDjSession";
 import {
   postSessionCommand,
   useSessionCommandChannel,
 } from "@/lib/spotify/useSessionCommandChannel";
-import { useSpotifyPlayer } from "@/lib/spotify/useSpotifyPlayer";
 import { usePlaybackClock } from "@/lib/spotify/usePlaybackClockHook";
 import {
   createEmptyPlaybackSnapshot,
@@ -90,38 +113,48 @@ import {
   shouldSyncClockFromSdk,
   type LastClockSdkSync,
 } from "@/lib/spotify/playbackClockSync";
-import type { ControllerPlaybackSnapshot } from "@/lib/spotify/useSpotifyPlayer";
+import type { ControllerPlaybackSnapshot } from "@/lib/appleMusic/useMusicKitPlayer";
 
 const REMOTE_VOLUME_DEBOUNCE_MS = 150;
 
-type SpotifyStatus = {
-  connected: boolean;
-  spotifyUserId: string | null;
-  grantedScopes: string | null;
-  needsDeckReconnect: boolean;
-  product: "premium" | "free" | "open" | null;
+type MusicStatus = {
+  connected?: boolean;
+  configured?: boolean;
+  hasMusicUserToken?: boolean;
+  needsAuthorization?: boolean;
+  spotifyUserId?: string | null;
+  grantedScopes?: string | null;
+  needsDeckReconnect?: boolean;
+  product?: "premium" | "free" | "open" | null;
 };
 
 type ActivePlaylistInfo = {
   name: string | null;
   isActive: boolean;
   spotifyPlaylistId: string | null;
+  appleMusicPlaylistId: string | null;
   pattern: GenrePool[];
+  trackCount: number | null;
 };
 
 export default function DjDeckPageClient() {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
-  const [spotifyStatus, setSpotifyStatus] = useState<SpotifyStatus | null>(
-    null
-  );
+  const [musicStatus, setMusicStatus] = useState<MusicStatus | null>(null);
   const [activeSocial, setActiveSocial] = useState<ActivePlaylistInfo | null>(
     null
   );
   const activeSocialRef = useRef<ActivePlaylistInfo | null>(null);
   const lastBoundaryReloadAtCycleRef = useRef<number | null>(null);
   const boundaryReloadInFlightRef = useRef(false);
+  const snapshotSyncInFlightRef = useRef(false);
+  const lastSyncedSnapshotFingerprintRef = useRef<string | null>(null);
+  const snapshotSyncedForSessionRef = useRef<string | null>(null);
+  const mergeSnapshotWhenIdleRef = useRef(false);
+  const fetchAndMergeActiveSocialPlaylistRef = useRef<
+    (deck: DeckId) => Promise<void>
+  >(async () => {});
   const [pageError, setPageError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -130,10 +163,9 @@ export default function DjDeckPageClient() {
   const [endingSession, setEndingSession] = useState(false);
   const [takingOver, setTakingOver] = useState(false);
   const [pendingTakeover, setPendingTakeover] = useState(false);
+  const [syncSnapshotLoading, setSyncSnapshotLoading] = useState(false);
 
-  const ownedPlaylistsState = useOwnedPlaylists(
-    isAdmin && Boolean(authToken) && !loading
-  );
+  const { provider, isAppleMusic: appleDeck, apiPaths } = useMusicPlatform();
 
   const [state, dispatch] = useReducer(djDeckReducer, INITIAL_DJ_DECK_STATE);
   const stateRef = useRef(state);
@@ -172,11 +204,15 @@ export default function DjDeckPageClient() {
   const autoPrimeEnabledRef = useRef(true);
   const resumeInProgressRef = useRef(false);
   const pendingHostResumeRef = useRef<DjPlaybackSnapshot | null>(null);
+  const onJoinRestoredRef = useRef<(() => void) | null>(null);
   const takeoverEffectStartedRef = useRef(false);
   const controllerSnapshotRef = useRef<ControllerPlaybackSnapshot | null>(null);
   const lastHostSdkClockSyncRef = useRef<LastClockSdkSync | null>(null);
   const lastControllerClockSyncRef = useRef<LastClockSdkSync | null>(null);
   const prevSdkOnActiveTrackRef = useRef(false);
+  const runTrackEndActionRef = useRef<
+    (action: TrackEndAction, deck: DeckId) => void
+  >(() => {});
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -205,6 +241,7 @@ export default function DjDeckPageClient() {
   const playerPlaybackRef = useRef({
     isPlaying: false,
     currentTrackUri: null as string | null,
+    currentTrackIsrc: null as string | null,
     positionMs: 0,
     durationMs: 0,
   });
@@ -234,6 +271,14 @@ export default function DjDeckPageClient() {
     []
   );
 
+  const getHostPlaybackContext = useCallback(
+    () => ({
+      isSdkPlaying: playerPlaybackRef.current.isPlaying,
+      sdkTrackUri: playerPlaybackRef.current.currentTrackUri,
+    }),
+    []
+  );
+
   const djSession = useDjSession({
     authToken,
     enabled: isAdmin && Boolean(authToken) && !loading,
@@ -244,7 +289,19 @@ export default function DjDeckPageClient() {
     hostDeviceIdRef,
     shouldApplyDeckState,
     onHostSessionLoaded,
+    onJoinRestored: () => onJoinRestoredRef.current?.(),
+    getHostPlaybackContext,
   });
+
+  const djSessionRef = useRef(djSession);
+  djSessionRef.current = djSession;
+
+  const flushHostDeckPersist = useCallback(() => {
+    const sess = djSessionRef.current;
+    if (sess.role === "host" && sess.session?.status === "active") {
+      void sess.flushPersist();
+    }
+  }, []);
 
   const isControllerMode =
     djSession.isEffectiveRemoteController && !pendingTakeover;
@@ -302,31 +359,122 @@ export default function DjDeckPageClient() {
     nowPlayingDurationMs,
   ]);
 
-  const player = useSpotifyPlayer({
+  const playerEnabled = computeDjPlayerEnabled({
+    hasAuthToken: Boolean(authToken),
+    isControllerMode,
+    pendingTakeover,
+    appleDeck,
+    loading,
+    isAdmin,
+    audioUnlocked,
+  });
+
+  const isControllerModeRef = useRef(isControllerMode);
+  isControllerModeRef.current = isControllerMode;
+
+  const handleApplePlaybackCompleted = useCallback(() => {
+    if (!appleDeck) return;
+    if (isControllerModeRef.current) return;
+    if (handoffInProgressRef.current) return;
+    if (trackEndTriggeredRef.current) return;
+    if (crossfadeInProgressRef.current) return;
+    if (pendingAdvanceUriRef.current) return;
+    const current = stateRef.current;
+    const deck = current.activeDeck;
+    const finishingState = getDeckState(current, deck);
+    const action = trackEndActionFromPlaybackCompleted({
+      secondDeckEnabled: current.secondDeckEnabled,
+      handoffToOtherDeckAfterSong: finishingState.handoffToOtherDeckAfterSong,
+    });
+    runTrackEndActionRef.current(action, deck);
+  }, [appleDeck]);
+
+  const player = useDjMusicPlayer({
     authToken,
-    enabled: Boolean(
-      authToken &&
-        (isControllerMode || audioUnlocked || pendingTakeover)
-    ),
+    enabled: playerEnabled,
     mode: isControllerMode ? "controller" : "host",
     controllerSnapshot,
     onPlaybackError: showToast,
     onPlaybackInterrupted: showToast,
+    onPlaybackCompleted: appleDeck ? handleApplePlaybackCompleted : undefined,
   });
+
+  useEffect(() => {
+    if (
+      !shouldAutoUnlockAppleHostAudio({
+        useAppleMusic: appleDeck,
+        isControllerMode,
+        pendingTakeover,
+        playerReady: player.status === "ready",
+        appleMusicAuthorized: Boolean(player.isAuthorized),
+      })
+    ) {
+      return;
+    }
+    setAudioUnlocked(true);
+  }, [
+    appleDeck,
+    isControllerMode,
+    pendingTakeover,
+    player.status,
+    player.isAuthorized,
+  ]);
+
+  const ownedPlaylistsState = useOwnedPlaylists(
+    isAdmin && Boolean(authToken) && !loading,
+    {
+      musicUserToken: player.musicUserToken ?? null,
+      storefrontId: player.storefrontId ?? null,
+    }
+  );
+
+  useEffect(() => {
+    if (!appleDeck || !player.isAuthorized || !player.musicUserToken) return;
+    void authedFetchWithRetry("/api/apple-music/register-user-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        musicUserToken: player.musicUserToken,
+        storefrontId: player.storefrontId,
+      }),
+    }).catch(() => {
+      /* best-effort server token registration for social/admin APIs */
+    });
+  }, [
+    appleDeck,
+    player.isAuthorized,
+    player.musicUserToken,
+    player.storefrontId,
+  ]);
 
   const setVolumeRef = useRef(player.setVolume);
   setVolumeRef.current = player.setVolume;
+
+  const playerHostResumeRef = useRef({
+    status: player.status,
+    playUri: player.playUri,
+    primeTrack: player.primeTrack,
+    seek: player.seek,
+  });
+  playerHostResumeRef.current = {
+    status: player.status,
+    playUri: player.playUri,
+    primeTrack: player.primeTrack,
+    seek: player.seek,
+  };
 
   hostDeviceIdRef.current = player.deviceId;
   playerPlaybackRef.current = {
     isPlaying: player.isPlaying,
     currentTrackUri: player.currentTrackUri,
+    currentTrackIsrc: player.currentTrackIsrc ?? null,
     positionMs: player.positionMs,
     durationMs: player.durationMs,
   };
 
   const activeTrack = useMemo(() => getNowPlaying(state), [state]);
   const activeTrackUri = activeTrack?.uri ?? null;
+  const activeTrackIsrc = activeTrack?.isrc ?? null;
   const activeDurationMs = activeTrack?.durationMs ?? 0;
   const isSdkOnActiveTrack =
     Boolean(activeTrackUri) &&
@@ -335,7 +483,12 @@ export default function DjDeckPageClient() {
           djSession.session?.playbackSnapshot.currentTrackUri ?? null,
           activeTrackUri
         )
-      : trackUrisMatch(player.currentTrackUri, activeTrackUri));
+      : tracksMatchForPlayback(
+          player.currentTrackUri,
+          activeTrackUri,
+          activeTrackIsrc,
+          player.currentTrackIsrc ?? null
+        ));
   const isActiveTrackPlaying = isControllerMode
     ? Boolean(
         djSession.session?.playbackSnapshot.isPlaying && isSdkOnActiveTrack
@@ -491,17 +644,23 @@ export default function DjDeckPageClient() {
     void tryPrimeActiveTrack();
   }, [activeTrackUri, audioUnlocked, playerStatus, tryPrimeActiveTrack]);
 
-  const loadSpotifyStatus = useCallback(async () => {
-    const res = await authedFetchWithRetry("/api/spotify/status");
+  const loadMusicStatus = useCallback(async () => {
+    const res = await authedFetchWithRetry(apiPaths.musicStatusPath(), {
+      headers: musicApiExtraHeaders({
+        appleMusic: appleDeck,
+        musicUserToken: player.musicUserToken,
+        storefrontId: player.storefrontId,
+      }),
+    });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       throw new Error(
         (body as { error?: string }).error ?? (await apiError(res))
       );
     }
-    setSpotifyStatus(body as SpotifyStatus);
+    setMusicStatus(body as MusicStatus);
 
-    const activeRes = await authedFetchWithRetry("/api/spotify/active-playlist");
+    const activeRes = await authedFetchWithRetry(apiPaths.musicActivePlaylistPath());
     if (activeRes.ok) {
       const activeBody = await activeRes.json();
       setActiveSocial({
@@ -510,13 +669,34 @@ export default function DjDeckPageClient() {
         spotifyPlaylistId:
           (activeBody as { spotifyPlaylistId?: string | null })
             .spotifyPlaylistId ?? null,
+        appleMusicPlaylistId:
+          (activeBody as { appleMusicPlaylistId?: string | null })
+            .appleMusicPlaylistId ?? null,
         pattern:
           ((activeBody as { pattern?: GenrePool[] }).pattern as
             | GenrePool[]
             | undefined) ?? [],
+        trackCount:
+          typeof (activeBody as { trackCount?: number }).trackCount ===
+          "number"
+            ? (activeBody as { trackCount: number }).trackCount
+            : null,
       });
     }
-  }, []);
+  }, [player.musicUserToken, player.storefrontId]);
+
+  useEffect(() => {
+    if (!appleDeck || !player.isAuthorized || !player.musicUserToken) return;
+    void loadMusicStatus().catch(() => {
+      /* refresh admin status when MusicKit exposes user token */
+    });
+  }, [
+    appleDeck,
+    loadMusicStatus,
+    player.isAuthorized,
+    player.musicUserToken,
+    player.storefrontId,
+  ]);
 
   useEffect(() => {
     activeSocialRef.current = activeSocial;
@@ -558,7 +738,7 @@ export default function DjDeckPageClient() {
         setAuthToken(session.access_token);
       }
       try {
-        await loadSpotifyStatus();
+        await loadMusicStatus();
       } catch (err) {
         if (!cancelled) {
           setPageError(
@@ -575,7 +755,7 @@ export default function DjDeckPageClient() {
       (_: AuthChangeEvent, session: Session | null) => {
         if (session?.access_token) {
           setAuthToken(session.access_token);
-          void loadSpotifyStatus().catch(() => {
+          void loadMusicStatus().catch(() => {
             /* status refresh is best-effort on token rotation */
           });
         } else {
@@ -588,7 +768,66 @@ export default function DjDeckPageClient() {
       cancelled = true;
       listener.subscription.unsubscribe();
     };
-  }, [loadSpotifyStatus]);
+  }, [loadMusicStatus]);
+
+  const attemptHostResume = useCallback(
+    async (opts?: { ignoreAudioGate?: boolean }) => {
+      const sess = djSessionRef.current;
+      if (
+        sess.loading ||
+        sess.role !== "host" ||
+        sess.isEffectiveRemoteController
+      ) {
+        return;
+      }
+      if (resumeInProgressRef.current) return;
+      if (!opts?.ignoreAudioGate && !audioUnlocked) return;
+
+      const hostPlayer = playerHostResumeRef.current;
+      if (hostPlayer.status !== "ready") return;
+
+      const pendingResume =
+        pendingHostResumeRef.current ??
+        (sess.session?.playbackSnapshot.currentTrackUri
+          ? sess.session.playbackSnapshot
+          : null);
+
+      if (!pendingResume?.currentTrackUri) {
+        pendingHostResumeRef.current = null;
+        void tryPrimeActiveTrackRef.current();
+        return;
+      }
+
+      resumeInProgressRef.current = true;
+      autoPrimeEnabledRef.current = false;
+      try {
+      await resumeHostFromSnapshot({
+        snapshot: pendingResume,
+        deckState: stateRef.current,
+        player: {
+          playUri: hostPlayer.playUri,
+          primeTrack: hostPlayer.primeTrack,
+          seek: hostPlayer.seek,
+        },
+        dispatch,
+        syncClock: { syncFromSdk },
+        preferPlaying: true,
+      });
+        trackEndTriggeredRef.current = false;
+        pendingHostResumeRef.current = null;
+      } catch (resumeErr) {
+        showPlayerError(resumeErr, "Failed to resume playback");
+        pendingHostResumeRef.current = null;
+      } finally {
+        resumeInProgressRef.current = false;
+        autoPrimeEnabledRef.current = true;
+      }
+    },
+    [audioUnlocked, dispatch, showPlayerError, syncFromSdk]
+  );
+
+  const attemptHostResumeRef = useRef(attemptHostResume);
+  attemptHostResumeRef.current = attemptHostResume;
 
   const handleUnlockAudio = async () => {
     if (
@@ -602,51 +841,34 @@ export default function DjDeckPageClient() {
     try {
       await player.connect();
       setAudioUnlocked(true);
-
-      const pendingResume =
-        pendingHostResumeRef.current ??
-        (djSession.role === "host" &&
-        djSession.session?.playbackSnapshot.currentTrackUri
-          ? djSession.session.playbackSnapshot
-          : null);
-
-      if (
-        djSession.role === "host" &&
-        pendingResume?.currentTrackUri &&
-        snapshotMatchesDeckTrack(pendingResume, stateRef.current)
-      ) {
-        resumeInProgressRef.current = true;
-        autoPrimeEnabledRef.current = false;
-        try {
-          await resumeHostFromSnapshot({
-            snapshot: pendingResume,
-            deckState: stateRef.current,
-            player: {
-              playUri: player.playUri,
-              primeTrack: player.primeTrack,
-              seek: player.seek,
-            },
-            dispatch,
-            syncClock: { syncFromSdk },
-          });
-          trackEndTriggeredRef.current = false;
-          pendingHostResumeRef.current = null;
-        } catch (resumeErr) {
-          showPlayerError(resumeErr, "Failed to resume playback");
-        } finally {
-          resumeInProgressRef.current = false;
-          autoPrimeEnabledRef.current = true;
-        }
-      } else {
-        pendingHostResumeRef.current = null;
-        void tryPrimeActiveTrack();
-      }
+      await attemptHostResume({ ignoreAudioGate: true });
     } catch (err) {
       showPlayerError(err, "Failed to connect player");
     } finally {
       setConnectingAudio(false);
     }
   };
+
+  useEffect(() => {
+    onJoinRestoredRef.current = () => {
+      void attemptHostResumeRef.current();
+      const sess = djSessionRef.current;
+      if (
+        sess.role === "host" &&
+        sess.session?.status === "active" &&
+        sess.session.id !== snapshotSyncedForSessionRef.current
+      ) {
+        snapshotSyncedForSessionRef.current = sess.session.id;
+        void fetchAndMergeActiveSocialPlaylistRef.current("A");
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!audioUnlocked || player.status !== "ready") return;
+    if (djSession.role !== "host" || !pendingHostResumeRef.current) return;
+    void attemptHostResumeRef.current();
+  }, [audioUnlocked, djSession.role, player.status, djSession.session?.id]);
 
   const applyLiveVolume = useCallback(() => {
     if (crossfadeInProgressRef.current) return;
@@ -803,11 +1025,13 @@ export default function DjDeckPageClient() {
     (deck: DeckId, playlistIndex: number) => {
       const social = activeSocialRef.current;
       const deckState = getDeckState(stateRef.current, deck);
+      const socialPlaylistId =
+        social?.appleMusicPlaylistId ?? social?.spotifyPlaylistId ?? null;
       if (
         !social?.isActive ||
-        !social.spotifyPlaylistId ||
+        !socialPlaylistId ||
         social.pattern.length === 0 ||
-        deckState.playlistId !== social.spotifyPlaylistId ||
+        deckState.playlistId !== socialPlaylistId ||
         deckState.shuffleEnabled ||
         !isLastSongOfCycle(playlistIndex, social.pattern)
       ) {
@@ -824,23 +1048,7 @@ export default function DjDeckPageClient() {
 
       void (async () => {
         try {
-          const res = await authedFetchWithRetry(
-            "/api/spotify/active-playlist/deck-tracks"
-          );
-          const body = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            throw new Error(
-              (body as { error?: string }).error ??
-                "Failed to sync playlist from snapshot"
-            );
-          }
-          dispatch({
-            type: "MERGE_PLAYLIST",
-            deck,
-            playlist: (body as { tracks?: DeckTrack[] }).tracks ?? [],
-            playlistTotalDurationMs:
-              (body as { totalDurationMs?: number }).totalDurationMs ?? 0,
-          });
+          await fetchAndMergeActiveSocialPlaylistRef.current(deck);
         } catch (err) {
           console.warn("Cycle boundary playlist sync failed:", err);
           lastBoundaryReloadAtCycleRef.current = null;
@@ -1207,6 +1415,7 @@ export default function DjDeckPageClient() {
       dispatch({ type: "ADVANCE_TRACK", deck });
       trackEndTriggeredRef.current = false;
       maybeScheduleCycleBoundaryReload(deck, nextIndex);
+      flushHostDeckPersist();
 
       if (autoPlay) {
         if (deck !== current.activeDeck) {
@@ -1216,6 +1425,7 @@ export default function DjDeckPageClient() {
       }
     },
     [
+      flushHostDeckPersist,
       handleQueueExhausted,
       maybeScheduleCycleBoundaryReload,
       startPlayback,
@@ -1274,27 +1484,161 @@ export default function DjDeckPageClient() {
     (
       deck: DeckId,
       {
+        playlistId,
         tracks,
         totalDurationMs,
       }: {
+        playlistId: string;
         tracks: DeckTrack[];
         totalDurationMs: number;
       }
     ) => {
-      pendingHostResumeRef.current = null;
+      const sess = djSessionRef.current;
+      const deckState = getDeckState(stateRef.current, deck);
+      const strategy = shouldMergePlaylistLoad({
+        sessionActive: sess.session?.status === "active",
+        existingPlaylistId: deckState.playlistId,
+        incomingPlaylistId: playlistId,
+        existingPlaylistLength: deckState.playlist.length,
+      });
+
+      if (strategy === "replace") {
+        pendingHostResumeRef.current = null;
+        dispatch({
+          type: "SET_PLAYLIST",
+          deck,
+          playlist: tracks,
+          playlistTotalDurationMs: totalDurationMs,
+        });
+        trackEndTriggeredRef.current = false;
+        if (deck === stateRef.current.activeDeck) {
+          void tryPrimeActiveTrackRef.current();
+        }
+        return;
+      }
+
       dispatch({
-        type: "SET_PLAYLIST",
+        type: "MERGE_PLAYLIST",
         deck,
         playlist: tracks,
         playlistTotalDurationMs: totalDurationMs,
       });
-      trackEndTriggeredRef.current = false;
-      if (deck === stateRef.current.activeDeck) {
-        void tryPrimeActiveTrackRef.current();
-      }
     },
     []
   );
+
+  const isHostActiveDeckPlaying = useCallback(() => {
+    const current = stateRef.current;
+    const deck = current.activeDeck;
+    const deckState = getDeckState(current, deck);
+    const track = deckState.track;
+    if (!player.isPlaying || !track?.uri) return false;
+    return tracksMatchForPlayback(player.currentTrackUri, track.uri);
+  }, [player.currentTrackUri, player.isPlaying]);
+
+  const fetchAndMergeActiveSocialPlaylist = useCallback(
+    async (deck: DeckId) => {
+      const social = activeSocialRef.current;
+      const socialPlaylistId =
+        social?.appleMusicPlaylistId ?? social?.spotifyPlaylistId ?? null;
+      if (!social?.isActive || !socialPlaylistId) return;
+
+      const deckState = getDeckState(stateRef.current, deck);
+      if (deckState.playlistId !== socialPlaylistId) return;
+      if (isHostActiveDeckPlaying()) {
+        mergeSnapshotWhenIdleRef.current = true;
+        return;
+      }
+      if (snapshotSyncInFlightRef.current) return;
+
+      snapshotSyncInFlightRef.current = true;
+      try {
+        const res = await authedFetchWithRetry(apiPaths.musicActiveDeckTracksPath(), {
+          headers: musicApiExtraHeaders({
+            appleMusic: appleDeck,
+            musicUserToken: player.musicUserToken,
+            storefrontId: player.storefrontId,
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            (body as { error?: string }).error ??
+              "Failed to sync playlist from snapshot"
+          );
+        }
+        const tracks = (body as { tracks?: DeckTrack[] }).tracks ?? [];
+        const totalDurationMs =
+          (body as { totalDurationMs?: number }).totalDurationMs ?? 0;
+        const fingerprint = playlistTrackIdsFingerprint(tracks);
+
+        if (
+          fingerprint === lastSyncedSnapshotFingerprintRef.current &&
+          !shouldSyncDeckToSnapshot(deckState.playlist, tracks)
+        ) {
+          return;
+        }
+
+        if (!shouldSyncDeckToSnapshot(deckState.playlist, tracks)) {
+          lastSyncedSnapshotFingerprintRef.current = fingerprint;
+          return;
+        }
+
+        applyPlaylistLoaded(deck, {
+          playlistId: socialPlaylistId,
+          tracks,
+          totalDurationMs,
+        });
+        void enrichPlaylist(deck, tracks);
+        lastSyncedSnapshotFingerprintRef.current = fingerprint;
+      } finally {
+        snapshotSyncInFlightRef.current = false;
+      }
+    },
+    [
+      applyPlaylistLoaded,
+      enrichPlaylist,
+      isHostActiveDeckPlaying,
+      player.musicUserToken,
+      player.storefrontId,
+    ]
+  );
+
+  fetchAndMergeActiveSocialPlaylistRef.current =
+    fetchAndMergeActiveSocialPlaylist;
+
+  useEffect(() => {
+    if (!activeSocial?.isActive || activeSocial.trackCount == null) return;
+    const socialId =
+      activeSocial.appleMusicPlaylistId ?? activeSocial.spotifyPlaylistId;
+    const deck = getDeckState(state, "A");
+    if (!socialId || deck.playlistId !== socialId) return;
+    if (deck.playlist.length !== activeSocial.trackCount) {
+      void fetchAndMergeActiveSocialPlaylist("A");
+    }
+  }, [
+    activeSocial,
+    fetchAndMergeActiveSocialPlaylist,
+    state.deckA.playlist.length,
+    state.deckA.playlistId,
+  ]);
+
+  useEffect(() => {
+    if (djSession.role !== "host" || djSession.session?.status !== "active") {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      void fetchAndMergeActiveSocialPlaylistRef.current("A");
+    }, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [djSession.role, djSession.session?.id, djSession.session?.status]);
+
+  useEffect(() => {
+    if (!mergeSnapshotWhenIdleRef.current) return;
+    if (isHostActiveDeckPlaying()) return;
+    mergeSnapshotWhenIdleRef.current = false;
+    void fetchAndMergeActiveSocialPlaylistRef.current("A");
+  }, [isHostActiveDeckPlaying, player.isPlaying, player.currentTrackUri]);
 
   const applyDisableSecondDeck = useCallback(async () => {
     const current = stateRef.current;
@@ -1312,9 +1656,6 @@ export default function DjDeckPageClient() {
     wasPlayingActiveTrackRef.current = false;
     dispatch({ type: "DISABLE_SECOND_DECK" });
   }, [cancelCrossfade, pauseClock, player, showPlayerError]);
-
-  const djSessionRef = useRef(djSession);
-  djSessionRef.current = djSession;
 
   const sendRemoteDeckAction = useCallback(
     async (action: RemoteDeckAction) => {
@@ -1402,12 +1743,15 @@ export default function DjDeckPageClient() {
         case "ADD_TO_PLAY_QUEUE":
           await applyAddToPlayQueue(action.deck, action.track);
           break;
-        case "SET_PLAYLIST":
+        case "SET_PLAYLIST": {
+          const deckSlice = getDeckState(stateRef.current, action.deck);
           applyPlaylistLoaded(action.deck, {
+            playlistId: deckSlice.playlistId ?? "",
             tracks: action.playlist,
             totalDurationMs: action.playlistTotalDurationMs,
           });
           break;
+        }
         case "APPLY_PLAYLIST_PATCH":
           dispatch({
             type: "APPLY_PLAYLIST_PATCH",
@@ -1503,8 +1847,14 @@ export default function DjDeckPageClient() {
         await switchActiveDeck(deck);
       }
       await startPlayback(deck, track, 0);
+      flushHostDeckPersist();
     },
-    [maybeScheduleCycleBoundaryReload, startPlayback, switchActiveDeck]
+    [
+      flushHostDeckPersist,
+      maybeScheduleCycleBoundaryReload,
+      startPlayback,
+      switchActiveDeck,
+    ]
   );
 
   const handlePlayFromQueueRow = useCallback(
@@ -1570,9 +1920,11 @@ export default function DjDeckPageClient() {
     (
       deck: DeckId,
       {
+        playlistId,
         tracks,
         totalDurationMs,
       }: {
+        playlistId: string;
         tracks: DeckTrack[];
         totalDurationMs: number;
       }
@@ -1585,7 +1937,7 @@ export default function DjDeckPageClient() {
           playlistTotalDurationMs: totalDurationMs,
         },
         () => {
-          applyPlaylistLoaded(deck, { tracks, totalDurationMs });
+          applyPlaylistLoaded(deck, { playlistId, tracks, totalDurationMs });
           void enrichPlaylist(deck, tracks);
         }
       );
@@ -1711,19 +2063,14 @@ export default function DjDeckPageClient() {
         return false;
       }
 
-      if (
-        finishing.playbackSource === "playlist" &&
-        finishing.playlistIndex != null
-      ) {
-        dispatch({
-          type: "MARK_PLAYLIST_INDEX_PLAYED",
-          deck: finishingDeck,
-          index: finishing.playlistIndex,
-        });
-      }
-
       handoffInProgressRef.current = true;
       try {
+        await advanceTrack(finishingDeck, false);
+        dispatchRemoteDeckAction({
+          type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+          deck: finishingDeck,
+          enabled: false,
+        });
         await switchActiveDeck(otherDeck);
         const started = await resumeOrStartDeckPlayback(otherDeck);
         if (!started) {
@@ -1734,8 +2081,30 @@ export default function DjDeckPageClient() {
         handoffInProgressRef.current = false;
       }
     },
-    [dispatch, resumeOrStartDeckPlayback, showToast, switchActiveDeck]
+    [
+      advanceTrack,
+      dispatchRemoteDeckAction,
+      resumeOrStartDeckPlayback,
+      showToast,
+      switchActiveDeck,
+    ]
   );
+
+  useEffect(() => {
+    runTrackEndActionRef.current = (action, deck) => {
+      if (action === "none") return;
+      trackEndTriggeredRef.current = true;
+      if (action === "handoff") {
+        void handoffToOtherDeck(deck);
+        return;
+      }
+      const playback = playerPlaybackRef.current;
+      if (playback.currentTrackUri) {
+        pendingAdvanceUriRef.current = playback.currentTrackUri;
+      }
+      void remoteAdvanceTrack(deck, true);
+    };
+  }, [handoffToOtherDeck, remoteAdvanceTrack]);
 
   const remotePreviousTrack = useCallback(
     (deck: DeckId) => {
@@ -1804,6 +2173,9 @@ export default function DjDeckPageClient() {
       pauseClock();
     }
     setEndingSession(true);
+    if (djSession.role === "host") {
+      await djSession.flushPersist();
+    }
     await djSession.endSession();
     setEndingSession(false);
   }, [djSession, pauseClock, player]);
@@ -1890,7 +2262,8 @@ export default function DjDeckPageClient() {
 
     const intervalId = window.setInterval(() => {
       const playback = playerPlaybackRef.current;
-      const activeDeckTrackUri = getNowPlaying(stateRef.current)?.uri ?? null;
+      const nowPlayingDeck = getNowPlaying(stateRef.current);
+      const activeDeckTrackUri = nowPlayingDeck?.uri ?? null;
       const current = stateRef.current;
       const finishingDeck = current.activeDeck;
       const finishingState = getDeckState(current, finishingDeck);
@@ -1927,6 +2300,12 @@ export default function DjDeckPageClient() {
         sdkDurationMs: playback.durationMs,
         sdkIsPlaying: playback.isPlaying,
         activeDeckTrackUri,
+        playbackAligned: tracksMatchForPlayback(
+          activeDeckTrackUri,
+          playback.currentTrackUri,
+          nowPlayingDeck?.isrc ?? null,
+          playback.currentTrackIsrc
+        ),
         handoffInProgress: handoffInProgressRef.current,
         wasPlayingActiveTrack: wasPlayingActiveTrackRef.current,
         prevActivePositionMs: prevActivePositionRef.current,
@@ -1947,20 +2326,10 @@ export default function DjDeckPageClient() {
 
       if (!result.setTrackEndTriggered) return;
 
-      trackEndTriggeredRef.current = true;
-      const capturedFinishingDeck = finishingDeck;
-      if (result.fireHandoff) {
-        void (async () => {
-          await handoffToOtherDeck(capturedFinishingDeck);
-        })();
-        return;
-      }
-      if (result.fireAdvance) {
-        if (playback.currentTrackUri) {
-          pendingAdvanceUriRef.current = playback.currentTrackUri;
-        }
-        void remoteAdvanceTrack(capturedFinishingDeck, true);
-      }
+      runTrackEndActionRef.current(
+        trackEndActionFromTick(result),
+        finishingDeck
+      );
     }, 250);
 
     return () => window.clearInterval(intervalId);
@@ -2059,17 +2428,30 @@ export default function DjDeckPageClient() {
     remoteSwitchActiveDeck,
   ]);
 
-  const connectSpotify = async () => {
+  const connectMusic = async () => {
+    if (appleDeck) {
+      await player.reconnect();
+      await loadMusicStatus();
+      if (player.isAuthorized) {
+        setAudioUnlocked(true);
+      }
+      return;
+    }
     const token = await getAccessToken();
     if (!token) return;
     const returnTo = encodeURIComponent("/spotify/deck");
     window.location.href = `/api/spotify/auth/start?returnTo=${returnTo}&token=${encodeURIComponent(token)}`;
   };
 
+  const activeSocialPlaylistId =
+    activeSocial?.appleMusicPlaylistId ??
+    activeSocial?.spotifyPlaylistId ??
+    null;
+
   const handlePlayerNoticeAction = useCallback(
     (action: SpotifyPlayerErrorAction) => {
       if (action === "reconnect_spotify") {
-        void connectSpotify();
+        void connectMusic();
         return;
       }
       if (action === "sign_in") {
@@ -2127,14 +2509,32 @@ export default function DjDeckPageClient() {
             seconds,
           })
         }
-        handoffToOtherDeckAfterSong={deckState.handoffToOtherDeckAfterSong}
-        onHandoffToOtherDeckChange={(enabled) =>
+        handoffToOtherDeckAfterSong={shouldShowHandoffToOtherDeckAfterSong(
+          state,
+          deckId
+        )}
+        onHandoffToOtherDeckChange={(enabled) => {
+          if (enabled) {
+            dispatchRemoteDeckAction({
+              type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+              deck: deckId,
+              enabled: true,
+            });
+            return;
+          }
           dispatchRemoteDeckAction({
             type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
             deck: deckId,
-            enabled,
-          })
-        }
+            enabled: false,
+          });
+          if (isQueueDerivedHandoffToOtherDeck(state, deckId)) {
+            dispatchRemoteDeckAction({
+              type: "SET_AFTER_QUEUE_CONTINUE_DECK",
+              deck: deckId,
+              targetDeck: deckId,
+            });
+          }
+        }}
         secondDeckEnabled={state.secondDeckEnabled}
         disabled={!playerReady}
         playlistSelector={
@@ -2146,6 +2546,11 @@ export default function DjDeckPageClient() {
               onPlaylistLoaded={handlePlaylistLoaded}
               disabled={!playerReady}
               disableAutoLoad={djSession.session?.status === "active"}
+              sessionRestoreComplete={
+                djSession.session?.status === "active" &&
+                deckState.playlistId != null &&
+                deckState.playlist.length > 0
+              }
               tracksLoaded={deckState.playlist.length > 0}
               ownedPlaylists={ownedPlaylistsState.playlists}
               playlistsLoading={ownedPlaylistsState.loading}
@@ -2153,7 +2558,27 @@ export default function DjDeckPageClient() {
               playlistsStale={ownedPlaylistsState.stale}
               quotaBlockedUntil={ownedPlaylistsState.quotaBlockedUntil}
               onRefreshPlaylists={() => void ownedPlaylistsState.refresh()}
-              activeSocialPlaylistId={activeSocial?.spotifyPlaylistId ?? null}
+              onSyncFromSnapshot={
+                activeSocialPlaylistId &&
+                deckState.playlistId === activeSocialPlaylistId
+                  ? () => {
+                      if (isHostActiveDeckPlaying()) {
+                        showToast(
+                          "Pause playback to sync the playlist from snapshot."
+                        );
+                        return;
+                      }
+                      setSyncSnapshotLoading(true);
+                      void fetchAndMergeActiveSocialPlaylist(deckId).finally(
+                        () => setSyncSnapshotLoading(false)
+                      );
+                    }
+                  : undefined
+              }
+              syncFromSnapshotLoading={syncSnapshotLoading}
+              activeSocialPlaylistId={activeSocialPlaylistId}
+              musicUserToken={player.musicUserToken ?? null}
+              storefrontId={player.storefrontId ?? null}
             />
           ) : undefined
         }
@@ -2189,10 +2614,15 @@ export default function DjDeckPageClient() {
     pendingTakeover,
     audioUnlocked,
     playerReady: player.status === "ready",
-    spotifyConnected: Boolean(spotifyStatus?.connected),
-    needsDeckReconnect: Boolean(spotifyStatus?.needsDeckReconnect),
-    isPremium: spotifyStatus?.product === "premium",
+    spotifyConnected: Boolean(musicStatus?.connected),
+    needsDeckReconnect: Boolean(musicStatus?.needsDeckReconnect),
+    isPremium: musicStatus?.product === "premium",
     sessionLoading: djSession.loading,
+    useAppleMusic: appleDeck,
+    appleMusicConfigured: Boolean(musicStatus?.configured ?? true),
+    appleMusicAuthorized: Boolean(
+      player.isAuthorized ?? musicStatus?.hasMusicUserToken
+    ),
   });
 
   return (
@@ -2233,19 +2663,30 @@ export default function DjDeckPageClient() {
             )}
           </div>
           <div className="flex items-center gap-3 text-sm">
-            {spotifyStatus?.spotifyUserId && (
+            {appleDeck ? (
               <span className="text-neutral-500 text-xs">
-                {spotifyStatus.spotifyUserId}
-                {spotifyStatus.product === "premium" && (
-                  <span className="ml-2 text-emerald-400">Premium</span>
+                Apple Music
+                {player.isAuthorized ? (
+                  <span className="ml-2 text-emerald-400">Connected</span>
+                ) : (
+                  <span className="ml-2 text-amber-400">Not authorized</span>
                 )}
               </span>
+            ) : (
+              musicStatus?.spotifyUserId && (
+                <span className="text-neutral-500 text-xs">
+                  {musicStatus.spotifyUserId}
+                  {musicStatus.product === "premium" && (
+                    <span className="ml-2 text-emerald-400">Premium</span>
+                  )}
+                </span>
+              )
             )}
             <Link
-              href="/spotify"
+              href={musicAdminPath(provider)}
               className="text-amber-400 hover:text-amber-300 underline text-sm"
             >
-              ← Spotify admin
+              ← Music admin
             </Link>
           </div>
         </header>
@@ -2277,26 +2718,53 @@ export default function DjDeckPageClient() {
           </div>
         )}
 
-        {!spotifyStatus?.connected && (
+        {appleDeck && !musicStatus?.configured && (
+          <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
+            Apple Music developer credentials are not configured on the server.
+            See <code className="text-xs">docs/apple-music-setup.md</code>.
+          </div>
+        )}
+
+        {appleDeck &&
+          musicStatus?.configured &&
+          (player.status === "loading_sdk" || player.status === "connecting") && (
+            <div className="rounded-lg border border-neutral-700/50 bg-neutral-900/40 px-4 py-3 text-sm text-neutral-300">
+              Checking Apple Music…
+            </div>
+          )}
+
+        {appleDeck &&
+          musicStatus?.configured &&
+          player.status === "ready" &&
+          !player.isAuthorized && (
+            <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100 flex flex-wrap items-center gap-3">
+              <span>Connect an Apple Music subscription to play tracks in the deck.</span>
+              <button
+                type="button"
+                onClick={() => void connectMusic()}
+                className="px-3 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium"
+              >
+                Connect Apple Music
+              </button>
+            </div>
+          )}
+
+        {!appleDeck && !musicStatus?.connected && (
           <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
             Spotify is not connected.{" "}
-            <Link href="/spotify" className="underline">
+            <Link href={musicAdminPath(provider)} className="underline">
               Connect on /spotify
             </Link>{" "}
             first.
           </div>
         )}
 
-        {spotifyStatus?.needsDeckReconnect && (
+        {!appleDeck && musicStatus?.needsDeckReconnect && (
           <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100 flex flex-wrap items-center gap-3">
-            <span>
-              Reconnect Spotify to grant playback scopes (
-              <code className="text-xs">streaming</code>,{" "}
-              <code className="text-xs">user-modify-playback-state</code>).
-            </span>
+            <span>Reconnect Spotify to grant playback scopes.</span>
             <button
               type="button"
-              onClick={() => void connectSpotify()}
+              onClick={() => void connectMusic()}
               className="px-3 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium"
             >
               Reconnect Spotify
@@ -2304,18 +2772,28 @@ export default function DjDeckPageClient() {
           </div>
         )}
 
-        {spotifyStatus?.connected && spotifyStatus.product !== "premium" && (
+        {!appleDeck &&
+          musicStatus?.connected &&
+          musicStatus.product !== "premium" && (
           <div className="rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
             Spotify Premium is required for in-browser playback on the DJ deck.
           </div>
         )}
 
-        {player.notice && (
+        {player.notice &&
+          "error" in player.notice &&
+          player.notice.error && (
           <SpotifyPlayerNotice
-            notice={player.notice}
+            notice={player.notice as import("@/lib/spotify/useSpotifyPlayer").SpotifyPlayerNotice}
             onDismiss={player.dismissNotice}
             onAction={handlePlayerNoticeAction}
           />
+        )}
+
+        {player.notice && "message" in player.notice && (
+          <div className="rounded-lg border border-red-800/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
+            {(player.notice as { message: string }).message}
+          </div>
         )}
 
         {pageError && (
@@ -2334,9 +2812,24 @@ export default function DjDeckPageClient() {
 
         {player.status === "ready" && (
           <p className="hidden sm:block text-xs text-neutral-500">
-            Keep this tab active. Close Spotify on other devices if playback
-            stops.
+            Keep this tab active while hosting playback
+            {appleDeck ? "." : ". Close Spotify on other devices if playback stops."}
           </p>
+        )}
+
+        {appleDeck && (
+          <CatalogSearchPanel
+            deckId={state.activeDeck}
+            disabled={!playerReady}
+            musicUserToken={player.musicUserToken ?? null}
+            storefrontId={player.storefrontId ?? null}
+            onAddToQueue={(deck, track) => {
+              void runRemoteDeckAction(
+                { type: "ADD_TO_PLAY_QUEUE", deck, track },
+                () => applyAddToPlayQueue(deck, track)
+              );
+            }}
+          />
         )}
 
         {state.secondDeckEnabled ? (

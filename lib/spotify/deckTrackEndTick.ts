@@ -18,6 +18,8 @@ export type TrackEndTickInput = {
   sdkDurationMs: number;
   sdkIsPlaying: boolean;
   activeDeckTrackUri: string | null;
+  /** URI or ISRC alignment (Apple library vs catalog). */
+  playbackAligned?: boolean;
   handoffInProgress: boolean;
   wasPlayingActiveTrack: boolean;
   prevActivePositionMs: number;
@@ -149,6 +151,8 @@ export function evaluateTrackEndTick(
   const urisAligned =
     Boolean(input.sdkUri && activeDeckTrackUri) &&
     trackUrisMatch(input.sdkUri, activeDeckTrackUri);
+  const playbackAligned = input.playbackAligned === true;
+  const alignedForNearEnd = urisAligned || playbackAligned;
 
   const handoffEnabled =
     input.secondDeckEnabled && input.handoffToOtherDeckAfterSong;
@@ -159,8 +163,11 @@ export function evaluateTrackEndTick(
   let alignedPositionMs = input.prevActivePositionMs;
   let alignedEndDurationMs = 0;
 
-  if (urisAligned && input.sdkIsPlaying) {
-    const endDetectionUri = input.sdkUri ?? input.activeTrackUri;
+  if (alignedForNearEnd && input.sdkIsPlaying && activeDeckTrackUri) {
+    const endDetectionUri =
+      urisAligned && input.sdkUri
+        ? input.sdkUri
+        : activeDeckTrackUri;
     if (endDetectionUri) {
       let fallbackDurationMs = input.activeDurationMs;
       if (
@@ -178,12 +185,14 @@ export function evaluateTrackEndTick(
         endDetectionUri,
         fallbackDurationMs,
       });
-      alignedPositionMs = resolvePositionMsForEndDetection({
-        activeTrackUri: input.activeTrackUri,
-        sdkUri: input.sdkUri,
-        clockPositionMs: input.clockPositionMs,
-        sdkPositionMs: input.sdkPositionMs,
-      });
+      alignedPositionMs = playbackAligned && !urisAligned
+        ? input.clockPositionMs
+        : resolvePositionMsForEndDetection({
+            activeTrackUri: input.activeTrackUri,
+            sdkUri: input.sdkUri,
+            clockPositionMs: input.clockPositionMs,
+            sdkPositionMs: input.sdkPositionMs,
+          });
       if (alignedEndDurationMs > 0) {
         nearEndWhilePlaying =
           fadeMs > 0
@@ -220,10 +229,29 @@ export function evaluateTrackEndTick(
     }
   }
 
-  const positionForClear = urisAligned
+  if (
+    !endedNaturally &&
+    input.wasPlayingActiveTrack &&
+    !input.sdkIsPlaying &&
+    !input.sdkUri &&
+    activeDeckTrackUri &&
+    input.activeDurationMs > 0
+  ) {
+    naturalEndDurationMs = input.activeDurationMs;
+    naturalPositionMs = Math.max(
+      input.clockPositionMs,
+      input.prevActivePositionMs
+    );
+    endedNaturally =
+      naturalPositionMs >= naturalEndDurationMs - endThresholdMs ||
+      input.prevActivePositionMs >= naturalEndDurationMs - endThresholdMs;
+  }
+
+  const positionForClear = urisAligned || playbackAligned
     ? alignedPositionMs
     : naturalPositionMs;
-  const endForClear = urisAligned ? alignedEndDurationMs : naturalEndDurationMs;
+  const endForClear =
+    urisAligned || playbackAligned ? alignedEndDurationMs : naturalEndDurationMs;
   const clearTrackEndTriggered =
     endForClear > 0 &&
     positionForClear < endForClear - Math.max(endThresholdMs, 2000);
@@ -241,11 +269,12 @@ export function evaluateTrackEndTick(
   const shouldFire =
     (attemptHandoff || attemptAdvance) && !input.trackEndAlreadyTriggered;
 
-  const nextPrev = urisAligned
-    ? alignedPositionMs
-    : input.sdkIsPlaying
-      ? naturalPositionMs
-      : naturalPositionMs;
+  const nextPrev =
+    urisAligned || playbackAligned
+      ? alignedPositionMs
+      : input.sdkIsPlaying
+        ? naturalPositionMs
+        : naturalPositionMs;
 
   return {
     nextWasPlayingActiveTrack: input.sdkIsPlaying,

@@ -34,6 +34,31 @@ describe("resumeHostFromSnapshot", () => {
     expect(primeTrack).not.toHaveBeenCalled();
   });
 
+  it("plays when preferPlaying and positionMs > 0 despite isPlaying false", async () => {
+    const playUri = vi.fn().mockResolvedValue(undefined);
+    const dispatch = vi.fn();
+
+    await resumeHostFromSnapshot({
+      snapshot: {
+        ...createEmptyPlaybackSnapshot("A"),
+        isPlaying: false,
+        positionMs: 45000,
+        currentTrackUri: "spotify:track:abc",
+      },
+      deckState: INITIAL_DJ_DECK_STATE,
+      player: {
+        playUri,
+        primeTrack: vi.fn(),
+        seek: vi.fn(),
+      },
+      dispatch,
+      syncClock: { syncFromSdk: vi.fn() },
+      preferPlaying: true,
+    });
+
+    expect(playUri).toHaveBeenCalledWith("spotify:track:abc", 45000);
+  });
+
   it("resumes paused snapshot with prime and seek", async () => {
     const playUri = vi.fn();
     const primeTrack = vi.fn().mockResolvedValue(undefined);

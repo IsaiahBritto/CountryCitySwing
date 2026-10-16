@@ -11,6 +11,7 @@ import EventCarousel from "@/components/EventCarousel";
 import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
 import CompsHubBanner from "@/components/CompsHubBanner";
+import MusicAdminHomeLink from "@/components/MusicAdminHomeLink";
 import EventFormModal from "@/components/EventFormModal";
 import TheSocialLinksEditorModal from "@/components/TheSocialLinksEditorModal";
 import EventsListSkeleton from "@/components/EventsListSkeleton";
@@ -289,6 +290,7 @@ export default function Home() {
                 onEditEvent={handleEditEvent}
               />
               <CompsHubBanner />
+              {isAdmin && <MusicAdminHomeLink className="mt-3" />}
               <EventCarousel 
                 events={upcomingEvents} 
                 isAdmin={isAdmin}
@@ -302,7 +304,8 @@ export default function Home() {
         {/* --- List View (upcoming only, with modal trigger) --- */}
         {!loading && view === "list" && upcomingEvents.length > 0 && (
           <>
-          <CompsHubBanner className="mb-6" />
+          <CompsHubBanner className="mb-3" />
+          {isAdmin && <MusicAdminHomeLink className="mb-6" />}
           <div className="max-w-3xl mx-auto text-left bg-neutral-800 rounded-lg shadow-[0_0_20px_rgba(187,134,252,0.4)] divide-y divide-neutral-700">
             {upcomingEvents.map((event) => (
               <div key={event.id} className="p-5 hover:bg-neutral-700/40">

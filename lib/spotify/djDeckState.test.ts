@@ -17,6 +17,8 @@ import {
   serializeDjDeckState,
   shuffleArray,
   shufflePlaylistKeepingCurrent,
+  shouldShowHandoffToOtherDeckAfterSong,
+  isQueueDerivedHandoffToOtherDeck,
 } from "@/lib/spotify/djDeckState";
 
 const track = (i: number) => ({
@@ -603,6 +605,25 @@ describe("shuffle", () => {
     expect(roundTripped.deckA.handoffToOtherDeckAfterSong).toBe(true);
   });
 
+  it("ADVANCE_TRACK then clear handoff updates finishing deck UI state", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+      deck: "A",
+      enabled: true,
+    });
+    state = djDeckReducer(state, { type: "ADVANCE_TRACK", deck: "A" });
+    state = djDeckReducer(state, {
+      type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+      deck: "A",
+      enabled: false,
+    });
+    expect(state.deckA.handoffToOtherDeckAfterSong).toBe(false);
+    expect(state.deckA.track?.id).toBe("id-1");
+    expect(state.deckA.playlistIndex).toBe(1);
+    expect(state.deckA.playedPlaylistIndices).toContain(0);
+  });
+
   it("serialize and deserialize preserve shuffle fields", () => {
     let state = withPlaylist();
     state = djDeckReducer(state, {
@@ -680,5 +701,90 @@ describe("crossfade helpers", () => {
     const roundTripped = deserializeDjDeckState(serializeDjDeckState(state));
     expect(roundTripped.deckA.playlist[0]?.id).toBe("id-0");
     expect(roundTripped.deckA.track?.uri).toBe("spotify:track:id-0");
+  });
+});
+
+describe("shouldShowHandoffToOtherDeckAfterSong", () => {
+  function withQueueOnAPlayingLast(continueDeck: "A" | "B") {
+    let state = withPlaylist();
+    state = djDeckReducer(state, { type: "ENABLE_SECOND_DECK" });
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(10),
+    });
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(11),
+    });
+    state = djDeckReducer(state, {
+      type: "SET_AFTER_QUEUE_CONTINUE_DECK",
+      deck: "A",
+      targetDeck: continueDeck,
+    });
+    state = djDeckReducer(state, {
+      type: "SET_PLAY_QUEUE_INDEX",
+      deck: "A",
+      index: 0,
+    });
+    state = djDeckReducer(state, {
+      type: "SET_PLAY_QUEUE_INDEX",
+      deck: "A",
+      index: 0,
+    });
+    return state;
+  }
+
+  function withQueueOnAPlayingFirst(continueDeck: "A" | "B") {
+    let state = withPlaylist();
+    state = djDeckReducer(state, { type: "ENABLE_SECOND_DECK" });
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(10),
+    });
+    state = djDeckReducer(state, {
+      type: "ADD_TO_PLAY_QUEUE",
+      deck: "A",
+      track: track(11),
+    });
+    state = djDeckReducer(state, {
+      type: "SET_AFTER_QUEUE_CONTINUE_DECK",
+      deck: "A",
+      targetDeck: continueDeck,
+    });
+    state = djDeckReducer(state, {
+      type: "SET_PLAY_QUEUE_INDEX",
+      deck: "A",
+      index: 0,
+    });
+    return state;
+  }
+
+  it("shows when manual handoff flag is set", () => {
+    let state = withPlaylist();
+    state = djDeckReducer(state, {
+      type: "SET_HANDOFF_TO_OTHER_DECK_AFTER_SONG",
+      deck: "A",
+      enabled: true,
+    });
+    expect(shouldShowHandoffToOtherDeckAfterSong(state, "A")).toBe(true);
+  });
+
+  it("shows on last queue track when continue targets other deck", () => {
+    const state = withQueueOnAPlayingLast("B");
+    expect(isQueueDerivedHandoffToOtherDeck(state, "A")).toBe(true);
+    expect(shouldShowHandoffToOtherDeckAfterSong(state, "A")).toBe(true);
+  });
+
+  it("hidden mid-queue", () => {
+    const state = withQueueOnAPlayingFirst("B");
+    expect(shouldShowHandoffToOtherDeckAfterSong(state, "A")).toBe(false);
+  });
+
+  it("hidden when continue targets same deck", () => {
+    const state = withQueueOnAPlayingLast("A");
+    expect(shouldShowHandoffToOtherDeckAfterSong(state, "A")).toBe(false);
   });
 });

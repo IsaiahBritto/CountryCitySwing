@@ -96,10 +96,13 @@ export async function listLibraryPlaylists(input: {
   let nextPath: string | null = `/v1/me/library/playlists?limit=${limit}`;
 
   while (nextPath) {
-    const page = await appleMusicApiFetch<PlaylistsResponse>(nextPath, {
-      developerToken: input.developerToken,
-      musicUserToken: input.musicUserToken,
-    });
+    const page: PlaylistsResponse = await appleMusicApiFetch<PlaylistsResponse>(
+      nextPath,
+      {
+        developerToken: input.developerToken,
+        musicUserToken: input.musicUserToken,
+      }
+    );
     out.push(...mapLibraryPlaylistRows(page.data));
     nextPath = page.next ? resolveAppleMusicNextPath(page.next) : null;
   }

@@ -4,6 +4,7 @@ import {
   getActivePlaylistStatus,
   loadSnapshotTracks,
   snapshotRowTrackId,
+  type ActivePlaylistStatus,
   type SocialPlaylistTrackRow,
 } from "@/lib/spotify/activePlaylist";
 import { tryGetSpotifyAccessTokenForMasters } from "@/lib/spotify/masterServiceAccess";

@@ -686,7 +686,8 @@ export default function DjDeckPageClient() {
   }, [player.musicUserToken, player.storefrontId]);
 
   useEffect(() => {
-    if (!appleDeck || !player.isAuthorized || !player.musicUserToken) return;
+    if (!appleDeck) return;
+    if (!player.isAuthorized && !player.musicUserToken) return;
     void loadMusicStatus().catch(() => {
       /* refresh admin status when MusicKit exposes user token */
     });
@@ -839,8 +840,17 @@ export default function DjDeckPageClient() {
     }
     setConnectingAudio(true);
     try {
-      await player.connect();
+      if (appleDeck) {
+        await player.reconnect();
+      } else {
+        await player.connect();
+      }
       setAudioUnlocked(true);
+      if (appleDeck) {
+        await loadMusicStatus().catch(() => {
+          /* status refresh after MusicKit authorize */
+        });
+      }
       await attemptHostResume({ ignoreAudioGate: true });
     } catch (err) {
       showPlayerError(err, "Failed to connect player");
@@ -2666,7 +2676,9 @@ export default function DjDeckPageClient() {
             {appleDeck ? (
               <span className="text-neutral-500 text-xs">
                 Apple Music
-                {player.isAuthorized ? (
+                {player.isAuthorized ||
+                musicStatus?.hasMusicUserToken ||
+                musicStatus?.connected ? (
                   <span className="ml-2 text-emerald-400">Connected</span>
                 ) : (
                   <span className="ml-2 text-amber-400">Not authorized</span>
@@ -2736,7 +2748,9 @@ export default function DjDeckPageClient() {
         {appleDeck &&
           musicStatus?.configured &&
           player.status === "ready" &&
-          !player.isAuthorized && (
+          !player.isAuthorized &&
+          !musicStatus?.hasMusicUserToken &&
+          !musicStatus?.connected && (
             <div className="rounded-lg border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100 flex flex-wrap items-center gap-3">
               <span>Connect an Apple Music subscription to play tracks in the deck.</span>
               <button

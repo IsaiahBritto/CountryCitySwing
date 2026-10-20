@@ -10,6 +10,8 @@ import {
   isClassScheduleOpen,
   syncDueClassSchedules,
 } from "@/lib/classScheduleSlotsServer";
+import { isValidDateOnly } from "@/lib/schedule/eventDateRange";
+import { fetchEventsForChicagoDateRange } from "@/lib/schedule/scheduleEventsServer";
 
 export const SCHEDULE_POSITIONS = [
   "Beginner Lead Teacher Week A",
@@ -72,8 +74,30 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const eventId = searchParams.get("event_id");
-    const fromDate = searchParams.get("from");
-    const toDate = searchParams.get("to");
+    const fromDate = searchParams.get("from")?.trim() ?? "";
+    const toDate = searchParams.get("to")?.trim() ?? "";
+
+    if ((fromDate || toDate) && eventId) {
+      return NextResponse.json(
+        { error: "Use either event_id or from/to, not both" },
+        { status: 400 }
+      );
+    }
+
+    if (fromDate || toDate) {
+      if (
+        !fromDate ||
+        !toDate ||
+        !isValidDateOnly(fromDate) ||
+        !isValidDateOnly(toDate) ||
+        fromDate > toDate
+      ) {
+        return NextResponse.json(
+          { error: "Invalid from/to date range (expected YYYY-MM-DD)" },
+          { status: 400 }
+        );
+      }
+    }
 
     // Embed events in one query (team_slots.event_id -> events.id). Assignees still fetched separately (assignee_id -> auth.users, not profiles).
     let query = supabaseServer
@@ -82,7 +106,16 @@ export async function GET(req: NextRequest) {
         "id, position, event_id, assignee_id, assigned_at, created_at, updated_at, slot_starts_at, slot_ends_at, event:events(id, title, starts_at, ends_at, location, type, time_zone, schedule_opens_at, class_week_override)"
       );
 
-    if (eventId) query = query.eq("event_id", eventId);
+    if (eventId) {
+      query = query.eq("event_id", eventId);
+    } else if (fromDate && toDate) {
+      const rangeEvents = await fetchEventsForChicagoDateRange(fromDate, toDate);
+      const eventIds = rangeEvents.map((e) => String(e.id));
+      if (eventIds.length === 0) {
+        return NextResponse.json({ slots: [] });
+      }
+      query = query.in("event_id", eventIds);
+    }
 
     const { data: slotList, error } = await query.order("created_at", { ascending: true });
 
@@ -111,17 +144,6 @@ export async function GET(req: NextRequest) {
       if (isClassScheduleOpen(s.event)) return true;
       return viewerIsAdmin;
     });
-
-    if (fromDate || toDate) {
-      result = result.filter((s: any) => {
-        const startsAt = s.event?.starts_at;
-        if (!startsAt) return false;
-        const d = startsAt.slice(0, 10);
-        if (fromDate && d < fromDate) return false;
-        if (toDate && d > toDate) return false;
-        return true;
-      });
-    }
 
     const byEvent = new Map<string, typeof result>();
     for (const slot of result) {

@@ -1,8 +1,11 @@
 "use client";
 
 import "./teamMemberPage.css";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import dayjs, { type Dayjs } from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import ScheduleCalendar, { type ScheduleSlot } from "@/components/ScheduleCalendar";
 import TeamExpectationsSection from "@/components/team/TeamExpectationsSection";
@@ -11,7 +14,12 @@ import {
   instructorVideos,
   representEachOtherWell,
 } from "@/lib/team/teamMemberResources";
+import { monthBoundsInChicago } from "@/lib/schedule/eventDateRange";
+import { DEFAULT_TIME_ZONE, getTodayStringInChicago } from "@/lib/utils/dateHelpers";
 import { XMarkIcon } from "@heroicons/react/24/solid";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 const POSITIONS = [
   "Beginner Lead Teacher Week A",
@@ -47,12 +55,48 @@ interface InstructorOption {
   role?: string;
 }
 
+function initialViewMonth(): Dayjs {
+  return dayjs.tz(getTodayStringInChicago(), DEFAULT_TIME_ZONE).startOf("month");
+}
+
+function hydrateSlots(
+  rawSlots: ScheduleSlot[],
+  eventList: EventOption[]
+): ScheduleSlot[] {
+  const eventsById = new Map(eventList.map((ev) => [String(ev.id), ev]));
+  return rawSlots.map((slot) => {
+    const ev = eventsById.get(String(slot.event_id));
+    return {
+      ...slot,
+      event:
+        slot.event ??
+        (ev
+          ? {
+              id: String(ev.id),
+              title: ev.title,
+              starts_at: ev.starts_at,
+              ends_at: ev.ends_at ?? null,
+              location: ev.location,
+              type: ev.type,
+              time_zone: ev.time_zone ?? null,
+              schedule_opens_at: ev.schedule_opens_at ?? null,
+              class_week_override: ev.class_week_override ?? null,
+            }
+          : null),
+    };
+  });
+}
+
 export default function SchedulePage() {
   const router = useRouter();
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
   const [events, setEvents] = useState<EventOption[]>([]);
+  const [addSlotEvents, setAddSlotEvents] = useState<EventOption[]>([]);
   const [instructors, setInstructors] = useState<InstructorOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [monthLoading, setMonthLoading] = useState(false);
+  const [viewMonth, setViewMonth] = useState(initialViewMonth);
+  const monthRangeRef = useRef({ from: "", to: "" });
   const [role, setRole] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [showAddSlot, setShowAddSlot] = useState(false);
@@ -74,64 +118,84 @@ export default function SchedulePage() {
     };
   }, []);
 
-  const loadData = useCallback(async () => {
+  const loadInstructors = useCallback(async () => {
     const headers = await getAuthHeaders();
-    const eventsRes = await fetch("/api/schedule/events", { headers });
-    const [slotsRes, instructorsRes] = await Promise.all([
-      fetch("/api/schedule/slots", { headers }),
-      fetch("/api/schedule/instructors", { headers }),
-    ]);
-
-    if (eventsRes.status === 403 || eventsRes.status === 401) {
-      setRole(null);
-      setSlots([]);
-      setEvents([]);
-      setInstructors([]);
-      setLoading(false);
-      return;
+    const instructorsRes = await fetch("/api/schedule/instructors", { headers });
+    if (instructorsRes.ok) {
+      const instructorsData = await instructorsRes.json();
+      setInstructors(instructorsData.instructors || []);
     }
-
-    if (!eventsRes.ok || !slotsRes.ok) {
-      setError("Failed to load schedule");
-      setLoading(false);
-      return;
-    }
-
-    const eventsData = await eventsRes.json();
-    const slotsData = await slotsRes.json();
-    const instructorsData = instructorsRes.ok ? await instructorsRes.json() : { instructors: [] };
-
-    const eventList: EventOption[] = eventsData.events || [];
-    const eventsById = new Map(eventList.map((ev) => [String(ev.id), ev]));
-    const rawSlots: ScheduleSlot[] = slotsData.slots || [];
-    const hydratedSlots = rawSlots.map((slot) => {
-      const ev = eventsById.get(String(slot.event_id));
-      return {
-        ...slot,
-        event:
-          slot.event ??
-          (ev
-            ? {
-                id: String(ev.id),
-                title: ev.title,
-                starts_at: ev.starts_at,
-                ends_at: ev.ends_at ?? null,
-                location: ev.location,
-                type: ev.type,
-                time_zone: ev.time_zone ?? null,
-                schedule_opens_at: ev.schedule_opens_at ?? null,
-                class_week_override: ev.class_week_override ?? null,
-              }
-            : null),
-      };
-    });
-
-    setEvents(eventList);
-    setSlots(hydratedSlots);
-    setInstructors(instructorsData.instructors || []);
-    setError(null);
-    setLoading(false);
   }, [getAuthHeaders]);
+
+  const loadUpcomingEvents = useCallback(async () => {
+    const headers = await getAuthHeaders();
+    const eventsRes = await fetch("/api/schedule/events?scope=upcoming", {
+      headers,
+    });
+    if (eventsRes.ok) {
+      const eventsData = await eventsRes.json();
+      setAddSlotEvents(eventsData.events || []);
+    }
+  }, [getAuthHeaders]);
+
+  const loadMonth = useCallback(
+    async (from: string, to: string) => {
+      monthRangeRef.current = { from, to };
+      setMonthLoading(true);
+      try {
+        const headers = await getAuthHeaders();
+        const query = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+        const [eventsRes, slotsRes] = await Promise.all([
+          fetch(`/api/schedule/events?${query}`, { headers }),
+          fetch(`/api/schedule/slots?${query}`, { headers }),
+        ]);
+
+        if (eventsRes.status === 403 || eventsRes.status === 401) {
+          setRole(null);
+          setSlots([]);
+          setEvents([]);
+          return;
+        }
+
+        if (!eventsRes.ok || !slotsRes.ok) {
+          setError("Failed to load schedule");
+          return;
+        }
+
+        const eventsData = await eventsRes.json();
+        const slotsData = await slotsRes.json();
+        const eventList: EventOption[] = eventsData.events || [];
+        const rawSlots: ScheduleSlot[] = slotsData.slots || [];
+
+        setEvents(eventList);
+        setSlots(hydrateSlots(rawSlots, eventList));
+        setError(null);
+      } finally {
+        setMonthLoading(false);
+      }
+    },
+    [getAuthHeaders]
+  );
+
+  const refreshCurrentMonth = useCallback(async () => {
+    const { from, to } = monthRangeRef.current;
+    if (from && to) {
+      await loadMonth(from, to);
+      return;
+    }
+    const bounds = monthBoundsInChicago(viewMonth.format("YYYY-MM-DD"));
+    await loadMonth(bounds.from, bounds.to);
+  }, [loadMonth, viewMonth]);
+
+  const handleMonthChange = useCallback(
+    (next: Dayjs) => {
+      const monthStart = next.startOf("month");
+      setViewMonth(monthStart);
+      const { from, to } = monthBoundsInChicago(monthStart.format("YYYY-MM-DD"));
+      void loadMonth(from, to);
+    },
+    [loadMonth]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -156,7 +220,8 @@ export default function SchedulePage() {
         const data = await res.json();
         const roleLower = (data.profile?.role || "").toLowerCase();
         const isAdmin = roleLower === "admin";
-        const isInstructor = roleLower === "instructor" || roleLower.includes("instructor");
+        const isInstructor =
+          roleLower === "instructor" || roleLower.includes("instructor");
         if (!isAdmin && !isInstructor) {
           setRole(null);
           setLoading(false);
@@ -164,7 +229,14 @@ export default function SchedulePage() {
         }
         setRole(isAdmin ? "admin" : "instructor");
         if (!cancelled) {
-          await loadData();
+          const bounds = monthBoundsInChicago(
+            initialViewMonth().format("YYYY-MM-DD")
+          );
+          await Promise.all([
+            loadMonth(bounds.from, bounds.to),
+            loadInstructors(),
+            isAdmin ? loadUpcomingEvents() : Promise.resolve(),
+          ]);
           if (isAdmin) {
             try {
               const cfgRes = await fetch("/api/schedule/rotation-config", {
@@ -181,6 +253,7 @@ export default function SchedulePage() {
             }
             setRotationLoaded(true);
           }
+          setLoading(false);
         }
       } catch {
         setRole(null);
@@ -192,7 +265,7 @@ export default function SchedulePage() {
     return () => {
       cancelled = true;
     };
-  }, [router, loadData]);
+  }, [router, loadMonth, loadInstructors, loadUpcomingEvents]);
 
   const handleSaveRotationConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,8 +302,7 @@ export default function SchedulePage() {
         alert(data.error || "Failed to add slot");
         return;
       }
-      await loadData();
-      // Keep modal open with same event selected so admin can add more positions
+      await refreshCurrentMonth();
       setAddPosition(POSITIONS[0]);
     } finally {
       setAdding(false);
@@ -352,9 +424,12 @@ export default function SchedulePage() {
         currentUserId={userId}
         isAdmin={role === "admin"}
         instructors={instructors}
-        onRefresh={loadData}
+        onRefresh={() => void refreshCurrentMonth()}
         getAuthHeaders={getAuthHeaders}
         variant="team"
+        currentMonth={viewMonth}
+        onMonthChange={handleMonthChange}
+        monthLoading={monthLoading}
       />
 
       <div className="mt-16 space-y-16 text-left">
@@ -397,7 +472,7 @@ export default function SchedulePage() {
                   required
                 >
                   <option value="">Select an event</option>
-                  {events.map((ev) => (
+                  {(addSlotEvents.length > 0 ? addSlotEvents : events).map((ev) => (
                     <option key={ev.id} value={ev.id}>
                       {ev.title}
                       {ev.type ? ` (${ev.type})` : ""} –{" "}

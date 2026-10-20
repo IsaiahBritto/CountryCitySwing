@@ -130,9 +130,11 @@ export function useMusicKitPlayer(
     setPlayback(snapshot);
     wasPlayingRef.current = snapshot.isPlaying;
     setVolumeState(music.volume);
-    setIsAuthorized(music.isAuthorized);
-    setMusicUserToken(music.musicUserToken || null);
-    setStorefrontId(music.storefrontId || null);
+    setIsAuthorized(
+      Boolean(music.isAuthorized && music.musicUserToken?.trim())
+    );
+    setMusicUserToken(music.musicUserToken?.trim() || null);
+    setStorefrontId(music.storefrontId?.trim() || null);
   }, [isController]);
 
   const handlePlaybackStateDidChange = useCallback(() => {
@@ -172,9 +174,11 @@ export function useMusicKitPlayer(
       }
     };
     const onItemChange = () => syncFromMusic();
+    const onAuthChange = () => syncFromMusic();
     music.addEventListener("playbackStateDidChange", handlePlaybackStateDidChange);
     music.addEventListener("mediaItemDidChange", onItemChange);
     music.addEventListener("playbackTimeDidChange", onTimeChange);
+    music.addEventListener("authorizationStatusDidChange", onAuthChange);
 
     return () => {
       music.removeEventListener(
@@ -183,6 +187,7 @@ export function useMusicKitPlayer(
       );
       music.removeEventListener("mediaItemDidChange", onItemChange);
       music.removeEventListener("playbackTimeDidChange", onTimeChange);
+      music.removeEventListener("authorizationStatusDidChange", onAuthChange);
     };
   }, [enabled, handlePlaybackStateDidChange, isController, syncFromMusic, status]);
 
@@ -289,6 +294,10 @@ export function useMusicKitPlayer(
     async (uri: string) => {
       if (isController) return;
       const music = musicRef.current ?? (await ensureMusicKit());
+      if (!music.isAuthorized) {
+        await music.authorize();
+        syncFromMusic();
+      }
       const songId = uriToSongId(uri);
       await music.setQueue({ song: songId, startWith: 0 });
       syncFromMusic();

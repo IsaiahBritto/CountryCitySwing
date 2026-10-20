@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import dayjs from "dayjs";
+import dayjs, { type Dayjs } from "dayjs";
 import weekday from "dayjs/plugin/weekday";
 import isoWeek from "dayjs/plugin/isoWeek";
 import advancedFormat from "dayjs/plugin/advancedFormat";
@@ -84,6 +84,10 @@ interface ScheduleCalendarProps {
   getAuthHeaders: () => Promise<HeadersInit>;
   /** Team schedule uses olive surface (distinct from public events calendar). */
   variant?: "public" | "team";
+  /** Controlled calendar month (team schedule refetches by month). */
+  currentMonth?: Dayjs;
+  onMonthChange?: (month: Dayjs) => void;
+  monthLoading?: boolean;
 }
 
 const today = getTodayStringInChicago();
@@ -97,12 +101,21 @@ export default function ScheduleCalendar({
   onRefresh,
   getAuthHeaders,
   variant = "public",
+  currentMonth: currentMonthProp,
+  onMonthChange,
+  monthLoading = false,
 }: ScheduleCalendarProps) {
   const isTeamVariant = variant === "team";
   const calendarShellClass = isTeamVariant
     ? "bg-surface-team text-neutral-100 rounded-xl p-6 shadow-lg max-w-3xl mx-auto border border-primary/10"
     : "bg-neutral-800 text-neutral-100 rounded-lg p-6 shadow-lg max-w-3xl mx-auto";
-  const [currentMonth, setCurrentMonth] = useState(dayjs());
+  const [internalMonth, setInternalMonth] = useState(dayjs());
+  const currentMonth = currentMonthProp ?? internalMonth;
+
+  const applyMonthChange = (next: Dayjs) => {
+    if (onMonthChange) onMonthChange(next);
+    else setInternalMonth(next);
+  };
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [daySlots, setDaySlots] = useState<ScheduleSlot[]>([]);
   const [showDayModal, setShowDayModal] = useState(false);
@@ -134,8 +147,8 @@ export default function ScheduleCalendar({
     weeks.push(week);
   }
 
-  const nextMonth = () => setCurrentMonth(currentMonth.add(1, "month"));
-  const prevMonth = () => setCurrentMonth(currentMonth.subtract(1, "month"));
+  const nextMonth = () => applyMonthChange(currentMonth.add(1, "month"));
+  const prevMonth = () => applyMonthChange(currentMonth.subtract(1, "month"));
 
   const getScheduleEventsForDay = (day: number): ScheduleEventOption[] => {
     const dateStr = currentMonth.date(day).format("YYYY-MM-DD");
@@ -363,7 +376,15 @@ export default function ScheduleCalendar({
 
   return (
     <>
-      <div className={calendarShellClass} data-calendar-variant={variant}>
+      <div className={`relative ${calendarShellClass}`} data-calendar-variant={variant}>
+        {monthLoading && (
+          <div
+            className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-neutral-950/50 text-sm text-neutral-200"
+            aria-live="polite"
+          >
+            Loading month…
+          </div>
+        )}
         <div className="flex justify-between items-center mb-4">
           <button
             type="button"

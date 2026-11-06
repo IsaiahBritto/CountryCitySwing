@@ -3,7 +3,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
-import { supabase } from "@/lib/supabaseClient";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import Calendar from "@/components/Calendar";
 import WorkshopSpotlight from "@/components/WorkshopSpotlight";
@@ -105,24 +104,18 @@ export default function Home() {
   }, []);
 
   const loadEvents = async () => {
-    const { data, error } = await supabase
-      .from("events")
-      .select(
-        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,strictly_level,jnj_level,type,refund_statement,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity,schedule_opens_at,class_week_override"
-      )
-      .order("starts_at", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      setEvents([]);
-    } else {
-      // Normalize snake_case to camelCase for frontend components
-      const normalizedEvents = (data || []).map((event: any) => ({
+    try {
+      const res = await fetch("/api/events");
+      const json = res.ok ? await res.json() : { events: [] };
+      const normalizedEvents = (json.events || []).map((event: any) => ({
         ...event,
         signupLink: event.signup_link || event.signupLink || "",
         time: undefined,
       }));
       setEvents(normalizedEvents);
+    } catch (err) {
+      console.error("Error loading events:", err);
+      setEvents([]);
     }
     setLoading(false);
   };
@@ -297,6 +290,14 @@ export default function Home() {
                 isInstructor={isInstructor}
                 onEditEvent={handleEditEvent}
               />
+              <div className="mt-6 flex justify-center">
+                <Link
+                  href="/non-ccs-events"
+                  className="btn-signup px-6 py-2.5 text-sm font-semibold"
+                >
+                  Non-CCS Events
+                </Link>
+              </div>
             </section>
           </div>
         )}
@@ -370,6 +371,14 @@ export default function Home() {
                 </div>
               </div>
             ))}
+          </div>
+          <div className="mt-6 flex justify-center">
+            <Link
+              href="/non-ccs-events"
+              className="btn-signup px-6 py-2.5 text-sm font-semibold"
+            >
+              Non-CCS Events
+            </Link>
           </div>
           </>
         )}

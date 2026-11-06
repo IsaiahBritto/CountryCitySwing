@@ -8,7 +8,7 @@ import {
   RoundDataError,
 } from "@/lib/comps/roundData";
 import { sortRoundEntriesByBib } from "@/lib/comps/entrySort";
-import { isJnJFinalsPrePairing } from "@/lib/comps/finalsPairing";
+import { isFixedCouplePrePairingRound } from "@/lib/comps/finalsPairing";
 import {
   isFollowCheckinEntry,
   isLeadCheckinEntry,
@@ -83,13 +83,14 @@ export async function GET(
       try {
         await repairPromotedAlternateRoles(round.id);
         const ctx = await loadRoundContext(round.id);
-        const prePairing =
-          comp.comp_type === "jack_and_jill" &&
-          isJnJFinalsPrePairing({
+        const prePairing = isFixedCouplePrePairingRound(
+          comp.comp_type as "jack_and_jill" | "strictly" | "all_american",
+          {
             round_type: round.round_type,
             judged_role: round.judged_role,
             pairings_confirmed_at: round.pairings_confirmed_at,
-          });
+          }
+        );
 
         const sorted = sortRoundEntriesByBib(
           ctx.roundEntries.map((re) => ({
@@ -101,7 +102,7 @@ export async function GET(
             scratched: re.scratched,
             promoted_alternate: re.promoted_alternate,
             entry: re.entry,
-            display: entryDisplay(re),
+            display: entryDisplay(re, { competition: ctx.competition }),
           }))
         );
 

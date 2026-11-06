@@ -33,12 +33,14 @@ interface DetailResponse {
 export default function EventRegistrantEditDialog({
   eventId,
   person,
+  isCommunityEvent = false,
   open,
   onClose,
   onSaved,
 }: {
   eventId: string;
   person: EventRegistrantPerson | null;
+  isCommunityEvent?: boolean;
   open: boolean;
   onClose: () => void;
   onSaved: (roster: EventRegistrantPerson[]) => void;
@@ -60,6 +62,7 @@ export default function EventRegistrantEditDialog({
   const [refreshPublishedNames, setRefreshPublishedNames] = useState(false);
   const [confirmSwapOpen, setConfirmSwapOpen] = useState(false);
   const [pendingStrictlySwap, setPendingStrictlySwap] = useState(false);
+  const [markingPaid, setMarkingPaid] = useState(false);
 
   const limited = detail?.overallTier === "limited";
 
@@ -158,6 +161,31 @@ export default function EventRegistrantEditDialog({
     void save(false);
   };
 
+  const markPaid = async () => {
+    if (!person?.compSignupId || person.paid) return;
+    setMarkingPaid(true);
+    setError(null);
+    const res = await authedFetch(
+      `/api/admin/comps/events/${eventId}/registrants`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          personKey: person.personKey,
+          compSignupId: person.compSignupId,
+          markPaid: true,
+        }),
+      }
+    );
+    setMarkingPaid(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    const data = await res.json();
+    onSaved((data.roster ?? []) as EventRegistrantPerson[]);
+    onClose();
+  };
+
   if (!open || !person) return null;
 
   return (
@@ -236,6 +264,38 @@ export default function EventRegistrantEditDialog({
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
+
+              {isCommunityEvent && person.compSignupId && (
+                <div className="rounded-md border border-neutral-600 bg-neutral-800/50 px-3 py-3">
+                  <p className="text-xs font-medium uppercase text-neutral-500">
+                    Organizer payment
+                  </p>
+                  {person.paid ? (
+                    <p className="mt-1 text-sm text-green-400">
+                      Marked paid
+                      {person.selectedPaymentMethodLabel
+                        ? ` — ${person.selectedPaymentMethodLabel}`
+                        : ""}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mt-1 text-sm text-neutral-300">
+                        {person.selectedPaymentMethodLabel
+                          ? `Method selected: ${person.selectedPaymentMethodLabel}`
+                          : "Not marked paid yet."}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={markingPaid}
+                        onClick={() => void markPaid()}
+                        className={`${compBtnOutline} mt-3`}
+                      >
+                        {markingPaid ? "Saving…" : "Mark paid"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
 
               <div>
                 <p className="mb-2 text-xs font-medium uppercase text-neutral-500">

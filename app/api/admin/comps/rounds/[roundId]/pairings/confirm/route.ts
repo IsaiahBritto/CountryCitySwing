@@ -1,37 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authRoundManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
-import { resolveFinalsPairs } from "@/lib/comps/finalsPairing";
+import { isFixedCouplePrePairingRound, resolveFinalsPairs } from "@/lib/comps/finalsPairing";
 import {
   activeRoundEntries,
   entryDisplay,
   loadRoundContext,
   RoundDataError,
 } from "@/lib/comps/roundData";
+import { effectiveCheckinRole } from "@/lib/comps/checkinRole";
+import type { CompType } from "@/lib/comps/types";
 
 /**
  * POST: confirm rotation or manual pairings — creates couple entries and replaces
- * individual lead/follow round entries with couple rows (bib order by lead).
+ * individual lead/follow round entries with couple rows (dance order by lead, then follow).
  */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ roundId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { roundId } = await params;
+  const auth = await authRoundManage(req, roundId);
+  if (!auth.ok) return auth.response;
 
   try {
     const ctx = await loadRoundContext(roundId);
     const { round, competition } = ctx;
+    const compType = competition.comp_type as CompType;
 
     if (
-      competition.comp_type !== "jack_and_jill" ||
-      round.round_type !== "final" ||
+      !isFixedCouplePrePairingRound(compType, {
+        round_type: round.round_type,
+        judged_role: round.judged_role,
+        pairings_confirmed_at: round.pairings_confirmed_at,
+      }) ||
       round.pairings_confirmed_at
     ) {
       return NextResponse.json(
-        { error: "Can only confirm pairings for unconfirmed JnJ finals" },
+        { error: "Can only confirm pairings for the designated pre-pairing round" },
         { status: 409 }
       );
     }
@@ -57,15 +63,15 @@ export async function POST(
     }
 
     const active = activeRoundEntries(ctx);
-    const leadRows = active.filter((re) => re.checkin_role === "lead");
-    const followRows = active.filter((re) => re.checkin_role === "follow");
+    const leadRows = active.filter((re) => effectiveCheckinRole(re) === "lead");
+    const followRows = active.filter((re) => effectiveCheckinRole(re) === "follow");
     if (leadRows.length === 0 || followRows.length === 0) {
       return NextResponse.json(
         { error: "Need checked-in leads and follows to confirm pairings" },
         { status: 409 }
       );
     }
-    if (leadRows.length !== followRows.length) {
+    if (compType !== "all_american" && leadRows.length !== followRows.length) {
       return NextResponse.json(
         { error: "Checked-in lead and follow counts must match" },
         { status: 409 }
@@ -76,7 +82,8 @@ export async function POST(
       (re) =>
         !re.scratched &&
         re.checkin_status === "pending" &&
-        (re.checkin_role === "lead" || re.checkin_role === "follow")
+        (effectiveCheckinRole(re) === "lead" ||
+          effectiveCheckinRole(re) === "follow")
     );
     if (unresolved.length > 0) {
       return NextResponse.json(
@@ -90,18 +97,18 @@ export async function POST(
 
     const leads = leadRows.map((re) => ({
       id: re.id,
-      bibNumber: entryDisplay(re).bibNumber,
+      bibNumber: entryDisplay(re, { competition }).bibNumber,
       role: "lead" as const,
     }));
     const follows = followRows.map((re) => ({
       id: re.id,
-      bibNumber: entryDisplay(re).bibNumber,
+      bibNumber: entryDisplay(re, { competition }).bibNumber,
       role: "follow" as const,
     }));
 
     let pairs;
     try {
-      pairs = resolveFinalsPairs(leads, follows, round);
+      pairs = resolveFinalsPairs(leads, follows, round, compType);
     } catch (err) {
       return NextResponse.json(
         { error: err instanceof Error ? err.message : "Invalid pairings" },
@@ -114,6 +121,10 @@ export async function POST(
       const followRe = followById.get(p.follow.id)!;
       const leadEntry = leadRe.entry;
       const followEntry = followRe.entry;
+      const judgePrimary =
+        compType === "all_american" && p.judgePrimaryBib === "follow"
+          ? "follow"
+          : "lead";
       return {
         competition_id: competition.id,
         entry_kind: "couple" as const,
@@ -128,6 +139,7 @@ export async function POST(
         follow_bib_id: followEntry.follow_bib_id,
         source_lead_entry_id: leadEntry.id,
         source_follow_entry_id: followEntry.id,
+        judge_primary_bib_role: compType === "all_american" ? judgePrimary : null,
       };
     });
 

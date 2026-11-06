@@ -12,7 +12,7 @@ import type { CompSignupRow } from "@/lib/comps/types";
 async function loadEvent(eventId: string) {
   const { data } = await supabaseServer
     .from("events")
-    .select("id, title, starts_at, ends_at, time_zone, type")
+    .select("id, title, starts_at, ends_at, time_zone, type, host_kind")
     .eq("id", eventId)
     .maybeSingle();
   return data;

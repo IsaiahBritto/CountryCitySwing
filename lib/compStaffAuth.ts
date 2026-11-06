@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractBearerToken } from "@/lib/adminAuth";
+import {
+  communityManageAllowed,
+  loadEventHostMeta,
+  resolveCompEventAccess,
+} from "@/lib/compEventAccess";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
-export type CompAccessLevel = "admin" | "staff";
+export type CompAccessLevel = "admin" | "staff" | "organizer";
 
 export type CompStaffAuthResult =
   | { ok: true; userId: string; token: string; access: CompAccessLevel }
@@ -44,9 +49,13 @@ export async function resolveCompAccess(
   role: string | null | undefined,
   eventId: string
 ): Promise<CompAccessLevel | null> {
-  if (isCompAdmin(role)) return "admin";
-  if (await isCompEventStaff(userId, eventId)) return "staff";
-  return null;
+  const event = await loadEventHostMeta(eventId);
+  if (!event) return null;
+  const access = await resolveCompEventAccess(userId, role, event);
+  if (!access) return null;
+  if (access === "site_admin") return "admin";
+  if (access === "organizer") return "organizer";
+  return "staff";
 }
 
 export async function resolveEventIdForRound(
@@ -134,12 +143,36 @@ export async function requireCompEventStaffAuth(
   const auth = await authenticateRequest(req);
   if (!auth.ok) return auth;
 
+  const event = await loadEventHostMeta(eventId);
+  if (!event) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Event not found" }, { status: 404 }),
+    };
+  }
+
   const access = await resolveCompAccess(auth.userId, auth.role, eventId);
   if (!access) {
     return {
       ok: false,
       response: NextResponse.json(
         { error: "Forbidden: Event staff access required" },
+        { status: 403 }
+      ),
+    };
+  }
+
+  const siteAdmin = access === "admin";
+  const level = siteAdmin
+    ? "site_admin"
+    : access === "organizer"
+      ? "organizer"
+      : "staff";
+  if (!communityManageAllowed(event, level)) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Forbidden: Event must be approved" },
         { status: 403 }
       ),
     };

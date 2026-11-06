@@ -18,6 +18,13 @@ const normEmail = (v: unknown) =>
 const normName = (v: unknown) =>
   typeof v === "string" ? v.trim().toLowerCase() : "";
 
+function normalizedFullNameKey(firstName: string, lastName: string): string | null {
+  const f = normName(firstName);
+  const l = normName(lastName);
+  if (!f || !l) return null;
+  return `${f}|${l}`;
+}
+
 /** Stable dedupe key: profile_id → email → normalized name. */
 export function personKeyFromFields(
   profileId: string | null | undefined,
@@ -73,6 +80,10 @@ export interface EventRegistrantPerson {
   roles: EventRegistrantRole[];
   bibId: string | null;
   bibNumber: number | null;
+  /** Primary comp_signups row for this registrant (if any). */
+  compSignupId?: string | null;
+  paid?: boolean;
+  selectedPaymentMethodLabel?: string | null;
 }
 
 export interface EventJudgeRef {
@@ -108,22 +119,63 @@ export function isEventJudge(
   return false;
 }
 
+function findRegistrantRow(
+  map: Map<string, EventRegistrantPerson>,
+  person: BibPerson
+): EventRegistrantPerson | undefined {
+  const primaryKey = personKeyFromFields(
+    person.profileId,
+    person.email,
+    person.firstName,
+    person.lastName
+  );
+  const byKey = map.get(primaryKey);
+  if (byKey) return byKey;
+
+  const nameKey = normalizedFullNameKey(
+    person.firstName ?? "",
+    person.lastName ?? ""
+  );
+  if (!nameKey) return undefined;
+  for (const row of map.values()) {
+    if (
+      normalizedFullNameKey(row.firstName, row.lastName) === nameKey
+    ) {
+      return row;
+    }
+  }
+  return undefined;
+}
+
+function mergePersonFields(row: EventRegistrantPerson, person: BibPerson) {
+  if (!row.profileId && person.profileId?.trim()) {
+    row.profileId = person.profileId.trim();
+  }
+  if (!row.email && person.email) {
+    row.email = normEmail(person.email) || null;
+  }
+  const first = (person.firstName ?? "").trim();
+  const last = (person.lastName ?? "").trim();
+  if (!row.firstName && first) row.firstName = first;
+  if (!row.lastName && last) row.lastName = last;
+}
+
 function addRegistrant(
   map: Map<string, EventRegistrantPerson>,
   person: BibPerson,
   role: EventRegistrantRole
 ) {
   if (!hasPersonFields(person)) return;
-  const key = personKeyFromFields(
+  const primaryKey = personKeyFromFields(
     person.profileId,
     person.email,
     person.firstName,
     person.lastName
   );
-  let row = map.get(key);
+  let row = findRegistrantRow(map, person);
   if (!row) {
     row = {
-      personKey: key,
+      personKey: primaryKey,
       firstName: (person.firstName ?? "").trim(),
       lastName: (person.lastName ?? "").trim(),
       email: normEmail(person.email) || null,
@@ -132,7 +184,9 @@ function addRegistrant(
       bibId: null,
       bibNumber: null,
     };
-    map.set(key, row);
+    map.set(primaryKey, row);
+  } else {
+    mergePersonFields(row, person);
   }
   if (!row.roles.includes(role)) row.roles.push(role);
 }
@@ -223,17 +277,80 @@ export function collectEventRegistrants(
     }
   }
 
+  const attachSignupRow = (s: CompSignupRow) => {
+    const meta = {
+      compSignupId: s.id,
+      paid: !!s.paid,
+      selectedPaymentMethodLabel: s.selected_payment_method_label ?? null,
+    };
+    const tryAttach = (
+      profileId: string | null | undefined,
+      email: string | null | undefined,
+      firstName: string | null | undefined,
+      lastName: string | null | undefined
+    ) => {
+      const row = findRegistrantRow(map, {
+        profileId,
+        email,
+        firstName: firstName ?? "",
+        lastName: lastName ?? "",
+      });
+      if (row) {
+        row.compSignupId = meta.compSignupId;
+        row.paid = meta.paid;
+        row.selectedPaymentMethodLabel = meta.selectedPaymentMethodLabel;
+      }
+    };
+    if (s.jnj_selected) {
+      tryAttach(
+        s.jnj_lead_profile_id,
+        s.jnj_lead_email,
+        s.jnj_lead_first_name,
+        s.jnj_lead_last_name
+      );
+      tryAttach(
+        s.jnj_follow_profile_id,
+        s.jnj_follow_email,
+        s.jnj_follow_first_name,
+        s.jnj_follow_last_name
+      );
+    }
+    if (s.strictly_selected) {
+      tryAttach(
+        s.strictly_lead_profile_id,
+        s.strictly_lead_email,
+        s.strictly_lead_first_name,
+        s.strictly_lead_last_name
+      );
+      tryAttach(
+        s.strictly_follow_profile_id,
+        s.strictly_follow_email,
+        s.strictly_follow_first_name,
+        s.strictly_follow_last_name
+      );
+    }
+  };
+
+  for (const s of signups) {
+    attachSignupRow(s);
+  }
+
   for (const bib of existingBibs) {
-    const key = personKeyFromFields(
-      bib.profile_id,
-      bib.email,
-      bib.first_name,
-      bib.last_name
-    );
-    const row = map.get(key);
+    const row = findRegistrantRow(map, {
+      profileId: bib.profile_id,
+      email: bib.email,
+      firstName: bib.first_name,
+      lastName: bib.last_name,
+    });
     if (row) {
       attachBib(row, bib);
     } else {
+      const key = personKeyFromFields(
+        bib.profile_id,
+        bib.email,
+        bib.first_name,
+        bib.last_name
+      );
       map.set(key, {
         personKey: key,
         firstName: (bib.first_name ?? "").trim(),
@@ -286,10 +403,26 @@ export const COMP_DIVISION_LABEL: Record<EventRegistrantRole, string> = {
   strictly_follow: "Strictly — Follow",
 };
 
-/** Human-readable division labels for bib assignment confirmation. */
+/** Human-readable divisions for bib roster (one entry per comp, not per slot). */
 export function formatRegistrantCompLabels(
   roles: EventRegistrantRole[]
 ): string[] {
   if (roles.length === 0) return ["Walk-up"];
-  return roles.map((role) => COMP_DIVISION_LABEL[role]);
+  const labels: string[] = [];
+  const jnj = roles.filter((r) => r === "jnj_lead" || r === "jnj_follow");
+  const strictlyLead = roles.includes("strictly_lead");
+  const strictlyFollow = roles.includes("strictly_follow");
+  if (jnj.length > 0) {
+    const parts = [...new Set(jnj.map((r) => (r === "jnj_lead" ? "Lead" : "Follow")))];
+    labels.push(`Jack & Jill (${parts.join(", ")})`);
+  }
+  if (strictlyLead) {
+    labels.push("Strictly (Lead)");
+  } else if (strictlyFollow && jnj.length > 0) {
+    labels.push("Strictly (Partner)");
+  }
+  if (labels.length === 0) {
+    return roles.map((role) => COMP_DIVISION_LABEL[role]);
+  }
+  return labels;
 }

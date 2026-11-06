@@ -15,6 +15,7 @@ import type { ScoringScope } from "@/lib/comps/types";
 export default function RoleCards() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [staffEvents, setStaffEvents] = useState<MeCompStaffEvent[]>([]);
+  const [hostedCount, setHostedCount] = useState(0);
   const [judgeReadyCount, setJudgeReadyCount] = useState<number | null>(null);
   const [hasJudgeAssignment, setHasJudgeAssignment] = useState(false);
 
@@ -48,6 +49,9 @@ export default function RoleCards() {
         const role = (me.profile?.role || "").toLowerCase();
         setIsAdmin(role === "admin");
         setStaffEvents(me.comp_staff_events ?? []);
+        setHostedCount((me.organized_events ?? []).filter(
+          (e: { approval_status?: string }) => e.approval_status === "approved"
+        ).length);
       } else {
         setIsAdmin(false);
         setStaffEvents([]);
@@ -77,7 +81,9 @@ export default function RoleCards() {
     };
   }, []);
 
-  if (!isAdmin && !hasJudgeAssignment && staffEvents.length === 0) return null;
+  if (!isAdmin && !hasJudgeAssignment && staffEvents.length === 0 && hostedCount === 0) {
+    return null;
+  }
 
   return (
     <section className="mb-10">
@@ -127,6 +133,17 @@ export default function RoleCards() {
             </p>
             <Link href="/judge" className={`mt-3 inline-flex ${compBtnOutline}`}>
               Go to judging
+            </Link>
+          </div>
+        )}
+        {hostedCount > 0 && (
+          <div className="rounded-xl border border-neutral-700 bg-neutral-800/50 p-4">
+            <div className="font-semibold text-white">My hosted comps</div>
+            <p className="mt-1 text-sm text-neutral-400">
+              Manage your approved Non-CCS events
+            </p>
+            <Link href="/host/comps" className={`mt-3 inline-flex ${compBtnOutline}`}>
+              Open host dashboard
             </Link>
           </div>
         )}

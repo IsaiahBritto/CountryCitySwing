@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isCommunityEvent } from "@/lib/communityEvents";
+import { loadEventHostMeta } from "@/lib/compEventAccess";
 import { requireCompEventStaffAuth } from "@/lib/compStaffAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
@@ -137,6 +139,26 @@ export async function PATCH(
   const personKey = typeof body.personKey === "string" ? body.personKey : "";
   if (!personKey) {
     return NextResponse.json({ error: "personKey is required" }, { status: 400 });
+  }
+
+  const eventMeta = await loadEventHostMeta(eventId);
+  const compSignupId =
+    typeof body.compSignupId === "string" ? body.compSignupId.trim() : "";
+  if (body.markPaid === true && compSignupId && eventMeta && isCommunityEvent(eventMeta)) {
+    const { error: payErr } = await supabaseServer
+      .from("comp_signups")
+      .update({
+        paid: true,
+        payment_confirmed_at: new Date().toISOString(),
+        payment_confirmed_by: auth.userId,
+      })
+      .eq("id", compSignupId)
+      .eq("event_id", eventId);
+    if (payErr) {
+      return NextResponse.json({ error: "Failed to mark paid" }, { status: 500 });
+    }
+    const updatedRoster = await loadEventRoster(eventId);
+    return NextResponse.json({ roster: updatedRoster, warnings: [] });
   }
 
   const identityRaw = body.identity;

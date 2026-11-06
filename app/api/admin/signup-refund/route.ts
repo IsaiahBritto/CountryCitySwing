@@ -9,6 +9,7 @@ import {
   sumPriorRefunds,
   type RefundBreakdownPrior,
 } from "@/lib/utils/signupRefundAmounts";
+import { isCommunityCompEventId } from "@/lib/compEventAccess";
 
 type RefundMode = "full" | "partial" | "cancel_unpaid";
 
@@ -301,6 +302,15 @@ export async function GET(req: NextRequest) {
     }
 
     const r = row as Record<string, unknown>;
+    if (isComp && (await isCommunityCompEventId(r.event_id as string))) {
+      return NextResponse.json(
+        {
+          error:
+            "Community comp signups are not refunded through CCS. Contact the event organizer.",
+        },
+        { status: 400 }
+      );
+    }
     let status = String(r.refunded_or_cancelled || "active");
     let remainingCents = 0;
     let synced = false;
@@ -391,6 +401,15 @@ export async function POST(req: NextRequest) {
     const r = row as Record<string, unknown>;
     if (String(r.refunded_or_cancelled || "active") === "cancelled") {
       return NextResponse.json({ error: "Signup is already cancelled." }, { status: 400 });
+    }
+    if (isComp && (await isCommunityCompEventId(r.event_id as string))) {
+      return NextResponse.json(
+        {
+          error:
+            "Community comp signups are not refunded through CCS. Contact the event organizer.",
+        },
+        { status: 400 }
+      );
     }
 
     let refundedByEmail: string | null = null;

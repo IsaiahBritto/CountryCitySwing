@@ -9,6 +9,7 @@ import { compSignupToken } from "@/lib/utils/qrCheckIn";
 import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
 import { CanonicalEventError, resolveCanonicalEventById } from "@/lib/utils/canonicalEvent";
 import { plannedClassLevelLabel } from "@/lib/classLevels";
+import { compSignupBelongsToCommunityEvent } from "@/lib/compEventAccess";
 
 function getWebhookBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
@@ -251,6 +252,18 @@ export async function POST(request: NextRequest) {
       if (isCompSignup) {
         const compSignupId = session.metadata?.comp_signup_id || referenceId;
         const metadata = session.metadata || {};
+        if (
+          await compSignupBelongsToCommunityEvent(
+            String(compSignupId),
+            typeof metadata.event_id === "string" ? metadata.event_id : null
+          )
+        ) {
+          console.log(
+            "Webhook: ignoring comp_signup Stripe session for community event",
+            compSignupId
+          );
+          return NextResponse.json({ received: true });
+        }
         const taxAmount = session.total_details?.amount_tax ? session.total_details.amount_tax / 100 : 0;
         const processingFee = Number(metadata.processing_fee || 0);
         const subtotal = Number(metadata.subtotal || 0);

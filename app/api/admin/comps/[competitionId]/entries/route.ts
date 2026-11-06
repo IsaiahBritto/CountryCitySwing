@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { findOrCreateBibRecord } from "@/lib/comps/bibs";
 import { editTierForEntries } from "@/lib/comps/registrantEditPolicy";
@@ -19,9 +19,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const entryId = req.nextUrl.searchParams.get("entry_id");
   if (!entryId) {
     return NextResponse.json({ error: "entry_id is required" }, { status: 400 });
@@ -62,9 +62,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
 
   const competition = await loadCompetition(competitionId);
   if (!competition) {
@@ -157,9 +157,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
   const entryId = body.entry_id;
   if (!entryId) {
@@ -221,9 +221,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const entryId = req.nextUrl.searchParams.get("entry_id");
   if (!entryId) {
     return NextResponse.json({ error: "entry_id is required" }, { status: 400 });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
 import {
   PrizeAwardsError,
   loadRecipientForSend,
@@ -19,9 +19,9 @@ export async function POST(
     params,
   }: { params: Promise<{ competitionId: string; recipientId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId, recipientId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
 
   try {
     const ctx = await loadRecipientForSend(recipientId, competitionId);

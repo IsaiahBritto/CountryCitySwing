@@ -4,6 +4,8 @@ import { sortByBib } from "@/lib/comps/entrySort";
 export interface HeatPlanEntry {
   id: string;
   bibNumber: number | null;
+  /** Lineup sort key when bibNumber is follow-primary (All American). */
+  sortBibNumber?: number | null;
   /** lead / follow for JnJ individuals; couple for strictly */
   poolRole: DanceRole | "couple";
 }
@@ -109,7 +111,7 @@ function assignEntriesToHeats(
 ): HeatPlanAssignment[] {
   const sorted = sortByBib(
     entries,
-    (e) => e.bibNumber,
+    (e) => e.sortBibNumber ?? e.bibNumber,
     () => 0,
     (e) => e.id
   );

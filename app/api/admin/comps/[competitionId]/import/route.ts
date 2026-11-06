@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { findOrCreateBibRecord } from "@/lib/comps/bibs";
+import { usesJnSignupColumns } from "@/lib/comps/competitionKind";
 
 const norm = (v: unknown) =>
   typeof v === "string" ? v.trim().toLowerCase() : "";
@@ -27,8 +28,8 @@ async function buildPreview(competitionId: string): Promise<
     .maybeSingle();
   if (!competition) return { error: "Competition not found", status: 404 };
 
-  const isJnJ = competition.comp_type === "jack_and_jill";
-  const prefix = isJnJ ? "jnj" : "strictly";
+  const useIndividualJnColumns = usesJnSignupColumns(competition.comp_type);
+  const prefix = useIndividualJnColumns ? "jnj" : "strictly";
 
   const [signupsRes, entriesRes, judgesRes] = await Promise.all([
     supabaseServer
@@ -85,10 +86,10 @@ async function buildPreview(competitionId: string): Promise<
     if (!s.paid) warnings.push("Not paid");
     const hasLead = !!(leadFirst || leadLast || leadEmail || leadProfileId);
     const hasFollow = !!(followFirst || followLast || followEmail || followProfileId);
-    if (!isJnJ && (!hasLead || !hasFollow)) {
+    if (!useIndividualJnColumns && (!hasLead || !hasFollow)) {
       warnings.push("Missing partner info (Strictly requires both)");
     }
-    if (isJnJ && !hasLead && !hasFollow) {
+    if (useIndividualJnColumns && !hasLead && !hasFollow) {
       warnings.push("No competitor info on signup");
     }
     if (!leadProfileId && !followProfileId && !s.registrant_profile_id) {
@@ -141,9 +142,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
 
   const preview = await buildPreview(competitionId);
   if ("error" in preview) {
@@ -157,9 +158,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
   const preview = await buildPreview(competitionId);
   if ("error" in preview) {
@@ -180,8 +181,8 @@ export async function POST(
   }
 
   const { competition } = preview;
-  const isJnJ = competition.comp_type === "jack_and_jill";
-  const prefix = isJnJ ? "jnj" : "strictly";
+  const useIndividualJnColumns = usesJnSignupColumns(competition.comp_type);
+  const prefix = useIndividualJnColumns ? "jnj" : "strictly";
 
   const blocked = preview.rows.filter(
     (r) =>
@@ -226,7 +227,7 @@ export async function POST(
     const hasLead = !!(leadFirst || leadLast || leadEmail || leadProfileId);
     const hasFollow = !!(followFirst || followLast || followEmail || followProfileId);
 
-    if (isJnJ) {
+    if (useIndividualJnColumns) {
       if (hasLead) {
         inserts.push({
           competition_id: competitionId,

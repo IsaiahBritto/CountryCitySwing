@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authRoundManage } from "@/lib/compApiAuth";
 import { MAX_FLOOR_COUPLES_REQUIRED, setupRoundHeats } from "@/lib/comps/heatSetup";
 
 /** POST: assign entries to heats in bib order (deterministic). Body: { heat_count?: number | null } */
@@ -7,9 +7,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ roundId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { roundId } = await params;
+  const auth = await authRoundManage(req, roundId);
+  if (!auth.ok) return auth.response;
 
   const { supabaseServer } = await import("@/lib/supabaseServer");
   const { data: round } = await supabaseServer

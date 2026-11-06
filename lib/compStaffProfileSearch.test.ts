@@ -70,6 +70,17 @@ describe("compAccessClient", () => {
     expect(canManageCompEventStaff(me)).toBe(false);
   });
 
+  it("grants organizer manage access for approved hosted events", () => {
+    const me = {
+      profile: { id: "o1", role: "attendee" },
+      organized_events: [
+        { id: "e9", title: "Host", starts_at: "2026-02-01", approval_status: "approved" as const },
+      ],
+    };
+    expect(canAccessCompEventOps(me, "e9")).toBe(true);
+    expect(canManageCompEventStaff(me, "e9")).toBe(true);
+  });
+
   it("isCompAdminRole mirrors server helper", () => {
     expect(isCompAdminRole("admin")).toBe(true);
     expect(isCompAdminRole("attendee")).toBe(false);

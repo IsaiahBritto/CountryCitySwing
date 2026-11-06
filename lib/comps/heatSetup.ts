@@ -1,5 +1,6 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import { entryDisplay } from "@/lib/comps/roundData";
+import type { CompetitionRow } from "@/lib/comps/types";
 import { siblingRoundFor } from "@/lib/comps/judgeScope";
 import {
   computeHeatPlan,
@@ -17,6 +18,7 @@ interface RoundEntryRow {
   entry: {
     entry_kind: string;
     role: DanceRole | null;
+    judge_primary_bib_role?: "lead" | "follow" | null;
     lead_bib: { bib_number: number | null } | null;
     follow_bib: { bib_number: number | null } | null;
   };
@@ -67,8 +69,13 @@ function checkedInRows(rows: RoundEntryRow[]): RoundEntryRow[] {
   );
 }
 
-function toHeatPlanEntry(row: RoundEntryRow): HeatPlanEntry {
-  const display = entryDisplay(row as Parameters<typeof entryDisplay>[0]);
+function toHeatPlanEntry(
+  row: RoundEntryRow,
+  competition: Pick<CompetitionRow, "comp_type">
+): HeatPlanEntry {
+  const display = entryDisplay(row as Parameters<typeof entryDisplay>[0], {
+    competition,
+  });
   const entry = row.entry;
   let poolRole: HeatPlanEntry["poolRole"] = "couple";
   if (entry.entry_kind === "individual") {
@@ -77,6 +84,10 @@ function toHeatPlanEntry(row: RoundEntryRow): HeatPlanEntry {
   return {
     id: row.id,
     bibNumber: display.bibNumber,
+    sortBibNumber:
+      entry.entry_kind === "couple"
+        ? (display.lineupSortBibNumber ?? display.bibNumber)
+        : display.bibNumber,
     poolRole,
   };
 }
@@ -128,6 +139,8 @@ export const MAX_FLOOR_COUPLES_REQUIRED =
 export interface HeatSetupContext {
   maxFloorCouples: number | null;
   compType: CompType;
+  /** Derives strictly-style vs JnJ-style heat math (All American switches after pairing). */
+  heatPlanCompType: CompType;
   roundJudgedRole: DanceRole | null;
   /** Sizing pool: registered pre-check-in, checked-in during check-in. */
   leadCount: number;
@@ -162,7 +175,7 @@ export async function loadHeatSetupContext(
   const { data: entryRows } = await supabaseServer
     .from("comp_round_entries")
     .select(
-      "id, checkin_status, scratched, checkin_role, entry:comp_entries(entry_kind, role, lead_bib:comp_bibs!comp_entries_lead_bib_id_fkey(bib_number), follow_bib:comp_bibs!comp_entries_follow_bib_id_fkey(bib_number))"
+      "id, checkin_status, scratched, checkin_role, entry:comp_entries(entry_kind, role, judge_primary_bib_role, lead_bib:comp_bibs!comp_entries_lead_bib_id_fkey(bib_number), follow_bib:comp_bibs!comp_entries_follow_bib_id_fkey(bib_number))"
     )
     .eq("round_id", roundId);
 
@@ -170,12 +183,23 @@ export async function loadHeatSetupContext(
   const activeRows = rows.filter(activeForHeatPlan);
   const usingCheckedIn = shouldUseCheckedInAssignment(activeRows, round.status);
   const assignmentRows = usingCheckedIn ? checkedInRows(activeRows) : activeRows;
-  const planEntries = assignmentRows.map(toHeatPlanEntry);
+  const planEntries = assignmentRows.map((r) =>
+    toHeatPlanEntry(r, competition)
+  );
 
   let leadCount = 0;
   let followCount = 0;
 
-  if (competition.comp_type === "strictly") {
+  const hasCoupleEntry = activeRows.some(
+    (r) => (r.entry as RoundEntryRow["entry"]).entry_kind === "couple"
+  );
+  const heatPlanCompType: CompType =
+    competition.comp_type === "strictly" ||
+    (competition.comp_type === "all_american" && hasCoupleEntry)
+      ? "strictly"
+      : "jack_and_jill";
+
+  if (competition.comp_type === "strictly" || (competition.comp_type === "all_american" && hasCoupleEntry)) {
     leadCount = sizingCount(activeRows, round.status);
     followCount = leadCount;
   } else if (round.judged_role == null) {
@@ -213,6 +237,7 @@ export async function loadHeatSetupContext(
   return {
     maxFloorCouples,
     compType: competition.comp_type,
+    heatPlanCompType,
     roundJudgedRole: round.judged_role,
     leadCount,
     followCount,
@@ -230,7 +255,7 @@ export function buildHeatPlanFromContext(
   return computeHeatPlan({
     maxFloorCouples: ctx.maxFloorCouples ?? 1,
     heatCountOverride: ctx.heatCountOverride,
-    compType: ctx.compType,
+    compType: ctx.heatPlanCompType,
     roundJudgedRole: ctx.roundJudgedRole,
     leadCount: ctx.leadCount,
     followCount: ctx.followCount,

@@ -113,13 +113,20 @@ export async function POST(req: NextRequest) {
 
   const { data: eventRow, error: eventLookupError } = await supabaseServer
     .from("events")
-    .select("refund_statement")
+    .select("refund_statement, host_kind")
     .eq("id", eventId)
     .maybeSingle();
 
   if (eventLookupError) {
     console.error("[comp-signup] event lookup failed", eventLookupError);
     return NextResponse.json({ error: "Failed to load event." }, { status: 500 });
+  }
+
+  if ((eventRow?.host_kind ?? "ccs") === "community") {
+    return NextResponse.json(
+      { error: "Use Non-CCS event signup for this event" },
+      { status: 400 }
+    );
   }
 
   const refundStatement =

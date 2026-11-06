@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
       "id, title, starts_at, location, strictly_price, jnj_price, strictly_level, jnj_level, signup_link, refund_statement, test_event"
     )
     .eq("type", "Comp")
+    .eq("host_kind", "ccs")
     .gte("starts_at", nowIso)
     .order("starts_at", { ascending: true });
   if (!includeTest) {
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
   let liveQuery = supabaseServer
     .from("competitions")
     .select(
-      "id, name, comp_type, status, test_comp, event:events(id, title, starts_at, location, test_event), rounds:comp_rounds(id, round_type, judged_role, status, scoring_mode, round_order, published_at)"
+      "id, name, comp_type, status, test_comp, event:events(id, title, starts_at, location, test_event, host_kind), rounds:comp_rounds(id, round_type, judged_role, status, scoring_mode, round_order, published_at)"
     )
     .eq("status", "in_progress");
   if (!includeTest) {
@@ -79,7 +80,11 @@ export async function GET(req: NextRequest) {
   }));
 
   const live = ((liveRes.data ?? []) as any[])
-    .filter((c) => includeTest || !c.test_comp)
+    .filter((c) => {
+      const host = c.event?.host_kind ?? "ccs";
+      if (host === "community") return false;
+      return includeTest || !c.test_comp;
+    })
     .map((c) => {
     const published = ((c.rounds ?? []) as any[]).filter(
       (r) => r.status === "published"
@@ -136,6 +141,9 @@ export async function GET(req: NextRequest) {
     const comp = round.competition;
     if (!comp?.id || !comp.event?.id) continue;
     if (!includeTest && comp.test_comp) continue;
+    if ((comp.event as { host_kind?: string })?.host_kind === "community") {
+      continue;
+    }
     const event = comp.event as {
       id: string;
       title: string;

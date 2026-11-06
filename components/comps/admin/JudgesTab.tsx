@@ -63,7 +63,7 @@ export default function JudgesTab({
   onChanged,
 }: {
   competitionId: string;
-  compType: "jack_and_jill" | "strictly";
+  compType: "jack_and_jill" | "strictly" | "all_american";
   judges: JudgeRow[];
   rounds: Pick<CompRoundRow, "round_type" | "judged_role" | "status">[];
   cjInPanel: boolean;

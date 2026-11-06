@@ -31,6 +31,13 @@ const PLAYBOOK: Record<
     semifinal: { lead: "alternate_boundary_tie", follow: "alternate_boundary_tie" },
     final: { all: "jnj_scope_smoke" },
   },
+  /** Reuse Strictly heat/RP scenarios; All American is Strictly-style after Prelims pairing. */
+  all_american: {
+    prelims: { all: "advance_boundary_tie" },
+    quarterfinal: { all: "clean_callback" },
+    semifinal: { all: "alternate_boundary_tie" },
+    final: { all: "rp_cycle_cj_break" },
+  },
 };
 
 const EDGE_META: Record<

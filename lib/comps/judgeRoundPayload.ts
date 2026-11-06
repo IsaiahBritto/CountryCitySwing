@@ -125,7 +125,7 @@ export async function buildJudgeRoundViewPayload(
       : { status: "draft", submitted_at: null, judging_method: null },
     entries: active
       .map((re) => ({
-        ...entryDisplay(re),
+        ...entryDisplay(re, { competition: ctx.competition }),
         heatNumber: re.heat_id ? heatNumberById.get(re.heat_id) ?? null : null,
         danceOrder: re.dance_order,
       }))
@@ -133,7 +133,8 @@ export async function buildJudgeRoundViewPayload(
         (a, b) =>
           (a.heatNumber ?? 0) - (b.heatNumber ?? 0) ||
           (a.danceOrder ?? 0) - (b.danceOrder ?? 0) ||
-          (a.bibNumber ?? 0) - (b.bibNumber ?? 0)
+          ((a.lineupSortBibNumber ?? a.bibNumber) ?? 0) -
+            ((b.lineupSortBibNumber ?? b.bibNumber) ?? 0)
       ),
     scores: myScores.map((s) => ({
       round_entry_id: s.round_entry_id,

@@ -33,7 +33,9 @@ export async function resolveEntryIdsForRound(
       .select("id, entry_kind, role")
       .eq("competition_id", competitionId);
     const wantCouples =
-      compType === "strictly" || (roundType === "final" && !judgedRole);
+      compType === "strictly" ||
+      (compType === "jack_and_jill" && roundType === "final" && !judgedRole) ||
+      (compType === "all_american" && roundType !== "prelims");
     const entryIds = (entries ?? [])
       .filter((e) =>
         wantCouples

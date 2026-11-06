@@ -1,4 +1,14 @@
-import type { DanceRole, ManualPairingRow, PairingMode } from "@/lib/comps/types";
+import type {
+  CompType,
+  DanceRole,
+  ManualPairingRow,
+  PairingMode,
+} from "@/lib/comps/types";
+import {
+  buildAllAmericanManualPairs,
+  computeAllAmericanRotatedPairs,
+  validateAllAmericanManualPairings,
+} from "@/lib/comps/allAmericanPairing";
 
 export interface FinalsPairEntry {
   id: string;
@@ -9,6 +19,8 @@ export interface FinalsPairEntry {
 export interface FinalsPair {
   lead: FinalsPairEntry;
   follow: FinalsPairEntry;
+  /** All American: "follow" when the lead’s 2nd+ partnership (show follow bib). */
+  judgePrimaryBib?: "lead" | "follow";
 }
 
 /** followIndex = (leadIndex + rotationOffset) % N */
@@ -59,6 +71,28 @@ export function isJnJFinalsPrePairing(round: {
     round.judged_role == null &&
     round.pairings_confirmed_at == null
   );
+}
+
+/** JnJ finals or All American Prelims: individuals present until pairings confirmed. */
+export function isFixedCouplePrePairingRound(
+  compType: CompType,
+  round: {
+    round_type: string;
+    judged_role: string | null;
+    pairings_confirmed_at: string | null;
+  }
+): boolean {
+  if (compType === "jack_and_jill") {
+    return isJnJFinalsPrePairing(round);
+  }
+  if (compType === "all_american") {
+    return (
+      round.round_type === "prelims" &&
+      round.judged_role == null &&
+      round.pairings_confirmed_at == null
+    );
+  }
+  return false;
 }
 
 export function validateManualPairings(
@@ -137,9 +171,22 @@ export function resolveFinalsPairs(
     pairing_mode?: PairingMode | null;
     rotation_offset: number | null;
     manual_pairings: ManualPairingRow[] | null;
-  }
+  },
+  compType: CompType = "jack_and_jill"
 ): FinalsPair[] {
   const mode = round.pairing_mode ?? "rotation";
+  if (compType === "all_american") {
+    if (mode === "manual") {
+      if (!round.manual_pairings?.length) {
+        throw new Error("Manual pairings not saved");
+      }
+      return buildAllAmericanManualPairs(leads, follows, round.manual_pairings);
+    }
+    if (round.rotation_offset == null) {
+      throw new Error("Rotation offset not set");
+    }
+    return computeAllAmericanRotatedPairs(leads, follows, round.rotation_offset);
+  }
   if (mode === "manual") {
     if (!round.manual_pairings?.length) {
       throw new Error("Manual pairings not saved");

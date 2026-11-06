@@ -187,13 +187,17 @@ async function computeAndPersistMetrics(eventId: string) {
   const { data: eventRow, error: eventError } = await supabaseServer
     .from("events")
     .select(
-      "id,type,price,price_changes,ccs_team_price,ccs_team_price_changes,time_zone,starts_at"
+      "id,type,price,price_changes,ccs_team_price,ccs_team_price_changes,time_zone,starts_at,host_kind"
     )
     .eq("id", eventId)
     .single();
 
   if (eventError || !eventRow) {
     throw new Error("Event not found");
+  }
+
+  if ((eventRow as { host_kind?: string }).host_kind === "community") {
+    throw new Error("Finance metrics are not tracked for community events");
   }
 
   const isComp = (eventRow.type || "").toLowerCase() === "comp";

@@ -17,12 +17,13 @@ interface CompEventInfo {
   ends_at?: string | null;
   time_zone?: string | null;
   type?: string | null;
+  host_kind?: string | null;
 }
 
 interface CompetitionListItem {
   id: string;
   name: string;
-  comp_type: "jack_and_jill" | "strictly";
+  comp_type: "jack_and_jill" | "strictly" | "all_american";
   status: string;
   cj_in_panel: boolean;
   test_comp?: boolean;
@@ -47,6 +48,7 @@ interface EventCompGroup {
 const TYPE_LABEL: Record<string, string> = {
   jack_and_jill: "Jack & Jill",
   strictly: "Strictly",
+  all_american: "All American",
 };
 
 function groupCompetitionsByEvent(
@@ -98,15 +100,16 @@ function eventScheduleLabel(event: CompEventInfo): string {
 export default function AdminCompsPage() {
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isOrganizer, setIsOrganizer] = useState(false);
   const [competitions, setCompetitions] = useState<CompetitionListItem[]>([]);
   const [events, setEvents] = useState<CompEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
   const [newEventId, setNewEventId] = useState("");
-  const [newType, setNewType] = useState<"jack_and_jill" | "strictly">(
-    "jack_and_jill"
-  );
+  const [newType, setNewType] = useState<
+    "jack_and_jill" | "strictly" | "all_american"
+  >("jack_and_jill");
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [ensureFixturesBusy, setEnsureFixturesBusy] = useState(false);
@@ -148,9 +151,15 @@ export default function AdminCompsPage() {
       });
       const me = res.ok ? await res.json() : null;
       const admin = (me?.profile?.role ?? "").toLowerCase() === "admin";
+      const organized = (me?.organized_events ?? []).filter(
+        (e: { approval_status?: string }) => e.approval_status === "approved"
+      );
       setIsAdmin(admin);
-      if (admin) {
+      setIsOrganizer(!admin && organized.length > 0);
+      if (admin || organized.length > 0) {
         await load();
+      }
+      if (admin) {
         const { data: eventRows } = await supabaseBrowser
           .from("events")
           .select("id, title, starts_at, type")
@@ -225,11 +234,16 @@ export default function AdminCompsPage() {
       </div>
     );
   }
-  if (!isAdmin) {
+  if (!isAdmin && !isOrganizer) {
     return (
       <div className="mx-auto mt-12 max-w-2xl rounded-xl border border-neutral-700 bg-neutral-800/50 p-8 text-center">
         <h1 className="mb-2 text-xl font-semibold text-primary">Access denied</h1>
-        <p className="text-neutral-400">This page is for administrators only.</p>
+        <p className="text-neutral-400">
+          Sign in as an admin or approved Non-CCS host to manage competitions here.
+        </p>
+        <Link href="/host/comps" className="mt-4 inline-block text-primary underline">
+          Host dashboard
+        </Link>
       </div>
     );
   }
@@ -247,9 +261,16 @@ export default function AdminCompsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {isAdmin && (
+            <Link href="/admin/non-ccs-events" className={compBtnOutline}>
+              Non-CCS queue
+            </Link>
+          )}
+          {isAdmin && (
           <button onClick={() => setShowCreate((v) => !v)} className={compBtnOutline}>
             New competition
           </button>
+          )}
         </div>
       </div>
 
@@ -322,6 +343,7 @@ export default function AdminCompsPage() {
             >
               <option value="jack_and_jill">Jack &amp; Jill</option>
               <option value="strictly">Strictly</option>
+              <option value="all_american">All American</option>
             </select>
             <input
               value={newName}
@@ -384,12 +406,14 @@ export default function AdminCompsPage() {
                       >
                         Assign bib numbers
                       </Link>
-                      <Link
-                        href={`/admin/comps/events/${group.eventId}/playlists`}
-                        className={compBtnOutline + " text-sm"}
-                      >
-                        Competition playlists
-                      </Link>
+                      {group.event?.host_kind !== "community" && (
+                        <Link
+                          href={`/admin/comps/events/${group.eventId}/playlists`}
+                          className={compBtnOutline + " text-sm"}
+                        >
+                          Competition playlists
+                        </Link>
+                      )}
                       <Link
                         href={`/admin/comps/events/${group.eventId}/ops`}
                         className="rounded-md border border-neutral-600 px-4 py-2 text-sm text-neutral-200 hover:border-primary/60"

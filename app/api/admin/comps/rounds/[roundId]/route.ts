@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authRoundManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { isDirectTransition } from "@/lib/comps/roundState";
 import { canOpenRound, type RoundSlotRef } from "@/lib/comps/roundChain";
@@ -19,6 +19,7 @@ import {
   chiefJudge,
   RoundDataError,
 } from "@/lib/comps/roundData";
+import { isFixedCouplePrePairingRound } from "@/lib/comps/finalsPairing";
 import { panelJudgesForRound } from "@/lib/comps/judgeScope";
 import type { RoundStatus } from "@/lib/comps/types";
 import { autoFillTestRound } from "@/lib/comps/scoringTest/autoFillOnOpen";
@@ -35,9 +36,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ roundId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { roundId } = await params;
+  const auth = await authRoundManage(req, roundId);
+  if (!auth.ok) return auth.response;
 
   try {
     await repairPromotedAlternateRoles(roundId);
@@ -89,7 +90,7 @@ export async function GET(
                 maxFloorCouples: setupCtx.maxFloorCouples,
                 leadCount: setupCtx.leadCount,
                 followCount: setupCtx.followCount,
-                compType: setupCtx.compType,
+                compType: setupCtx.heatPlanCompType,
                 entryCount: setupCtx.entries.length,
               })
             : null,
@@ -113,7 +114,7 @@ export async function GET(
       results: results ?? [],
       entries: ctx.roundEntries.map((re) => ({
         ...re,
-        display: entryDisplay(re),
+        display: entryDisplay(re, { competition: ctx.competition }),
       })),
       judges: ctx.judges.map((j) => {
         const sheet = ctx.sheets.find((s) => s.judge_assignment_id === j.id);
@@ -132,8 +133,11 @@ export async function GET(
         };
       }),
       finalsMeta:
-        ctx.competition.comp_type === "jack_and_jill" &&
-        ctx.round.round_type === "final"
+        (ctx.competition.comp_type === "jack_and_jill" &&
+          ctx.round.round_type === "final") ||
+        (ctx.competition.comp_type === "all_american" &&
+          ctx.round.round_type === "prelims" &&
+          ctx.round.judged_role == null)
           ? {
               rotation_offset: ctx.round.rotation_offset,
               pairings_confirmed_at: ctx.round.pairings_confirmed_at,
@@ -156,9 +160,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ roundId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { roundId } = await params;
+  const auth = await authRoundManage(req, roundId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
 
   try {
@@ -230,16 +234,20 @@ export async function PATCH(
         }
       }
       if (target === "open") {
-        const isJnJFinalsPrePairing =
-          ctx.competition.comp_type === "jack_and_jill" &&
-          ctx.round.round_type === "final" &&
-          ctx.round.pairings_confirmed_at == null;
+        const pairingGateBlocksOpen = isFixedCouplePrePairingRound(
+          ctx.competition.comp_type,
+          {
+            round_type: ctx.round.round_type,
+            judged_role: ctx.round.judged_role,
+            pairings_confirmed_at: ctx.round.pairings_confirmed_at,
+          }
+        );
 
-        if (isJnJFinalsPrePairing) {
+        if (pairingGateBlocksOpen) {
           return NextResponse.json(
             {
               error:
-                "Confirm rotation pairings before opening scoring for JnJ finals",
+                "Confirm rotation pairings before opening scoring for this round",
             },
             { status: 409 }
           );
@@ -357,9 +365,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ roundId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { roundId } = await params;
+  const auth = await authRoundManage(req, roundId);
+  if (!auth.ok) return auth.response;
 
   const { data: scored } = await supabaseServer
     .from("comp_scores")

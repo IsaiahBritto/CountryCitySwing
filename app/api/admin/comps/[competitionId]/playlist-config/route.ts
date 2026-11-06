@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
+import { rejectCommunityCompPlaylistApi } from "@/lib/compEventAccess";
 import {
   assertCompetitionInEvent,
   loadCompPlaylistConfig,
@@ -15,10 +16,9 @@ export async function GET(
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.ok) return auth.response;
-
     const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
     const eventId = req.nextUrl.searchParams.get("event_id");
     if (!eventId) {
       return NextResponse.json(
@@ -31,6 +31,9 @@ export async function GET(
     if (!belongs.ok) {
       return NextResponse.json({ error: belongs.error }, { status: 404 });
     }
+
+    const playlistBlocked = await rejectCommunityCompPlaylistApi(eventId);
+    if (playlistBlocked) return playlistBlocked;
 
     const loaded = await loadCompPlaylistConfig(competitionId);
     return NextResponse.json({
@@ -51,10 +54,9 @@ export async function PATCH(
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.ok) return auth.response;
-
     const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
     const body = await req.json().catch(() => ({}));
     const eventId =
       typeof body.event_id === "string" ? body.event_id.trim() : "";
@@ -66,6 +68,9 @@ export async function PATCH(
     if (!belongs.ok) {
       return NextResponse.json({ error: belongs.error }, { status: 404 });
     }
+
+    const playlistBlocked = await rejectCommunityCompPlaylistApi(eventId);
+    if (playlistBlocked) return playlistBlocked;
 
     const validated = validateCompPlaylistConfig(body);
     if (!validated.ok) {

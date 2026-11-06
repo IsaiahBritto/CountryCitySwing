@@ -214,6 +214,19 @@ export function buildJudgeColumnPreviews(input: {
     ];
   }
 
+  if (compType === "all_american") {
+    return [
+      buildCallbackPreview(
+        "Callback (couples)",
+        { kind: "strictly_callback" },
+        judges,
+        cjInPanel,
+        null
+      ),
+      buildFinalsPreview("Finals", { kind: "strictly_final" }, judges, cjInPanel),
+    ];
+  }
+
   return [
     buildCallbackPreview(
       "Callback",

@@ -96,6 +96,7 @@ export interface MePayload {
 export const COMP_TYPE_LABEL: Record<string, string> = {
   jack_and_jill: "Jack & Jill",
   strictly: "Strictly",
+  all_american: "All American",
 };
 
 export const ROUND_TYPE_LABEL: Record<string, string> = {

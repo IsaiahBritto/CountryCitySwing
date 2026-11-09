@@ -51,7 +51,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   return NextResponse.json({ event: full, competitions: full?.competitions ?? [] });
 }
 
-/** PATCH: organizer edits draft/pending/rejected. */
+/** PATCH: organizer edits their community event (any approval status). */
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const auth = await requireAuthenticatedProfile(req);
   if (!auth.ok) return auth.response;

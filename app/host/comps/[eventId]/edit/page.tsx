@@ -266,9 +266,18 @@ export default function HostCompEditPage({
         Status: {STATUS_LABEL[approvalStatus] ?? approvalStatus}
       </p>
       <p className="mt-2 text-sm text-neutral-500">
-        You can save a draft anytime.{" "}
-        <strong className="font-medium text-neutral-400">Submit for approval</strong> is only
-        available after every item in the checklist at the bottom is complete.
+        {approvalStatus === "approved" ? (
+          <>
+            This event is live. Save changes anytime — updates appear on the public event page
+            right away.
+          </>
+        ) : (
+          <>
+            You can save a draft anytime.{" "}
+            <strong className="font-medium text-neutral-400">Submit for approval</strong> is only
+            available after every item in the checklist at the bottom is complete.
+          </>
+        )}
       </p>
       {error && (
         <p className="mt-2 text-sm text-red-300" role="alert">
@@ -572,7 +581,7 @@ export default function HostCompEditPage({
           disabled={submitting}
           className="btn-signup px-4 py-2 text-sm disabled:opacity-50"
         >
-          Save draft
+          {approvalStatus === "approved" ? "Save changes" : "Save draft"}
         </button>
         {approvalStatus !== "approved" && approvalStatus !== "pending" && (
           <button

@@ -1,11 +1,13 @@
 export const CCS_SUCCESS_TOAST_EVENT = "ccs-success-toast";
 export const CCS_WARNING_TOAST_EVENT = "ccs-warning-toast";
 
-type Detail = { message: string };
+type Detail = { message: string; durationMs?: number };
 
-export function emitCcsSuccessToast(message: string): void {
+export function emitCcsSuccessToast(message: string, durationMs?: number): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(CCS_SUCCESS_TOAST_EVENT, { detail: { message } }));
+  window.dispatchEvent(
+    new CustomEvent(CCS_SUCCESS_TOAST_EVENT, { detail: { message, durationMs } })
+  );
 }
 
 export function emitCcsWarningToast(message: string): void {

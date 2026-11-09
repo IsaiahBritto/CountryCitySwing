@@ -21,6 +21,7 @@ import {
   fromDateTimeLocalInTimeZone,
   toDateTimeLocalInTimeZone,
 } from "@/lib/utils/dateHelpers";
+import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 
 const inputCls =
   "w-full rounded border border-neutral-600 bg-neutral-900 px-3 py-2 text-white";
@@ -186,7 +187,10 @@ export default function HostCompEditPage({
       body: JSON.stringify(buildSaveBody()),
     });
     if (!res.ok) setError(await apiError(res));
-    else await load();
+    else {
+      await load();
+      emitCcsSuccessToast("The event has been saved.", 3000);
+    }
   };
 
   const addMethod = () => {

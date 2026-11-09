@@ -1,11 +1,13 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
+  canOrganizerEditStatus,
   parseCommunityPaymentMethods,
   validateCommunityEventSubmit,
   validateCommunityLevels,
   type CommunityPaymentMethod,
-  type EventApprovalStatus,
 } from "@/lib/communityEvents";
+
+export { canOrganizerEditStatus };
 
 const EVENT_SELECT =
   "id,title,starts_at,ends_at,location,description,time_zone,type,host_kind,approval_status,organizer_profile_id,submitted_at,approval_reviewed_at,approval_rejection_reason,community_payment_methods,community_payment_disclaimer,community_payment_disclaimer_tone,strictly_price,jnj_price,strictly_level,jnj_level,refund_statement";
@@ -123,6 +125,3 @@ export async function listPublicApprovedCommunityEvents() {
   return data ?? [];
 }
 
-export function canOrganizerEditStatus(status: EventApprovalStatus): boolean {
-  return status === "draft" || status === "pending" || status === "rejected";
-}

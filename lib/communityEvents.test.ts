@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canOrganizerEditStatus,
   communityEventSubmitRequirements,
   isApprovedCommunityEvent,
   isPublicCcsHomepageEvent,
@@ -46,5 +47,12 @@ describe("communityEvents", () => {
     ).toBeNull();
     const reqs = communityEventSubmitRequirements({ title: "" });
     expect(reqs.find((r) => r.id === "title")?.met).toBe(false);
+  });
+
+  it("allows organizers to edit in every approval status", () => {
+    expect(canOrganizerEditStatus("draft")).toBe(true);
+    expect(canOrganizerEditStatus("pending")).toBe(true);
+    expect(canOrganizerEditStatus("approved")).toBe(true);
+    expect(canOrganizerEditStatus("rejected")).toBe(true);
   });
 });

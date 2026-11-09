@@ -139,3 +139,12 @@ export function communityEventSubmitRequirements(event: {
     },
   ];
 }
+
+export function canOrganizerEditStatus(status: EventApprovalStatus): boolean {
+  return (
+    status === "draft" ||
+    status === "pending" ||
+    status === "approved" ||
+    status === "rejected"
+  );
+}

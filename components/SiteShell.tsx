@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { ReactNode } from "react";
 import Navbar from "./Navbar";
 import Footer from "./Footer";
+import CookieNotice from "./CookieNotice";
 
 function isLinksRoute(pathname: string) {
   return pathname === "/links";
@@ -48,6 +49,7 @@ export default function SiteShell({ children }: { children: ReactNode }) {
         <Navbar />
         <main className="flex-grow w-full min-w-0">{children}</main>
         <Footer />
+        <CookieNotice />
       </>
     );
   }
@@ -63,6 +65,7 @@ export default function SiteShell({ children }: { children: ReactNode }) {
         {children}
       </main>
       <Footer />
+      <CookieNotice />
     </>
   );
 }

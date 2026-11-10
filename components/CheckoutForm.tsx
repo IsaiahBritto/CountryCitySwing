@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect } from "react";
 import { ArrowLeftIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outline";
 import { useCart } from "./CartContext";
@@ -589,6 +590,18 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
             {error}
           </div>
         )}
+
+        <p className="text-xs text-gray-400 text-center leading-relaxed">
+          We&apos;ll use your contact details to fulfill this order and send confirmation email. See our{" "}
+          <Link href="/privacy" className="text-primary underline">
+            Privacy Policy
+          </Link>{" "}
+          and{" "}
+          <Link href="/terms" className="text-primary underline">
+            Terms
+          </Link>
+          .
+        </p>
 
         {/* Submit Button */}
         <div className="flex justify-center">

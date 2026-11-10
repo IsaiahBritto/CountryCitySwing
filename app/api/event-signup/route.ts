@@ -510,6 +510,7 @@ export async function POST(req: NextRequest) {
             </div>
             <p>Thank you for joining us — we can't wait to see you on the dance floor!</p>
             <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
+            <p style="margin-top: 12px; font-size: 0.8em; color: #888;">This message relates to your event registration. <a href="https://countrycityswing.dance/privacy" style="color:#888;">Privacy Policy</a></p>
           </div>
           <div class="footer">
             <p>Country City Swing<br>Nashville, TN</p>

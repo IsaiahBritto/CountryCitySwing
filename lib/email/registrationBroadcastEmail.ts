@@ -71,7 +71,7 @@ export function buildRegistrationBroadcastHtml(input: {
     ${bodySection}
     <p style="margin:0;color:#a3a3a3;font-size:14px;line-height:1.6;">Questions? Reply to this email or contact us at contact.us@countrycityswing.dance</p>
   </div>
-  <p style="margin:24px 0 0 0;text-align:center;color:#666;font-size:13px;">Country City Swing &middot; Nashville, TN</p>
+    <p style="margin:24px 0 0 0;text-align:center;color:#666;font-size:13px;line-height:1.5;">You received this because you registered for this event.<br>Country City Swing &middot; Nashville, TN<br><a href="${siteUrl}/privacy" style="color:#888;">Privacy Policy</a> · Questions: contact.us@countrycityswing.dance</p>
 </div>
 </td></tr></table>
 </body></html>`;

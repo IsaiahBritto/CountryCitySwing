@@ -678,6 +678,13 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               placeholder="Email"
               className={`w-full px-3 py-2 rounded bg-neutral-800 border ${fieldErrorClass(!!errors.email)}`}
             />
+            <p className="text-xs text-gray-400 -mt-1">
+              We&apos;ll email your registration confirmation and related event messages to this address. See our{" "}
+              <a href="/privacy" className="text-primary underline" target="_blank" rel="noopener noreferrer">
+                Privacy Policy
+              </a>
+              .
+            </p>
 
             {requiresPlannedClass && (
               <div>
@@ -775,7 +782,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                   onChange={(e) => setNewsletterOptIn(e.target.checked)}
                   className="w-4 h-4 accent-yellow-400"
                 />
-                Add me to the weekly newsletter (schedule + workshop highlights, Sundays)
+                Add me to the weekly newsletter (schedule + workshop highlights, Sundays).{" "}
+                <a href="/privacy" className="text-primary underline" target="_blank" rel="noopener noreferrer">
+                  Privacy Policy
+                </a>
               </label>
             )}
 
@@ -995,8 +1005,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                 <strong> Medical Information: </strong>
                 I certify that I am physically fit to participate in the dance class. In case of injury or medical
                 emergency, I authorize Country City Swing and its members to obtain necessary medical treatment for me.
-                <strong> Email Subscription: </strong>
-                I understand I will be subscribed to the email list to receive non-spammy emails.
+                <strong> Email about this registration: </strong>
+                I understand Country City Swing may email me about this event and related registration matters
+                (for example confirmation, payment, or important event updates). Optional weekly schedule emails are
+                separate and require an explicit opt-in where offered.
                 <strong> Photography and Publicity: </strong>
                 I grant permission to Country City Swing and their members to use photographs or videos of me taken during
                 the dance class for promotional or educational purposes.

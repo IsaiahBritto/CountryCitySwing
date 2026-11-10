@@ -14,6 +14,7 @@ import {
   resolveCompSignupProfiles,
 } from "@/lib/compSignupPayload";
 import { profileHasCompleteName } from "@/lib/profileUtils";
+import { COMP_LIABILITY_WAIVER_VERSION } from "@/lib/legal/waiverVersions";
 
 async function ensureAuthProfileNames(
   profile: CompSignupProfile,
@@ -214,6 +215,14 @@ export async function POST(req: NextRequest) {
     paid: false,
     accept_liability: acceptLiability,
     accept_payment: acceptPayment,
+    ...(acceptLiability
+      ? {
+          liability_accepted_at: new Date().toISOString(),
+          liability_waiver_version: COMP_LIABILITY_WAIVER_VERSION,
+          photo_release_accepted_at: new Date().toISOString(),
+          photo_release_waiver_version: COMP_LIABILITY_WAIVER_VERSION,
+        }
+      : {}),
   };
 
   const profileMetadata = {

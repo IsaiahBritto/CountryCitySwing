@@ -27,6 +27,10 @@ import {
   validatePlannedClassAndRole,
   type DanceRole,
 } from "@/lib/upperLevelRegistration";
+import {
+  EVENT_LIABILITY_WAIVER_VERSION,
+  EVENT_PHOTO_RELEASE_WAIVER_VERSION,
+} from "@/lib/legal/waiverVersions";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -49,6 +53,7 @@ export async function POST(req: NextRequest) {
     heardAboutUs,
     paymentMethod,
     acceptLiability,
+    acceptPhotoRelease,
     acceptPayment,
     acceptRefund,
     is_ccs_team: isCcsTeamFromBody,
@@ -59,6 +64,23 @@ export async function POST(req: NextRequest) {
     plannedDanceRole: plannedDanceRoleFromBody,
   } = data;
   const isCcsTeam = isCcsTeamFromBody === true || isCcsTeamFromBody === "true";
+
+  if (!acceptLiability) {
+    return NextResponse.json(
+      { error: "You must accept the liability release." },
+      { status: 400 }
+    );
+  }
+  if (!(acceptPhotoRelease === true || acceptPhotoRelease === "true")) {
+    return NextResponse.json(
+      { error: "You must accept the photo and video release." },
+      { status: 400 }
+    );
+  }
+
+  const waiverAcceptedAt = new Date().toISOString();
+  const photoAccepted =
+    acceptPhotoRelease === true || acceptPhotoRelease === "true";
 
   // Read event id only; all other event fields come from canonical DB row.
   const event = eventPayload ?? data.event ?? {};
@@ -281,6 +303,9 @@ export async function POST(req: NextRequest) {
             heard_about_us: heardAboutUs || "",
             payment_method: paymentMethod,
             accept_liability: String(acceptLiability),
+            accept_photo_release: String(photoAccepted),
+            liability_waiver_version: EVENT_LIABILITY_WAIVER_VERSION,
+            photo_release_waiver_version: EVENT_PHOTO_RELEASE_WAIVER_VERSION,
             accept_payment: String(acceptPayment),
             payment_type: "stripe_checkout",
             subtotal: String(eventPrice),
@@ -360,6 +385,13 @@ export async function POST(req: NextRequest) {
         heard_about_us: heardAboutUs,
         payment_method: effectivePaymentMethod,
         accept_liability: acceptLiability,
+        accept_photo_release: photoAccepted,
+        liability_accepted_at: waiverAcceptedAt,
+        liability_waiver_version: EVENT_LIABILITY_WAIVER_VERSION,
+        photo_release_accepted_at: photoAccepted ? waiverAcceptedAt : null,
+        photo_release_waiver_version: photoAccepted
+          ? EVENT_PHOTO_RELEASE_WAIVER_VERSION
+          : null,
         accept_payment: acceptPayment,
         paid,
         amount_owed: roundCurrency(amountOwed),
@@ -510,6 +542,7 @@ export async function POST(req: NextRequest) {
             </div>
             <p>Thank you for joining us — we can't wait to see you on the dance floor!</p>
             <p style="margin-top: 20px; font-size: 0.9em; color: #666;">If you have any questions, please contact us at contact.us@countrycityswing.dance</p>
+            <p style="margin-top: 12px; font-size: 0.8em; color: #888;">This message relates to your event registration. <a href="https://countrycityswing.dance/privacy" style="color:#888;">Privacy Policy</a></p>
           </div>
           <div class="footer">
             <p>Country City Swing<br>Nashville, TN</p>

@@ -529,6 +529,23 @@ export async function POST(request: NextRequest) {
                 heard_about_us: metadata.heard_about_us || null,
                 payment_method: "Stripe",
                 accept_liability: metadata.accept_liability === "true",
+                accept_photo_release: metadata.accept_photo_release === "true",
+                liability_accepted_at:
+                  metadata.accept_liability === "true"
+                    ? new Date().toISOString()
+                    : null,
+                liability_waiver_version:
+                  typeof metadata.liability_waiver_version === "string"
+                    ? metadata.liability_waiver_version
+                    : null,
+                photo_release_accepted_at:
+                  metadata.accept_photo_release === "true"
+                    ? new Date().toISOString()
+                    : null,
+                photo_release_waiver_version:
+                  typeof metadata.photo_release_waiver_version === "string"
+                    ? metadata.photo_release_waiver_version
+                    : null,
                 accept_payment: metadata.accept_payment === "true",
                 paid: true,
                 amount_owed: eventAmountAfterDiscount,

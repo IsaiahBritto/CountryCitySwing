@@ -59,6 +59,9 @@ const baseSchema = z.object({
   acceptLiability: z.literal(true, {
     errorMap: () => ({ message: REQUIRED_FIELD }),
   }),
+  acceptPhotoRelease: z.literal(true, {
+    errorMap: () => ({ message: REQUIRED_FIELD }),
+  }),
   acceptPayment: z.literal(true, {
     errorMap: () => ({ message: REQUIRED_FIELD }),
   }),
@@ -187,6 +190,7 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   const plannedClassLevel = watch("plannedClassLevel");
   const plannedDanceRole = watch("plannedDanceRole");
   const acceptLiability = watch("acceptLiability");
+  const acceptPhotoRelease = watch("acceptPhotoRelease");
   const acceptPayment = watch("acceptPayment");
   const acceptRefund = watch("acceptRefund");
 
@@ -523,7 +527,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${token}`,
               },
-              body: JSON.stringify({ newsletter_opt_in: true }),
+              body: JSON.stringify({
+                newsletter_opt_in: true,
+                newsletter_consent_source: "event_signup",
+              }),
             }).catch(() => {});
           }
         });
@@ -1009,9 +1016,6 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                 I understand Country City Swing may email me about this event and related registration matters
                 (for example confirmation, payment, or important event updates). Optional weekly schedule emails are
                 separate and require an explicit opt-in where offered.
-                <strong> Photography and Publicity: </strong>
-                I grant permission to Country City Swing and their members to use photographs or videos of me taken during
-                the dance class for promotional or educational purposes.
               </p>
             </div>
 
@@ -1035,6 +1039,40 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             </button>
             {errors.acceptLiability && (
               <p className="text-red-400 text-sm mt-1">{String(errors.acceptLiability.message)}</p>
+            )}
+
+            <div
+              className={`bg-neutral-800 p-3 rounded text-sm max-h-32 overflow-y-auto mt-3 ${
+                errors.acceptPhotoRelease ? "ring-2 ring-red-500" : ""
+              }`}
+            >
+              <p>
+                <strong>Photography and video:</strong> I grant permission to Country City Swing and their
+                members to use photographs or videos of me taken during the dance class for promotional or
+                educational purposes.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              aria-pressed={acceptPhotoRelease === true}
+              onClick={() =>
+                setValue(
+                  "acceptPhotoRelease",
+                  acceptPhotoRelease === true ? (undefined as unknown as true) : true,
+                  { shouldValidate: true, shouldDirty: true }
+                )
+              }
+              className={`mt-2 w-full rounded-lg border px-4 py-3.5 text-left text-base font-semibold transition-colors ${
+                acceptPhotoRelease === true
+                  ? "border-green-500 bg-green-500/10 text-green-300 ring-1 ring-green-500"
+                  : "border-red-500 bg-red-500/10 text-red-200 ring-1 ring-red-500 hover:bg-red-500/15"
+              }`}
+            >
+              {acceptPhotoRelease === true ? "Photo release agreed" : "I agree to photo/video release"}
+            </button>
+            {errors.acceptPhotoRelease && (
+              <p className="text-red-400 text-sm mt-1">{String(errors.acceptPhotoRelease.message)}</p>
             )}
 
             <button

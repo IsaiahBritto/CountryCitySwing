@@ -1,0 +1,89 @@
+Country City Swing — Compliance Matrix (technical inventory)
+Last updated: 2025-11-10
+Purpose: Map PII flows, email types, and consent surfaces for counsel and engineering.
+
+================================================================================
+1. FORMS AND APIs COLLECTING PII
+================================================================================
+
+| Surface | File(s) | Data | Purpose | Shares with |
+|---------|---------|------|---------|-------------|
+| Account signup | app/auth/page.tsx, Supabase Auth | email, password, name | Account | Supabase |
+| Profile | app/api/profile/route.ts | profile fields, newsletter opt-in | Directory, lessons, email prefs | DB; public fields on instructors |
+| Event signup | components/EventSignupModal.tsx, app/api/event-signup/route.ts | name, email, attendance, payment acks, waivers | Registration, check-in, payment | Admins; Stripe if card |
+| Comp signup | CompSignupModal.tsx, app/api/comp-signup/route.ts | partners' PII, waivers | Competition | Admins, judges ops |
+| Community comp | CommunityCompSignupModal, non-ccs-comp-signup | guest PII | Community events | Host admins |
+| Merch checkout | CheckoutForm, app/api/merch-order | name, email, ship address | Fulfillment | Stripe |
+| Private lessons | LessonBookingModal, lesson-booking | name, email, phone, focus | Scheduling | Instructor |
+| Prayer | PrayerForm, app/api/prayer/route.ts | optional name, message | Pastoral email | prayers@ inbox; Turnstile IP |
+| Social requests | social APIs, ccs_social_requester cookie | song requests, anonymous token | DJ social | DB |
+| Host/community events | non-ccs-events APIs | auth user | Event drafts | DB |
+
+Legal basis (high level): contract/legitimate interest for registrations; consent for newsletter; consent/disclaimer for lessons.
+
+================================================================================
+2. EMAIL SEND SITES (Resend)
+================================================================================
+
+| Classification | Trigger | Route / module |
+|----------------|---------|----------------|
+| Marketing | Weekly cron, opt-in profiles only | app/api/newsletter/send/route.ts, lib/newsletterEmail.ts |
+| Marketing test | Admin | app/api/newsletter/send-test/route.ts |
+| Transactional | Event registration | app/api/event-signup/route.ts, pay route, stripe webhook |
+| Transactional | Comp registration | app/api/comp-signup, sendCommunityCompSignupConfirmations |
+| Transactional | Merch | app/api/merch-order, update, stripe webhook |
+| Transactional | Lessons | lesson-booking*, private lesson email libs |
+| Transactional | Team schedule | schedule/signup-confirmation, cancel, reminder cron |
+| Mixed risk | Admin composes body | app/api/registration/broadcast + RegistrationBroadcastPanel |
+| Transactional | Refunds/prizes | admin signup-refund, comp prizes send |
+| Internal | Prayer forward | app/api/prayer (sendMail to team) |
+
+Marketing: unsubscribe link + privacy footer (lib/email/legalFooter.ts).
+Transactional: no unsubscribe required if solely about user's transaction; broadcast must stay event-logistics.
+
+================================================================================
+3. THIRD-PARTY PROCESSORS
+================================================================================
+
+Supabase — auth, Postgres (profiles, signups, orders).
+Resend — outbound email.
+Stripe — payments (PCI on Stripe).
+Vercel — hosting, cron.
+Cloudflare Turnstile — bot check (prayer, social).
+Google Drive API — media gallery (when enabled).
+Spotify / Apple Music — DJ and music features (OAuth tokens).
+Musicae (RapidAPI) — BPM analysis cache.
+
+================================================================================
+4. CONSENT SURFACES (checkbox / notice)
+================================================================================
+
+| Location | Mechanism |
+|----------|-----------|
+| Auth signup | Terms + Privacy notice |
+| Event signup | Liability, payment, refund (if any), photo release (split), email notice, optional newsletter |
+| Profile | Newsletter toggle + privacy link |
+| Merch | Privacy + Terms before submit |
+| Comp modals | Liability (incl. photo in comp copy — counsel) |
+| Lessons | Instructor disclaimer ack |
+| Cookie banner | CookieNotice → /cookies |
+
+Newsletter consent audit: profiles.newsletter_consent_at, _source, _ip, newsletter_opt_out_at (migration 20261110180000).
+
+Waiver audit: signups/comp_signups liability_* and photo_release_* timestamps + version strings.
+
+================================================================================
+5. COOKIES / STORAGE (see /cookies)
+================================================================================
+
+ccs_social_requester, spotify_oauth_state, Supabase session, ccs-cart, ccs_cookie_notice_ack, Turnstile.
+
+================================================================================
+6. OPEN ITEMS FOR COUNSEL / OPS
+================================================================================
+
+- NEXT_PUBLIC_LEGAL_MAILING_ADDRESS for CAN-SPAM footers
+- SPF/DKIM/DMARC (see docs/legal/email-dns.txt)
+- Entity consistency: Dance Nashville vs Clearbrook / Events at 1900 releases
+- Retention schedule (finance, comps history)
+- Double opt-in for newsletter (optional product decision)

@@ -354,8 +354,11 @@ export default function PrivacyPolicyPage() {
           To request access, correction, or deletion, email{" "}
           <a href={`mailto:${LEGAL_PRIVACY_EMAIL}`}>{LEGAL_PRIVACY_EMAIL}</a> from the email address
           associated with your account, or explain your relationship to the data if you do not have an
-          account. We may need to verify your identity. Account deletion features may be expanded in
-          site settings; until then, contact us for deletion requests.
+          account. We may need to verify your identity. Signed-in users may delete their account under{" "}
+          <a href="/settings" className="text-primary underline">
+            Settings
+          </a>
+          . For guest registration or order data, contact us.
         </p>
       </LegalSection>
 

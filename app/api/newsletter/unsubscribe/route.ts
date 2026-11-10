@@ -36,7 +36,10 @@ export async function GET(req: NextRequest) {
 
   const { error } = await supabaseServer
     .from("profiles")
-    .update({ newsletter_opt_in: false })
+    .update({
+      newsletter_opt_in: false,
+      newsletter_opt_out_at: new Date().toISOString(),
+    })
     .eq("email", decodedEmail);
 
   if (error) {

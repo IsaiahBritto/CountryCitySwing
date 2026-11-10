@@ -4,6 +4,7 @@ import { sendHtmlEmail } from "@/lib/mailer";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { getUnsubscribeUrl } from "@/lib/newsletter";
 import { buildNewsletterHtml, buildNewsletterText, type NewsletterEventRow } from "@/lib/newsletterEmail";
+import { marketingListUnsubscribeHeaders } from "@/lib/email/listUnsubscribeHeaders";
 import {
   getNextSevenDaysUtcRange,
   formatEventDateInChicago,
@@ -108,7 +109,10 @@ export async function POST(req: NextRequest) {
       subject,
       html,
       process.env.RESEND_FROM_EMAIL || undefined,
-      text
+      text,
+      undefined,
+      undefined,
+      marketingListUnsubscribeHeaders(unsubscribeUrl)
     );
 
     return NextResponse.json({ success: true, sentTo: email });

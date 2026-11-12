@@ -153,37 +153,20 @@ export function checkDuplicateCommunityCompSignupByEmailFromRows(
 ): boolean {
   const norm = normalizeCompSignupEmail;
 
-  const allEventEmails = new Set<string>();
   const existingStrictlyEmails = new Set<string>();
   const existingJnJEmails = new Set<string>();
 
   for (const row of existingRows) {
     if (row.strictly_selected) {
       for (const e of [norm(row.strictly_lead_email), norm(row.strictly_follow_email)]) {
-        if (e) {
-          allEventEmails.add(e);
-          existingStrictlyEmails.add(e);
-        }
+        if (e) existingStrictlyEmails.add(e);
       }
     }
     if (row.jnj_selected) {
       for (const e of [norm(row.jnj_lead_email), norm(row.jnj_follow_email)]) {
-        if (e) {
-          allEventEmails.add(e);
-          existingJnJEmails.add(e);
-        }
+        if (e) existingJnJEmails.add(e);
       }
     }
-  }
-
-  const registrantEmail =
-    norm(resolved.jnj_lead_email) ||
-    norm(resolved.jnj_follow_email) ||
-    norm(resolved.strictly_lead_email) ||
-    norm(resolved.strictly_follow_email);
-
-  if (registrantEmail && allEventEmails.has(registrantEmail)) {
-    return true;
   }
 
   if (opts.strictlySelected) {

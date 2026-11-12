@@ -89,6 +89,64 @@ describe("eventRegistrants re-export", () => {
     expect(roster[0].roles).toEqual(["strictly_lead"]);
   });
 
+  it("merges separate signup rows by email for bib roster", () => {
+    const signups: CompSignupRow[] = [
+      {
+        id: "s-strictly",
+        event_id: "e1",
+        event_title: "Test",
+        registrant_profile_id: null,
+        strictly_selected: true,
+        strictly_lead_first_name: "Alex",
+        strictly_lead_last_name: "Lead",
+        strictly_lead_email: "alex@example.com",
+        strictly_follow_first_name: "Sam",
+        strictly_follow_last_name: "Follow",
+        strictly_follow_email: "sam@example.com",
+        jnj_selected: false,
+        paid: false,
+      },
+      {
+        id: "s-jnj-lead",
+        event_id: "e1",
+        event_title: "Test",
+        registrant_profile_id: null,
+        strictly_selected: false,
+        jnj_selected: true,
+        jnj_lead_first_name: "Alex",
+        jnj_lead_last_name: "Lead",
+        jnj_lead_email: "alex@example.com",
+        paid: false,
+      },
+      {
+        id: "s-jnj-follow",
+        event_id: "e1",
+        event_title: "Test",
+        registrant_profile_id: null,
+        strictly_selected: false,
+        jnj_selected: true,
+        jnj_follow_first_name: "Sam",
+        jnj_follow_last_name: "Follow",
+        jnj_follow_email: "sam@example.com",
+        paid: true,
+      },
+    ];
+    const roster = collectEventRegistrants(signups, []);
+    const alex = roster.find((r) => r.email === "alex@example.com");
+    const sam = roster.find((r) => r.email === "sam@example.com");
+    expect(alex?.roles).toEqual(["jnj_lead", "strictly_lead"]);
+    expect(formatRegistrantCompLabels(alex?.roles ?? [])).toEqual([
+      "Jack & Jill (Lead)",
+      "Strictly (Lead)",
+    ]);
+    expect(sam?.roles).toEqual(["jnj_follow", "strictly_follow"]);
+    expect(formatRegistrantCompLabels(sam?.roles ?? [])).toEqual([
+      "Jack & Jill (Follow)",
+      "Strictly (Partner)",
+    ]);
+    expect(roster).toHaveLength(2);
+  });
+
   it("assigns role badges per division slot", () => {
     const signup: CompSignupRow = {
       id: "s1",

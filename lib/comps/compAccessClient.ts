@@ -66,6 +66,12 @@ export function compEventBackHref(
   hostKind: EventHostKindUi
 ): { href: string; label: string } {
   if (isCompAdminRole(me?.profile?.role)) {
+    if (hostKind === "community") {
+      return {
+        href: `/host/comps/${eventId}/operate`,
+        label: "Operate Non-CCS event",
+      };
+    }
     return { href: "/admin/comps", label: "All competitions" };
   }
   if (hostKind === "community" && isEventOrganizer(me, eventId)) {

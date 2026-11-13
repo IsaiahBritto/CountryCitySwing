@@ -186,12 +186,26 @@ export default function AdminNonCcsEventReviewPage({
       </dl>
 
       {e.approval_status === "approved" && (
-        <Link
-          href={`/non-ccs-events/${id}`}
-          className="mt-8 inline-block text-sm text-primary underline"
-        >
-          Public event page →
-        </Link>
+        <div className="mt-8 flex flex-wrap gap-4">
+          <Link
+            href={`/host/comps/${id}/operate`}
+            className="inline-block rounded-md border border-primary/50 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
+          >
+            Operate event →
+          </Link>
+          <Link
+            href={`/admin/comps/events/${id}/ops`}
+            className="inline-block text-sm text-neutral-300 underline hover:text-white"
+          >
+            Comp event ops
+          </Link>
+          <Link
+            href={`/non-ccs-events/${id}`}
+            className="inline-block text-sm text-primary underline"
+          >
+            Public event page →
+          </Link>
+        </div>
       )}
     </main>
   );

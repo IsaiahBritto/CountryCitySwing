@@ -6,8 +6,7 @@ import {
   findOrCreateBibRecord,
   type BibAssignment,
 } from "@/lib/comps/bibs";
-import { collectEventRegistrants, type EventJudgeRef } from "@/lib/comps/eventRegistrants";
-import type { CompSignupRow } from "@/lib/comps/types";
+import { loadEventRosterWithLabels } from "@/lib/comps/eventRosterLoad";
 
 async function loadEvent(eventId: string) {
   const { data } = await supabaseServer
@@ -16,63 +15,6 @@ async function loadEvent(eventId: string) {
     .eq("id", eventId)
     .maybeSingle();
   return data;
-}
-
-async function loadEventJudges(eventId: string): Promise<EventJudgeRef[]> {
-  const { data: competitions } = await supabaseServer
-    .from("competitions")
-    .select("id")
-    .eq("event_id", eventId);
-  const compIds = (competitions ?? []).map((c) => c.id);
-  if (compIds.length === 0) return [];
-
-  const { data: judgeRows, error } = await supabaseServer
-    .from("comp_judge_assignments")
-    .select("profile_id, profile:profiles(email)")
-    .in("competition_id", compIds);
-  if (error) throw new Error("Failed to load judges");
-
-  const refs: EventJudgeRef[] = [];
-  const seen = new Set<string>();
-  for (const row of (judgeRows ?? []) as {
-    profile_id?: string | null;
-    profile?: { email?: string | null } | null;
-  }[]) {
-    const profileId = row.profile_id?.trim() || null;
-    const email =
-      typeof row.profile?.email === "string"
-        ? row.profile.email.trim().toLowerCase()
-        : null;
-    const key = profileId ?? email ?? "";
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    refs.push({ profileId, email });
-  }
-  return refs;
-}
-
-async function loadRoster(eventId: string) {
-  const [signupsRes, bibsRes, judges] = await Promise.all([
-    supabaseServer.from("comp_signups").select("*").eq("event_id", eventId),
-    supabaseServer
-      .from("comp_bibs")
-      .select("id, first_name, last_name, email, profile_id, bib_number")
-      .eq("event_id", eventId),
-    loadEventJudges(eventId),
-  ]);
-
-  if (signupsRes.error) {
-    throw new Error("Failed to load signups");
-  }
-  if (bibsRes.error) {
-    throw new Error("Failed to load bibs");
-  }
-
-  return collectEventRegistrants(
-    (signupsRes.data ?? []) as CompSignupRow[],
-    bibsRes.data ?? [],
-    { judges }
-  );
 }
 
 /** GET: event registrants with current bib assignments. */
@@ -90,7 +32,7 @@ export async function GET(
   }
 
   try {
-    const roster = await loadRoster(eventId);
+    const roster = await loadEventRosterWithLabels(eventId);
     return NextResponse.json({ event, roster });
   } catch {
     return NextResponse.json({ error: "Failed to load roster" }, { status: 500 });
@@ -130,7 +72,7 @@ export async function PATCH(
 
   let roster;
   try {
-    roster = await loadRoster(eventId);
+    roster = await loadEventRosterWithLabels(eventId);
   } catch {
     return NextResponse.json({ error: "Failed to load roster" }, { status: 500 });
   }
@@ -197,6 +139,6 @@ export async function PATCH(
     return NextResponse.json({ error: result.error }, { status: 409 });
   }
 
-  const updatedRoster = await loadRoster(eventId);
+  const updatedRoster = await loadEventRosterWithLabels(eventId);
   return NextResponse.json({ roster: updatedRoster });
 }

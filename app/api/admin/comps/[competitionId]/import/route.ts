@@ -3,6 +3,12 @@ import { authCompetitionManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { findOrCreateBibRecord } from "@/lib/comps/bibs";
 import { usesJnSignupColumns } from "@/lib/comps/competitionKind";
+import {
+  signupDivisionLegacyWarning,
+  signupMatchesCompetition,
+  signupSelectedColumn,
+} from "@/lib/comps/signupDivision";
+import type { CompSignupRow, CompType } from "@/lib/comps/types";
 
 const norm = (v: unknown) =>
   typeof v === "string" ? v.trim().toLowerCase() : "";
@@ -30,13 +36,18 @@ async function buildPreview(competitionId: string): Promise<
 
   const useIndividualJnColumns = usesJnSignupColumns(competition.comp_type);
   const prefix = useIndividualJnColumns ? "jnj" : "strictly";
+  const selectedColumn = signupSelectedColumn(competition.comp_type);
 
-  const [signupsRes, entriesRes, judgesRes] = await Promise.all([
+  const [signupsRes, compsRes, entriesRes, judgesRes] = await Promise.all([
     supabaseServer
       .from("comp_signups")
       .select("*")
       .eq("event_id", competition.event_id)
-      .eq(`${prefix}_selected`, true),
+      .eq(selectedColumn, true),
+    supabaseServer
+      .from("competitions")
+      .select("id, name, comp_type, test_comp")
+      .eq("event_id", competition.event_id),
     supabaseServer
       .from("comp_entries")
       .select("comp_signup_id, lead_email, follow_email, lead_profile_id, follow_profile_id")
@@ -69,7 +80,18 @@ async function buildPreview(competitionId: string): Promise<
     if (row.profile_id) judgeProfileIds.add(row.profile_id);
   }
 
-  const rows: PreviewRow[] = (signupsRes.data ?? []).map((s: Record<string, unknown>) => {
+  const eventCompetitions = (compsRes.data ?? []) as {
+    id: string;
+    name: string;
+    comp_type: string;
+    test_comp?: boolean | null;
+  }[];
+
+  const matchingSignups = (signupsRes.data ?? []).filter((s) =>
+    signupMatchesCompetition(s as unknown as CompSignupRow, competition, eventCompetitions)
+  );
+
+  const rows: PreviewRow[] = matchingSignups.map((s: Record<string, unknown>) => {
     const leadFirst = String(s[`${prefix}_lead_first_name`] ?? "");
     const leadLast = String(s[`${prefix}_lead_last_name`] ?? "");
     const leadEmail = (s[`${prefix}_lead_email`] as string | null) ?? null;
@@ -80,6 +102,12 @@ async function buildPreview(competitionId: string): Promise<
     const followProfileId = (s[`${prefix}_follow_profile_id`] as string | null) ?? null;
 
     const warnings: string[] = [];
+    const legacyWarn = signupDivisionLegacyWarning(
+      s as unknown as CompSignupRow,
+      competition.comp_type as CompType,
+      eventCompetitions
+    );
+    if (legacyWarn) warnings.push(legacyWarn);
     if (s.refunded_or_cancelled) {
       warnings.push(`Signup is ${s.refunded_or_cancelled}`);
     }

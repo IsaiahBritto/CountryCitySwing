@@ -28,6 +28,17 @@ interface DetailResponse {
   overallTier: "full" | "limited";
   strictlyPartnerName: string | null;
   tiersByCompetition: { competitionId: string; name: string; tier: string }[];
+  signupDivisionIds: {
+    jnjCompetitionId: string | null;
+    strictlyCompetitionId: string | null;
+    allAmericanCompetitionId: string | null;
+  };
+  eventCompetitions: {
+    id: string;
+    name: string;
+    comp_type: string;
+    test_comp?: boolean | null;
+  }[];
 }
 
 export default function EventRegistrantEditDialog({
@@ -63,8 +74,33 @@ export default function EventRegistrantEditDialog({
   const [confirmSwapOpen, setConfirmSwapOpen] = useState(false);
   const [pendingStrictlySwap, setPendingStrictlySwap] = useState(false);
   const [markingPaid, setMarkingPaid] = useState(false);
+  const [jnjDivisionId, setJnjDivisionId] = useState("");
+  const [strictlyDivisionId, setStrictlyDivisionId] = useState("");
+  const [allAmericanDivisionId, setAllAmericanDivisionId] = useState("");
 
   const limited = detail?.overallTier === "limited";
+
+  const jnjDivisions = useMemo(
+    () =>
+      (detail?.eventCompetitions ?? []).filter(
+        (c) => c.comp_type === "jack_and_jill" && !c.test_comp
+      ),
+    [detail]
+  );
+  const strictlyDivisions = useMemo(
+    () =>
+      (detail?.eventCompetitions ?? []).filter(
+        (c) => c.comp_type === "strictly" && !c.test_comp
+      ),
+    [detail]
+  );
+  const allAmericanDivisions = useMemo(
+    () =>
+      (detail?.eventCompetitions ?? []).filter(
+        (c) => c.comp_type === "all_american" && !c.test_comp
+      ),
+    [detail]
+  );
 
   useEffect(() => {
     if (!open || !person) return;
@@ -94,6 +130,9 @@ export default function EventRegistrantEditDialog({
         flags[r] = d.roles.includes(r);
       }
       setRoleFlags(flags);
+      setJnjDivisionId(d.signupDivisionIds?.jnjCompetitionId ?? "");
+      setStrictlyDivisionId(d.signupDivisionIds?.strictlyCompetitionId ?? "");
+      setAllAmericanDivisionId(d.signupDivisionIds?.allAmericanCompetitionId ?? "");
       setRefreshPublishedNames(false);
       setPendingStrictlySwap(false);
     })();
@@ -136,6 +175,11 @@ export default function EventRegistrantEditDialog({
             email: email.trim() || null,
           },
           roles: buildRolesPayload(),
+          divisionSelections: {
+            jnjCompetitionId: jnjDivisionId || null,
+            strictlyCompetitionId: strictlyDivisionId || null,
+            allAmericanCompetitionId: allAmericanDivisionId || null,
+          },
           strictlySwapLeadFollow,
           refreshPublishedNames,
         }),
@@ -297,10 +341,85 @@ export default function EventRegistrantEditDialog({
                 </div>
               )}
 
+              {detail.tiersByCompetition.length > 0 && (
+                <ul className="rounded-md border border-neutral-700 bg-neutral-800/40 px-3 py-2 text-xs text-neutral-400">
+                  {detail.tiersByCompetition.map((t) => (
+                    <li key={t.competitionId}>
+                      {t.name}:{" "}
+                      {t.tier === "limited" ? "name/email only" : "full edit"}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
               <div>
                 <p className="mb-2 text-xs font-medium uppercase text-neutral-500">
                   Divisions
                 </p>
+                {(roleFlags.jnj_lead || roleFlags.jnj_follow) &&
+                  jnjDivisions.length > 1 && (
+                    <div className="mb-3">
+                      <label className="mb-1 block text-xs text-neutral-500">
+                        Jack &amp; Jill division
+                      </label>
+                      <select
+                        className={inputCls}
+                        disabled={limited}
+                        value={jnjDivisionId}
+                        onChange={(e) => setJnjDivisionId(e.target.value)}
+                      >
+                        <option value="">— Select division —</option>
+                        {jnjDivisions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                {(roleFlags.strictly_lead || roleFlags.strictly_follow) &&
+                  strictlyDivisions.length > 1 && (
+                    <div className="mb-3">
+                      <label className="mb-1 block text-xs text-neutral-500">
+                        Strictly division
+                      </label>
+                      <select
+                        className={inputCls}
+                        disabled={limited}
+                        value={strictlyDivisionId}
+                        onChange={(e) => setStrictlyDivisionId(e.target.value)}
+                      >
+                        <option value="">— Select division —</option>
+                        {strictlyDivisions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                {allAmericanDivisions.length > 1 &&
+                  (roleFlags.jnj_lead || roleFlags.jnj_follow) &&
+                  detail.signupDivisionIds.allAmericanCompetitionId && (
+                    <div className="mb-3">
+                      <label className="mb-1 block text-xs text-neutral-500">
+                        All American division
+                      </label>
+                      <select
+                        className={inputCls}
+                        disabled={limited}
+                        value={allAmericanDivisionId}
+                        onChange={(e) => setAllAmericanDivisionId(e.target.value)}
+                      >
+                        <option value="">— Select division —</option>
+                        {allAmericanDivisions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 <div className="space-y-2">
                   {ALL_ROLES.map((role) => (
                     <label

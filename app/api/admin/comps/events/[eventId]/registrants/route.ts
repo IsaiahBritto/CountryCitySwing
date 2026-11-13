@@ -3,70 +3,30 @@ import { isCommunityEvent } from "@/lib/communityEvents";
 import { loadEventHostMeta } from "@/lib/compEventAccess";
 import { requireCompEventStaffAuth } from "@/lib/compStaffAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
-import {
-  collectEventRegistrants,
-  type EventRegistrantPerson,
-} from "@/lib/comps/eventRegistrants";
-import type { CompSignupRow } from "@/lib/comps/types";
+import type { EventRegistrantPerson } from "@/lib/comps/eventRegistrants";
+import { loadEventRosterWithLabels } from "@/lib/comps/eventRosterLoad";
 import { resolveRegistrant, strictlyPartnerName } from "@/lib/comps/registrantResolve";
 import {
   applyRegistrantPatch,
   RegistrantSyncError,
   type RegistrantRolesPatch,
+  type RegistrantDivisionSelections,
 } from "@/lib/comps/registrantSync";
 import { refreshTabulationDisplayNamesForCompetitions } from "@/lib/comps/refreshTabulationDisplayNames";
 
-async function loadEventJudges(eventId: string) {
-  const { data: competitions } = await supabaseServer
-    .from("competitions")
-    .select("id")
-    .eq("event_id", eventId);
-  const compIds = (competitions ?? []).map((c) => c.id);
-  if (compIds.length === 0) return [];
-
-  const { data: judgeRows } = await supabaseServer
-    .from("comp_judge_assignments")
-    .select("profile_id, profile:profiles(email)")
-    .in("competition_id", compIds);
-
-  const refs: { profileId: string | null; email: string | null }[] = [];
-  const seen = new Set<string>();
-  for (const row of (judgeRows ?? []) as {
-    profile_id?: string | null;
-    profile?: { email?: string | null } | null;
-  }[]) {
-    const profileId = row.profile_id?.trim() || null;
-    const email =
-      typeof row.profile?.email === "string"
-        ? row.profile.email.trim().toLowerCase()
-        : null;
-    const key = profileId ?? email ?? "";
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    refs.push({ profileId, email });
-  }
-  return refs;
-}
-
-async function loadEventRoster(eventId: string): Promise<EventRegistrantPerson[]> {
-  const [signupsRes, bibsRes, judges] = await Promise.all([
-    supabaseServer.from("comp_signups").select("*").eq("event_id", eventId),
-    supabaseServer
-      .from("comp_bibs")
-      .select("id, first_name, last_name, email, profile_id, bib_number")
-      .eq("event_id", eventId),
-    loadEventJudges(eventId),
-  ]);
-
-  if (signupsRes.error || bibsRes.error) {
-    throw new Error("Failed to load roster");
-  }
-
-  return collectEventRegistrants(
-    (signupsRes.data ?? []) as CompSignupRow[],
-    bibsRes.data ?? [],
-    { judges }
-  );
+function parseDivisionSelections(
+  body: Record<string, unknown>
+): RegistrantDivisionSelections | undefined {
+  const raw = body.divisionSelections;
+  if (!raw || typeof raw !== "object") return undefined;
+  const d = raw as Record<string, unknown>;
+  const pick = (k: string) =>
+    d[k] === null ? null : typeof d[k] === "string" ? d[k] : undefined;
+  return {
+    jnjCompetitionId: pick("jnjCompetitionId"),
+    strictlyCompetitionId: pick("strictlyCompetitionId"),
+    allAmericanCompetitionId: pick("allAmericanCompetitionId"),
+  };
 }
 
 function parseRoles(body: Record<string, unknown>): RegistrantRolesPatch | undefined {
@@ -99,7 +59,7 @@ export async function GET(
   }
 
   try {
-    const roster = await loadEventRoster(eventId);
+    const roster = await loadEventRosterWithLabels(eventId);
     const rosterPerson = roster.find((r) => r.personKey === personKey);
     const resolved = await resolveRegistrant(
       eventId,
@@ -157,7 +117,7 @@ export async function PATCH(
     if (payErr) {
       return NextResponse.json({ error: "Failed to mark paid" }, { status: 500 });
     }
-    const updatedRoster = await loadEventRoster(eventId);
+    const updatedRoster = await loadEventRosterWithLabels(eventId);
     return NextResponse.json({ roster: updatedRoster, warnings: [] });
   }
 
@@ -176,7 +136,7 @@ export async function PATCH(
   }
 
   try {
-    const roster = await loadEventRoster(eventId);
+    const roster = await loadEventRosterWithLabels(eventId);
     const rosterPerson = roster.find((r) => r.personKey === personKey);
     const resolved = await resolveRegistrant(
       eventId,
@@ -199,6 +159,7 @@ export async function PATCH(
         email,
       },
       roles: parseRoles(body),
+      divisionSelections: parseDivisionSelections(body),
       strictlySwapLeadFollow: body.strictlySwapLeadFollow === true,
       tier: resolved.overallTier,
     });
@@ -211,7 +172,7 @@ export async function PATCH(
       tabulationRoundIds = refresh.roundIds;
     }
 
-    const updatedRoster = await loadEventRoster(eventId);
+    const updatedRoster = await loadEventRosterWithLabels(eventId);
 
     return NextResponse.json({
       roster: updatedRoster,

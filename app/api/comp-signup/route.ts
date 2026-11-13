@@ -14,6 +14,7 @@ import {
   resolveCompSignupProfiles,
 } from "@/lib/compSignupPayload";
 import { profileHasCompleteName } from "@/lib/profileUtils";
+import { resolveSignupDivisionIds } from "@/lib/comps/signupDivision";
 
 async function ensureAuthProfileNames(
   profile: CompSignupProfile,
@@ -83,6 +84,7 @@ export async function POST(req: NextRequest) {
   const eventTitle = event.title ?? "Comp Event";
   const strictlySelected = !!data.strictly_selected;
   const jnjSelected = !!data.jnj_selected;
+  const allAmericanSelected = !!data.all_american_selected;
   const paymentMethod = (data.payment_method ?? "Stripe").trim();
   const amountOwed = roundCurrency(Number(data.amount_owed) || 0);
   const acceptLiability = !!data.accept_liability;
@@ -98,9 +100,9 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (!strictlySelected && !jnjSelected) {
+  if (!strictlySelected && !jnjSelected && !allAmericanSelected) {
     return NextResponse.json(
-      { error: "Select at least one division: Strictly or JnJ" },
+      { error: "Select at least one division: Strictly, JnJ, or All American" },
       { status: 400 }
     );
   }
@@ -165,6 +167,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
 
+  const { data: eventCompetitions, error: compDivErr } = await supabaseServer
+    .from("competitions")
+    .select("id, name, comp_type, test_comp")
+    .eq("event_id", eventId);
+
+  if (compDivErr) {
+    return NextResponse.json(
+      { error: "Failed to load competition divisions" },
+      { status: 500 }
+    );
+  }
+
+  const divisionIds = resolveSignupDivisionIds(
+    {
+      strictlySelected,
+      jnjSelected,
+      allAmericanSelected,
+      strictlyCompetitionId:
+        typeof data.strictly_competition_id === "string"
+          ? data.strictly_competition_id
+          : null,
+      jnjCompetitionId:
+        typeof data.jnj_competition_id === "string" ? data.jnj_competition_id : null,
+      allAmericanCompetitionId:
+        typeof data.all_american_competition_id === "string"
+          ? data.all_american_competition_id
+          : null,
+    },
+    (eventCompetitions ?? []) as {
+      id: string;
+      name: string;
+      comp_type: string;
+      test_comp?: boolean | null;
+    }[]
+  );
+  if ("error" in divisionIds) {
+    return NextResponse.json(
+      { error: divisionIds.error },
+      { status: divisionIds.status }
+    );
+  }
+
   const isDuplicate = await checkDuplicateCompSignup(eventId, resolved, {
     strictlySelected,
     jnjSelected,
@@ -209,6 +253,10 @@ export async function POST(req: NextRequest) {
     jnj_follow_first_name: resolved.jnj_follow_first_name,
     jnj_follow_last_name: resolved.jnj_follow_last_name,
     jnj_follow_email: resolved.jnj_follow_email,
+    jnj_competition_id: divisionIds.jnj_competition_id,
+    strictly_competition_id: divisionIds.strictly_competition_id,
+    all_american_competition_id: divisionIds.all_american_competition_id,
+    all_american_selected: allAmericanSelected,
     payment_method: effectivePayment,
     amount_owed: amountOwed,
     paid: false,
@@ -303,6 +351,11 @@ export async function POST(req: NextRequest) {
           jnj_follow_first_name: resolved.jnj_follow_first_name ?? "",
           jnj_follow_last_name: resolved.jnj_follow_last_name ?? "",
           jnj_follow_email: resolved.jnj_follow_email ?? "",
+          all_american_selected: String(allAmericanSelected),
+          jnj_competition_id: divisionIds.jnj_competition_id ?? "",
+          strictly_competition_id: divisionIds.strictly_competition_id ?? "",
+          all_american_competition_id:
+            divisionIds.all_american_competition_id ?? "",
           ...Object.fromEntries(
             Object.entries(profileMetadata).map(([k, v]) => [k, v ?? ""])
           ),

@@ -124,6 +124,10 @@ export interface CompSignupRow {
   jnj_follow_first_name: string | null;
   jnj_follow_last_name: string | null;
   jnj_follow_email: string | null;
+  jnj_competition_id?: string | null;
+  strictly_competition_id?: string | null;
+  all_american_competition_id?: string | null;
+  all_american_selected?: boolean;
   paid: boolean;
   selected_payment_method_id?: string | null;
   selected_payment_method_label?: string | null;

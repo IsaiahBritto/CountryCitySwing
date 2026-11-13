@@ -7,6 +7,7 @@ import {
   DEFAULT_TIME_ZONE,
   formatEventScheduleSubtitle,
 } from "@/lib/utils/dateHelpers";
+import { formatDivisionListLabel } from "@/lib/comps/divisionDisplay";
 
 export default function NonCcsEventDetailPage({
   params,
@@ -51,9 +52,13 @@ export default function NonCcsEventDetailPage({
       {e.description && <p className="mt-4 text-neutral-200">{e.description}</p>}
       {(event.competitions ?? []).length > 0 && (
         <ul className="mt-4 list-inside list-disc text-neutral-300">
-          {(event.competitions as { name: string; comp_type: string }[]).map((c) => (
-            <li key={c.name}>{c.name}</li>
-          ))}
+          {(event.competitions as { id: string; name: string; comp_type: string }[]).map(
+            (c) => (
+              <li key={c.id}>
+                {formatDivisionListLabel(c.name, c.comp_type)}
+              </li>
+            )
+          )}
         </ul>
       )}
       <button
@@ -65,6 +70,13 @@ export default function NonCcsEventDetailPage({
       </button>
       <CommunityCompSignupModal
         event={e}
+        initialCompetitions={
+          (event.competitions ?? []) as {
+            id: string;
+            name: string;
+            comp_type: string;
+          }[]
+        }
         open={showSignup}
         onClose={() => setShowSignup(false)}
       />

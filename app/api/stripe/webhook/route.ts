@@ -349,6 +349,12 @@ export async function POST(request: NextRequest) {
               jnj_follow_first_name: metadata.jnj_follow_first_name || null,
               jnj_follow_last_name: metadata.jnj_follow_last_name || null,
               jnj_follow_email: metadata.jnj_follow_email || null,
+              all_american_selected: metadata.all_american_selected === "true",
+              jnj_competition_id: metadata.jnj_competition_id?.trim() || null,
+              strictly_competition_id:
+                metadata.strictly_competition_id?.trim() || null,
+              all_american_competition_id:
+                metadata.all_american_competition_id?.trim() || null,
               payment_method: "Stripe",
               amount_owed: Number(metadata.amount_owed || 0),
               paid: true,

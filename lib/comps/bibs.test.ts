@@ -95,7 +95,7 @@ describe("collectEventRegistrants", () => {
     expect(roster).toHaveLength(1);
   });
 
-  it("merges existing bib rows including walk-ups", () => {
+  it("merges existing bib rows including walk-ups (roles empty until entry enrich)", () => {
     const roster = collectEventRegistrants([], [
       {
         id: "b1",

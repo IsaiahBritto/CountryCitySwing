@@ -14,6 +14,12 @@ import {
   slotPersonKey,
   normEmail,
 } from "@/lib/comps/registrantResolve";
+import {
+  targetCompetitionIdForSignup,
+  divisionSelectionsChanged,
+  type EventDivisionRow,
+} from "@/lib/comps/signupDivision";
+import type { CompType } from "@/lib/comps/types";
 
 export interface RegistrantIdentityPatch {
   firstName: string;
@@ -28,11 +34,18 @@ export interface RegistrantRolesPatch {
   strictly_follow?: boolean;
 }
 
+export interface RegistrantDivisionSelections {
+  jnjCompetitionId?: string | null;
+  strictlyCompetitionId?: string | null;
+  allAmericanCompetitionId?: string | null;
+}
+
 export interface ApplyRegistrantPatchInput {
   eventId: string;
   resolved: ResolvedRegistrant;
   identity: RegistrantIdentityPatch;
   roles?: RegistrantRolesPatch;
+  divisionSelections?: RegistrantDivisionSelections;
   strictlySwapLeadFollow?: boolean;
   tier: RegistrantEditTier;
 }
@@ -100,12 +113,38 @@ async function clearSignupSlot(
   });
 }
 
-async function loadCompetitions(eventId: string) {
+async function loadEventCompetitions(eventId: string): Promise<EventDivisionRow[]> {
   const { data } = await supabaseServer
     .from("competitions")
-    .select("id, comp_type")
+    .select("id, name, comp_type, test_comp")
     .eq("event_id", eventId);
-  return data ?? [];
+  return (data ?? []) as EventDivisionRow[];
+}
+
+function roleCompType(role: EventRegistrantRole): CompType {
+  return role.startsWith("jnj") ? "jack_and_jill" : "strictly";
+}
+
+function divisionOverrideForRole(
+  role: EventRegistrantRole,
+  divisionSelections?: RegistrantDivisionSelections
+): string | null | undefined {
+  if (!divisionSelections) return undefined;
+  if (role.startsWith("jnj")) return divisionSelections.jnjCompetitionId;
+  return divisionSelections.strictlyCompetitionId;
+}
+
+async function competitionIdsForRoleOnSignup(
+  signup: CompSignupRow,
+  role: EventRegistrantRole,
+  comps: EventDivisionRow[],
+  divisionSelections?: RegistrantDivisionSelections
+): Promise<string[]> {
+  const compType = roleCompType(role);
+  const override = divisionOverrideForRole(role, divisionSelections);
+  const target = targetCompetitionIdForSignup(signup, compType, comps, override);
+  if (target) return [target];
+  return comps.filter((c) => c.comp_type === compType && !c.test_comp).map((c) => c.id);
 }
 
 async function findEntryForSignupRole(
@@ -122,6 +161,18 @@ async function findEntryForSignupRole(
   const rows = data ?? [];
   if (compType === "strictly") {
     return rows.find((e) => e.entry_kind === "couple") ?? null;
+  }
+  if (compType === "all_american") {
+    if (role === "jnj_lead") {
+      return (
+        rows.find((e) => e.entry_kind === "individual" && e.role === "lead") ??
+        null
+      );
+    }
+    return (
+      rows.find((e) => e.entry_kind === "individual" && e.role === "follow") ??
+      null
+    );
   }
   if (role === "jnj_lead") {
     return (
@@ -311,7 +362,7 @@ async function importEntryForSignup(
   compType: string,
   role: EventRegistrantRole
 ): Promise<void> {
-  const prefix = compType === "jack_and_jill" ? "jnj" : "strictly";
+  const prefix = compType === "strictly" ? "strictly" : "jnj";
 
   const leadFirst = String(
     signup[`${prefix}_lead_first_name` as keyof CompSignupRow] ?? ""
@@ -348,7 +399,7 @@ async function importEntryForSignup(
   );
   if (existing) return;
 
-  if (compType === "jack_and_jill") {
+  if (compType === "jack_and_jill" || compType === "all_american") {
     if (role === "jnj_lead") {
       await supabaseServer.from("comp_entries").insert({
         competition_id: competitionId,
@@ -437,15 +488,21 @@ async function applyStructuralChanges(
 ): Promise<void> {
   const { resolved, roles, strictlySwapLeadFollow, eventId, identity } = input;
 
+  const comps = await loadEventCompetitions(eventId);
+
   if (strictlySwapLeadFollow) {
     for (const m of resolved.signupMatches) {
       if (!m.signup.strictly_selected) continue;
       const updated = await swapStrictlyOnSignup(m.signup);
-      const comps = await loadCompetitions(eventId);
-      for (const c of comps) {
-        if (c.comp_type !== "strictly") continue;
+      const strictIds = await competitionIdsForRoleOnSignup(
+        m.signup,
+        "strictly_lead",
+        comps,
+        input.divisionSelections
+      );
+      for (const compId of strictIds) {
         const ent = await findEntryForSignupRole(
-          c.id,
+          compId,
           m.signupId,
           "strictly",
           "strictly_lead"
@@ -456,14 +513,82 @@ async function applyStructuralChanges(
     }
   }
 
+  const primarySignup = resolved.signupMatches[0];
+  if (
+    primarySignup &&
+    divisionSelectionsChanged(resolved.signupDivisionIds, input.divisionSelections)
+  ) {
+    const patch: Record<string, unknown> = {};
+    const sel = input.divisionSelections!;
+    if (sel.jnjCompetitionId !== undefined) {
+      patch.jnj_competition_id = sel.jnjCompetitionId;
+    }
+    if (sel.strictlyCompetitionId !== undefined) {
+      patch.strictly_competition_id = sel.strictlyCompetitionId;
+    }
+    if (sel.allAmericanCompetitionId !== undefined) {
+      patch.all_american_competition_id = sel.allAmericanCompetitionId;
+    }
+    if (Object.keys(patch).length === 0) {
+      // no-op
+    } else {
+      await updateSignup(primarySignup.signupId, patch);
+    }
+    const { data: fresh } = await supabaseServer
+      .from("comp_signups")
+      .select("*")
+      .eq("id", primarySignup.signupId)
+      .single();
+    if (fresh) primarySignup.signup = fresh as CompSignupRow;
+
+    const moveTypes: CompType[] = ["jack_and_jill", "strictly", "all_american"];
+    for (const compType of moveTypes) {
+      const oldId = resolved.signupDivisionIds[
+        compType === "jack_and_jill"
+          ? "jnjCompetitionId"
+          : compType === "strictly"
+            ? "strictlyCompetitionId"
+            : "allAmericanCompetitionId"
+      ];
+      const newId = targetCompetitionIdForSignup(
+        primarySignup.signup,
+        compType,
+        comps,
+        compType === "jack_and_jill"
+          ? sel.jnjCompetitionId
+          : compType === "strictly"
+            ? sel.strictlyCompetitionId
+            : sel.allAmericanCompetitionId
+      );
+      if (!oldId || !newId || oldId === newId) continue;
+      for (const role of primarySignup.roles) {
+        if (roleCompType(role) !== compType && compType !== "all_american")
+          continue;
+        if (compType === "all_american" && !role.startsWith("jnj")) continue;
+        const oldEnt = await findEntryForSignupRole(
+          oldId,
+          primarySignup.signupId,
+          compType === "all_american" ? "all_american" : compType,
+          role
+        );
+        if (oldEnt) await deleteEntryIfAllowed(oldEnt.id);
+        await importEntryForSignup(
+          newId,
+          eventId,
+          primarySignup.signup,
+          compType === "all_american" ? "all_american" : compType,
+          role
+        );
+      }
+    }
+  }
+
   if (!roles || !rolesChanged(roles, resolved)) return;
 
   const desired = desiredRoleSet(roles);
   const current = currentRoleSet(resolved);
-  const comps = await loadCompetitions(eventId);
 
-  const primarySignup = resolved.signupMatches[0];
-  if (!primarySignup && desired.size > current.size) {
+  if (!resolved.signupMatches[0] && desired.size > current.size) {
     warnings.push("No signup linked; division adds require a registration row.");
     return;
   }
@@ -486,16 +611,18 @@ async function applyStructuralChanges(
         await updateSignup(m.signupId, { strictly_selected: false });
       }
     }
-    for (const c of comps) {
-      const compType = c.comp_type;
-      if (
-        (role.startsWith("jnj") && compType !== "jack_and_jill") ||
-        (role.startsWith("strictly") && compType !== "strictly")
-      )
-        continue;
-      for (const m of resolved.signupMatches) {
+    for (const m of resolved.signupMatches) {
+      if (!m.roles.includes(role)) continue;
+      const compIds = await competitionIdsForRoleOnSignup(
+        m.signup,
+        role,
+        comps,
+        input.divisionSelections
+      );
+      for (const compId of compIds) {
+        const compType = roleCompType(role);
         const ent = await findEntryForSignupRole(
-          c.id,
+          compId,
           m.signupId,
           compType,
           role
@@ -507,6 +634,7 @@ async function applyStructuralChanges(
 
   for (const role of desired) {
     if (current.has(role)) continue;
+    const primarySignup = resolved.signupMatches[0];
     if (!primarySignup) continue;
     const slot = SLOTS.find((s) => s.role === role)!;
     await updateSignup(primarySignup.signupId, {
@@ -524,17 +652,19 @@ async function applyStructuralChanges(
       .eq("id", primarySignup.signupId)
       .single();
     if (!freshSignup) continue;
-    for (const c of comps) {
-      if (
-        (role.startsWith("jnj") && c.comp_type !== "jack_and_jill") ||
-        (role.startsWith("strictly") && c.comp_type !== "strictly")
-      )
-        continue;
+    const compIds = await competitionIdsForRoleOnSignup(
+      freshSignup as CompSignupRow,
+      role,
+      comps,
+      input.divisionSelections
+    );
+    const compType = roleCompType(role);
+    for (const compId of compIds) {
       await importEntryForSignup(
-        c.id,
+        compId,
         eventId,
         freshSignup as CompSignupRow,
-        c.comp_type,
+        compType,
         role
       );
     }
@@ -554,7 +684,9 @@ export async function applyRegistrantPatch(
   }
 
   const structuralRequested =
-    !!strictlySwapLeadFollow || rolesChanged(roles, resolved);
+    !!strictlySwapLeadFollow ||
+    rolesChanged(roles, resolved) ||
+    divisionSelectionsChanged(resolved.signupDivisionIds, input.divisionSelections);
 
   if (structuralRequested && tier === "limited") {
     throw new RegistrantSyncError(STRUCTURAL_EDIT_BLOCKED_MESSAGE, 409);
@@ -568,7 +700,7 @@ export async function applyRegistrantPatch(
     await applyStructuralChanges(input, warnings);
   }
 
-  const comps = await loadCompetitions(input.eventId);
+  const comps = await loadEventCompetitions(input.eventId);
   return {
     warnings,
     competitionIds: comps.map((c) => c.id),

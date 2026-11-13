@@ -10,6 +10,7 @@ import {
   editTierForEntries,
   type RegistrantEditTier,
 } from "@/lib/comps/registrantEditPolicy";
+import { entryPersonKeys } from "@/lib/comps/entryPersonKeys";
 
 const normEmail = (v: unknown) =>
   typeof v === "string" ? v.trim().toLowerCase() : "";
@@ -34,6 +35,17 @@ export interface ResolvedRegistrant {
   signupManaged: boolean;
   tiersByCompetition: { competitionId: string; name: string; tier: RegistrantEditTier }[];
   overallTier: RegistrantEditTier;
+  signupDivisionIds: {
+    jnjCompetitionId: string | null;
+    strictlyCompetitionId: string | null;
+    allAmericanCompetitionId: string | null;
+  };
+  eventCompetitions: {
+    id: string;
+    name: string;
+    comp_type: string;
+    test_comp?: boolean | null;
+  }[];
 }
 
 type SlotDef = {
@@ -90,48 +102,6 @@ function slotPersonKey(
   return personKeyFromFields(profileId, email, first, last);
 }
 
-function entryPersonKeys(entry: {
-  lead_first_name: string;
-  lead_last_name: string;
-  lead_email: string | null;
-  lead_profile_id: string | null;
-  follow_first_name: string;
-  follow_last_name: string;
-  follow_email: string | null;
-  follow_profile_id: string | null;
-  entry_kind: string;
-  role: string | null;
-}): string[] {
-  const keys: string[] = [];
-  const leadKey = personKeyFromFields(
-    entry.lead_profile_id,
-    entry.lead_email,
-    entry.lead_first_name,
-    entry.lead_last_name
-  );
-  const followKey = personKeyFromFields(
-    entry.follow_profile_id,
-    entry.follow_email,
-    entry.follow_first_name,
-    entry.follow_last_name
-  );
-  if (entry.entry_kind === "couple") {
-    if (entry.lead_first_name || entry.lead_last_name || entry.lead_email)
-      keys.push(leadKey);
-    if (
-      entry.follow_first_name ||
-      entry.follow_last_name ||
-      entry.follow_email
-    )
-      keys.push(followKey);
-  } else if (entry.role === "follow") {
-    keys.push(followKey);
-  } else {
-    keys.push(leadKey);
-  }
-  return keys;
-}
-
 /** Load signups + entries for an event and resolve a roster personKey. */
 export async function resolveRegistrant(
   eventId: string,
@@ -142,7 +112,7 @@ export async function resolveRegistrant(
     supabaseServer.from("comp_signups").select("*").eq("event_id", eventId),
     supabaseServer
       .from("competitions")
-      .select("id, name")
+      .select("id, name, comp_type, test_comp")
       .eq("event_id", eventId),
   ]);
 
@@ -234,6 +204,13 @@ export async function resolveRegistrant(
 
   const overallTier = await editTierForEntries(entryIds);
 
+  const primarySignup = signupMatches[0]?.signup;
+  const signupDivisionIds = {
+    jnjCompetitionId: primarySignup?.jnj_competition_id ?? null,
+    strictlyCompetitionId: primarySignup?.strictly_competition_id ?? null,
+    allAmericanCompetitionId: primarySignup?.all_american_competition_id ?? null,
+  };
+
   return {
     personKey,
     firstName: rosterPerson?.firstName ?? firstName,
@@ -247,6 +224,8 @@ export async function resolveRegistrant(
     signupManaged: signupMatches.length > 0,
     tiersByCompetition,
     overallTier,
+    signupDivisionIds,
+    eventCompetitions: competitions as ResolvedRegistrant["eventCompetitions"],
   };
 }
 

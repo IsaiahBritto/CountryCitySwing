@@ -11,6 +11,10 @@ import SignupModalShell from "@/components/SignupModalShell";
 import ChoiceCards from "@/components/ChoiceCards";
 import ProfileSearchPicker, { type ProfileResult } from "@/components/ProfileSearchPicker";
 import CompLevelBadge from "@/components/CompLevelBadge";
+import CompDivisionRadioList, {
+  type CompDivisionOption,
+} from "@/components/comps/CompDivisionRadioList";
+import { applyCompDivisionsToState } from "@/lib/comps/applyCompDivisionsToState";
 
 type CompEvent = {
   id: string | number;
@@ -74,6 +78,22 @@ export default function CompSignupModal({
   const [submitSuccess, setSubmitSuccess] = useState("");
   const [profileFirstName, setProfileFirstName] = useState("");
   const [profileLastName, setProfileLastName] = useState("");
+  const [compDivisions, setCompDivisions] = useState<CompDivisionOption[]>([]);
+  const [divisionsLoadError, setDivisionsLoadError] = useState<string | null>(
+    null
+  );
+  const [jnjDivisionId, setJnJDivisionId] = useState("");
+  const [strictlyDivisionId, setStrictlyDivisionId] = useState("");
+  const [allAmericanDivisionId, setAllAmericanDivisionId] = useState("");
+  const [allAmericanSelected, setAllAmericanSelected] = useState(false);
+
+  const jnjDivisionOptions = compDivisions.filter((c) => c.comp_type === "jack_and_jill");
+  const strictlyDivisionOptions = compDivisions.filter((c) => c.comp_type === "strictly");
+  const allAmericanDivisionOptions = compDivisions.filter(
+    (c) => c.comp_type === "all_american"
+  );
+  const hasAllAmerican = allAmericanDivisionOptions.length > 0;
+
   const [alreadyRegistered, setAlreadyRegistered] = useState<{
     eventTitle: string;
     eventDate: string;
@@ -122,6 +142,40 @@ export default function CompSignupModal({
   }, [open, embedded, event?.id]);
 
   useEffect(() => {
+    if (!event?.id || (!open && !embedded)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/events/${event.id}/comp-divisions`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setDivisionsLoadError(
+            data.error || "Could not load competition divisions."
+          );
+          return;
+        }
+        setDivisionsLoadError(null);
+        const list = (data.competitions ?? []) as CompDivisionOption[];
+        applyCompDivisionsToState(list, {
+          setCompDivisions,
+          setJnJDivisionId,
+          setStrictlyDivisionId,
+          setAllAmericanDivisionId,
+        });
+      } catch {
+        if (!cancelled) {
+          setDivisionsLoadError("Could not load competition divisions.");
+          setCompDivisions([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [event?.id, open, embedded]);
+
+  useEffect(() => {
     if (!open && !embedded) {
       setStrictlySelected(false);
       setJnJSelected(false);
@@ -137,6 +191,12 @@ export default function CompSignupModal({
       setProfileFirstName("");
       setProfileLastName("");
       setAlreadyRegistered(null);
+      setJnJDivisionId("");
+      setStrictlyDivisionId("");
+      setAllAmericanDivisionId("");
+      setAllAmericanSelected(false);
+      setCompDivisions([]);
+      setDivisionsLoadError(null);
     }
   }, [open, embedded]);
 
@@ -161,13 +221,27 @@ export default function CompSignupModal({
       if (!profileFirstName.trim()) return "First name is required on your account.";
       if (!profileLastName.trim()) return "Last name is required on your account.";
     }
-    if (!strictlySelected && !jnjSelected) return "Please select at least one: Strictly or JnJ.";
+    if (!strictlySelected && !jnjSelected && !allAmericanSelected) {
+      return "Please select at least one: Strictly, JnJ, or All American.";
+    }
     if (strictlySelected && hasStrictly) {
       if (!strictlyRole) return "Strictly: select whether you are Lead or Follow.";
       if (!strictlyPartner) return "Strictly: search for and select your partner.";
     }
     if (jnjSelected && hasJnJ) {
       if (!jnjRole) return "JnJ: select whether you are Lead or Follow.";
+      if (jnjDivisionOptions.length > 1 && !jnjDivisionId) {
+        return "JnJ: choose which division you are entering.";
+      }
+    }
+    if (strictlySelected && hasStrictly && strictlyDivisionOptions.length > 1 && !strictlyDivisionId) {
+      return "Strictly: choose which division you are entering.";
+    }
+    if (allAmericanSelected && allAmericanDivisionOptions.length > 1 && !allAmericanDivisionId) {
+      return "All American: choose which division you are entering.";
+    }
+    if (allAmericanSelected) {
+      if (!jnjRole) return "All American: select whether you are Lead or Follow.";
     }
     if (!acceptLiability) return "The above is a required field.";
     if (!acceptPayment) return "The above is a required field.";
@@ -192,7 +266,7 @@ export default function CompSignupModal({
       }
     }
 
-    if (jnjSelected && jnjRole) {
+    if ((jnjSelected || allAmericanSelected) && jnjRole) {
       if (jnjRole === ROLE_LEAD) jnjLeadId = registrantId;
       else jnjFollowId = registrantId;
     }
@@ -254,6 +328,12 @@ export default function CompSignupModal({
         strictly_price: hasStrictly ? event!.strictly_price : null,
         jnj_selected: jnjSelected,
         jnj_price: hasJnJ ? event!.jnj_price : null,
+        all_american_selected: allAmericanSelected,
+        jnj_competition_id: jnjSelected ? jnjDivisionId || null : null,
+        strictly_competition_id: strictlySelected ? strictlyDivisionId || null : null,
+        all_american_competition_id: allAmericanSelected
+          ? allAmericanDivisionId || null
+          : null,
         ...buildProfilePayload(),
         profile_first_name: profileNeedsName ? profileFirstName.trim() : undefined,
         profile_last_name: profileNeedsName ? profileLastName.trim() : undefined,
@@ -383,6 +463,11 @@ export default function CompSignupModal({
   const formBlock = authState === "ready" ? (
     <form id="comp-signup-form" onSubmit={onSubmit} className="space-y-4">
       <p className="font-medium text-gray-200">Comp registration — at least one division required</p>
+      {divisionsLoadError && (
+        <p className="text-sm text-amber-300" role="alert">
+          {divisionsLoadError}
+        </p>
+      )}
       {selfCard}
 
       {profileNeedsName && (
@@ -428,6 +513,13 @@ export default function CompSignupModal({
           </label>
           {strictlySelected && (
             <div className="ml-6 space-y-4">
+              <CompDivisionRadioList
+                label="Division"
+                name="strictly-division"
+                divisions={strictlyDivisionOptions}
+                value={strictlyDivisionId}
+                onChange={setStrictlyDivisionId}
+              />
               <div>
                 <p className="text-sm text-gray-300 mb-2">I am the</p>
                 <select
@@ -453,6 +545,45 @@ export default function CompSignupModal({
         </div>
       )}
 
+      {hasAllAmerican && (
+        <div className="space-y-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={allAmericanSelected}
+              onChange={(e) => setAllAmericanSelected(e.target.checked)}
+              className="rounded"
+            />
+            <span>All American</span>
+          </label>
+          {allAmericanSelected && (
+            <div className="ml-6 space-y-3">
+              <CompDivisionRadioList
+                label="Division"
+                name="aa-division"
+                divisions={allAmericanDivisionOptions}
+                value={allAmericanDivisionId}
+                onChange={setAllAmericanDivisionId}
+              />
+              {!jnjSelected && (
+                <>
+                  <p className="text-sm text-gray-300">I am a</p>
+                  <select
+                    value={jnjRole}
+                    onChange={(e) => setJnJRole(e.target.value as "lead" | "follow")}
+                    className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
+                  >
+                    <option value="">— Select —</option>
+                    <option value="lead">Lead</option>
+                    <option value="follow">Follow</option>
+                  </select>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {hasJnJ && (
         <div className="space-y-3">
           <label className="flex items-center gap-2">
@@ -469,6 +600,13 @@ export default function CompSignupModal({
           </label>
           {jnjSelected && (
             <div className="ml-6 space-y-3">
+              <CompDivisionRadioList
+                label="Division"
+                name="jnj-division"
+                divisions={jnjDivisionOptions}
+                value={jnjDivisionId}
+                onChange={setJnJDivisionId}
+              />
               <p className="text-sm text-gray-300">I am a</p>
               <select
                 value={jnjRole}

@@ -22,6 +22,7 @@ import {
   toDateTimeLocalInTimeZone,
 } from "@/lib/utils/dateHelpers";
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
+import CcsAdminAccessNotice from "@/components/comps/host/CcsAdminAccessNotice";
 
 const inputCls =
   "w-full rounded border border-neutral-600 bg-neutral-900 px-3 py-2 text-white";
@@ -288,6 +289,8 @@ export default function HostCompEditPage({
           {error}
         </p>
       )}
+
+      <CcsAdminAccessNotice />
 
       <section className="mt-8 space-y-4">
         <div>

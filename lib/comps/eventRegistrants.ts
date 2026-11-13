@@ -84,6 +84,13 @@ export interface EventRegistrantPerson {
   compSignupId?: string | null;
   paid?: boolean;
   selectedPaymentMethodLabel?: string | null;
+  /** Division names for bib roster; set when roster is enriched from comp_entries. */
+  competingIn?: string[];
+  signupDivisionIds?: {
+    jnjCompetitionId?: string | null;
+    strictlyCompetitionId?: string | null;
+    allAmericanCompetitionId?: string | null;
+  };
 }
 
 export interface EventJudgeRef {
@@ -231,6 +238,28 @@ export function collectEventRegistrants(
   const map = new Map<string, EventRegistrantPerson>();
 
   for (const s of signups) {
+    if (s.all_american_selected) {
+      addRegistrant(
+        map,
+        {
+          firstName: s.jnj_lead_first_name ?? "",
+          lastName: s.jnj_lead_last_name ?? "",
+          email: s.jnj_lead_email,
+          profileId: s.jnj_lead_profile_id,
+        },
+        "jnj_lead"
+      );
+      addRegistrant(
+        map,
+        {
+          firstName: s.jnj_follow_first_name ?? "",
+          lastName: s.jnj_follow_last_name ?? "",
+          email: s.jnj_follow_email,
+          profileId: s.jnj_follow_profile_id,
+        },
+        "jnj_follow"
+      );
+    }
     if (s.jnj_selected) {
       addRegistrant(
         map,
@@ -299,6 +328,11 @@ export function collectEventRegistrants(
         row.compSignupId = meta.compSignupId;
         row.paid = meta.paid;
         row.selectedPaymentMethodLabel = meta.selectedPaymentMethodLabel;
+        row.signupDivisionIds = {
+          jnjCompetitionId: s.jnj_competition_id ?? null,
+          strictlyCompetitionId: s.strictly_competition_id ?? null,
+          allAmericanCompetitionId: s.all_american_competition_id ?? null,
+        };
       }
     };
     if (s.jnj_selected) {

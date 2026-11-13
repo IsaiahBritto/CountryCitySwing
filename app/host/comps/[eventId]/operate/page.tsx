@@ -5,6 +5,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
 import EventCompetitionNav from "@/components/comps/host/EventCompetitionNav";
+import CcsAdminAccessNotice from "@/components/comps/host/CcsAdminAccessNotice";
 import {
   canManageCompEvent,
   type MeResponse,
@@ -143,6 +144,8 @@ export default function HostOperateEventPage({
           {error}
         </p>
       )}
+
+      <CcsAdminAccessNotice />
 
       <div className="mt-6">
         <EventCompetitionNav

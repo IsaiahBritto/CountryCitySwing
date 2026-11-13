@@ -7,6 +7,7 @@ import {
 import {
   canAccessCompEventOps,
   canManageCompEventStaff,
+  compEventBackHref,
   isCompAdminRole,
 } from "@/lib/comps/compAccessClient";
 
@@ -84,5 +85,17 @@ describe("compAccessClient", () => {
   it("isCompAdminRole mirrors server helper", () => {
     expect(isCompAdminRole("admin")).toBe(true);
     expect(isCompAdminRole("attendee")).toBe(false);
+  });
+
+  it("compEventBackHref sends site admin to operate hub for community events", () => {
+    const me = { profile: { id: "a1", role: "admin" } };
+    expect(compEventBackHref(me, "ev1", "community")).toEqual({
+      href: "/host/comps/ev1/operate",
+      label: "Operate Non-CCS event",
+    });
+    expect(compEventBackHref(me, "ev1", "ccs")).toEqual({
+      href: "/admin/comps",
+      label: "All competitions",
+    });
   });
 });

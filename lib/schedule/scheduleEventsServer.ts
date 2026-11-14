@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isCommunityEvent } from "@/lib/communityEvents";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   chicagoDateRangeToUtcBounds,
@@ -8,7 +9,13 @@ import {
 } from "@/lib/schedule/eventDateRange";
 
 export const SCHEDULE_EVENT_COLUMNS =
-  "id, title, starts_at, ends_at, location, type, time_zone, schedule_opens_at, class_week_override";
+  "id, title, starts_at, ends_at, location, type, time_zone, schedule_opens_at, class_week_override, host_kind";
+
+function ccsTeamScheduleEvents<T extends { host_kind?: string | null }>(
+  rows: T[]
+): T[] {
+  return rows.filter((e) => !isCommunityEvent(e));
+}
 
 export type ScheduleEventRow = ScheduleEventDateRangeInput & {
   id: string | number;
@@ -16,6 +23,7 @@ export type ScheduleEventRow = ScheduleEventDateRangeInput & {
   location?: string | null;
   schedule_opens_at?: string | null;
   class_week_override?: string | null;
+  host_kind?: string | null;
 };
 
 export async function fetchEventsForChicagoDateRange(
@@ -35,11 +43,12 @@ export async function fetchEventsForChicagoDateRange(
     throw new Error(error.message);
   }
 
-  return filterEventsInChicagoDateRange(
+  const inRange = filterEventsInChicagoDateRange(
     (data || []) as ScheduleEventRow[],
     from,
     to
   );
+  return ccsTeamScheduleEvents(inRange);
 }
 
 export async function fetchAllEventsOrdered(): Promise<ScheduleEventRow[]> {
@@ -52,5 +61,5 @@ export async function fetchAllEventsOrdered(): Promise<ScheduleEventRow[]> {
     throw new Error(error.message);
   }
 
-  return (data || []) as ScheduleEventRow[];
+  return ccsTeamScheduleEvents((data || []) as ScheduleEventRow[]);
 }

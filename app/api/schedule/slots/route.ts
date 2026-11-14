@@ -11,6 +11,7 @@ import {
   syncDueClassSchedules,
 } from "@/lib/classScheduleSlotsServer";
 import { isValidDateOnly } from "@/lib/schedule/eventDateRange";
+import { isCommunityEvent } from "@/lib/communityEvents";
 import { fetchEventsForChicagoDateRange } from "@/lib/schedule/scheduleEventsServer";
 
 export const SCHEDULE_POSITIONS = [
@@ -103,7 +104,7 @@ export async function GET(req: NextRequest) {
     let query = supabaseServer
       .from("team_slots")
       .select(
-        "id, position, event_id, assignee_id, assigned_at, created_at, updated_at, slot_starts_at, slot_ends_at, event:events(id, title, starts_at, ends_at, location, type, time_zone, schedule_opens_at, class_week_override)"
+        "id, position, event_id, assignee_id, assigned_at, created_at, updated_at, slot_starts_at, slot_ends_at, event:events(id, title, starts_at, ends_at, location, type, time_zone, schedule_opens_at, class_week_override, host_kind)"
       );
 
     if (eventId) {
@@ -131,13 +132,15 @@ export async function GET(req: NextRequest) {
       : { data: [] };
     const profilesMap = new Map((profilesData || []).map((p: any) => [p.id, p]));
 
-    let result = slots.map((s: any) => ({
-      ...s,
-      event: s.event ?? null,
-      assignee: s.assignee_id ? profilesMap.get(s.assignee_id) || null : null,
-      scheduleNotYetOpen:
-        s.event?.schedule_opens_at && !isClassScheduleOpen(s.event),
-    }));
+    let result = slots
+      .filter((s: any) => !s.event || !isCommunityEvent(s.event))
+      .map((s: any) => ({
+        ...s,
+        event: s.event ?? null,
+        assignee: s.assignee_id ? profilesMap.get(s.assignee_id) || null : null,
+        scheduleNotYetOpen:
+          s.event?.schedule_opens_at && !isClassScheduleOpen(s.event),
+      }));
 
     result = result.filter((s: any) => {
       if (!s.event?.schedule_opens_at) return true;

@@ -11,6 +11,7 @@ import {
 } from "@/lib/comps/jnjAssignments";
 import { replaceJnJAssignmentsForSignup } from "@/lib/comps/jnjAssignmentsStore";
 import { RegistrantSyncError } from "@/lib/comps/registrantSyncErrors";
+import { attachCompEntryToOpenRounds } from "@/lib/comps/roundEntryAttach";
 
 export interface RegistrantIdentityPatch {
   firstName: string;
@@ -148,50 +149,61 @@ async function importJnJEntryForAssignment(
   const profileId =
     (signup[`${prefix}_profile_id` as keyof CompSignupRow] as string | null) ?? null;
 
-  if (role === "lead") {
-    await supabaseServer.from("comp_entries").insert({
-      competition_id: competitionId,
-      entry_kind: "individual",
-      role: "lead",
-      lead_first_name: first,
-      lead_last_name: last,
-      lead_email: email,
-      lead_profile_id: profileId,
-      follow_first_name: "",
-      follow_last_name: "",
-      follow_email: null,
-      follow_profile_id: null,
-      lead_bib_id: await findOrCreateBibRecord(eventId, {
-        firstName: first,
-        lastName: last,
-        email,
-        profileId,
-      }),
-      follow_bib_id: null,
-      comp_signup_id: signup.id,
-    });
-  } else {
-    await supabaseServer.from("comp_entries").insert({
-      competition_id: competitionId,
-      entry_kind: "individual",
-      role: "follow",
-      lead_first_name: "",
-      lead_last_name: "",
-      lead_email: null,
-      lead_profile_id: null,
-      follow_first_name: first,
-      follow_last_name: last,
-      follow_email: email,
-      follow_profile_id: profileId,
-      lead_bib_id: null,
-      follow_bib_id: await findOrCreateBibRecord(eventId, {
-        firstName: first,
-        lastName: last,
-        email,
-        profileId,
-      }),
-      comp_signup_id: signup.id,
-    });
+  const leadBibId = await findOrCreateBibRecord(eventId, {
+    firstName: first,
+    lastName: last,
+    email,
+    profileId,
+  });
+
+  const insertPayload =
+    role === "lead"
+      ? {
+          competition_id: competitionId,
+          entry_kind: "individual" as const,
+          role: "lead" as const,
+          lead_first_name: first,
+          lead_last_name: last,
+          lead_email: email,
+          lead_profile_id: profileId,
+          follow_first_name: "",
+          follow_last_name: "",
+          follow_email: null,
+          follow_profile_id: null,
+          lead_bib_id: leadBibId,
+          follow_bib_id: null,
+          comp_signup_id: signup.id,
+        }
+      : {
+          competition_id: competitionId,
+          entry_kind: "individual" as const,
+          role: "follow" as const,
+          lead_first_name: "",
+          lead_last_name: "",
+          lead_email: null,
+          lead_profile_id: null,
+          follow_first_name: first,
+          follow_last_name: last,
+          follow_email: email,
+          follow_profile_id: profileId,
+          lead_bib_id: null,
+          follow_bib_id: leadBibId,
+          comp_signup_id: signup.id,
+        };
+
+  const { data: created, error } = await supabaseServer
+    .from("comp_entries")
+    .insert([insertPayload])
+    .select("id")
+    .single();
+  if (error || !created) {
+    throw new RegistrantSyncError("Failed to create JnJ entry", 500);
+  }
+
+  try {
+    await attachCompEntryToOpenRounds(competitionId, created.id);
+  } catch (attachErr) {
+    console.error("[registrantJnJSync] open-round attach failed", attachErr);
   }
 }
 

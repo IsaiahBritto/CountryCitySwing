@@ -4,6 +4,7 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { findOrCreateBibRecord } from "@/lib/comps/bibs";
 import { editTierForEntries } from "@/lib/comps/registrantEditPolicy";
 import { refreshTabulationDisplayNamesForCompetitions } from "@/lib/comps/refreshTabulationDisplayNames";
+import { attachCompEntryToOpenRounds } from "@/lib/comps/roundEntryAttach";
 
 async function loadCompetition(competitionId: string) {
   const { data } = await supabaseServer
@@ -149,7 +150,17 @@ export async function POST(
     console.error("[admin/comps/entries] insert failed", error);
     return NextResponse.json({ error: "Failed to add entry" }, { status: 500 });
   }
-  return NextResponse.json({ entry: data });
+
+  let roundSyncWarning: string | undefined;
+  try {
+    await attachCompEntryToOpenRounds(competitionId, data.id);
+  } catch (attachErr) {
+    console.error("[admin/comps/entries] open-round attach failed", attachErr);
+    roundSyncWarning =
+      "Entry saved but was not added to an open round; use Sync open rounds from competition admin or retry.";
+  }
+
+  return NextResponse.json({ entry: data, roundSyncWarning });
 }
 
 /** PATCH: edit entry names/emails (allowed while competition is running). */

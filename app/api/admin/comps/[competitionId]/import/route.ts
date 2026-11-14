@@ -13,6 +13,7 @@ import {
   synthesizeJnJAssignmentsFromSignup,
 } from "@/lib/comps/jnjAssignments";
 import { loadJnJAssignmentsForSignupIds } from "@/lib/comps/jnjAssignmentsStore";
+import { attachCompEntriesToOpenRounds } from "@/lib/comps/roundEntryAttach";
 import type { CompSignupRow, CompType } from "@/lib/comps/types";
 
 const norm = (v: unknown) =>
@@ -409,12 +410,27 @@ export async function POST(
     return NextResponse.json({ imported: 0 });
   }
 
-  const { error: insertError } = await supabaseServer
+  const { data: insertedRows, error: insertError } = await supabaseServer
     .from("comp_entries")
-    .insert(inserts);
+    .insert(inserts)
+    .select("id");
   if (insertError) {
     console.error("[admin/comps/import] insert failed", insertError);
     return NextResponse.json({ error: "Failed to import entries" }, { status: 500 });
   }
-  return NextResponse.json({ imported: inserts.length });
+
+  const newEntryIds = (insertedRows ?? []).map((r) => r.id as string);
+  let roundSyncWarning: string | undefined;
+  try {
+    await attachCompEntriesToOpenRounds(competitionId, newEntryIds);
+  } catch (attachErr) {
+    console.error("[admin/comps/import] open-round attach failed", attachErr);
+    roundSyncWarning =
+      "Import succeeded but some entries may be missing from check-in; run Sync open rounds.";
+  }
+
+  return NextResponse.json({
+    imported: inserts.length,
+    roundSyncWarning,
+  });
 }

@@ -4,9 +4,9 @@ import { supabaseServer } from "@/lib/supabaseServer";
 /** Public list of on-event competition divisions for signup UI. */
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ eventId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const { eventId } = await params;
+  const { id: eventId } = await params;
   if (!eventId) {
     return NextResponse.json({ error: "Missing event id" }, { status: 400 });
   }

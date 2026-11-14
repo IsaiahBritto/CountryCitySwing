@@ -83,7 +83,10 @@ function roleSidesForType(
 
 /** Pre-import signup roster: named division when stored on signup, else generic type + role. */
 export function formatSignupCompetingIn(
-  person: Pick<EventRegistrantPerson, "roles" | "signupDivisionIds">,
+  person: Pick<
+    EventRegistrantPerson,
+    "roles" | "signupDivisionIds" | "jnjAssignments"
+  >,
   competitions: CompetitionMeta[]
 ): string[] {
   const roles = person.roles;
@@ -93,7 +96,14 @@ export function formatSignupCompetingIn(
   const labels: string[] = [];
   const div = person.signupDivisionIds;
 
-  if (div?.jnjCompetitionId) {
+  if (person.jnjAssignments && person.jnjAssignments.length > 0) {
+    for (const a of person.jnjAssignments) {
+      const comp = byId.get(a.competitionId);
+      if (!comp) continue;
+      const side = a.role === "lead" ? "Lead" : "Follow";
+      labels.push(formatCompetitionRoleLabel(comp, new Set([side])));
+    }
+  } else if (div?.jnjCompetitionId) {
     const comp = byId.get(div.jnjCompetitionId);
     const sides = roleSidesForType(roles, "jnj");
     if (comp && sides.size > 0) {

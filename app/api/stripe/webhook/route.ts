@@ -374,6 +374,35 @@ export async function POST(request: NextRequest) {
             { status: 500 }
           );
         }
+        try {
+          const raw = metadata.jnj_assignments;
+          if (typeof raw === "string" && raw.trim()) {
+            const parsed = JSON.parse(raw) as {
+              competition_id?: string;
+              role?: string;
+              sort_order?: number;
+            }[];
+            const assignments = parsed
+              .filter(
+                (a) =>
+                  typeof a.competition_id === "string" &&
+                  (a.role === "lead" || a.role === "follow")
+              )
+              .map((a, i) => ({
+                competitionId: a.competition_id!.trim(),
+                role: a.role as "lead" | "follow",
+                sortOrder: a.sort_order ?? i,
+              }));
+            const { insertJnJAssignmentsAfterSignupCreate } = await import(
+              "@/lib/comps/jnjAssignmentsStore"
+            );
+            if (assignments.length > 0) {
+              await insertJnJAssignmentsAfterSignupCreate(compSignupId, assignments);
+            }
+          }
+        } catch (assignErr) {
+          console.error("Webhook: jnj_assignments persist failed", assignErr);
+        }
         await sendCompStripeConfirmationEmail(compSignupId);
         console.log("Webhook: Comp signup created and marked paid", compSignupId);
         return NextResponse.json({ received: true });

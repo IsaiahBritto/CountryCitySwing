@@ -20,6 +20,16 @@ import {
   type EventDivisionRow,
 } from "@/lib/comps/signupDivision";
 import type { CompType } from "@/lib/comps/types";
+import type { JnJAssignment } from "@/lib/comps/jnjAssignments";
+import {
+  jnjAssignmentsChanged,
+  synthesizeJnJAssignmentsFromSignup,
+  tierForCompetitionId,
+} from "@/lib/comps/jnjAssignments";
+import {
+  applyJnJAssignmentChanges,
+  rolesFromJnJAssignments,
+} from "@/lib/comps/registrantJnJSync";
 
 export interface RegistrantIdentityPatch {
   firstName: string;
@@ -46,19 +56,16 @@ export interface ApplyRegistrantPatchInput {
   identity: RegistrantIdentityPatch;
   roles?: RegistrantRolesPatch;
   divisionSelections?: RegistrantDivisionSelections;
+  jnjAssignments?: JnJAssignment[];
   strictlySwapLeadFollow?: boolean;
-  tier: RegistrantEditTier;
+  /** @deprecated use tiersByCompetition for structural gating */
+  tier?: RegistrantEditTier;
+  tiersByCompetition: ResolvedRegistrant["tiersByCompetition"];
 }
 
-export class RegistrantSyncError extends Error {
-  constructor(
-    message: string,
-    public status: number = 400
-  ) {
-    super(message);
-    this.name = "RegistrantSyncError";
-  }
-}
+export { RegistrantSyncError } from "@/lib/comps/registrantSyncErrors";
+export { swapJnJOnSignup, swapJnJEntry } from "@/lib/comps/registrantJnJSync";
+import { RegistrantSyncError } from "@/lib/comps/registrantSyncErrors";
 
 function desiredRoleSet(roles?: RegistrantRolesPatch): Set<EventRegistrantRole> {
   const set = new Set<EventRegistrantRole>();
@@ -484,13 +491,21 @@ function rolesChanged(
 
 async function applyStructuralChanges(
   input: ApplyRegistrantPatchInput,
-  warnings: string[]
+  warnings: string[],
+  opts?: { skipJnJWhenAssignmentsHandled?: boolean }
 ): Promise<void> {
   const { resolved, roles, strictlySwapLeadFollow, eventId, identity } = input;
 
   const comps = await loadEventCompetitions(eventId);
 
   if (strictlySwapLeadFollow) {
+    const strictId = resolved.signupDivisionIds.strictlyCompetitionId;
+    if (
+      strictId &&
+      tierForCompetitionId(input.tiersByCompetition, strictId) === "limited"
+    ) {
+      throw new RegistrantSyncError(STRUCTURAL_EDIT_BLOCKED_MESSAGE, 409);
+    }
     for (const m of resolved.signupMatches) {
       if (!m.signup.strictly_selected) continue;
       const updated = await swapStrictlyOnSignup(m.signup);
@@ -515,6 +530,7 @@ async function applyStructuralChanges(
 
   const primarySignup = resolved.signupMatches[0];
   if (
+    !opts?.skipJnJWhenAssignmentsHandled &&
     primarySignup &&
     divisionSelectionsChanged(resolved.signupDivisionIds, input.divisionSelections)
   ) {
@@ -580,6 +596,18 @@ async function applyStructuralChanges(
           role
         );
       }
+    }
+  }
+
+  if (opts?.skipJnJWhenAssignmentsHandled && roles) {
+    const d = desiredRoleSet(roles);
+    d.delete("jnj_lead");
+    d.delete("jnj_follow");
+    const c = currentRoleSet(resolved);
+    c.delete("jnj_lead");
+    c.delete("jnj_follow");
+    if (d.size === c.size && [...d].every((r) => c.has(r))) {
+      return;
     }
   }
 
@@ -671,11 +699,102 @@ async function applyStructuralChanges(
   }
 }
 
+function structuralTouchesLimitedComp(
+  input: ApplyRegistrantPatchInput,
+  resolved: ResolvedRegistrant,
+  currentJnJ: JnJAssignment[]
+): boolean {
+  const { tiersByCompetition, strictlySwapLeadFollow, roles, divisionSelections } =
+    input;
+
+  if (strictlySwapLeadFollow) {
+    const strictId = resolved.signupDivisionIds.strictlyCompetitionId;
+    if (strictId && tierForCompetitionId(tiersByCompetition, strictId) === "limited") {
+      return true;
+    }
+  }
+
+  if (input.jnjAssignments !== undefined) {
+    if (!jnjAssignmentsChanged(currentJnJ, input.jnjAssignments)) {
+      // no jnj structural change
+    } else {
+      const affected = new Set<string>();
+      for (const a of [...currentJnJ, ...input.jnjAssignments]) {
+        affected.add(a.competitionId);
+      }
+      for (const compId of affected) {
+        if (tierForCompetitionId(tiersByCompetition, compId) === "limited") {
+          return true;
+        }
+      }
+    }
+  }
+
+  if (divisionSelectionsChanged(resolved.signupDivisionIds, divisionSelections)) {
+    const sel = divisionSelections!;
+    const checks: (string | null | undefined)[] = [
+      sel.jnjCompetitionId,
+      sel.strictlyCompetitionId,
+      sel.allAmericanCompetitionId,
+    ];
+    for (const compId of checks) {
+      if (compId && tierForCompetitionId(tiersByCompetition, compId) === "limited") {
+        return true;
+      }
+    }
+    const oldJnJ = resolved.signupDivisionIds.jnjCompetitionId;
+    if (
+      oldJnJ &&
+      sel.jnjCompetitionId !== undefined &&
+      (sel.jnjCompetitionId ?? null) !== oldJnJ &&
+      tierForCompetitionId(tiersByCompetition, oldJnJ) === "limited"
+    ) {
+      return true;
+    }
+  }
+
+  if (rolesChanged(roles, resolved)) {
+    const desired = desiredRoleSet(roles!);
+    const current = currentRoleSet(resolved);
+    const jnjChanged =
+      desired.has("jnj_lead") !== current.has("jnj_lead") ||
+      desired.has("jnj_follow") !== current.has("jnj_follow");
+    if (jnjChanged) {
+      for (const a of currentJnJ) {
+        if (tierForCompetitionId(tiersByCompetition, a.competitionId) === "limited") {
+          return true;
+        }
+      }
+    }
+    const strictlyChanged =
+      desired.has("strictly_lead") !== current.has("strictly_lead") ||
+      desired.has("strictly_follow") !== current.has("strictly_follow");
+    if (strictlyChanged) {
+      const strictId = resolved.signupDivisionIds.strictlyCompetitionId;
+      if (
+        strictId &&
+        tierForCompetitionId(tiersByCompetition, strictId) === "limited"
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export async function applyRegistrantPatch(
   input: ApplyRegistrantPatchInput
 ): Promise<{ warnings: string[]; competitionIds: string[] }> {
   const warnings: string[] = [];
-  const { resolved, identity, tier, roles, strictlySwapLeadFollow } = input;
+  const { resolved, identity, roles, strictlySwapLeadFollow } = input;
+
+  const primarySignup = resolved.signupMatches[0]?.signup;
+  const currentJnJ = resolved.jnjAssignments.length
+    ? resolved.jnjAssignments
+    : primarySignup
+      ? synthesizeJnJAssignmentsFromSignup(primarySignup)
+      : [];
 
   if (!resolved.signupManaged && resolved.entryIds.length > 0) {
     warnings.push(
@@ -683,12 +802,20 @@ export async function applyRegistrantPatch(
     );
   }
 
+  const jnjStructural =
+    input.jnjAssignments !== undefined &&
+    jnjAssignmentsChanged(currentJnJ, input.jnjAssignments);
+
   const structuralRequested =
     !!strictlySwapLeadFollow ||
+    jnjStructural ||
     rolesChanged(roles, resolved) ||
     divisionSelectionsChanged(resolved.signupDivisionIds, input.divisionSelections);
 
-  if (structuralRequested && tier === "limited") {
+  if (
+    structuralRequested &&
+    structuralTouchesLimitedComp(input, resolved, currentJnJ)
+  ) {
     throw new RegistrantSyncError(STRUCTURAL_EDIT_BLOCKED_MESSAGE, 409);
   }
 
@@ -696,9 +823,33 @@ export async function applyRegistrantPatch(
   await syncIdentityToEntries(resolved.personKey, identity, resolved.entryIds);
   await syncBibIdentity(input.eventId, resolved.bibId, identity);
 
-  if (tier === "full") {
-    await applyStructuralChanges(input, warnings);
+  if (jnjStructural && input.jnjAssignments) {
+    try {
+      await applyJnJAssignmentChanges({
+        eventId: input.eventId,
+        resolved,
+        identity,
+        current: currentJnJ,
+        next: input.jnjAssignments,
+        tiersByCompetition: input.tiersByCompetition,
+        warnings,
+      });
+    } catch (err) {
+      if (err instanceof RegistrantSyncError) throw err;
+      throw err;
+    }
   }
+
+  const rolesForStructural =
+    input.jnjAssignments !== undefined
+      ? { ...roles, ...rolesFromJnJAssignments(input.jnjAssignments) }
+      : roles;
+
+  await applyStructuralChanges(
+    { ...input, roles: rolesForStructural },
+    warnings,
+    { skipJnJWhenAssignmentsHandled: jnjStructural }
+  );
 
   const comps = await loadEventCompetitions(input.eventId);
   return {

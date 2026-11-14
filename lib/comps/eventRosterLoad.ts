@@ -11,6 +11,7 @@ import {
   type EventLevelMeta,
 } from "@/lib/comps/registrantCompLabels";
 import type { CompSignupRow } from "@/lib/comps/types";
+import { loadJnJAssignmentsForSignupIds } from "@/lib/comps/jnjAssignmentsStore";
 
 export async function loadEventJudges(eventId: string): Promise<EventJudgeRef[]> {
   const { data: competitions } = await supabaseServer
@@ -108,11 +109,15 @@ export async function loadEventRosterWithLabels(
   if (signupsRes.error) throw new Error("Failed to load signups");
   if (bibsRes.error) throw new Error("Failed to load bibs");
 
-  const roster = collectEventRegistrants(
-    (signupsRes.data ?? []) as CompSignupRow[],
-    bibsRes.data ?? [],
-    { judges }
+  const signups = (signupsRes.data ?? []) as CompSignupRow[];
+  const jnjAssignmentsBySignupId = await loadJnJAssignmentsForSignupIds(
+    signups.map((s) => s.id)
   );
+
+  const roster = collectEventRegistrants(signups, bibsRes.data ?? [], {
+    judges,
+    jnjAssignmentsBySignupId,
+  });
 
   return enrichRosterCompetingIn(roster, entries, competitions, levels);
 }

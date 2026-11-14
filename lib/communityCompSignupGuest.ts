@@ -1,4 +1,5 @@
 import type { ResolvedCompSignupFields } from "@/lib/compSignupPayload";
+import type { JnJAssignment } from "@/lib/comps/jnjAssignments";
 
 type DanceRole = "lead" | "follow";
 
@@ -58,7 +59,11 @@ function parsePerson(
 
 export function resolveGuestCommunityCompSignup(
   data: GuestCommunityCompSignupBody,
-  opts: { strictlySelected: boolean; jnjSelected: boolean }
+  opts: {
+    strictlySelected: boolean;
+    jnjSelected: boolean;
+    jnjAssignments?: JnJAssignment[];
+  }
 ): { error: string; status: number } | GuestResolvedCompSignupFields {
   const registrant = parsePerson(data.registrant, "Registrant");
   if ("error" in registrant) return registrant;
@@ -100,18 +105,30 @@ export function resolveGuestCommunityCompSignup(
   }
 
   if (opts.jnjSelected) {
-    const role = data.jnj_role;
-    if (!isRole(role)) {
-      return { error: "JnJ: select whether you are Lead or Follow", status: 400 };
-    }
-    if (role === "lead") {
-      jnjLead = { first: registrant.first, last: registrant.last, email: registrant.email };
+    if (opts.jnjAssignments && opts.jnjAssignments.length > 0) {
+      for (const a of opts.jnjAssignments) {
+        const person = {
+          first: registrant.first,
+          last: registrant.last,
+          email: registrant.email,
+        };
+        if (a.role === "lead") jnjLead = person;
+        if (a.role === "follow") jnjFollow = person;
+      }
     } else {
-      jnjFollow = {
-        first: registrant.first,
-        last: registrant.last,
-        email: registrant.email,
-      };
+      const role = data.jnj_role;
+      if (!isRole(role)) {
+        return { error: "JnJ: select whether you are Lead or Follow", status: 400 };
+      }
+      if (role === "lead") {
+        jnjLead = { first: registrant.first, last: registrant.last, email: registrant.email };
+      } else {
+        jnjFollow = {
+          first: registrant.first,
+          last: registrant.last,
+          email: registrant.email,
+        };
+      }
     }
   }
 

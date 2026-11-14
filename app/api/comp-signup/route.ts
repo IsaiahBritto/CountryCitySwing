@@ -15,6 +15,14 @@ import {
 } from "@/lib/compSignupPayload";
 import { profileHasCompleteName } from "@/lib/profileUtils";
 import { resolveSignupDivisionIds } from "@/lib/comps/signupDivision";
+import {
+  assignmentsFromSingleLegacy,
+  computeExpectedCompSignupTotal,
+  parseJnJAssignmentsFromBody,
+  primaryJnJCompetitionId,
+  validateJnJAssignments,
+} from "@/lib/comps/jnjAssignments";
+import { insertJnJAssignmentsAfterSignupCreate } from "@/lib/comps/jnjAssignmentsStore";
 
 async function ensureAuthProfileNames(
   profile: CompSignupProfile,
@@ -159,14 +167,6 @@ export async function POST(req: NextRequest) {
   }
   const authProfile = nameResult.profile;
 
-  const resolved = await resolveCompSignupProfiles(authProfile, data, {
-    strictlySelected,
-    jnjSelected,
-  });
-  if ("error" in resolved) {
-    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
-  }
-
   const { data: eventCompetitions, error: compDivErr } = await supabaseServer
     .from("competitions")
     .select("id, name, comp_type, test_comp")
@@ -209,9 +209,65 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const compRows = (eventCompetitions ?? []) as {
+    id: string;
+    name: string;
+    comp_type: string;
+    test_comp?: boolean | null;
+  }[];
+
+  const parsedJnJ =
+    parseJnJAssignmentsFromBody(data as Record<string, unknown>) ??
+    assignmentsFromSingleLegacy(
+      divisionIds.jnj_competition_id,
+      data.jnj_role === "lead" || data.jnj_role === "follow"
+        ? data.jnj_role
+        : null
+    );
+
+  const jnjValidated = validateJnJAssignments(
+    parsedJnJ,
+    compRows,
+    jnjSelected
+  );
+  if ("error" in jnjValidated) {
+    return NextResponse.json(
+      { error: jnjValidated.error },
+      { status: jnjValidated.status }
+    );
+  }
+
+  if (jnjSelected && jnjValidated.length > 0) {
+    divisionIds.jnj_competition_id = primaryJnJCompetitionId(jnjValidated);
+  }
+
+  const resolved = await resolveCompSignupProfiles(authProfile, data, {
+    strictlySelected,
+    jnjSelected,
+    jnjAssignments: jnjValidated,
+  });
+  if ("error" in resolved) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+  }
+
+  const expectedTotal = computeExpectedCompSignupTotal({
+    strictlySelected,
+    strictlyPrice: data.strictly_price,
+    jnjSelected,
+    jnjPrice: data.jnj_price,
+    jnjAssignmentCount: jnjSelected ? jnjValidated.length : 0,
+  });
+  if (Math.abs(amountOwed - expectedTotal) > 0.02) {
+    return NextResponse.json(
+      { error: "Registration amount does not match selected divisions" },
+      { status: 400 }
+    );
+  }
+
   const isDuplicate = await checkDuplicateCompSignup(eventId, resolved, {
     strictlySelected,
     jnjSelected,
+    jnjAssignments: jnjValidated,
   });
   if (isDuplicate) {
     const eventDate = event.starts_at ? formatEventDateInChicago(event.starts_at) : "";
@@ -356,6 +412,13 @@ export async function POST(req: NextRequest) {
           strictly_competition_id: divisionIds.strictly_competition_id ?? "",
           all_american_competition_id:
             divisionIds.all_american_competition_id ?? "",
+          jnj_assignments: JSON.stringify(
+            jnjValidated.map((a) => ({
+              competition_id: a.competitionId,
+              role: a.role,
+              sort_order: a.sortOrder ?? 0,
+            }))
+          ),
           ...Object.fromEntries(
             Object.entries(profileMetadata).map(([k, v]) => [k, v ?? ""])
           ),
@@ -396,6 +459,10 @@ export async function POST(req: NextRequest) {
       { error: "Failed to save comp signup", details: insertError.message },
       { status: 500 }
     );
+  }
+
+  if (jnjValidated.length > 0) {
+    await insertJnJAssignmentsAfterSignupCreate(inserted.id, jnjValidated);
   }
 
   const base = getBaseUrl(req);

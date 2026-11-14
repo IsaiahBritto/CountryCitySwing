@@ -64,6 +64,24 @@ describe("formatSignupCompetingIn", () => {
       )
     ).toEqual(["Newcomer (JnJ) Jack & Jill (Follow)"]);
   });
+
+  it("emits one label per JnJ assignment", () => {
+    expect(
+      formatSignupCompetingIn(
+        {
+          roles: ["jnj_lead", "jnj_follow"],
+          jnjAssignments: [
+            { competitionId: "c-jnj-new", role: "lead" },
+            { competitionId: "c-jnj-all", role: "follow" },
+          ],
+        },
+        allComps
+      )
+    ).toEqual([
+      "All-level (JnJ) Jack & Jill (Follow)",
+      "Newcomer (JnJ) Jack & Jill (Lead)",
+    ]);
+  });
 });
 
 describe("buildCompetingInFromEntries", () => {

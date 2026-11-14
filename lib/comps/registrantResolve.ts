@@ -11,6 +11,11 @@ import {
   type RegistrantEditTier,
 } from "@/lib/comps/registrantEditPolicy";
 import { entryPersonKeys } from "@/lib/comps/entryPersonKeys";
+import {
+  synthesizeJnJAssignmentsFromSignup,
+  type JnJAssignment,
+} from "@/lib/comps/jnjAssignments";
+import { loadJnJAssignmentsForSignupIds } from "@/lib/comps/jnjAssignmentsStore";
 
 const normEmail = (v: unknown) =>
   typeof v === "string" ? v.trim().toLowerCase() : "";
@@ -46,6 +51,7 @@ export interface ResolvedRegistrant {
     comp_type: string;
     test_comp?: boolean | null;
   }[];
+  jnjAssignments: JnJAssignment[];
 }
 
 type SlotDef = {
@@ -211,6 +217,15 @@ export async function resolveRegistrant(
     allAmericanCompetitionId: primarySignup?.all_american_competition_id ?? null,
   };
 
+  let jnjAssignments: JnJAssignment[] = [];
+  if (primarySignup) {
+    const map = await loadJnJAssignmentsForSignupIds([primarySignup.id]);
+    jnjAssignments = map.get(primarySignup.id) ?? [];
+    if (jnjAssignments.length === 0) {
+      jnjAssignments = synthesizeJnJAssignmentsFromSignup(primarySignup);
+    }
+  }
+
   return {
     personKey,
     firstName: rosterPerson?.firstName ?? firstName,
@@ -226,6 +241,7 @@ export async function resolveRegistrant(
     overallTier,
     signupDivisionIds,
     eventCompetitions: competitions as ResolvedRegistrant["eventCompetitions"],
+    jnjAssignments,
   };
 }
 

@@ -1,4 +1,6 @@
 import type { CompSignupRow } from "@/lib/comps/types";
+import type { JnJAssignment } from "@/lib/comps/jnjAssignments";
+import { synthesizeJnJAssignmentsFromSignup } from "@/lib/comps/jnjAssignments";
 
 export interface BibAssignment {
   bibId: string;
@@ -91,6 +93,7 @@ export interface EventRegistrantPerson {
     strictlyCompetitionId?: string | null;
     allAmericanCompetitionId?: string | null;
   };
+  jnjAssignments?: JnJAssignment[];
 }
 
 export interface EventJudgeRef {
@@ -232,7 +235,10 @@ export function collectEventRegistrants(
     profile_id: string | null;
     bib_number: number | null;
   }[],
-  options?: { judges?: EventJudgeRef[] }
+  options?: {
+    judges?: EventJudgeRef[];
+    jnjAssignmentsBySignupId?: Map<string, JnJAssignment[]>;
+  }
 ): EventRegistrantPerson[] {
   const judges = options?.judges ?? [];
   const map = new Map<string, EventRegistrantPerson>();
@@ -333,6 +339,14 @@ export function collectEventRegistrants(
           strictlyCompetitionId: s.strictly_competition_id ?? null,
           allAmericanCompetitionId: s.all_american_competition_id ?? null,
         };
+        const fromMap = options?.jnjAssignmentsBySignupId?.get(s.id);
+        const assignments =
+          fromMap && fromMap.length > 0
+            ? fromMap
+            : synthesizeJnJAssignmentsFromSignup(s);
+        if (assignments.length > 0) {
+          row.jnjAssignments = assignments;
+        }
       }
     };
     if (s.jnj_selected) {

@@ -14,6 +14,17 @@ import { sendCommunityCompSignupConfirmations } from "@/lib/email/sendCommunityC
 import { supabaseServer } from "@/lib/supabaseServer";
 import { clientIpFromRequest, rateLimit } from "@/lib/spotify/rateLimit";
 import { resolveSignupDivisionIds } from "@/lib/comps/signupDivision";
+import {
+  assignmentsFromSingleLegacy,
+  computeExpectedCompSignupTotal,
+  parseJnJAssignmentsFromBody,
+  primaryJnJCompetitionId,
+  validateJnJAssignments,
+} from "@/lib/comps/jnjAssignments";
+import {
+  checkJnJDuplicateAssignmentsForEvent,
+  insertJnJAssignmentsAfterSignupCreate,
+} from "@/lib/comps/jnjAssignmentsStore";
 
 export async function POST(req: NextRequest) {
   const ip = clientIpFromRequest(req);
@@ -117,14 +128,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid payment method" }, { status: 400 });
   }
 
-  const resolved = resolveGuestCommunityCompSignup(data, {
-    strictlySelected,
-    jnjSelected,
-  });
-  if ("error" in resolved) {
-    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
-  }
-
   const { data: eventCompetitions, error: compDivErr } = await supabaseServer
     .from("competitions")
     .select("id, name, comp_type, test_comp")
@@ -167,6 +170,47 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const compRows = (eventCompetitions ?? []) as {
+    id: string;
+    name: string;
+    comp_type: string;
+    test_comp?: boolean | null;
+  }[];
+
+  const parsedJnJ =
+    parseJnJAssignmentsFromBody(data as Record<string, unknown>) ??
+    assignmentsFromSingleLegacy(
+      divisionIds.jnj_competition_id,
+      data.jnj_role === "lead" || data.jnj_role === "follow"
+        ? data.jnj_role
+        : null
+    );
+
+  const jnjValidated = validateJnJAssignments(
+    parsedJnJ,
+    compRows,
+    jnjSelected
+  );
+  if ("error" in jnjValidated) {
+    return NextResponse.json(
+      { error: jnjValidated.error },
+      { status: jnjValidated.status }
+    );
+  }
+
+  if (jnjSelected && jnjValidated.length > 0) {
+    divisionIds.jnj_competition_id = primaryJnJCompetitionId(jnjValidated);
+  }
+
+  const resolved = resolveGuestCommunityCompSignup(data, {
+    strictlySelected,
+    jnjSelected,
+    jnjAssignments: jnjValidated,
+  });
+  if ("error" in resolved) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+  }
+
   const { data: existingSignups } = await supabaseServer
     .from("comp_signups")
     .select(
@@ -175,11 +219,32 @@ export async function POST(req: NextRequest) {
     .eq("event_id", eventId)
     .neq("refunded_or_cancelled", "cancelled");
 
-  const isDuplicate = checkDuplicateCommunityCompSignupByEmailFromRows(
-    existingSignups ?? [],
-    resolved,
-    { strictlySelected, jnjSelected }
-  );
+  let isDuplicate = false;
+  if (strictlySelected) {
+    isDuplicate = checkDuplicateCommunityCompSignupByEmailFromRows(
+      existingSignups ?? [],
+      resolved,
+      { strictlySelected: true, jnjSelected: false }
+    );
+  }
+  if (!isDuplicate && jnjSelected) {
+    if (jnjValidated.length > 0) {
+      isDuplicate = await checkJnJDuplicateAssignmentsForEvent(eventId, {
+        registrantProfileId: "",
+        leadEmail: resolved.jnj_lead_email,
+        followEmail: resolved.jnj_follow_email,
+        leadProfileId: null,
+        followProfileId: null,
+        newAssignments: jnjValidated,
+      });
+    } else {
+      isDuplicate = checkDuplicateCommunityCompSignupByEmailFromRows(
+        existingSignups ?? [],
+        resolved,
+        { strictlySelected: false, jnjSelected: true }
+      );
+    }
+  }
   if (isDuplicate) {
     return NextResponse.json(
       { error: "Already registered", alreadyRegistered: true, eventTitle },
@@ -187,9 +252,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const amountOwed =
-    (strictlySelected ? Number(eventRow.strictly_price) || 0 : 0) +
-    (jnjSelected ? Number(eventRow.jnj_price) || 0 : 0);
+  const amountOwed = computeExpectedCompSignupTotal({
+    strictlySelected,
+    strictlyPrice: eventRow.strictly_price,
+    jnjSelected,
+    jnjPrice: eventRow.jnj_price,
+    jnjAssignmentCount: jnjSelected ? jnjValidated.length : 0,
+  });
 
   const insertRow: Record<string, unknown> = {
     event_id: eventId,
@@ -237,6 +306,10 @@ export async function POST(req: NextRequest) {
   if (insertError) {
     console.error("[non-ccs-comp-signup]", insertError);
     return NextResponse.json({ error: "Failed to save registration" }, { status: 500 });
+  }
+
+  if (jnjValidated.length > 0) {
+    await insertJnJAssignmentsAfterSignupCreate(inserted.id, jnjValidated);
   }
 
   const summary = buildSignupSummaryFromGuestPayload(data, resolved, {

@@ -1,5 +1,7 @@
 import { supabaseServer } from "@/lib/supabaseServer";
 import type { CompSignupProfile } from "@/lib/compSignupAuth";
+import type { JnJAssignment } from "@/lib/comps/jnjAssignments";
+import { checkJnJDuplicateAssignmentsForEvent } from "@/lib/comps/jnjAssignmentsStore";
 
 type DanceRole = "lead" | "follow";
 
@@ -8,6 +10,7 @@ export interface CompSignupRequestBody {
   jnj_selected?: boolean;
   strictly_role?: string | null;
   jnj_role?: string | null;
+  jnj_assignments?: { competition_id?: string; role?: string }[];
   registrant_profile_id?: string | null;
   strictly_lead_profile_id?: string | null;
   strictly_follow_profile_id?: string | null;
@@ -70,7 +73,11 @@ async function loadProfile(id: string): Promise<CompSignupProfile | null> {
 export async function resolveCompSignupProfiles(
   authProfile: CompSignupProfile,
   data: CompSignupRequestBody,
-  opts: { strictlySelected: boolean; jnjSelected: boolean }
+  opts: {
+    strictlySelected: boolean;
+    jnjSelected: boolean;
+    jnjAssignments?: JnJAssignment[];
+  }
 ): Promise<{ error: string; status: number } | ResolvedCompSignupFields> {
   const registrantId = data.registrant_profile_id;
   if (!registrantId || registrantId !== authProfile.id) {
@@ -114,14 +121,21 @@ export async function resolveCompSignupProfiles(
   }
 
   if (opts.jnjSelected) {
-    const role = data.jnj_role;
-    if (!isRole(role)) {
-      return { error: "JnJ: select whether you are Lead or Follow", status: 400 };
-    }
-    if (role === "lead") {
-      jnjLeadId = registrantId;
+    if (opts.jnjAssignments && opts.jnjAssignments.length > 0) {
+      for (const a of opts.jnjAssignments) {
+        if (a.role === "lead") jnjLeadId = registrantId;
+        if (a.role === "follow") jnjFollowId = registrantId;
+      }
     } else {
-      jnjFollowId = registrantId;
+      const role = data.jnj_role;
+      if (!isRole(role)) {
+        return { error: "JnJ: select whether you are Lead or Follow", status: 400 };
+      }
+      if (role === "lead") {
+        jnjLeadId = registrantId;
+      } else {
+        jnjFollowId = registrantId;
+      }
     }
   }
 
@@ -175,7 +189,11 @@ export async function resolveCompSignupProfiles(
 export async function checkDuplicateCompSignup(
   eventId: string,
   resolved: ResolvedCompSignupFields,
-  opts: { strictlySelected: boolean; jnjSelected: boolean }
+  opts: {
+    strictlySelected: boolean;
+    jnjSelected: boolean;
+    jnjAssignments?: JnJAssignment[];
+  }
 ): Promise<boolean> {
   const { data: existingSignups } = await supabaseServer
     .from("comp_signups")
@@ -237,16 +255,28 @@ export async function checkDuplicateCompSignup(
   }
 
   if (opts.jnjSelected) {
-    const dupEmail = [
-      norm(resolved.jnj_lead_email),
-      norm(resolved.jnj_follow_email),
-    ]
-      .filter(Boolean)
-      .some((e) => existingJnJEmails.has(e!));
-    const dupProfile =
-      jnjProfileIds.some((id) => existingJnJProfiles.has(id)) ||
-      existingJnJProfiles.has(registrantId);
-    if (dupEmail || dupProfile) return true;
+    if (opts.jnjAssignments && opts.jnjAssignments.length > 0) {
+      const dup = await checkJnJDuplicateAssignmentsForEvent(eventId, {
+        registrantProfileId: registrantId,
+        leadEmail: resolved.jnj_lead_email,
+        followEmail: resolved.jnj_follow_email,
+        leadProfileId: resolved.jnj_lead_profile_id,
+        followProfileId: resolved.jnj_follow_profile_id,
+        newAssignments: opts.jnjAssignments,
+      });
+      if (dup) return true;
+    } else {
+      const dupEmail = [
+        norm(resolved.jnj_lead_email),
+        norm(resolved.jnj_follow_email),
+      ]
+        .filter(Boolean)
+        .some((e) => existingJnJEmails.has(e!));
+      const dupProfile =
+        jnjProfileIds.some((id) => existingJnJProfiles.has(id)) ||
+        existingJnJProfiles.has(registrantId);
+      if (dupEmail || dupProfile) return true;
+    }
   }
 
   return false;

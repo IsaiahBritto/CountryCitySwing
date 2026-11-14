@@ -12,6 +12,7 @@ import {
   type RegistrantRolesPatch,
   type RegistrantDivisionSelections,
 } from "@/lib/comps/registrantSync";
+import { parseJnJAssignmentsFromBody } from "@/lib/comps/jnjAssignments";
 import { refreshTabulationDisplayNamesForCompetitions } from "@/lib/comps/refreshTabulationDisplayNames";
 
 function parseDivisionSelections(
@@ -150,6 +151,8 @@ export async function PATCH(
     const email =
       typeof id.email === "string" ? id.email.trim() : id.email === null ? null : undefined;
 
+    const jnjAssignments = parseJnJAssignmentsFromBody(body);
+
     const result = await applyRegistrantPatch({
       eventId,
       resolved,
@@ -160,8 +163,9 @@ export async function PATCH(
       },
       roles: parseRoles(body),
       divisionSelections: parseDivisionSelections(body),
+      jnjAssignments,
       strictlySwapLeadFollow: body.strictlySwapLeadFollow === true,
-      tier: resolved.overallTier,
+      tiersByCompetition: resolved.tiersByCompetition,
     });
 
     let tabulationRoundIds: string[] = [];

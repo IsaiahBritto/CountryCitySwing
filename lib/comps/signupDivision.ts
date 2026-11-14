@@ -1,3 +1,4 @@
+import type { JnJAssignment } from "@/lib/comps/jnjAssignments";
 import type { CompSignupRow, CompType } from "@/lib/comps/types";
 
 export type EventDivisionRow = {
@@ -132,10 +133,15 @@ function typeSelected(
 export function signupMatchesCompetition(
   signup: SignupDivisionMatchFields,
   competition: { id: string; comp_type: CompType | string },
-  competitions: EventDivisionRow[]
+  competitions: EventDivisionRow[],
+  jnjAssignments?: JnJAssignment[]
 ): boolean {
   const compType = competition.comp_type as CompType;
   if (!typeSelected(signup, compType)) return false;
+
+  if (compType === "jack_and_jill" && jnjAssignments && jnjAssignments.length > 0) {
+    return jnjAssignments.some((a) => a.competitionId === competition.id);
+  }
 
   const stored = storedCompetitionIdForType(signup, compType);
   if (stored) return stored === competition.id;

@@ -94,6 +94,17 @@ describe("signupMatchesCompetition", () => {
       )
     ).toBe(false);
   });
+
+  it("matches JnJ via assignments junction when stored id is primary only", () => {
+    expect(
+      signupMatchesCompetition(
+        signup,
+        { id: "jnj-all", comp_type: "jack_and_jill" },
+        competitions,
+        [{ competitionId: "jnj-all", role: "follow" }]
+      )
+    ).toBe(true);
+  });
 });
 
 describe("divisionSelectionsChanged", () => {

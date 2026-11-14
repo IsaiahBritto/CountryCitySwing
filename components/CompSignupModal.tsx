@@ -83,6 +83,7 @@ export default function CompSignupModal({
     null
   );
   const [jnjDivisionId, setJnJDivisionId] = useState("");
+  const [jnjSecondDivisionId, setJnJSecondDivisionId] = useState("");
   const [strictlyDivisionId, setStrictlyDivisionId] = useState("");
   const [allAmericanDivisionId, setAllAmericanDivisionId] = useState("");
   const [allAmericanSelected, setAllAmericanSelected] = useState(false);
@@ -99,9 +100,13 @@ export default function CompSignupModal({
     eventDate: string;
   } | null>(null);
 
+  const jnjDivisionCount =
+    jnjSelected && hasJnJ ? (jnjSecondDivisionId ? 2 : 1) : 0;
   const total =
     (strictlySelected && hasStrictly ? Number(event!.strictly_price) || 0 : 0) +
-    (jnjSelected && hasJnJ ? Number(event!.jnj_price) || 0 : 0);
+    (jnjSelected && hasJnJ
+      ? (Number(event!.jnj_price) || 0) * jnjDivisionCount
+      : 0);
 
   useEffect(() => {
     if (!event || (!open && !embedded)) return;
@@ -230,8 +235,16 @@ export default function CompSignupModal({
     }
     if (jnjSelected && hasJnJ) {
       if (!jnjRole) return "JnJ: select whether you are Lead or Follow.";
-      if (jnjDivisionOptions.length > 1 && !jnjDivisionId) {
+      const firstDiv =
+        jnjDivisionId ||
+        (jnjDivisionOptions.length === 1 ? jnjDivisionOptions[0]!.id : "");
+      if (jnjDivisionOptions.length > 1 && !firstDiv) {
         return "JnJ: choose which division you are entering.";
+      }
+      if (jnjSecondDivisionId) {
+        if (jnjSecondDivisionId === firstDiv) {
+          return "JnJ: second division must differ from the first.";
+        }
       }
     }
     if (strictlySelected && hasStrictly && strictlyDivisionOptions.length > 1 && !strictlyDivisionId) {
@@ -267,7 +280,10 @@ export default function CompSignupModal({
     }
 
     if ((jnjSelected || allAmericanSelected) && jnjRole) {
-      if (jnjRole === ROLE_LEAD) jnjLeadId = registrantId;
+      if (jnjSecondDivisionId && jnjSelected) {
+        jnjLeadId = registrantId;
+        jnjFollowId = registrantId;
+      } else if (jnjRole === ROLE_LEAD) jnjLeadId = registrantId;
       else jnjFollowId = registrantId;
     }
 
@@ -315,6 +331,24 @@ export default function CompSignupModal({
         });
       }
 
+      const firstJnJDiv =
+        jnjDivisionId ||
+        (jnjDivisionOptions.length === 1 ? jnjDivisionOptions[0]!.id : "");
+      const jnjAssignments =
+        jnjSelected && jnjRole && firstJnJDiv
+          ? [
+              { competition_id: firstJnJDiv, role: jnjRole },
+              ...(jnjSecondDivisionId
+                ? [
+                    {
+                      competition_id: jnjSecondDivisionId,
+                      role: jnjRole === ROLE_LEAD ? ROLE_FOLLOW : ROLE_LEAD,
+                    },
+                  ]
+                : []),
+            ]
+          : [];
+
       const body = {
         event: {
           id: event!.id,
@@ -329,7 +363,8 @@ export default function CompSignupModal({
         jnj_selected: jnjSelected,
         jnj_price: hasJnJ ? event!.jnj_price : null,
         all_american_selected: allAmericanSelected,
-        jnj_competition_id: jnjSelected ? jnjDivisionId || null : null,
+        jnj_competition_id: jnjSelected ? firstJnJDiv || null : null,
+        jnj_assignments: jnjAssignments,
         strictly_competition_id: strictlySelected ? strictlyDivisionId || null : null,
         all_american_competition_id: allAmericanSelected
           ? allAmericanDivisionId || null
@@ -617,6 +652,45 @@ export default function CompSignupModal({
                 <option value="lead">Lead</option>
                 <option value="follow">Follow</option>
               </select>
+              {jnjDivisionOptions.length > 1 && jnjRole && (
+                <div className="space-y-2 border-t border-neutral-700 pt-3">
+                  <label className="flex items-center gap-2 text-sm text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={!!jnjSecondDivisionId}
+                      onChange={(e) =>
+                        setJnJSecondDivisionId(
+                          e.target.checked ? "__pick__" : ""
+                        )
+                      }
+                      className="rounded"
+                    />
+                    Add a second JnJ division (opposite role, 2× fee)
+                  </label>
+                  {jnjSecondDivisionId && (
+                    <CompDivisionRadioList
+                      label="Second division"
+                      name="jnj-division-2"
+                      divisions={jnjDivisionOptions.filter(
+                        (c) => c.id !== jnjDivisionId
+                      )}
+                      value={
+                        jnjSecondDivisionId === "__pick__"
+                          ? ""
+                          : jnjSecondDivisionId
+                      }
+                      onChange={(id) => setJnJSecondDivisionId(id)}
+                    />
+                  )}
+                  {jnjSecondDivisionId && jnjSecondDivisionId !== "__pick__" && (
+                    <p className="text-xs text-neutral-400">
+                      You will register as{" "}
+                      {jnjRole === ROLE_LEAD ? "Follow" : "Lead"} in the second
+                      division.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

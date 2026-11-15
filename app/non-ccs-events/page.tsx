@@ -2,31 +2,32 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import NonCcsEventsTabToggle, {
+  type NonCcsEventsTab,
+} from "@/components/nonCcs/NonCcsEventsTabToggle";
+import type { PublicCommunityEventListItem } from "@/lib/nonCcsPublicEvents";
 import {
   DEFAULT_TIME_ZONE,
   formatEventScheduleSubtitle,
 } from "@/lib/utils/dateHelpers";
 
-type NonCcsEvent = {
-  id: string;
-  title: string;
-  starts_at: string;
-  ends_at?: string | null;
-  location?: string | null;
-  time_zone?: string | null;
-  description?: string | null;
-};
-
 export default function NonCcsEventsPage() {
-  const [events, setEvents] = useState<NonCcsEvent[]>([]);
+  const [tab, setTab] = useState<NonCcsEventsTab>("upcoming");
+  const [upcoming, setUpcoming] = useState<PublicCommunityEventListItem[]>([]);
+  const [past, setPast] = useState<PublicCommunityEventListItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/non-ccs-events")
       .then((r) => r.json())
-      .then((d) => setEvents(d.events ?? []))
+      .then((d) => {
+        setUpcoming(d.upcoming ?? []);
+        setPast(d.past ?? []);
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  const events = tab === "upcoming" ? upcoming : past;
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 text-white">
@@ -37,7 +38,8 @@ export default function NonCcsEventsPage() {
       <p className="mt-2 text-neutral-400">
         Community-hosted competitions approved by CCS.
       </p>
-      <div className="mt-6 flex gap-3">
+      <div className="mt-6 flex flex-wrap items-center gap-4">
+        <NonCcsEventsTabToggle active={tab} onChange={setTab} />
         <Link href="/host/comps" className="btn-signup text-sm px-4 py-2">
           Host a comp
         </Link>
@@ -45,7 +47,11 @@ export default function NonCcsEventsPage() {
 
       {loading && <p className="mt-8 text-neutral-400">Loading…</p>}
       {!loading && events.length === 0 && (
-        <p className="mt-8 text-neutral-400">No upcoming events yet.</p>
+        <p className="mt-8 text-neutral-400">
+          {tab === "upcoming"
+            ? "No upcoming community comps."
+            : "No past events yet."}
+        </p>
       )}
       <ul className="mt-8 space-y-4">
         {events.map((e) => (
@@ -53,8 +59,18 @@ export default function NonCcsEventsPage() {
             key={e.id}
             className="rounded-lg border border-neutral-700 bg-neutral-800/60 p-5"
           >
-            <Link href={`/non-ccs-events/${e.id}`} className="block hover:opacity-90">
-              <h2 className="text-xl font-semibold text-primary">{e.title}</h2>
+            <Link
+              href={`/non-ccs-events/${encodeURIComponent(e.publicSlug)}`}
+              className="block hover:opacity-90"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-xl font-semibold text-primary">{e.title}</h2>
+                {tab === "past" && e.hasPublishedResults && (
+                  <span className="rounded-md border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    Results posted
+                  </span>
+                )}
+              </div>
               <p className="mt-1 text-sm text-neutral-400">
                 {formatEventScheduleSubtitle(
                   e.starts_at,

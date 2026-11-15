@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import { communityEventPublicSlug } from "@/lib/nonCcsEventSlug";
 
 type QueueEvent = {
   id: string;
@@ -131,7 +132,13 @@ export default function AdminNonCcsEventsPage() {
                 </Link>
                 {approved && (
                   <Link
-                    href={`/non-ccs-events/${e.id}`}
+                    href={`/non-ccs-events/${encodeURIComponent(
+                      communityEventPublicSlug({
+                        id: e.id,
+                        title: e.title,
+                        starts_at: e.starts_at,
+                      })
+                    )}`}
                     className="text-neutral-400 underline hover:text-white"
                   >
                     Public page

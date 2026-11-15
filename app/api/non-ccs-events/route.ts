@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listPublicApprovedCommunityEvents } from "@/lib/nonCcsEventService";
+import { listPublicCommunityEventsHub } from "@/lib/nonCcsEventService";
 import { requireAuthenticatedProfile } from "@/lib/nonCcsEventAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
@@ -7,8 +7,8 @@ import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
 /** GET: approved community comp events (public). */
 export async function GET() {
   try {
-    const events = await listPublicApprovedCommunityEvents();
-    return NextResponse.json({ events });
+    const hub = await listPublicCommunityEventsHub();
+    return NextResponse.json(hub);
   } catch (e) {
     console.error("[non-ccs-events] GET", e);
     return NextResponse.json({ error: "Failed to load events" }, { status: 500 });

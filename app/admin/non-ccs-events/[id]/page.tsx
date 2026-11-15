@@ -7,6 +7,7 @@ import {
   DEFAULT_TIME_ZONE,
   formatEventScheduleSubtitle,
 } from "@/lib/utils/dateHelpers";
+import { communityEventPublicSlug } from "@/lib/nonCcsEventSlug";
 
 const STATUS_LABEL: Record<string, string> = {
   draft: "Draft",
@@ -200,7 +201,14 @@ export default function AdminNonCcsEventReviewPage({
             Comp event ops
           </Link>
           <Link
-            href={`/non-ccs-events/${id}`}
+            href={`/non-ccs-events/${encodeURIComponent(
+              communityEventPublicSlug({
+                id,
+                title: String(payload.event.title ?? ""),
+                starts_at: String(payload.event.starts_at ?? ""),
+                time_zone: (payload.event.time_zone as string | null) ?? null,
+              })
+            )}`}
             className="inline-block text-sm text-primary underline"
           >
             Public event page →

@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  buildCommunityEventResultsSummary,
   buildCommunityEventUpdate,
   canOrganizerEditStatus,
   loadCommunityEventForOrganizer,
+  publicTabForCommunityEvent,
+  resolvePublicCommunityEventRouteKey,
   validateSubmitPayload,
 } from "@/lib/nonCcsEventService";
+import { publicSlugForCommunityEventId } from "@/lib/nonCcsEventService";
+import { hasAnyPublishedResults } from "@/lib/comps/aggregatePublishedResults";
 import {
   adminEditingOthersForbiddenResponse,
   isSiteAdmin,
@@ -16,14 +21,18 @@ type RouteParams = { params: Promise<{ id: string }> };
 
 /** GET: approved event (public) or organizer/admin draft view. */
 export async function GET(req: NextRequest, { params }: RouteParams) {
-  const { id } = await params;
+  const { id: routeKey } = await params;
+  const eventId = await resolvePublicCommunityEventRouteKey(routeKey);
+  if (!eventId) {
+    return NextResponse.json({ error: "Event not found" }, { status: 404 });
+  }
 
   const { data: event, error } = await supabaseServer
     .from("events")
     .select(
       "id,title,starts_at,ends_at,location,description,time_zone,type,host_kind,approval_status,strictly_price,jnj_price,strictly_level,jnj_level,refund_statement,community_payment_methods,community_payment_disclaimer,community_payment_disclaimer_tone,organizer_profile_id"
     )
-    .eq("id", id)
+    .eq("id", eventId)
     .eq("host_kind", "community")
     .maybeSingle();
 
@@ -35,9 +44,21 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     const { data: competitions } = await supabaseServer
       .from("competitions")
       .select("id, name, comp_type, status")
-      .eq("event_id", id)
+      .eq("event_id", eventId)
       .order("created_at", { ascending: true });
-    return NextResponse.json({ event, competitions: competitions ?? [] });
+    const tab = publicTabForCommunityEvent(event);
+    const resultsSummary = await buildCommunityEventResultsSummary(eventId);
+    const publicSlug =
+      (await publicSlugForCommunityEventId(eventId)) ??
+      event.id;
+    return NextResponse.json({
+      event,
+      competitions: competitions ?? [],
+      tab,
+      hasPublishedResults: hasAnyPublishedResults(resultsSummary),
+      resultsSummary,
+      publicSlug,
+    });
   }
 
   const auth = await requireAuthenticatedProfile(req);

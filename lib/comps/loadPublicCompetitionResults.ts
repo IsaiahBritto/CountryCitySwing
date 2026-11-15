@@ -68,11 +68,41 @@ export async function loadPublicCompetitionResults(
     return { ok: false, status: 500, error: "Failed to load rounds" };
   }
 
-  return {
-    ok: true,
-    data: {
-      competition: competition as PublicCompetitionResultsPayload["competition"],
-      rounds: (rounds ?? []) as PublicCompetitionResultsPayload["rounds"],
+  const rawEvent = competition.event as
+    | PublicCompetitionResultsPayload["competition"]["event"]
+    | PublicCompetitionResultsPayload["competition"]["event"][]
+    | null;
+  const event = Array.isArray(rawEvent) ? rawEvent[0] ?? null : rawEvent ?? null;
+
+  const payload: PublicCompetitionResultsPayload = {
+    competition: {
+      id: String(competition.id),
+      name: String(competition.name),
+      comp_type: String(competition.comp_type),
+      status: String(competition.status),
+      test_comp: Boolean(competition.test_comp),
+      event: event
+        ? {
+            id: String(event.id),
+            title: String(event.title),
+            starts_at: event.starts_at != null ? String(event.starts_at) : null,
+            location: event.location ?? null,
+            host_kind: event.host_kind ?? null,
+          }
+        : null,
     },
+    rounds: (rounds ?? []).map((r) => ({
+      id: String(r.id),
+      round_type: String(r.round_type),
+      judged_role: r.judged_role as string | null,
+      scoring_mode: String(r.scoring_mode),
+      callback_count: r.callback_count as number | null,
+      alternate_count: r.alternate_count as number | null,
+      round_order: Number(r.round_order),
+      tabulation: r.tabulation,
+      published_at: r.published_at != null ? String(r.published_at) : null,
+    })),
   };
+
+  return { ok: true, data: payload };
 }

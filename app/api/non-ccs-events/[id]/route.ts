@@ -5,10 +5,10 @@ import {
   canOrganizerEditStatus,
   loadCommunityEventForOrganizer,
   publicTabForCommunityEvent,
+  publicSlugForCommunityEventId,
   resolvePublicCommunityEventRouteKey,
   validateSubmitPayload,
 } from "@/lib/nonCcsEventService";
-import { publicSlugForCommunityEventId } from "@/lib/nonCcsEventService";
 import { hasAnyPublishedResults } from "@/lib/comps/aggregatePublishedResults";
 import {
   adminEditingOthersForbiddenResponse,
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Event not found" }, { status: 404 });
   }
 
-  const full = await loadCommunityEventForOrganizer(id, auth.userId, admin);
+  const full = await loadCommunityEventForOrganizer(eventId, auth.userId, admin);
   return NextResponse.json({ event: full, competitions: full?.competitions ?? [] });
 }
 

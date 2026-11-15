@@ -12,6 +12,7 @@ import {
 } from "@/lib/utils/dateHelpers";
 import { formatDivisionListLabel } from "@/lib/comps/divisionDisplay";
 import type { PublicCommunityEventTab } from "@/lib/nonCcsPublicEvents";
+import type { CommunityPaymentMethod } from "@/lib/communityEvents";
 type CommunityEventDetail = {
   id: string;
   title: string;
@@ -25,7 +26,7 @@ type CommunityEventDetail = {
   strictly_level?: string | null;
   jnj_level?: string | null;
   refund_statement?: string | null;
-  community_payment_methods?: unknown;
+  community_payment_methods?: CommunityPaymentMethod[];
   community_payment_disclaimer?: string | null;
   community_payment_disclaimer_tone?: string | null;
 };

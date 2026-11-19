@@ -47,11 +47,10 @@ export default function HostEventDeleteRegistrantsDialog({
     const data = await res.json();
     setSignups(data.signups ?? []);
     setCanDelete(Boolean(data.canDelete));
-    onEligibilityChange();
-  }, [eventId, open, onEligibilityChange]);
+  }, [eventId, open]);
 
   useEffect(() => {
-    if (open) load();
+    if (open) void load();
   }, [open, load]);
 
   const removeSignup = async (signup: SignupRow) => {

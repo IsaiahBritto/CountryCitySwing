@@ -171,6 +171,10 @@ export default function HostCompEditPage({
     setHasPublishedResults(Boolean(data.hasPublishedResults));
   }, [eventId, router]);
 
+  const refreshDeleteEligibility = useCallback(() => {
+    void load();
+  }, [load]);
+
   useEffect(() => {
     load().finally(() => setLoading(false));
   }, [load]);
@@ -672,9 +676,7 @@ export default function HostCompEditPage({
         eventId={eventId}
         eventTitle={title}
         onClose={() => setRegistrantsReviewOpen(false)}
-        onEligibilityChange={() => {
-          void load();
-        }}
+        onEligibilityChange={refreshDeleteEligibility}
       />
 
       <div className="mt-8 flex flex-wrap gap-3 border-t border-neutral-800 pt-8">

@@ -7,9 +7,10 @@ import {
   publicTabForCommunityEvent,
   publicSlugForCommunityEventId,
   resolvePublicCommunityEventRouteKey,
-  validateSubmitPayload,
 } from "@/lib/nonCcsEventService";
+import { communityEventDeleteEligibility } from "@/lib/nonCcsEventDelete";
 import { hasAnyPublishedResults } from "@/lib/comps/aggregatePublishedResults";
+import { deleteEventFully } from "@/lib/events/deleteEvent";
 import {
   adminEditingOthersForbiddenResponse,
   isSiteAdmin,
@@ -48,6 +49,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       .order("created_at", { ascending: true });
     const tab = publicTabForCommunityEvent(event);
     const resultsSummary = await buildCommunityEventResultsSummary(eventId);
+    const hasPublishedResults = hasAnyPublishedResults(resultsSummary);
+    const deleteMeta = await communityEventDeleteEligibility(eventId);
     const publicSlug =
       (await publicSlugForCommunityEventId(eventId)) ??
       event.id;
@@ -55,7 +58,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       event,
       competitions: competitions ?? [],
       tab,
-      hasPublishedResults: hasAnyPublishedResults(resultsSummary),
+      hasPublishedResults,
+      canDelete: deleteMeta.canDelete,
+      deleteBlockReason: deleteMeta.deleteBlockReason,
       resultsSummary,
       publicSlug,
     });
@@ -69,7 +74,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   }
 
   const full = await loadCommunityEventForOrganizer(eventId, auth.userId, admin);
-  return NextResponse.json({ event: full, competitions: full?.competitions ?? [] });
+  const deleteMeta = await communityEventDeleteEligibility(eventId);
+  return NextResponse.json({
+    event: full,
+    competitions: full?.competitions ?? [],
+    hasPublishedResults: deleteMeta.hasPublishedResults,
+    canDelete: deleteMeta.canDelete,
+    deleteBlockReason: deleteMeta.deleteBlockReason,
+  });
 }
 
 /** PATCH: organizer edits their community event (any approval status). */
@@ -126,7 +138,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   return NextResponse.json({ event: data });
 }
 
-/** DELETE: withdraw draft/pending (organizer) if no signups. */
+/** DELETE: organizer removes community event when allowed. */
 export async function DELETE(req: NextRequest, { params }: RouteParams) {
   const auth = await requireAuthenticatedProfile(req);
   if (!auth.ok) return auth.response;
@@ -143,24 +155,22 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     existing.organizer_profile_id as string | null
   );
   if (blocked) return blocked;
-  if (!["draft", "pending"].includes(String(existing.approval_status))) {
-    return NextResponse.json({ error: "Cannot withdraw this event" }, { status: 403 });
-  }
 
-  const { count } = await supabaseServer
-    .from("comp_signups")
-    .select("id", { count: "exact", head: true })
-    .eq("event_id", id);
-  if ((count ?? 0) > 0) {
+  const eligibility = await communityEventDeleteEligibility(id);
+  if (!eligibility.canDelete) {
     return NextResponse.json(
-      { error: "Cannot withdraw after registrations exist" },
+      { error: eligibility.deleteBlockReason ?? "Cannot delete this event" },
       { status: 409 }
     );
   }
 
-  const { error } = await supabaseServer.from("events").delete().eq("id", id);
-  if (error) {
-    return NextResponse.json({ error: "Delete failed" }, { status: 500 });
+  try {
+    await deleteEventFully(id);
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    console.error("Error deleting community event:", error);
+    const message =
+      error instanceof Error ? error.message : "Delete failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-  return NextResponse.json({ success: true });
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadOrganizedEventsForUser } from "@/lib/compEventAccess";
+import { communityEventDeleteEligibilityBatch } from "@/lib/nonCcsEventDelete";
 import { requireAuthenticatedProfile } from "@/lib/nonCcsEventAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 
@@ -39,10 +39,19 @@ export async function GET(req: Request) {
     byEvent.set(c.event_id as string, list);
   }
 
+  const deleteMeta = await communityEventDeleteEligibilityBatch(ids);
+
   return NextResponse.json({
-    events: events.map((e) => ({
-      ...e,
-      competitions: byEvent.get(e.id as string) ?? [],
-    })),
+    events: events.map((e) => {
+      const id = e.id as string;
+      const meta = deleteMeta.get(id);
+      return {
+        ...e,
+        competitions: byEvent.get(id) ?? [],
+        hasPublishedResults: meta?.hasPublishedResults ?? false,
+        canDelete: meta?.canDelete ?? false,
+        deleteBlockReason: meta?.deleteBlockReason ?? null,
+      };
+    }),
   });
 }

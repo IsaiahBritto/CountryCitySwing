@@ -23,6 +23,7 @@ import {
 } from "@/lib/utils/dateHelpers";
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 import CcsAdminAccessNotice from "@/components/comps/host/CcsAdminAccessNotice";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 const inputCls =
   "w-full rounded border border-neutral-600 bg-neutral-900 px-3 py-2 text-white";
@@ -86,6 +87,10 @@ export default function HostCompEditPage({
   >("jack_and_jill");
   const [competitions, setCompetitions] = useState<{ id: string; name: string }[]>([]);
   const [eventTimeZone, setEventTimeZone] = useState(DEFAULT_TIME_ZONE);
+  const [canDelete, setCanDelete] = useState(false);
+  const [deleteBlockReason, setDeleteBlockReason] = useState<string | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const startsAtIso = useCallback(
     (local: string) =>
@@ -154,6 +159,10 @@ export default function HostCompEditPage({
     setDisclaimerTone(e.community_payment_disclaimer_tone ?? "warning");
     setApprovalStatus(e.approval_status ?? "draft");
     setCompetitions(data.competitions ?? e.competitions ?? []);
+    setCanDelete(Boolean(data.canDelete));
+    setDeleteBlockReason(
+      typeof data.deleteBlockReason === "string" ? data.deleteBlockReason : null
+    );
   }, [eventId, router]);
 
   useEffect(() => {
@@ -252,6 +261,22 @@ export default function HostCompEditPage({
 
   const dismissSubmitSuccess = () => {
     setSubmitSuccessOpen(false);
+    router.push("/host/comps");
+  };
+
+  const handleDeleteEvent = async () => {
+    setDeleteBusy(true);
+    setError(null);
+    const res = await authedFetch(`/api/non-ccs-events/${eventId}`, {
+      method: "DELETE",
+    });
+    setDeleteBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    setDeleteConfirmOpen(false);
+    emitCcsSuccessToast("The event has been deleted.", 3000);
     router.push("/host/comps");
   };
 
@@ -581,6 +606,36 @@ export default function HostCompEditPage({
         </section>
       )}
 
+      <section
+        className="mt-10 rounded-lg border border-red-500/30 bg-neutral-900/40 p-4"
+        aria-labelledby="danger-zone-heading"
+      >
+        <h2 id="danger-zone-heading" className="text-base font-semibold text-red-300">
+          Danger zone
+        </h2>
+        {canDelete ? (
+          <>
+            <p className="mt-2 text-sm text-neutral-400">
+              Permanently remove this event, all divisions, and any roster data. This cannot be
+              undone.
+            </p>
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmOpen(true)}
+              disabled={deleteBusy || submitting}
+              className="mt-4 rounded-md border border-red-500/50 px-4 py-2 text-sm text-red-300 hover:border-red-400 disabled:opacity-50"
+            >
+              Delete event
+            </button>
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-neutral-400">
+            {deleteBlockReason ??
+              "This event cannot be deleted in its current state."}
+          </p>
+        )}
+      </section>
+
       <div className="mt-8 flex flex-wrap gap-3 border-t border-neutral-800 pt-8">
         <button
           type="button"
@@ -612,6 +667,19 @@ export default function HostCompEditPage({
           </p>
         )}
       </div>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        title="Delete event?"
+        message={`Permanently delete "${title.trim() || "this event"}"? All divisions, roster data, and competition setup will be removed. This cannot be undone.`}
+        confirmLabel="Delete event"
+        destructive
+        busy={deleteBusy}
+        onConfirm={handleDeleteEvent}
+        onCancel={() => {
+          if (!deleteBusy) setDeleteConfirmOpen(false);
+        }}
+      />
 
       {submitSuccessOpen && (
         <div

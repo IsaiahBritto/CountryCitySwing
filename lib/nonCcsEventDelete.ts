@@ -1,7 +1,6 @@
 import {
   aggregateCompetitionResultsFromRounds,
   hasAnyPublishedResults,
-  type PublishedRoundRow,
 } from "@/lib/comps/aggregatePublishedResults";
 import {
   deleteEligibilityFromChecks,
@@ -79,10 +78,10 @@ export async function communityEventDeleteEligibilityBatch(
   for (const id of eventIds) publishedByEvent.set(id, false);
 
   for (const eid of eventIds) {
-    const aggregated = aggregateCompetitionResultsFromRounds(
-      rounds as PublishedRoundRow[],
-      { eventId: eid, excludeCcs: true }
-    );
+    const aggregated = aggregateCompetitionResultsFromRounds(rounds as any[], {
+      eventId: eid,
+      excludeCcs: true,
+    });
     publishedByEvent.set(eid, hasAnyPublishedResults(aggregated));
   }
 

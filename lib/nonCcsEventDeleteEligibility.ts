@@ -8,8 +8,10 @@ export type CommunityEventDeleteEligibility = {
 export function deleteEligibilityFromChecks(opts: {
   signupCount: number;
   hasPublishedResults: boolean;
+  hasNonTestRegistrants?: boolean;
 }): CommunityEventDeleteEligibility {
   const { signupCount, hasPublishedResults } = opts;
+  const hasNonTestRegistrants = opts.hasNonTestRegistrants ?? signupCount > 0;
   if (hasPublishedResults) {
     return {
       canDelete: false,
@@ -19,7 +21,7 @@ export function deleteEligibilityFromChecks(opts: {
       signupCount,
     };
   }
-  if (signupCount > 0) {
+  if (hasNonTestRegistrants) {
     return {
       canDelete: false,
       deleteBlockReason:

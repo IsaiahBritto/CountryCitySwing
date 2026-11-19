@@ -11,13 +11,23 @@ describe("deleteEligibilityFromChecks", () => {
     expect(r.deleteBlockReason).toBeNull();
   });
 
-  it("blocks when signups exist", () => {
+  it("blocks when non-test signups exist", () => {
     const r = deleteEligibilityFromChecks({
       signupCount: 3,
       hasPublishedResults: false,
+      hasNonTestRegistrants: true,
     });
     expect(r.canDelete).toBe(false);
     expect(r.deleteBlockReason).toMatch(/registered/i);
+  });
+
+  it("allows delete when only test signups exist", () => {
+    const r = deleteEligibilityFromChecks({
+      signupCount: 3,
+      hasPublishedResults: false,
+      hasNonTestRegistrants: false,
+    });
+    expect(r.canDelete).toBe(true);
   });
 
   it("blocks when published results exist", () => {

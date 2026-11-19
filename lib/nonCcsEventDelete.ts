@@ -6,31 +6,60 @@ import {
   deleteEligibilityFromChecks,
   type CommunityEventDeleteEligibility,
 } from "@/lib/nonCcsEventDeleteEligibility";
+import { eventHasNonTestRegistrants } from "@/lib/comps/testRegistrants";
+import type { CompSignupRow } from "@/lib/comps/types";
 import { buildCommunityEventResultsSummary } from "@/lib/nonCcsEventService";
 import { supabaseServer } from "@/lib/supabaseServer";
 
 export type { CommunityEventDeleteEligibility };
 export { deleteEligibilityFromChecks };
 
-async function compSignupCountForEvent(eventId: string): Promise<number> {
-  const { count, error } = await supabaseServer
+type EventBibRow = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  profile_id: string | null;
+  bib_number: number | null;
+};
+
+async function loadActiveCompSignupsForEvent(
+  eventId: string
+): Promise<CompSignupRow[]> {
+  const { data, error } = await supabaseServer
     .from("comp_signups")
-    .select("id", { count: "exact", head: true })
+    .select("*")
+    .eq("event_id", eventId)
+    .neq("refunded_or_cancelled", "cancelled");
+  if (error) throw error;
+  return (data ?? []) as CompSignupRow[];
+}
+
+async function loadEventBibs(eventId: string): Promise<EventBibRow[]> {
+  const { data, error } = await supabaseServer
+    .from("comp_bibs")
+    .select("id, first_name, last_name, email, profile_id, bib_number")
     .eq("event_id", eventId);
   if (error) throw error;
-  return count ?? 0;
+  return (data ?? []) as EventBibRow[];
 }
 
 /** Organizer delete eligibility for a single community event. */
 export async function communityEventDeleteEligibility(
   eventId: string
 ): Promise<CommunityEventDeleteEligibility> {
-  const [resultsSummary, signupCount] = await Promise.all([
+  const [resultsSummary, signups, bibs] = await Promise.all([
     buildCommunityEventResultsSummary(eventId),
-    compSignupCountForEvent(eventId),
+    loadActiveCompSignupsForEvent(eventId),
+    loadEventBibs(eventId),
   ]);
   const published = hasAnyPublishedResults(resultsSummary);
-  return deleteEligibilityFromChecks({ signupCount, hasPublishedResults: published });
+  const hasNonTestRegistrants = eventHasNonTestRegistrants(signups, bibs);
+  return deleteEligibilityFromChecks({
+    signupCount: signups.length,
+    hasPublishedResults: published,
+    hasNonTestRegistrants,
+  });
 }
 
 async function publishedRoundRowsForEventIds(eventIds: string[]) {
@@ -60,17 +89,44 @@ export async function communityEventDeleteEligibilityBatch(
   const out = new Map<string, CommunityEventDeleteEligibility>();
   if (eventIds.length === 0) return out;
 
-  const { data: signupRows, error: signupErr } = await supabaseServer
-    .from("comp_signups")
-    .select("event_id")
-    .in("event_id", eventIds);
-  if (signupErr) throw signupErr;
+  const [signupsRes, bibsRes] = await Promise.all([
+    supabaseServer
+      .from("comp_signups")
+      .select("*")
+      .in("event_id", eventIds)
+      .neq("refunded_or_cancelled", "cancelled"),
+    supabaseServer
+      .from("comp_bibs")
+      .select("id, event_id, first_name, last_name, email, profile_id, bib_number")
+      .in("event_id", eventIds),
+  ]);
+  if (signupsRes.error) throw signupsRes.error;
+  if (bibsRes.error) throw bibsRes.error;
 
-  const signupCountByEvent = new Map<string, number>();
-  for (const id of eventIds) signupCountByEvent.set(id, 0);
-  for (const row of signupRows ?? []) {
+  const signupsByEvent = new Map<string, CompSignupRow[]>();
+  const bibsByEvent = new Map<string, EventBibRow[]>();
+  for (const id of eventIds) {
+    signupsByEvent.set(id, []);
+    bibsByEvent.set(id, []);
+  }
+  for (const row of signupsRes.data ?? []) {
     const eid = String(row.event_id);
-    signupCountByEvent.set(eid, (signupCountByEvent.get(eid) ?? 0) + 1);
+    const list = signupsByEvent.get(eid);
+    if (list) list.push(row as CompSignupRow);
+  }
+  for (const row of bibsRes.data ?? []) {
+    const eid = String(row.event_id);
+    const list = bibsByEvent.get(eid);
+    if (list) {
+      list.push({
+        id: row.id,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        email: row.email,
+        profile_id: row.profile_id,
+        bib_number: row.bib_number,
+      });
+    }
   }
 
   const rounds = await publishedRoundRowsForEventIds(eventIds);
@@ -86,11 +142,14 @@ export async function communityEventDeleteEligibilityBatch(
   }
 
   for (const id of eventIds) {
+    const signups = signupsByEvent.get(id) ?? [];
+    const bibs = bibsByEvent.get(id) ?? [];
     out.set(
       id,
       deleteEligibilityFromChecks({
-        signupCount: signupCountByEvent.get(id) ?? 0,
+        signupCount: signups.length,
         hasPublishedResults: publishedByEvent.get(id) ?? false,
+        hasNonTestRegistrants: eventHasNonTestRegistrants(signups, bibs),
       })
     );
   }

@@ -74,6 +74,21 @@ describe("eventHasNonTestRegistrants", () => {
     expect(eventHasNonTestRegistrants([signup], [])).toBe(false);
   });
 
+  it("returns false when signups are gone but orphan bibs remain", () => {
+    expect(
+      eventHasNonTestRegistrants([], [
+        {
+          id: "b1",
+          first_name: "Alex",
+          last_name: "Dancer",
+          email: "alex@example.com",
+          profile_id: null,
+          bib_number: 1,
+        },
+      ])
+    ).toBe(false);
+  });
+
   it("returns true when a real email is on the roster", () => {
     const signup: CompSignupRow = {
       ...baseSignup(),

@@ -58,7 +58,7 @@ export function isTestCompSignup(signup: CompSignupRow): boolean {
 
 export function eventHasNonTestRegistrants(
   signups: CompSignupRow[],
-  bibs: {
+  _bibs: {
     id: string;
     first_name: string;
     last_name: string;
@@ -67,7 +67,8 @@ export function eventHasNonTestRegistrants(
     bib_number: number | null;
   }[]
 ): boolean {
-  const roster = collectEventRegistrants(signups, bibs);
+  if (signups.length === 0) return false;
+  const roster = collectEventRegistrants(signups, _bibs);
   if (roster.length === 0) return false;
   return roster.some((p) => !isTestRosterPerson(p));
 }

@@ -6,6 +6,7 @@ import {
   deleteEligibilityFromChecks,
   type CommunityEventDeleteEligibility,
 } from "@/lib/nonCcsEventDeleteEligibility";
+import { pruneOrphanBibsForCommunityEvent } from "@/lib/comps/pruneEventBibs";
 import { eventHasNonTestRegistrants } from "@/lib/comps/testRegistrants";
 import type { CompSignupRow } from "@/lib/comps/types";
 import { buildCommunityEventResultsSummary } from "@/lib/nonCcsEventService";
@@ -54,6 +55,9 @@ export async function communityEventDeleteEligibility(
     loadEventBibs(eventId),
   ]);
   const published = hasAnyPublishedResults(resultsSummary);
+  if (signups.length === 0) {
+    await pruneOrphanBibsForCommunityEvent(eventId);
+  }
   const hasNonTestRegistrants = eventHasNonTestRegistrants(signups, bibs);
   return deleteEligibilityFromChecks({
     signupCount: signups.length,

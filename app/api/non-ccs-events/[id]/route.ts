@@ -59,6 +59,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       competitions: competitions ?? [],
       tab,
       hasPublishedResults,
+      signupCount: deleteMeta.signupCount,
       canDelete: deleteMeta.canDelete,
       deleteBlockReason: deleteMeta.deleteBlockReason,
       resultsSummary,
@@ -79,6 +80,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     event: full,
     competitions: full?.competitions ?? [],
     hasPublishedResults: deleteMeta.hasPublishedResults,
+    signupCount: deleteMeta.signupCount,
     canDelete: deleteMeta.canDelete,
     deleteBlockReason: deleteMeta.deleteBlockReason,
   });

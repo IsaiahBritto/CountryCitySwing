@@ -24,6 +24,7 @@ import {
 import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 import CcsAdminAccessNotice from "@/components/comps/host/CcsAdminAccessNotice";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import HostEventDeleteRegistrantsDialog from "@/components/host/HostEventDeleteRegistrantsDialog";
 
 const inputCls =
   "w-full rounded border border-neutral-600 bg-neutral-900 px-3 py-2 text-white";
@@ -89,7 +90,10 @@ export default function HostCompEditPage({
   const [eventTimeZone, setEventTimeZone] = useState(DEFAULT_TIME_ZONE);
   const [canDelete, setCanDelete] = useState(false);
   const [deleteBlockReason, setDeleteBlockReason] = useState<string | null>(null);
+  const [signupCount, setSignupCount] = useState(0);
+  const [hasPublishedResults, setHasPublishedResults] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [registrantsReviewOpen, setRegistrantsReviewOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   const startsAtIso = useCallback(
@@ -163,6 +167,8 @@ export default function HostCompEditPage({
     setDeleteBlockReason(
       typeof data.deleteBlockReason === "string" ? data.deleteBlockReason : null
     );
+    setSignupCount(Number(data.signupCount ?? 0));
+    setHasPublishedResults(Boolean(data.hasPublishedResults));
   }, [eventId, router]);
 
   useEffect(() => {
@@ -607,34 +613,69 @@ export default function HostCompEditPage({
       )}
 
       <section
-        className="mt-10 rounded-lg border border-red-500/30 bg-neutral-900/40 p-4"
+        className={`mt-10 rounded-lg border border-red-500/30 bg-neutral-900/40 p-4 ${
+          !hasPublishedResults && signupCount > 0
+            ? "transition hover:border-red-400/45 hover:bg-red-950/10"
+            : ""
+        }`}
         aria-labelledby="danger-zone-heading"
       >
         <h2 id="danger-zone-heading" className="text-base font-semibold text-red-300">
           Danger zone
         </h2>
-        {canDelete ? (
-          <>
-            <p className="mt-2 text-sm text-neutral-400">
-              Permanently remove this event, all divisions, and any roster data. This cannot be
-              undone.
-            </p>
-            <button
-              type="button"
-              onClick={() => setDeleteConfirmOpen(true)}
-              disabled={deleteBusy || submitting}
-              className="mt-4 rounded-md border border-red-500/50 px-4 py-2 text-sm text-red-300 hover:border-red-400 disabled:opacity-50"
-            >
-              Delete event
-            </button>
-          </>
+        {hasPublishedResults ? (
+          <p className="mt-2 text-sm text-neutral-400">{deleteBlockReason}</p>
         ) : (
-          <p className="mt-2 text-sm text-neutral-400">
-            {deleteBlockReason ??
-              "This event cannot be deleted in its current state."}
-          </p>
+          <>
+            {signupCount > 0 && (
+              <>
+                <p className="mt-2 text-sm text-neutral-400">
+                  {canDelete
+                    ? "Only test registrations remain. You can remove them below or delete the event."
+                    : `${signupCount} registration${signupCount === 1 ? "" : "s"} block deleting this event. Review and remove each one when you are sure.`}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setRegistrantsReviewOpen(true)}
+                  disabled={deleteBusy || submitting}
+                  className="mt-4 w-full rounded-lg border border-red-500/40 bg-red-950/25 px-4 py-3 text-left text-sm text-red-100 transition hover:border-red-400/60 hover:bg-red-950/40 disabled:opacity-50 sm:w-auto sm:text-center"
+                >
+                  Review registrations before deleting
+                </button>
+              </>
+            )}
+            {canDelete && (
+              <>
+                <p className="mt-3 text-sm text-neutral-400">
+                  Permanently remove this event, all divisions, and any roster data. This cannot
+                  be undone.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  disabled={deleteBusy || submitting}
+                  className="mt-4 rounded-md border border-red-500/50 px-4 py-2 text-sm text-red-300 hover:border-red-400 disabled:opacity-50"
+                >
+                  Delete event
+                </button>
+              </>
+            )}
+            {!canDelete && signupCount === 0 && deleteBlockReason && (
+              <p className="mt-2 text-sm text-neutral-400">{deleteBlockReason}</p>
+            )}
+          </>
         )}
       </section>
+
+      <HostEventDeleteRegistrantsDialog
+        open={registrantsReviewOpen}
+        eventId={eventId}
+        eventTitle={title}
+        onClose={() => setRegistrantsReviewOpen(false)}
+        onEligibilityChange={() => {
+          void load();
+        }}
+      />
 
       <div className="mt-8 flex flex-wrap gap-3 border-t border-neutral-800 pt-8">
         <button

@@ -37,7 +37,7 @@ const SECTIONS = [
 
 export default function TermsOfServicePage() {
   return (
-    <LegalDocumentLayout title="Terms of Service" sections={SECTIONS} showDraftNotice>
+    <LegalDocumentLayout title="Terms of Service" sections={SECTIONS}>
       <LegalSection id="agreement" title="Agreement to these Terms">
         <p>
           These Terms of Service (“<strong>Terms</strong>”) govern your access to and use of the website

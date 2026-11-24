@@ -112,6 +112,10 @@ export default function CompSignupModal({
     (jnjSelected && hasJnJ
       ? (Number(event!.jnj_price) || 0) * jnjDivisionCount
       : 0);
+  const giftCardAmount = appliedGiftCard?.amountToApply ?? 0;
+  const remainingAfterGift = Math.max(0, Math.round((total - giftCardAmount) * 100) / 100);
+  // Server treats a remainder of $0.50 or less as paid in full
+  const giftCardCoversTotal = !!appliedGiftCard && total > 0 && remainingAfterGift <= 0.5;
 
   useEffect(() => {
     if (!event || (!open && !embedded)) return;
@@ -717,22 +721,38 @@ export default function CompSignupModal({
         />
       )}
 
-      <div>
-        <p className="font-medium mb-2">Payment method</p>
-        <ChoiceCards
-          name="paymentMethod"
-          aria-label="Payment method"
-          value={paymentMethod}
-          onChange={(next) => setPaymentMethod(next as PaymentMethod)}
-          options={[
-            { value: "Stripe", label: "Stripe (Credit/Debit Card)" },
-            { value: "Cash", label: "Cash" },
-          ]}
-        />
-      </div>
+      {!giftCardCoversTotal && (
+        <div>
+          <p className="font-medium mb-2">Payment method</p>
+          <ChoiceCards
+            name="paymentMethod"
+            aria-label="Payment method"
+            value={paymentMethod}
+            onChange={(next) => setPaymentMethod(next as PaymentMethod)}
+            options={[
+              { value: "Stripe", label: "Stripe (Credit/Debit Card)" },
+              { value: "Cash", label: "Cash" },
+            ]}
+          />
+        </div>
+      )}
 
       <div className="p-3 rounded-lg bg-neutral-800 border border-neutral-700">
         <strong>Total:</strong> ${total.toFixed(2)}
+        {giftCardAmount > 0 && (
+          <>
+            <br />
+            <strong>Gift card:</strong>{" "}
+            <span className="text-green-400">-${giftCardAmount.toFixed(2)}</span>
+            <br />
+            <strong>Remaining due:</strong>{" "}
+            {giftCardCoversTotal ? (
+              <span className="text-green-400">$0.00 (paid in full by gift card)</span>
+            ) : (
+              <>${remainingAfterGift.toFixed(2)}</>
+            )}
+          </>
+        )}
       </div>
 
       <div className="bg-neutral-800 p-3 rounded text-sm">

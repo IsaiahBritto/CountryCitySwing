@@ -22,6 +22,7 @@ type DetailResponse = {
   priorSums: { principal: number; fee: number; tax: number; amount: number };
   principalPaid: number;
   remainingPrincipal: number;
+  giftCard?: { code: string | null; applied: number; refundable: number } | null;
   error?: string;
 };
 
@@ -40,6 +41,7 @@ export default function RegistrationRefundModal({
   const [detail, setDetail] = useState<DetailResponse | null>(null);
   const [principalInput, setPrincipalInput] = useState("");
   const [cashAmountInput, setCashAmountInput] = useState("");
+  const [giftAmountInput, setGiftAmountInput] = useState("");
   const [note, setNote] = useState("");
 
   useEffect(() => {
@@ -50,6 +52,7 @@ export default function RegistrationRefundModal({
     setDetail(null);
     setPrincipalInput("");
     setCashAmountInput("");
+    setGiftAmountInput("");
     setNote("");
     fetch(
       `/api/admin/signup-refund?signupId=${encodeURIComponent(signupId)}&isComp=${isComp}`,
@@ -87,6 +90,7 @@ export default function RegistrationRefundModal({
   const isStripe = pm.toLowerCase() === "stripe" || !!piId;
   const isVoucher = pm.toLowerCase() === "class voucher";
   const isCash = ["cash", "ccs team"].includes(pm.toLowerCase());
+  const giftCard = detail?.giftCard ?? null;
   const freeViaPromo = signup?.free_via_promotion_code === true;
   const usedPromo = signup?.used_promotion_code === true;
   const collected =
@@ -205,9 +209,22 @@ export default function RegistrationRefundModal({
                 <span className="text-white capitalize">{status}</span>
               </p>
               <p>
-                <span className="text-neutral-400">Collected:</span>{" "}
+                <span className="text-neutral-400">
+                  {giftCard ? (piId ? "Stripe portion collected:" : "Cash portion collected:") : "Collected:"}
+                </span>{" "}
                 <span className="text-white">${Number(collected).toFixed(2)}</span>
               </p>
+              {giftCard && (
+                <p>
+                  <span className="text-neutral-400">
+                    Gift card{giftCard.code ? ` (${giftCard.code})` : ""}:
+                  </span>{" "}
+                  <span className="text-white">${giftCard.applied.toFixed(2)}</span>
+                  <span className="text-neutral-400">
+                    {" "}· refundable ${giftCard.refundable.toFixed(2)}
+                  </span>
+                </p>
+              )}
               {signup.stripe_tax_amount != null && (
                 <p>
                   <span className="text-neutral-400">Stripe tax:</span> $
@@ -262,7 +279,115 @@ export default function RegistrationRefundModal({
                   />
                 </label>
 
-                {isStripe && piId && paid && detail.paymentIntentRemainingCents > 0 && (
+                {giftCard && paid && (
+                  <div className="space-y-3 border-t border-neutral-700 pt-3">
+                    <p className="font-medium text-white">Refund gift card and/or {piId ? "Stripe" : "cash"}</p>
+                    <label className="block">
+                      <span className="text-neutral-400">
+                        Restore to gift card (max ${giftCard.refundable.toFixed(2)})
+                      </span>
+                      <div className="mt-1 flex gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={giftAmountInput}
+                          onChange={(e) => setGiftAmountInput(e.target.value)}
+                          disabled={giftCard.refundable <= 0}
+                          className="w-full rounded-md border border-neutral-600 bg-neutral-800 px-3 py-2 text-white disabled:opacity-50"
+                        />
+                        <button
+                          type="button"
+                          disabled={giftCard.refundable <= 0}
+                          onClick={() => setGiftAmountInput(giftCard.refundable.toFixed(2))}
+                          className="rounded-md border border-neutral-500 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+                        >
+                          Max
+                        </button>
+                      </div>
+                    </label>
+                    <label className="block">
+                      <span className="text-neutral-400">
+                        {piId ? "Refund to card via Stripe" : "Refund in cash"} (max $
+                        {detail.remainingPrincipal.toFixed(2)})
+                      </span>
+                      <div className="mt-1 flex gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={piId ? principalInput : cashAmountInput}
+                          onChange={(e) =>
+                            piId
+                              ? setPrincipalInput(e.target.value)
+                              : setCashAmountInput(e.target.value)
+                          }
+                          disabled={detail.remainingPrincipal <= 0}
+                          className="w-full rounded-md border border-neutral-600 bg-neutral-800 px-3 py-2 text-white disabled:opacity-50"
+                        />
+                        <button
+                          type="button"
+                          disabled={detail.remainingPrincipal <= 0}
+                          onClick={() => {
+                            const max = detail.remainingPrincipal.toFixed(2);
+                            if (piId) setPrincipalInput(max);
+                            else setCashAmountInput(max);
+                          }}
+                          className="rounded-md border border-neutral-500 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800 disabled:opacity-50"
+                        >
+                          Max
+                        </button>
+                      </div>
+                    </label>
+                    {piId && previewWithPriors?.ok && (
+                      <p className="text-neutral-300">
+                        Computed total to Stripe:{" "}
+                        <strong className="text-white">${previewWithPriors.total.toFixed(2)}</strong>
+                        {previewWithPriors.fee > 0 || previewWithPriors.tax > 0
+                          ? " (includes proportional fee/tax)"
+                          : ""}
+                      </p>
+                    )}
+                    {piId && previewWithPriors && !previewWithPriors.ok && principalInput && (
+                      <p className="text-red-300">{previewWithPriors.error}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={
+                          submitting ||
+                          !(Number(giftAmountInput) > 0 ||
+                            Number(piId ? principalInput : cashAmountInput) > 0)
+                        }
+                        onClick={() =>
+                          submit({
+                            mode: "partial",
+                            giftRefundAmount: Number(giftAmountInput) || 0,
+                            ...(piId
+                              ? { principalAmount: Number(principalInput) || 0 }
+                              : { amountRefunded: Number(cashAmountInput) || 0 }),
+                          })
+                        }
+                        className="rounded-md bg-neutral-700 px-3 py-2 text-sm font-medium text-white hover:bg-neutral-600 disabled:opacity-50"
+                      >
+                        Refund entered amounts
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => submit({ mode: "full" })}
+                        className="rounded-md bg-red-700 px-3 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50"
+                      >
+                        Full refund of both (cancel)
+                      </button>
+                    </div>
+                    <p className="text-xs text-neutral-400">
+                      The registration is cancelled once both the gift card and {piId ? "Stripe" : "cash"} portions are fully refunded.
+                    </p>
+                  </div>
+                )}
+
+                {!giftCard && isStripe && piId && paid && detail.paymentIntentRemainingCents > 0 && (
                   <div className="space-y-3 border-t border-neutral-700 pt-3">
                     <p className="font-medium text-white">Stripe refund</p>
                     <label className="block">
@@ -334,14 +459,14 @@ export default function RegistrationRefundModal({
                   </div>
                 )}
 
-                {isStripe && paid && !piId && (
+                {!giftCard && isStripe && paid && !piId && (
                   <p className="text-amber-200">
                     Missing Stripe payment intent. Run the signup Stripe ID backfill or refund in the
                     Stripe Dashboard, then reopen this modal to sync.
                   </p>
                 )}
 
-                {isCash && paid && (
+                {!giftCard && isCash && paid && (
                   <div className="space-y-3 border-t border-neutral-700 pt-3">
                     <p className="font-medium text-white">Cash refund</p>
                     <label className="block">
@@ -389,7 +514,7 @@ export default function RegistrationRefundModal({
                   </div>
                 )}
 
-                {(isVoucher || !paid || freeViaPromo || collected <= 0) && !isStripe && (
+                {(isVoucher || !paid || freeViaPromo || (collected <= 0 && !giftCard)) && !isStripe && (
                   <div className="space-y-2 border-t border-neutral-700 pt-3">
                     <p className="text-neutral-300">
                       {isVoucher

@@ -140,11 +140,16 @@ export async function POST(request: NextRequest) {
 
     // Stripe not allowed when amount due is under $1
     if (paymentMethod === "stripe" && amountOwed < 1) {
-      effectivePaymentMethod = "cash";
+      effectivePaymentMethod = (
+        giftCardMeta ? (paid ? "gift card" : "gift card + cash") : "cash"
+      ) as "cash" | "stripe";
     }
 
     // 1️⃣ Stripe path: if promo brings total to ≤$0.50, treat as Cash with no payment; or if already resolved from client discount
-    if (effectivePaymentMethod === "stripe") {
+    if (
+      effectivePaymentMethod === "stripe" ||
+      (effectivePaymentMethod as string) === "gift card + stripe"
+    ) {
       let discountedTotal = amountOwed;
       if (clientDiscountedSubtotal == null && promotionCodeId && orderTotalForDiscount > 0) {
         const processingFee = roundCurrency(calculateProcessingFee(orderTotalForDiscount));
@@ -173,22 +178,40 @@ export async function POST(request: NextRequest) {
         amountOwed = 0;
       } else {
         try {
-          const subtotalForFee = orderData.subtotal + (orderData.shipping || 0);
+          const subtotalForFee = giftCardMeta
+            ? amountOwed
+            : orderData.subtotal + (orderData.shipping || 0);
           const processingFee = roundCurrency(calculateProcessingFee(subtotalForFee));
-          const lineItems: { price_data: any; quantity: number }[] = orderData.items.map(
-            (item: any) => ({
-              price_data: {
-                currency: "usd",
-                product_data: {
-                  name: `${item.productName} (${item.size})`,
-                  tax_code: getMerchandiseTaxCode(),
+          // Stripe can't subtract a gift card from per-item prices, so charge the remainder as one line
+          const lineItems: { price_data: any; quantity: number }[] = giftCardMeta
+            ? [
+                {
+                  price_data: {
+                    currency: "usd",
+                    product_data: {
+                      name: "Merch order (remaining after gift card)",
+                      description: orderData.items
+                        .map((item: any) => `${item.productName} (${item.size}) × ${item.quantity}`)
+                        .join(", "),
+                      tax_code: getMerchandiseTaxCode(),
+                    },
+                    unit_amount: Math.round(amountOwed * 100),
+                  },
+                  quantity: 1,
                 },
-                unit_amount: Math.round(item.price * 100),
-              },
-              quantity: item.quantity,
-            })
-          );
-          if (orderData.shipping > 0) {
+              ]
+            : orderData.items.map((item: any) => ({
+                price_data: {
+                  currency: "usd",
+                  product_data: {
+                    name: `${item.productName} (${item.size})`,
+                    tax_code: getMerchandiseTaxCode(),
+                  },
+                  unit_amount: Math.round(item.price * 100),
+                },
+                quantity: item.quantity,
+              }));
+          if (!giftCardMeta && orderData.shipping > 0) {
             lineItems.push({
               price_data: {
                 currency: "usd",
@@ -238,6 +261,13 @@ export async function POST(request: NextRequest) {
               total: String(orderData.total),
               payment_method: paymentMethod,
               payment_type: "merch_order",
+              ...(giftCardMeta
+                ? {
+                    gift_card_id: giftCardMeta.giftCardId,
+                    gift_card_code: giftCardMeta.giftCardCode,
+                    gift_card_amount: String(giftCardMeta.giftCardAmountApplied),
+                  }
+                : {}),
             },
             success_url: `${base}/merch/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${base}/merch/checkout`,

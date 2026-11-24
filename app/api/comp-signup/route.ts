@@ -375,7 +375,10 @@ export async function POST(req: NextRequest) {
   };
 
   // Stripe path: do NOT create record here; webhook creates it when payment completes
-  if (effectivePayment === "Stripe" && compAmountOwed > 0.5) {
+  if (
+    (effectivePayment === "Stripe" || effectivePayment === "Gift Card + Stripe") &&
+    compAmountOwed > 0.5
+  ) {
     const processingFee = roundCurrency(calculateProcessingFee(compAmountOwed));
     const compSignupId = randomUUID();
     const base = getBaseUrl(req);
@@ -469,6 +472,13 @@ export async function POST(req: NextRequest) {
             Object.entries(profileMetadata).map(([k, v]) => [k, v ?? ""])
           ),
           amount_owed: String(amountOwed),
+          ...(giftCardApplied
+            ? {
+                gift_card_id: giftCardApplied.giftCardId,
+                gift_card_code: giftCardApplied.giftCardCode,
+                gift_card_amount: String(giftCardApplied.amountApplied),
+              }
+            : {}),
           accept_liability: String(acceptLiability),
           accept_payment: String(acceptPayment),
         },
@@ -529,8 +539,22 @@ export async function POST(req: NextRequest) {
     resolved.strictly_follow_email ||
     resolved.jnj_follow_email;
 
-  const paymentSection =
-    effectivePayment === "Cash" && amountOwed > 0
+  const compGiftAmount = giftCardApplied?.amountApplied ?? 0;
+  const paymentSection = giftCardApplied
+    ? compPaid
+      ? `
+      <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Payment:</strong> Paid.</p>
+        <p style="margin: 8px 0 0 0;">Your gift card covered the full cost ($${compGiftAmount.toFixed(2)}). No payment is required.</p>
+      </div>
+    `
+      : `
+      <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Payment:</strong> $${compGiftAmount.toFixed(2)} paid with your gift card.</p>
+        <p style="margin: 10px 0 0 0;"><strong>Remaining due:</strong> $${compAmountOwed.toFixed(2)} — please pay with cash at the door.</p>
+      </div>
+    `
+    : effectivePayment === "Cash" && amountOwed > 0
       ? `
       <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
         <p style="margin: 0;"><strong>Payment:</strong> Cash.</p>
@@ -577,7 +601,10 @@ export async function POST(req: NextRequest) {
             <p>Your How's My Dancing comp registration has been received.</p>
             <div class="details-box">
               <h3 style="margin-top: 0; color: #f2c94c;">${eventTitle}</h3>
-              <div class="detail-row"><strong>Amount due:</strong> $${amountOwed.toFixed(2)}</div>
+              ${giftCardApplied ? `
+              <div class="detail-row"><strong>Paid with gift card:</strong> $${compGiftAmount.toFixed(2)}</div>
+              <div class="detail-row"><strong>Remaining due:</strong> $${compAmountOwed.toFixed(2)}${compPaid ? " — Paid in full by gift card" : ""}</div>
+              ` : `<div class="detail-row"><strong>Amount due:</strong> $${amountOwed.toFixed(2)}</div>`}
               <div class="detail-row"><strong>Payment method:</strong> ${effectivePayment}</div>
             </div>
             ${paymentSection}
@@ -608,6 +635,13 @@ export async function POST(req: NextRequest) {
     console.error("Comp signup email error:", err);
   }
 
+  if (giftCardApplied && compPaid) {
+    return NextResponse.json({
+      success: true,
+      noRedirect: true,
+      message: "Your gift card covered the full cost. You're all set!",
+    });
+  }
   if (effectivePayment === "Stripe" && amountOwed <= 0.5) {
     return NextResponse.json({
       success: true,

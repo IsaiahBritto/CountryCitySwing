@@ -10,7 +10,7 @@ import {
   type RefundBreakdownPrior,
 } from "@/lib/utils/signupRefundAmounts";
 import { isCommunityCompEventId } from "@/lib/compEventAccess";
-import { reverseGiftCardRedemption } from "@/lib/giftCards/refund";
+import { getRefundableGiftAmount, reverseGiftCardRedemption } from "@/lib/giftCards/refund";
 
 type RefundMode = "full" | "partial" | "cancel_unpaid";
 
@@ -128,16 +128,18 @@ async function updateSignupStatus(
   if (status === "cancelled") {
     const { data: row } = await supabaseServer
       .from(table)
-      .select("id,gift_card_id,gift_card_amount_applied")
+      .select("id,gift_card_id")
       .eq("id", id)
       .single();
     const giftId = row?.gift_card_id;
-    const giftAmt = Number(row?.gift_card_amount_applied) || 0;
+    const referenceType = table === "comp_signups" ? "comp_signup" : "signup";
+    // Only restore what was actually redeemed (unpaid signups never charged the card)
+    const giftAmt = giftId ? await getRefundableGiftAmount(referenceType, String(id)) : 0;
     if (giftId && giftAmt > 0) {
       await reverseGiftCardRedemption({
         giftCardId: giftId,
         amount: giftAmt,
-        referenceType: table === "comp_signups" ? "comp_signup" : "signup",
+        referenceType,
         referenceId: String(id),
         note: "Registration cancelled — gift card balance restored",
       });
@@ -145,17 +147,63 @@ async function updateSignupStatus(
   }
 }
 
+/** Restore part of a signup's gift card redemption and keep amount_paid / gift_card_amount_applied in sync. */
+async function refundGiftCardPortion(opts: {
+  signupId: string;
+  giftCardId: string;
+  amount: number;
+  currentGiftApplied: number;
+  currentAmountPaid: number | null;
+  note: string;
+}): Promise<void> {
+  const result = await reverseGiftCardRedemption({
+    giftCardId: opts.giftCardId,
+    amount: opts.amount,
+    referenceType: "signup",
+    referenceId: opts.signupId,
+    note: opts.note,
+  });
+  if (!result.ok) throw new Error(result.error || "Failed to restore gift card balance");
+  // amount_paid includes the gift card portion; finance subtracts gift_card_amount_applied from it
+  const { error } = await supabaseServer
+    .from("signups")
+    .update({
+      gift_card_amount_applied: roundCurrency(Math.max(0, opts.currentGiftApplied - opts.amount)),
+      ...(opts.currentAmountPaid != null
+        ? { amount_paid: roundCurrency(Math.max(0, opts.currentAmountPaid - opts.amount)) }
+        : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", opts.signupId);
+  if (error) throw new Error(error.message);
+}
+
+function hasGiftCardPortion(r: Record<string, unknown>): boolean {
+  return (
+    typeof r.gift_card_id === "string" &&
+    r.gift_card_id !== "" &&
+    (String(r.payment_method || "").toLowerCase().includes("gift card") ||
+      Number(r.gift_card_amount_applied) > 0)
+  );
+}
+
 function refundEmailHtml(opts: {
   name: string;
   eventTitle: string;
   mode: RefundMode | "sync";
   amount: number;
+  giftCardAmount?: number;
   cancelled: boolean;
 }): string {
+  const giftAmount = opts.giftCardAmount ?? 0;
+  const giftLine =
+    giftAmount > 0
+      ? `<p>Restored to your gift card: <strong>$${giftAmount.toFixed(2)}</strong></p>`
+      : "";
   const amountLine =
     opts.amount > 0
-      ? `<p>Amount refunded: <strong>$${opts.amount.toFixed(2)}</strong></p>`
-      : `<p>No payment was collected for this registration.</p>`;
+      ? `<p>Amount refunded: <strong>$${opts.amount.toFixed(2)}</strong></p>${giftLine}`
+      : giftLine || `<p>No payment was collected for this registration.</p>`;
   const statusLine = opts.cancelled
     ? `<p>Your registration for <strong>${opts.eventTitle}</strong> has been <strong>cancelled</strong>.</p>`
     : `<p>A partial refund was issued for <strong>${opts.eventTitle}</strong>. Your registration remains active.</p>`;
@@ -176,6 +224,7 @@ async function sendRefundEmails(opts: {
   eventTitle: string;
   mode: RefundMode;
   amount: number;
+  giftCardAmount?: number;
   cancelled: boolean;
 }) {
   const unique = [...new Set(opts.emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
@@ -191,6 +240,7 @@ async function sendRefundEmails(opts: {
           eventTitle: opts.eventTitle,
           mode: opts.mode,
           amount: opts.amount,
+          giftCardAmount: opts.giftCardAmount,
           cancelled: opts.cancelled,
         }),
         "confirmation@countrycityswing.dance"
@@ -376,6 +426,13 @@ export async function GET(req: NextRequest) {
           r.amount_paid != null ? r.amount_paid : r.amount_owed != null ? r.amount_owed : 0
         );
 
+    const giftPortion = !isComp && hasGiftCardPortion(r);
+    const giftApplied = giftPortion ? Number(r.gift_card_amount_applied) || 0 : 0;
+    const giftRefundable = giftPortion
+      ? await getRefundableGiftAmount("signup", String(signupId))
+      : 0;
+    const moneyPaid = roundCurrency(Math.max(0, principalPaid - giftApplied));
+
     return NextResponse.json({
       signup: { ...r, refunded_or_cancelled: status },
       isComp,
@@ -383,8 +440,17 @@ export async function GET(req: NextRequest) {
       paymentIntentRemainingCents: remainingCents,
       priorRefunds: priors,
       priorSums,
-      principalPaid,
-      remainingPrincipal: roundCurrency(Math.max(0, principalPaid - priorSums.principal)),
+      principalPaid: giftPortion ? moneyPaid : principalPaid,
+      remainingPrincipal: roundCurrency(
+        Math.max(0, (giftPortion ? moneyPaid : principalPaid) - priorSums.principal)
+      ),
+      giftCard: giftPortion
+        ? {
+            code: typeof r.gift_card_code === "string" ? r.gift_card_code : null,
+            applied: roundCurrency(giftApplied),
+            refundable: giftRefundable,
+          }
+        : null,
     });
   } catch (e) {
     console.error("GET signup-refund", e);
@@ -464,6 +530,175 @@ export async function POST(req: NextRequest) {
       : Number(
           r.amount_paid != null ? r.amount_paid : r.amount_owed != null ? r.amount_owed : 0
         );
+
+    // --- Gift card signups: refund gift card portion, cash/Stripe portion, or both ---
+    if (!isComp && paid && mode !== "cancel_unpaid" && hasGiftCardPortion(r)) {
+      const giftCardId = r.gift_card_id as string;
+      const giftApplied = Number(r.gift_card_amount_applied) || 0;
+      const giftRefundable = await getRefundableGiftAmount("signup", signupId);
+      const priors = await loadPriors(signupId, isComp);
+      const moneyPaid = roundCurrency(Math.max(0, principalPaid - giftApplied));
+      const moneyRemaining = roundCurrency(
+        Math.max(0, moneyPaid - sumPriorRefunds(priors).principal)
+      );
+      const isFull = mode === "full";
+
+      const giftAmount = isFull
+        ? giftRefundable
+        : roundCurrency(Number(body.giftRefundAmount ?? 0) || 0);
+      if (giftAmount < 0 || giftAmount > giftRefundable + 0.001) {
+        return NextResponse.json(
+          { error: `Gift card refund can be at most $${giftRefundable.toFixed(2)}.` },
+          { status: 400 }
+        );
+      }
+
+      const usesStripe = !!piId;
+      let moneyAmount = 0;
+      let stripePlan: { amountCents: number; principal: number; fee: number; tax: number } | null =
+        null;
+      if (usesStripe) {
+        const { remainingCents } = await loadPaymentIntentRefundState(piId!);
+        if (isFull || body.refundRemaining === true) {
+          if (remainingCents > 0) {
+            stripePlan = {
+              amountCents: remainingCents,
+              principal: dollarsFromCents(remainingCents),
+              fee: 0,
+              tax: 0,
+            };
+          }
+        } else if (Number(body.principalAmount) > 0) {
+          const computed = computePartialStripeRefund({
+            principalRefund: roundCurrency(Number(body.principalAmount)),
+            principalPaid: moneyPaid,
+            stripeProcessingFee:
+              r.stripe_processing_fee != null ? Number(r.stripe_processing_fee) : null,
+            stripeTaxAmount: r.stripe_tax_amount != null ? Number(r.stripe_tax_amount) : null,
+            priorRefunds: priors,
+            paymentIntentRemainingCents: remainingCents,
+          });
+          if (!computed.ok) {
+            return NextResponse.json({ error: computed.error }, { status: 400 });
+          }
+          stripePlan = computed.treatsAsFull
+            ? {
+                amountCents: remainingCents,
+                principal: dollarsFromCents(remainingCents),
+                fee: 0,
+                tax: 0,
+              }
+            : {
+                amountCents: computed.totalCents,
+                principal: computed.principal,
+                fee: computed.fee,
+                tax: computed.tax,
+              };
+        }
+        moneyAmount = stripePlan ? stripePlan.principal : 0;
+      } else {
+        moneyAmount = isFull
+          ? moneyRemaining
+          : roundCurrency(Number(body.amountRefunded ?? 0) || 0);
+        if (moneyAmount < 0 || moneyAmount > moneyRemaining + 0.001) {
+          return NextResponse.json(
+            { error: `Cash refund can be at most $${moneyRemaining.toFixed(2)}.` },
+            { status: 400 }
+          );
+        }
+      }
+
+      if (!(giftAmount > 0) && !(moneyAmount > 0)) {
+        return NextResponse.json(
+          { error: "Enter a gift card and/or cash/Stripe amount to refund." },
+          { status: 400 }
+        );
+      }
+
+      const moneyLeft = usesStripe
+        ? stripePlan && stripePlan.principal >= moneyRemaining - 0.001
+          ? 0
+          : moneyRemaining - moneyAmount
+        : moneyRemaining - moneyAmount;
+      const giftLeft = giftRefundable - giftAmount;
+      const resultStatus: "partial" | "cancelled" =
+        moneyLeft <= 0.001 && giftLeft <= 0.001 ? "cancelled" : "partial";
+      const auditMode: RefundMode = resultStatus === "cancelled" ? "full" : "partial";
+      const giftCode = typeof r.gift_card_code === "string" ? r.gift_card_code : "gift card";
+      const adminNote = typeof body.note === "string" && body.note.trim() ? body.note.trim() : null;
+
+      let stripeRefundId: string | null = null;
+      let moneyRefunded = 0;
+      if (stripePlan && stripePlan.amountCents > 0) {
+        const stableKey = `signup-refund:s:${signupId}:gift-split:${stripePlan.amountCents}:p${priors.length}`;
+        const refund = await getStripe().refunds.create(
+          { payment_intent: piId!, amount: stripePlan.amountCents },
+          { idempotencyKey: stableKey }
+        );
+        stripeRefundId = refund.id;
+        moneyRefunded = dollarsFromCents(refund.amount ?? stripePlan.amountCents);
+      } else if (!usesStripe && moneyAmount > 0) {
+        moneyRefunded = moneyAmount;
+      }
+
+      if (giftAmount > 0) {
+        await refundGiftCardPortion({
+          signupId,
+          giftCardId,
+          amount: giftAmount,
+          currentGiftApplied: giftApplied,
+          currentAmountPaid: r.amount_paid != null ? Number(r.amount_paid) : null,
+          note: adminNote
+            ? `Admin refund to gift card — ${adminNote}`
+            : "Admin refund to gift card",
+        });
+      }
+
+      await updateSignupStatus(table, signupId, resultStatus);
+      await insertRefundRow({
+        event_id: eventId,
+        event_title: eventTitle,
+        signup_id: signupId,
+        comp_signup_id: null,
+        is_comp: false,
+        payment_method: pm,
+        mode: auditMode,
+        amount_refunded: moneyRefunded,
+        principal_refunded: stripePlan ? stripePlan.principal : moneyRefunded,
+        fee_refunded: stripePlan ? stripePlan.fee : 0,
+        tax_refunded: stripePlan ? stripePlan.tax : 0,
+        stripe_payment_intent_id: piId,
+        stripe_refund_id: stripeRefundId,
+        refunded_or_cancelled_result: resultStatus,
+        refunded_by_email: refundedByEmail,
+        note: [
+          giftAmount > 0 ? `$${giftAmount.toFixed(2)} restored to ${giftCode}` : null,
+          adminNote,
+        ]
+          .filter(Boolean)
+          .join(" · ") || null,
+        signup_email: emails[0] || null,
+        signup_name: name,
+      });
+
+      await sendRefundEmails({
+        emails,
+        name,
+        eventTitle,
+        mode: auditMode,
+        amount: moneyRefunded,
+        giftCardAmount: giftAmount,
+        cancelled: resultStatus === "cancelled",
+      });
+
+      return NextResponse.json({
+        success: true,
+        status: resultStatus,
+        amountRefunded: moneyRefunded,
+        giftCardRefunded: giftAmount,
+        stripeRefundId,
+      });
+    }
 
     // --- Unpaid / full voucher / free promo cancel ---
     const noMoneyCollected =

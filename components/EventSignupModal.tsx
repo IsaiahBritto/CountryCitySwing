@@ -326,6 +326,7 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
       setPromoCodeInput("");
       setAppliedPromo(null);
       setPromoError("");
+      setAppliedGiftCard(null);
       setSubmitSuccessMessage("");
       setAlreadyRegistered(null);
     }
@@ -338,19 +339,32 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
     }
   }, [beenBefore, unregister]);
 
-  // When promo brings total to $0, payment method is not required (server will set Cash)
+  const giftCardAmount = appliedGiftCard?.amountToApply ?? 0;
+  const amountRemaining =
+    amountDue != null ? Math.max(0, Math.round((amountDue - giftCardAmount) * 100) / 100) : undefined;
+  // Server treats a remainder of $0.50 or less as paid in full
+  const giftCardCoversOrder =
+    !!appliedGiftCard && amountRemaining != null && amountRemaining <= 0.5;
+
+  // When promo or gift card brings total to $0, payment method is not required (server will set Cash / Gift Card)
   const amountDueIsZero =
     !(isInstructor && effectivePrice === 0) &&
-    appliedPromo?.discountedSubtotal != null &&
-    appliedPromo.discountedSubtotal <= 0.5;
+    ((appliedPromo?.discountedSubtotal != null &&
+      appliedPromo.discountedSubtotal <= 0.5) ||
+      giftCardCoversOrder);
 
-  // When promo brings total to $0, set paymentMethod to Cash so required field is filled for validation
+  // When nothing is due, set paymentMethod to Cash so required field is filled for validation
+  const [autoFilledPaymentMethod, setAutoFilledPaymentMethod] = useState(false);
   useEffect(() => {
     if (amountDueIsZero) {
       setValue("paymentMethod", "Cash", { shouldValidate: false });
       setValue("cashPriceAck", true, { shouldValidate: false });
+      setAutoFilledPaymentMethod(true);
+    } else if (autoFilledPaymentMethod) {
+      setValue("paymentMethod", undefined as unknown as "Cash", { shouldValidate: false });
+      setAutoFilledPaymentMethod(false);
     }
-  }, [amountDueIsZero, setValue]);
+  }, [amountDueIsZero, autoFilledPaymentMethod, setValue]);
 
   // Cash price ack: Workshop-only (price schedules). Auto-ack otherwise so validation passes.
   useEffect(() => {
@@ -621,6 +635,20 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                 )}
                 {isInstructor && event?.ccs_team_price != null && (
                   <span className="text-yellow-400 text-sm ml-1">(CCS Team)</span>
+                )}
+                {giftCardAmount > 0 && amountRemaining != null && (
+                  <>
+                    <br />
+                    <strong>Gift card:</strong>{" "}
+                    <span className="text-green-400">-${giftCardAmount.toFixed(2)}</span>
+                    <br />
+                    <strong>Remaining due:</strong>{" "}
+                    {giftCardCoversOrder ? (
+                      <span className="text-green-400">$0.00 (paid in full by gift card)</span>
+                    ) : (
+                      <>${amountRemaining.toFixed(2)}</>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -898,14 +926,15 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             )}
 
             {/* Payment Method — hidden for instructors when CCS team price is $0; hidden when promo brings total to $0 */}
-            {!(isInstructor && effectivePrice === 0) && !(appliedPromo?.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5) && !(appliedGiftCard && appliedGiftCard.amountToApply >= (appliedPromo?.discountedSubtotal ?? effectivePrice ?? 0) - 0.01) && (
+            {!(isInstructor && effectivePrice === 0) && !amountDueIsZero && (
               <div>
                 <p className="font-medium mb-2">
                   Payment Method
-                  {amountDue != null && effectivePrice != null && effectivePrice > 0 && (
-                    <span key={`amount-${amountDue}-${appliedPromo?.discountedSubtotal ?? "full"}`}>
-                      : ${amountDue.toFixed(2)}
+                  {amountRemaining != null && effectivePrice != null && effectivePrice > 0 && (
+                    <span key={`amount-${amountRemaining}-${appliedPromo?.discountedSubtotal ?? "full"}`}>
+                      : ${amountRemaining.toFixed(2)}
                       {typeof appliedPromo?.discountedSubtotal === "number" && " (after discount)"}
+                      {giftCardAmount > 0 && " (remaining after gift card)"}
                     </span>
                   )}
                 </p>

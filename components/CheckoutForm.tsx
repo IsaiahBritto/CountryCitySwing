@@ -108,7 +108,13 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
       ? Math.max(0, appliedPromo.discountedSubtotal)
       : totalPrice;
   const amountDueIsZero = amountDue <= 0.5;
-  const stripeDisabled = amountDue < 1;
+  const remainingAfterGift = Math.max(
+    0,
+    Math.round((amountDue - (appliedGiftCard?.amountToApply ?? 0)) * 100) / 100
+  );
+  // Server treats a remainder of $0.50 or less as paid in full
+  const giftCardCoversOrder = !!appliedGiftCard && remainingAfterGift <= 0.5;
+  const stripeDisabled = amountDue < 1 || (!!appliedGiftCard && remainingAfterGift < 1);
 
   // When Stripe is disabled (amount < $1), switch to cash if they had Stripe selected
   useEffect(() => {
@@ -543,7 +549,15 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
           {amountDueIsZero && (
             <p className="text-green-400 text-sm mb-4">No payment required — your promotion code covers the full cost.</p>
           )}
-          {stripeDisabled && !amountDueIsZero && (
+          {giftCardCoversOrder && (
+            <p className="text-green-400 text-sm mb-4">No payment required — your gift card covers the full cost.</p>
+          )}
+          {appliedGiftCard && !giftCardCoversOrder && (
+            <p className="text-gray-300 text-sm mb-4">
+              Gift card: -${appliedGiftCard.amountToApply.toFixed(2)} · Remaining due: ${remainingAfterGift.toFixed(2)}
+            </p>
+          )}
+          {stripeDisabled && !amountDueIsZero && !giftCardCoversOrder && (
             <p className="text-yellow-400 text-sm mb-4">Pay with card is not available for orders under $1. Please pay with cash.</p>
           )}
           <div className="mb-4">

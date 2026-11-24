@@ -2,6 +2,26 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { roundCurrency } from "@/lib/utils/paymentHelpers";
 import type { GiftCardReferenceType } from "@/lib/giftCards/types";
 
+/** Gift card amount actually redeemed for a reference and not yet refunded (from the ledger). */
+export async function getRefundableGiftAmount(
+  referenceType: GiftCardReferenceType,
+  referenceId: string
+): Promise<number> {
+  const { data, error } = await supabaseServer
+    .from("gift_card_transactions")
+    .select("type,amount")
+    .eq("reference_type", referenceType)
+    .eq("reference_id", referenceId)
+    .in("type", ["redeem", "refund"]);
+  if (error) {
+    console.error("getRefundableGiftAmount", error);
+    return 0;
+  }
+  // redeem rows are stored negative, refund rows positive
+  const net = (data ?? []).reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  return roundCurrency(Math.max(0, -net));
+}
+
 export async function reverseGiftCardRedemption(input: {
   giftCardId: string;
   amount: number;

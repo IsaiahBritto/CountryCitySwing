@@ -11,6 +11,8 @@ import { CanonicalEventError, resolveCanonicalEventById } from "@/lib/utils/cano
 import { plannedClassLevelLabel } from "@/lib/classLevels";
 import { compSignupBelongsToCommunityEvent } from "@/lib/compEventAccess";
 import { handleGiftCardPurchaseWebhook } from "@/lib/giftCards/stripeWebhook";
+import { commitGiftCardRedemptionForSignup } from "@/lib/giftCards/applyAtCheckout";
+import { redeemGiftCard } from "@/lib/giftCards/redeem";
 
 function getWebhookBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
@@ -329,6 +331,12 @@ export async function POST(request: NextRequest) {
           const v = metadata[key];
           return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
         };
+        const compGiftAmount = Number(metadata.gift_card_amount || 0);
+        const compHasGiftCard =
+          typeof metadata.gift_card_code === "string" &&
+          metadata.gift_card_code !== "" &&
+          compGiftAmount > 0;
+        const compAmountOwedMeta = Number(metadata.amount_owed || 0);
 
         const { error: compInsertError } = await supabaseServer
           .from("comp_signups")
@@ -364,8 +372,17 @@ export async function POST(request: NextRequest) {
                 metadata.strictly_competition_id?.trim() || null,
               all_american_competition_id:
                 metadata.all_american_competition_id?.trim() || null,
-              payment_method: "Stripe",
-              amount_owed: Number(metadata.amount_owed || 0),
+              payment_method: compHasGiftCard ? "Gift Card + Stripe" : "Stripe",
+              amount_owed: compHasGiftCard
+                ? Math.max(0, Math.round((compAmountOwedMeta - compGiftAmount) * 100) / 100)
+                : compAmountOwedMeta,
+              ...(compHasGiftCard
+                ? {
+                    gift_card_id: metadata.gift_card_id || null,
+                    gift_card_code: metadata.gift_card_code,
+                    gift_card_amount_applied: compGiftAmount,
+                  }
+                : {}),
               paid: true,
               accept_liability: metadata.accept_liability === "true",
               accept_payment: metadata.accept_payment === "true",
@@ -382,6 +399,17 @@ export async function POST(request: NextRequest) {
             { error: "Failed to create comp signup", details: compInsertError.message },
             { status: 500 }
           );
+        }
+        if (compHasGiftCard) {
+          const compRedeem = await redeemGiftCard({
+            code: metadata.gift_card_code as string,
+            amount: compGiftAmount,
+            referenceType: "comp_signup",
+            referenceId: String(compSignupId),
+          });
+          if (!compRedeem.ok) {
+            console.error("Webhook: comp gift card redeem failed", compSignupId, compRedeem.error);
+          }
         }
         try {
           const raw = metadata.jnj_assignments;
@@ -560,6 +588,11 @@ export async function POST(request: NextRequest) {
               ? metadata.planned_dance_role
               : null;
           const plannedClassLabelInsert = plannedClassLevelLabel(plannedClassFromMeta);
+          const giftCardAmountMeta = Number(metadata.gift_card_amount || 0);
+          const hasGiftCard =
+            typeof metadata.gift_card_code === "string" &&
+            metadata.gift_card_code !== "" &&
+            giftCardAmountMeta > 0;
           const { data: newSignup, error: insertError } = await supabaseServer
             .from("signups")
             .insert([
@@ -571,7 +604,7 @@ export async function POST(request: NextRequest) {
                 email: metadata.email,
                 been_before: metadata.been_before,
                 heard_about_us: metadata.heard_about_us || null,
-                payment_method: "Stripe",
+                payment_method: hasGiftCard ? "Gift Card + Stripe" : "Stripe",
                 accept_liability: metadata.accept_liability === "true",
                 accept_photo_release: metadata.accept_photo_release === "true",
                 liability_accepted_at:
@@ -593,12 +626,21 @@ export async function POST(request: NextRequest) {
                 accept_payment: metadata.accept_payment === "true",
                 paid: true,
                 amount_owed: eventAmountAfterDiscount,
-                amount_paid: eventAmountAfterDiscount,
+                amount_paid: hasGiftCard
+                  ? Math.round((eventAmountAfterDiscount + giftCardAmountMeta) * 100) / 100
+                  : eventAmountAfterDiscount,
                 stripe_tax_amount: taxAmount,
                 stripe_processing_fee: processingFee,
                 stripe_total_paid: actualTotal,
                 stripe_session_id: session.id,
                 stripe_payment_intent_id: paymentIntentId,
+                ...(hasGiftCard
+                  ? {
+                      gift_card_id: metadata.gift_card_id || null,
+                      gift_card_code: metadata.gift_card_code,
+                      gift_card_amount_applied: giftCardAmountMeta,
+                    }
+                  : {}),
                 ...(plannedClassFromMeta && plannedClassLabelInsert
                   ? { planned_class_level: plannedClassFromMeta }
                   : {}),
@@ -625,6 +667,17 @@ export async function POST(request: NextRequest) {
             );
           }
           console.log("Webhook: Successfully created signup", { originalSignupId: signupId, databaseId: newSignup?.id });
+
+          if (hasGiftCard && newSignup?.id != null) {
+            const redeemResult = await commitGiftCardRedemptionForSignup({
+              giftCardCode: metadata.gift_card_code as string,
+              amount: giftCardAmountMeta,
+              signupId: String(newSignup.id),
+            });
+            if (!redeemResult.ok) {
+              console.error("Webhook: gift card redeem failed", newSignup.id, redeemResult.error);
+            }
+          }
           
           // Use the newly created signup for email sending
           const signup = newSignup;
@@ -638,7 +691,11 @@ export async function POST(request: NextRequest) {
           
           // Send confirmation email for paid event signup (event amount = discounted when coupon used)
           const eventAmountDisplay = usedPromoInsert ? eventAmountAfterDiscount : subtotal;
-          const eventAmountLabel = usedPromoInsert ? "Event Amount (After Discount)" : "Event Price";
+          const eventAmountLabel = usedPromoInsert
+            ? "Event Amount (After Discount)"
+            : hasGiftCard
+              ? "Event Amount (After Gift Card)"
+              : "Event Price";
           const webhookQrPayload1 = eventSignupToken(String(signup.id));
           const { contentId: qrContentId1, attachments: qrAttachments1 } = await makeQrCodeInlineAttachment(
             webhookQrPayload1
@@ -705,6 +762,12 @@ export async function POST(request: NextRequest) {
                         <div class="detail-value">$${eventAmountDisplay.toFixed(2)}</div>
                       </div>
                       ` : ""}
+                      ${hasGiftCard ? `
+                      <div class="detail-row">
+                        <div class="detail-label">Paid with Gift Card</div>
+                        <div class="detail-value">$${giftCardAmountMeta.toFixed(2)}</div>
+                      </div>
+                      ` : ""}
                       ${processingFee > 0 ? `
                       <div class="detail-row">
                         <div class="detail-label">Processing Fee</div>
@@ -718,12 +781,12 @@ export async function POST(request: NextRequest) {
                       </div>
                       ` : ""}
                       <div class="detail-row">
-                        <div class="detail-label">Total Paid</div>
+                        <div class="detail-label">${hasGiftCard ? "Total Charged to Card" : "Total Paid"}</div>
                         <div class="detail-value" style="font-size: 1.2em; font-weight: bold; color: #28a745;">$${actualTotal.toFixed(2)}</div>
                       </div>
                       <div class="detail-row">
                         <div class="detail-label">Payment Method</div>
-                        <div class="detail-value"><strong>Stripe</strong></div>
+                        <div class="detail-value"><strong>${hasGiftCard ? "Gift Card + Stripe" : "Stripe"}</strong></div>
                       </div>
                       <div class="detail-row">
                         <div class="detail-label">Payment Status</div>
@@ -1421,6 +1484,11 @@ export async function POST(request: NextRequest) {
         console.log("Webhook: Creating new merch order from metadata");
         const shippingAddress = metadata.shipping_address ? JSON.parse(metadata.shipping_address) : null;
         const items = JSON.parse(metadata.items);
+        const merchGiftAmount = Number(metadata.gift_card_amount || 0);
+        const merchHasGiftCard =
+          typeof metadata.gift_card_code === "string" &&
+          metadata.gift_card_code !== "" &&
+          merchGiftAmount > 0;
         
         const { data: newOrder, error: insertError } = await supabaseServer
           .from("merch_orders")
@@ -1437,10 +1505,17 @@ export async function POST(request: NextRequest) {
               total: calculatedTotal, // Use actual total from Stripe (includes tax)
               status: "pending", // Status is pending, but paid=true indicates payment received
               paid: true, // Stripe payment completed
-              payment_method: "stripe",
+              payment_method: merchHasGiftCard ? "gift card + stripe" : "stripe",
               stripe_session_id: session.id,
               stripe_tax_amount: taxAmount,
               stripe_processing_fee: processingFee,
+              ...(merchHasGiftCard
+                ? {
+                    gift_card_id: metadata.gift_card_id || null,
+                    gift_card_code: metadata.gift_card_code,
+                    gift_card_amount_applied: merchGiftAmount,
+                  }
+                : {}),
             },
           ])
           .select()
@@ -1454,6 +1529,17 @@ export async function POST(request: NextRequest) {
           );
         }
         order = newOrder;
+        if (merchHasGiftCard) {
+          const merchRedeem = await redeemGiftCard({
+            code: metadata.gift_card_code as string,
+            amount: merchGiftAmount,
+            referenceType: "merch_order",
+            referenceId: String(newOrder.id),
+          });
+          if (!merchRedeem.ok) {
+            console.error("Webhook: merch gift card redeem failed", newOrder.id, merchRedeem.error);
+          }
+        }
         console.log("Webhook: Successfully created merch order", order.id);
       }
 

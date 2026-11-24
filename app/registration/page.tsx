@@ -108,6 +108,7 @@ interface Signup {
   stripe_payment_intent_id?: string | null;
   free_via_promotion_code?: boolean | null;
   used_promotion_code?: boolean | null;
+  gift_card_amount_applied?: number | null;
   planned_class_level?: string | null;
   planned_dance_role?: string | null;
 }
@@ -781,9 +782,26 @@ export default function RegistrationPage() {
     await saveDueEdit(parsed);
   };
 
+  const giftCardAmountFor = (signup: Signup): number => {
+    const amt = Number(signup.gift_card_amount_applied ?? 0);
+    return Number.isFinite(amt) && amt > 0 ? amt : 0;
+  };
+
+  /** Due now minus any gift card already applied at signup (what is left to collect). */
+  const remainingDueForSignup = (signup: Signup): number =>
+    Math.max(0, Math.round((dueNowForSignup(signup) - giftCardAmountFor(signup)) * 100) / 100);
+
   const renderSignupAmountLine = (signup: Signup, className = "text-xs md:text-sm") => (
     <p className={`${className} text-gray-400`}>
-      Registered at: ${Number(signup.amount_owed ?? 0).toFixed(2)}
+      Registered at: ${(Number(signup.amount_owed ?? 0) + giftCardAmountFor(signup)).toFixed(2)}
+      {giftCardAmountFor(signup) > 0 && (
+        <>
+          {" · "}
+          <span className="text-green-400 font-medium">
+            Gift card: ${giftCardAmountFor(signup).toFixed(2)}
+          </span>
+        </>
+      )}
       {signup.paid ? (
         <>
           {" · "}
@@ -796,7 +814,7 @@ export default function RegistrationPage() {
           {" · "}
           {readOnlyRegistration ? (
             <span className="text-red-400 font-medium">
-              Due now: ${dueNowForSignup(signup).toFixed(2)}
+              Due now: ${remainingDueForSignup(signup).toFixed(2)}
             </span>
           ) : (
             <button
@@ -805,7 +823,7 @@ export default function RegistrationPage() {
               title="Edit Due now"
               className="text-red-400 font-medium underline decoration-red-400/50 underline-offset-2 hover:text-red-300 hover:decoration-red-300"
             >
-              Due now: ${dueNowForSignup(signup).toFixed(2)}
+              Due now: ${remainingDueForSignup(signup).toFixed(2)}
             </button>
           )}
         </>
@@ -1735,8 +1753,15 @@ export default function RegistrationPage() {
             <h3 className="text-lg font-semibold text-white mb-1">Confirm cash amount</h3>
             <p className="text-sm text-gray-400 mb-4">
               {paidModalSignup.first_name} {paidModalSignup.last_name} · Due now $
-              {dueNowForSignup(paidModalSignup).toFixed(2)}
+              {remainingDueForSignup(paidModalSignup).toFixed(2)}
             </p>
+            {giftCardAmountFor(paidModalSignup) > 0 && (
+              <p className="text-sm text-green-400 -mt-2 mb-4">
+                Gift card already covers ${giftCardAmountFor(paidModalSignup).toFixed(2)} — collect $
+                {remainingDueForSignup(paidModalSignup).toFixed(2)} in cash, then select the full
+                ticket price below.
+              </p>
+            )}
             <div className="flex flex-wrap gap-2 mb-3">
               {paidOptionsForSignup(paidModalSignup).map((amt) => (
                 <button

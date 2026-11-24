@@ -278,7 +278,10 @@ export async function POST(req: NextRequest) {
   }
 
   // 1️⃣ Stripe path: if event cost after promo (no processing fee, no tax) is ≤$0.50, treat as Cash with no payment
-  if (effectivePaymentMethod === "Stripe" && eventPrice > 0) {
+  if (
+    (effectivePaymentMethod === "Stripe" || effectivePaymentMethod === "Gift Card + Stripe") &&
+    eventPrice > 0
+  ) {
     const stripeChargeBase = giftCardApplied ? giftCardApplied.remainder : eventPrice;
     const processingFee = roundCurrency(calculateProcessingFee(stripeChargeBase));
     let discountedEventOnly = stripeChargeBase;
@@ -349,7 +352,7 @@ export async function POST(req: NextRequest) {
             photo_release_waiver_version: EVENT_PHOTO_RELEASE_WAIVER_VERSION,
             accept_payment: String(acceptPayment),
             payment_type: "stripe_checkout",
-            subtotal: String(eventPrice),
+            subtotal: String(stripeChargeBase),
             processing_fee: String(processingFee),
             used_promotion_code: promotionCodeId ? "true" : "false",
             ...(giftCardApplied
@@ -419,6 +422,9 @@ export async function POST(req: NextRequest) {
 
   const freeViaPromo = !!(promotionCodeId && amountOwed <= 0);
   const usedPromo = !!promotionCodeId;
+  const giftAmount = giftCardApplied?.amountApplied ?? 0;
+  // amount_paid is the full ticket value (gift card + cash/card); finance subtracts gift_card_amount_applied
+  const amountPaid = paid ? roundCurrency(amountOwed + giftAmount) : null;
 
   const { data: insertedSignup, error: insertError } = await supabaseServer
     .from("signups")
@@ -443,7 +449,7 @@ export async function POST(req: NextRequest) {
         accept_payment: acceptPayment,
         paid,
         amount_owed: roundCurrency(amountOwed),
-        amount_paid: paid ? roundCurrency(amountOwed) : null,
+        amount_paid: amountPaid,
         is_ccs_team: isCcsTeam,
         ...(plannedClassLevel ? { planned_class_level: plannedClassLevel } : {}),
         ...(plannedDanceRole ? { planned_dance_role: plannedDanceRole } : {}),
@@ -504,8 +510,21 @@ export async function POST(req: NextRequest) {
         : `<p style="margin: 10px 0 0 0;">If you wait to pay, the amount due may change to the current event price at the time you settle.</p>`
       : "";
 
-  const paymentSection =
-    effectivePaymentMethod === "Cash" && eventPrice > 0
+  const paymentSection = giftCardApplied
+    ? paid
+      ? `
+      <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Payment:</strong> Paid.</p>
+        <p style="margin: 8px 0 0 0;">Your gift card covered the full cost ($${giftAmount.toFixed(2)}). No payment is required.</p>
+      </div>
+    `
+      : `
+      <div style="background-color: #fff3cd; border-left: 4px solid #f2c94c; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>Payment:</strong> $${giftAmount.toFixed(2)} paid with your gift card.</p>
+        <p style="margin: 10px 0 0 0;"><strong>Remaining due:</strong> $${amountOwed.toFixed(2)} — please pay with cash at the door.</p>
+      </div>
+    `
+    : effectivePaymentMethod === "Cash" && eventPrice > 0
       ? paid
         ? `
       <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
@@ -586,7 +605,16 @@ export async function POST(req: NextRequest) {
                 <div class="detail-value"><strong>${plannedClassLabel}${plannedRoleLabel ? ` (${plannedRoleLabel})` : ""}</strong></div>
               </div>
               ` : ""}
-              ${eventPrice > 0 ? `
+              ${giftCardApplied ? `
+              <div class="detail-row">
+                <div class="detail-label">Paid with Gift Card</div>
+                <div class="detail-value">$${giftAmount.toFixed(2)}</div>
+              </div>
+              <div class="detail-row">
+                <div class="detail-label">Remaining Due</div>
+                <div class="detail-value">$${amountOwed.toFixed(2)}${paid ? ' — Paid in full by gift card' : ''}</div>
+              </div>
+              ` : eventPrice > 0 ? `
               <div class="detail-row">
                 <div class="detail-label">${usedPromo ? "Amount Due (After Discount)" : "Amount Due"}</div>
                 <div class="detail-value">$${amountOwed.toFixed(2)}${paid ? ' — Paid in full by promotion code' : ''}</div>
@@ -599,7 +627,7 @@ export async function POST(req: NextRequest) {
               <div class="detail-row">
                 <div class="detail-label">Payment Status</div>
                 <div class="detail-value" style="color: ${paid ? '#28a745' : '#f2c94c'}; font-weight: bold;">
-                  ${paid ? '✓ Paid' : effectivePaymentMethod === 'Cash' ? '⏳ Pending - Pay at door' : '✓ Confirmed'}
+                  ${paid ? '✓ Paid' : giftCardApplied ? `⏳ Pending - Pay remaining $${amountOwed.toFixed(2)} at door` : effectivePaymentMethod === 'Cash' ? '⏳ Pending - Pay at door' : '✓ Confirmed'}
                 </div>
               </div>
             </div>
@@ -630,6 +658,13 @@ export async function POST(req: NextRequest) {
       undefined,
       qrAttachments
     );
+    if (giftCardApplied && paid) {
+      return NextResponse.json({
+        success: true,
+        noRedirect: true,
+        message: "Your gift card covered the full cost. No payment required.",
+      });
+    }
     // Same success message for Cash or Stripe→Cash when promo covered full cost
     if (effectivePaymentMethod === "Cash" && paid) {
       return NextResponse.json({

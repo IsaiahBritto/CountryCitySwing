@@ -12,10 +12,13 @@ type Section = { id: string; title: string };
 export default function LegalDocumentLayout({
   title,
   sections,
+  showDraftNotice = false,
   children,
 }: {
   title: string;
   sections: Section[];
+  /** When true, shows the amber “Draft for legal review” callout (e.g. Terms only). */
+  showDraftNotice?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -32,24 +35,26 @@ export default function LegalDocumentLayout({
         </div>
       </header>
 
-      <div
-        role="note"
-        className="mb-8 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90 leading-relaxed"
-      >
-        <p className="font-semibold text-amber-200 mb-1">Draft for legal review</p>
-        <p>{LEGAL_DRAFT_NOTICE}</p>
-        {!LEGAL_MAILING_ADDRESS && (
-          <p className="mt-2 text-amber-200/90">
-            <strong>Action for counsel:</strong> A formal postal mailing address (for example a PO Box
-            or registered agent address) should be added before finalizing marketing email footers and
-            these policies. Until then, contact us at{" "}
-            <a href="mailto:contact.us@countrycityswing.dance" className="underline">
-              contact.us@countrycityswing.dance
-            </a>
-            .
-          </p>
-        )}
-      </div>
+      {showDraftNotice && (
+        <div
+          role="note"
+          className="mb-8 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90 leading-relaxed"
+        >
+          <p className="font-semibold text-amber-200 mb-1">Draft for legal review</p>
+          <p>{LEGAL_DRAFT_NOTICE}</p>
+          {!LEGAL_MAILING_ADDRESS && (
+            <p className="mt-2 text-amber-200/90">
+              <strong>Action for counsel:</strong> A formal postal mailing address (for example a PO Box
+              or registered agent address) should be added before finalizing marketing email footers and
+              these policies. Until then, contact us at{" "}
+              <a href="mailto:contact.us@countrycityswing.dance" className="underline">
+                contact.us@countrycityswing.dance
+              </a>
+              .
+            </p>
+          )}
+        </div>
+      )}
 
       <nav
         aria-label="On this page"

@@ -3,6 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { geocodeUsZip } from "@/lib/geocode";
 import { US_STATE_CENTERS } from "@/lib/utils/usStates";
+import {
+  clientIpFromRequest,
+  newsletterProfileUpdateFields,
+} from "@/lib/legal/newsletterConsent";
 
 async function getUserFromToken(accessToken: string) {
   const client = createClient(
@@ -163,7 +167,18 @@ export async function PATCH(req: NextRequest) {
         updateData.photo_url = emptyToNull(body.photo_url);
       }
       if (body.newsletter_opt_in !== undefined) {
-        updateData.newsletter_opt_in = body.newsletter_opt_in === true;
+        const source =
+          typeof body.newsletter_consent_source === "string"
+            ? body.newsletter_consent_source
+            : "profile";
+        Object.assign(
+          updateData,
+          newsletterProfileUpdateFields({
+            optIn: body.newsletter_opt_in === true,
+            source,
+            ip: clientIpFromRequest(req),
+          })
+        );
       }
     }
 

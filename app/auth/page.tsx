@@ -308,6 +308,19 @@ function AuthPageContent() {
           onChange={(e) => setEmail(e.target.value)}
           required
         />
+        {mode === "signup" && (
+          <p className="text-xs text-gray-400 leading-relaxed">
+            We&apos;ll send a one-time email to verify your address. By creating an account you agree to our{" "}
+            <Link href="/terms" className="text-primary underline">
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link href="/privacy" className="text-primary underline">
+              Privacy Policy
+            </Link>
+            .
+          </p>
+        )}
 
         {mode !== "forgot" && !(mode === "signin" && signInMethod === "magiclink") && (
           <>

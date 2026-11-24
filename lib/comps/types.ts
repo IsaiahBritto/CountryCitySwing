@@ -1,6 +1,6 @@
 /** Shared row/domain types for the competition scoring system. */
 
-export type CompType = "jack_and_jill" | "strictly";
+export type CompType = "jack_and_jill" | "strictly" | "all_american";
 export type CompStatus = "setup" | "in_progress" | "completed";
 export type EntryKind = "individual" | "couple";
 export type DanceRole = "lead" | "follow";
@@ -97,6 +97,8 @@ export interface CompEntryRow {
   comp_signup_id: string | null;
   source_lead_entry_id: string | null;
   source_follow_entry_id: string | null;
+  /** All American: which bib judges see as primary (default lead). */
+  judge_primary_bib_role?: "lead" | "follow" | null;
 }
 
 export interface CompSignupRow {
@@ -122,7 +124,15 @@ export interface CompSignupRow {
   jnj_follow_first_name: string | null;
   jnj_follow_last_name: string | null;
   jnj_follow_email: string | null;
+  jnj_competition_id?: string | null;
+  strictly_competition_id?: string | null;
+  all_american_competition_id?: string | null;
+  all_american_selected?: boolean;
   paid: boolean;
+  selected_payment_method_id?: string | null;
+  selected_payment_method_label?: string | null;
+  payment_confirmed_at?: string | null;
+  payment_confirmed_by?: string | null;
 }
 
 export interface CompRoundRow {
@@ -216,8 +226,13 @@ export interface CompRoundResultRow {
 export interface EntryDisplay {
   roundEntryId: string;
   entryId: string;
-  /** Bib shown to judges/public. Couples display the leader's bib. */
+  /** Primary bib for judging and listings (All American may use follow when marked). */
   bibNumber: number | null;
+  /**
+   * Sort key for lineup / heat order when it must follow lead ordering
+   * while bibNumber shows the follow (All American second partnership).
+   */
+  lineupSortBibNumber?: number | null;
   /** "Jane Doe" or "Jack Doe & Jill Roe". */
   displayName: string;
   role: DanceRole | null;

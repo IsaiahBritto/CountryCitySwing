@@ -11,6 +11,10 @@
     {
       "path": "/api/schedule/publish-class-slots",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/gift-cards/deliver-scheduled",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

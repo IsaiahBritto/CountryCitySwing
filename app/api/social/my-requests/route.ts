@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getActivePlaylistStatus } from "@/lib/spotify/activePlaylist";
+import { activeCatalogPlaylistId } from "@/lib/spotify/activeCatalogPlaylist";
 import { getActiveSessionRow } from "@/lib/spotify/djSessionServer";
 import {
   enrichRequestsWithEstimates,
@@ -22,7 +23,8 @@ export async function GET(req: NextRequest) {
     }
 
     const status = await getActivePlaylistStatus();
-    if (!status.isActive || !status.spotifyPlaylistId) {
+    const catalogPlaylistId = activeCatalogPlaylistId(status);
+    if (!status.isActive || !catalogPlaylistId) {
       return NextResponse.json({ requests: [] });
     }
 
@@ -31,7 +33,7 @@ export async function GET(req: NextRequest) {
       .select(
         "id, spotify_track_id, name, primary_artist, genre, result, position, created_at"
       )
-      .eq("spotify_playlist_id", status.spotifyPlaylistId)
+      .eq("spotify_playlist_id", catalogPlaylistId)
       .neq("result", "rejected")
       .order("created_at", { ascending: false });
 

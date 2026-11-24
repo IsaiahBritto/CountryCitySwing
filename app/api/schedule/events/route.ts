@@ -4,6 +4,11 @@ import { supabaseServer } from "@/lib/supabaseServer";
 import { isSocialEventType } from "@/lib/socialScheduleSlots";
 import { ensureSocialDoormanSlots } from "@/lib/socialScheduleSlotsServer";
 import { syncDueClassSchedules } from "@/lib/classScheduleSlotsServer";
+import { isValidDateOnly } from "@/lib/schedule/eventDateRange";
+import {
+  fetchAllEventsOrdered,
+  fetchEventsForChicagoDateRange,
+} from "@/lib/schedule/scheduleEventsServer";
 import { isEventPastInChicago } from "@/lib/utils/dateHelpers";
 
 async function getAuthUser(req: NextRequest) {
@@ -24,8 +29,25 @@ function isInstructorOrAdmin(role: string | null): boolean {
   return r === "admin" || r === "instructor" || r.includes("instructor");
 }
 
+async function syncSocialDoormanForEvents(
+  events: Array<{
+    id: string | number;
+    type?: string | null;
+    starts_at: string;
+    ends_at?: string | null;
+    time_zone?: string | null;
+  }>
+): Promise<void> {
+  const social = events.filter((e) => isSocialEventType(e.type));
+  await Promise.all(
+    social.map((e) => ensureSocialDoormanSlots(e.id, e))
+  );
+}
+
 /**
- * GET - List upcoming events (for Schedule page dropdown and calendar).
+ * GET - List events for team schedule.
+ * - `from` + `to` (YYYY-MM-DD): events visible in that Chicago calendar month/range.
+ * - `scope=upcoming` (default when no range): upcoming events for admin dropdowns.
  * Only instructors and admins.
  */
 export async function GET(req: NextRequest) {
@@ -45,37 +67,44 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    await syncDueClassSchedules();
+    const { searchParams } = new URL(req.url);
+    const fromDate = searchParams.get("from")?.trim() ?? "";
+    const toDate = searchParams.get("to")?.trim() ?? "";
+    if (fromDate || toDate) {
+      if (
+        !fromDate ||
+        !toDate ||
+        !isValidDateOnly(fromDate) ||
+        !isValidDateOnly(toDate) ||
+        fromDate > toDate
+      ) {
+        return NextResponse.json(
+          { error: "Invalid from/to date range (expected YYYY-MM-DD)" },
+          { status: 400 }
+        );
+      }
 
-    const { data: events, error } = await supabaseServer
-      .from("events")
-      .select(
-        "id, title, starts_at, ends_at, location, type, time_zone, schedule_opens_at, class_week_override"
-      )
-      .order("starts_at", { ascending: true });
+      await syncDueClassSchedules();
 
-    if (error) {
-      console.error("Error fetching events:", error);
-      return NextResponse.json({ error: "Failed to fetch events" }, { status: 500 });
+      const inRange = await fetchEventsForChicagoDateRange(fromDate, toDate);
+      await syncSocialDoormanForEvents(inRange);
+
+      return NextResponse.json({ events: inRange });
     }
 
-    const upcoming = (events || []).filter(
-      (e: { starts_at: string; ends_at?: string | null }) =>
-        e.starts_at && !isEventPastInChicago(e.starts_at, e.ends_at ?? null)
+    await syncDueClassSchedules();
+
+    const all = await fetchAllEventsOrdered();
+    const upcoming = all.filter(
+      (e) => e.starts_at && !isEventPastInChicago(e.starts_at, e.ends_at ?? null)
     );
 
-    const socialUpcoming = upcoming.filter((e: { type?: string | null }) =>
-      isSocialEventType(e.type)
-    );
-    await Promise.all(
-      socialUpcoming.map((e: { id: string | number; type?: string; starts_at: string; ends_at?: string | null; time_zone?: string | null }) =>
-        ensureSocialDoormanSlots(e.id, e)
-      )
-    );
+    await syncSocialDoormanForEvents(upcoming);
 
     return NextResponse.json({ events: upcoming });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("Schedule events GET:", e);
-    return NextResponse.json({ error: e.message || "Internal server error" }, { status: 500 });
+    const message = e instanceof Error ? e.message : "Internal server error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

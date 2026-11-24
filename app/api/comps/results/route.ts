@@ -6,7 +6,7 @@ export async function GET() {
   const { data: rounds, error } = await supabaseServer
     .from("comp_rounds")
     .select(
-      "id, competition_id, round_type, judged_role, published_at, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at))"
+      "id, competition_id, round_type, judged_role, published_at, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at, host_kind))"
     )
     .eq("status", "published")
     .eq("competition.test_comp", false)
@@ -19,6 +19,9 @@ export async function GET() {
   for (const round of (rounds ?? []) as any[]) {
     const comp = round.competition;
     if (!comp || comp.test_comp) continue;
+    if ((comp.event as { host_kind?: string })?.host_kind === "community") {
+      continue;
+    }
     if (!byCompetition.has(comp.id)) {
       byCompetition.set(comp.id, {
         id: comp.id,

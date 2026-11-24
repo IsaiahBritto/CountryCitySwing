@@ -243,7 +243,7 @@ export default function RoundSlotPanel({
 }: {
   competitionId: string;
   roundType: RoundType;
-  compType: "jack_and_jill" | "strictly";
+  compType: "jack_and_jill" | "strictly" | "all_american";
   entryCount: number;
   testComp?: boolean;
   cjInPanel?: boolean;
@@ -254,6 +254,8 @@ export default function RoundSlotPanel({
   onError: (msg: string) => void;
 }) {
   const isJnJ = compType === "jack_and_jill";
+  /** JnJ uses split lead/follow callback rounds; All American uses one strictly-style callback. */
+  const useJnJSplitCallbacks = compType === "jack_and_jill";
   const isFinal = roundType === "final";
   const isCallback = !isFinal;
   const slotRounds = roundsForSlot(rounds, roundType) as RoundRow[];
@@ -333,7 +335,7 @@ export default function RoundSlotPanel({
       {expanded && (
         <div className="mt-3">
           {skipped ? (
-            isJnJ && isCallback ? (
+            useJnJSplitCallbacks && isCallback ? (
               <div>
                 <div className="mb-2 flex gap-1 overflow-x-auto rounded-lg border border-neutral-700 p-0.5">
                   {(["lead", "follow"] as const).map((role) => (
@@ -372,7 +374,7 @@ export default function RoundSlotPanel({
                 onError={onError}
               />
             )
-          ) : isJnJ && isCallback ? (
+          ) : useJnJSplitCallbacks && isCallback ? (
             <div>
               <JudgeProgressSlot
                 competitionId={competitionId}

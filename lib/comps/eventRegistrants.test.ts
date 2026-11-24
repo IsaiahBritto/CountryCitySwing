@@ -14,12 +14,137 @@ describe("eventRegistrants re-export", () => {
 
   it("formats division labels for bib confirmation", () => {
     expect(formatRegistrantCompLabels(["jnj_lead"])).toEqual([
-      "Jack & Jill — Lead",
+      "Jack & Jill (Lead)",
     ]);
     expect(
       formatRegistrantCompLabels(["jnj_lead", "strictly_lead"])
-    ).toEqual(["Jack & Jill — Lead", "Strictly — Lead"]);
+    ).toEqual(["Jack & Jill (Lead)", "Strictly (Lead)"]);
     expect(formatRegistrantCompLabels([])).toEqual(["Walk-up"]);
+  });
+
+  it("merges same name with different emails into one roster row", () => {
+    const signups: CompSignupRow[] = [
+      {
+        id: "s-strictly",
+        event_id: "e1",
+        event_title: "Test",
+        registrant_profile_id: null,
+        strictly_selected: true,
+        strictly_lead_first_name: "Lead",
+        strictly_lead_last_name: "01",
+        strictly_lead_email: "strictly.lead01@seed.local",
+        strictly_follow_first_name: "Follow",
+        strictly_follow_last_name: "01",
+        strictly_follow_email: "strictly.follow01@seed.local",
+        jnj_selected: false,
+        paid: true,
+      },
+      {
+        id: "s-jnj",
+        event_id: "e1",
+        event_title: "Test",
+        registrant_profile_id: null,
+        strictly_selected: false,
+        jnj_selected: true,
+        jnj_lead_first_name: "Lead",
+        jnj_lead_last_name: "01",
+        jnj_lead_email: "jnj.lead01@seed.local",
+        paid: true,
+      },
+    ];
+    const roster = collectEventRegistrants(signups, []);
+    const lead01 = roster.filter(
+      (r) => r.firstName === "Lead" && r.lastName === "01"
+    );
+    expect(lead01).toHaveLength(1);
+    expect(lead01[0].roles).toContain("strictly_lead");
+    expect(lead01[0].roles).toContain("jnj_lead");
+    expect(formatRegistrantCompLabels(lead01[0].roles)).toEqual([
+      "Jack & Jill (Lead)",
+      "Strictly (Lead)",
+    ]);
+    expect(
+      roster.find((r) => r.firstName === "Follow" && r.lastName === "01")
+    ).toBeUndefined();
+  });
+
+  it("excludes strictly-only follows from bib roster", () => {
+    const signup: CompSignupRow = {
+      id: "s1",
+      event_id: "e1",
+      event_title: "Test",
+      registrant_profile_id: null,
+      strictly_selected: true,
+      strictly_lead_first_name: "Lead",
+      strictly_lead_last_name: "99",
+      strictly_lead_email: "lead99@example.com",
+      strictly_follow_first_name: "Follow",
+      strictly_follow_last_name: "99",
+      strictly_follow_email: "follow99@example.com",
+      jnj_selected: false,
+      paid: true,
+    };
+    const roster = collectEventRegistrants([signup], []);
+    expect(roster).toHaveLength(1);
+    expect(roster[0].roles).toEqual(["strictly_lead"]);
+  });
+
+  it("merges separate signup rows by email for bib roster", () => {
+    const signups: CompSignupRow[] = [
+      {
+        id: "s-strictly",
+        event_id: "e1",
+        event_title: "Test",
+        registrant_profile_id: null,
+        strictly_selected: true,
+        strictly_lead_first_name: "Alex",
+        strictly_lead_last_name: "Lead",
+        strictly_lead_email: "alex@example.com",
+        strictly_follow_first_name: "Sam",
+        strictly_follow_last_name: "Follow",
+        strictly_follow_email: "sam@example.com",
+        jnj_selected: false,
+        paid: false,
+      },
+      {
+        id: "s-jnj-lead",
+        event_id: "e1",
+        event_title: "Test",
+        registrant_profile_id: null,
+        strictly_selected: false,
+        jnj_selected: true,
+        jnj_lead_first_name: "Alex",
+        jnj_lead_last_name: "Lead",
+        jnj_lead_email: "alex@example.com",
+        paid: false,
+      },
+      {
+        id: "s-jnj-follow",
+        event_id: "e1",
+        event_title: "Test",
+        registrant_profile_id: null,
+        strictly_selected: false,
+        jnj_selected: true,
+        jnj_follow_first_name: "Sam",
+        jnj_follow_last_name: "Follow",
+        jnj_follow_email: "sam@example.com",
+        paid: true,
+      },
+    ];
+    const roster = collectEventRegistrants(signups, []);
+    const alex = roster.find((r) => r.email === "alex@example.com");
+    const sam = roster.find((r) => r.email === "sam@example.com");
+    expect(alex?.roles).toEqual(["jnj_lead", "strictly_lead"]);
+    expect(formatRegistrantCompLabels(alex?.roles ?? [])).toEqual([
+      "Jack & Jill (Lead)",
+      "Strictly (Lead)",
+    ]);
+    expect(sam?.roles).toEqual(["jnj_follow", "strictly_follow"]);
+    expect(formatRegistrantCompLabels(sam?.roles ?? [])).toEqual([
+      "Jack & Jill (Follow)",
+      "Strictly (Partner)",
+    ]);
+    expect(roster).toHaveLength(2);
   });
 
   it("assigns role badges per division slot", () => {

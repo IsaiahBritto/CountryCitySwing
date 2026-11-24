@@ -214,4 +214,46 @@ export function curateSocialPlaylist(
   });
 }
 
+export function pickReplacementCurateTrack(
+  pool: CurateTrack[],
+  input: {
+    excludeIds: Set<string>;
+    previousArtist?: string | null;
+    targetEnergy?: number;
+    targetBpm?: number;
+    eligible?: (track: CurateTrack) => boolean;
+  }
+): CurateTrack | null {
+  const targetEnergy = input.targetEnergy ?? 0.5;
+  const targetBpm = input.targetBpm ?? 95;
+  const candidates = pool.filter(
+    (t) =>
+      !input.excludeIds.has(t.id) &&
+      (input.eligible ? input.eligible(t) : true)
+  );
+  if (candidates.length === 0) return null;
+
+  const scoreCandidate = (track: CurateTrack) =>
+    scoreTrack(track, targetEnergy, targetBpm);
+
+  const withArtistPreference = (list: CurateTrack[]) => {
+    if (!input.previousArtist) {
+      return [...list].sort(
+        (a, b) => scoreCandidate(a) - scoreCandidate(b)
+      )[0] ?? null;
+    }
+    const prev = artistKey(input.previousArtist);
+    const different = list.filter(
+      (t) => artistKey(t.primaryArtist) !== prev
+    );
+    const pickFrom = different.length > 0 ? different : list;
+    return (
+      [...pickFrom].sort((a, b) => scoreCandidate(a) - scoreCandidate(b))[0] ??
+      null
+    );
+  };
+
+  return withArtistPreference(candidates);
+}
+
 export type { PlaylistStructure };

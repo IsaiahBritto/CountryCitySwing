@@ -18,13 +18,24 @@ import type { GenrePool } from "@/lib/spotify/playlistIds";
 import type { SocialPlaybackResponse } from "@/lib/spotify/socialPlayback";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
+type SocialMusicProvider = "spotify" | "apple_music";
+
 type SocialStatus = {
   isActive: boolean;
   name: string | null;
   playlistUrl: string | null;
   trackCount: number;
   availableGenres: GenrePool[];
+  musicProvider?: SocialMusicProvider;
 };
+
+function catalogSearchLabel(provider: SocialMusicProvider | undefined): string {
+  return provider === "apple_music" ? "Search Apple Music" : "Search Spotify";
+}
+
+function catalogDisplayName(provider: SocialMusicProvider | undefined): string {
+  return provider === "apple_music" ? "Apple Music" : "Spotify";
+}
 
 type QuotaState = {
   limits: Partial<Record<GenrePool, number>> | null;
@@ -43,6 +54,7 @@ type SearchTrack = {
   albumName: string | null;
   imageUrl: string | null;
   durationMs: number;
+  isrc?: string | null;
 };
 
 type Genre = GenrePool;
@@ -317,7 +329,10 @@ export default function SocialRequestPageClient() {
       const res = await fetch("/api/social/lookup-genre", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trackId: track.id }),
+        body: JSON.stringify({
+          trackId: track.id,
+          isrc: track.isrc ?? undefined,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && (data as { genre?: Genre | null }).genre) {
@@ -355,7 +370,7 @@ export default function SocialRequestPageClient() {
     setFormError(null);
     setSuccess(null);
     if (!selected) {
-      setFormError("Pick a song from the Spotify suggestions.");
+      setFormError("Pick a song from the search results.");
       return;
     }
     if (!genre) {
@@ -383,6 +398,7 @@ export default function SocialRequestPageClient() {
         primaryArtist: selected.primaryArtist,
         durationMs: selected.durationMs,
         genre,
+        requestIsrc: selected.isrc?.trim() || undefined,
         lineDanceName:
           genre === "ld" && lineDanceName.trim()
             ? lineDanceName.trim()
@@ -445,6 +461,9 @@ export default function SocialRequestPageClient() {
 
   const requestsOpen = Boolean(status?.isActive);
   const hasLiveSession = Boolean(playback?.hasLiveSession);
+  const musicProvider = status?.musicProvider ?? "spotify";
+  const searchLabel = catalogSearchLabel(musicProvider);
+  const catalogName = catalogDisplayName(musicProvider);
 
   if (statusLoading) {
     return (
@@ -529,8 +548,11 @@ export default function SocialRequestPageClient() {
       >
         <div ref={wrapRef} className="relative space-y-1">
           <label htmlFor="song-search" className="text-sm text-gray-400">
-            Search Spotify
+            {searchLabel}
           </label>
+          <p className="text-xs text-gray-500">
+            Results from {catalogName} for tonight&apos;s catalog.
+          </p>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
               id="song-search"

@@ -28,6 +28,7 @@ const TEMPORARY_ERROR_RETRY_HOURS = 1;
 
 export type AnalysisTrackInput = {
   spotifyTrackId: string;
+  appleMusicCatalogId?: string | null;
   isrc: string | null;
   name?: string;
   primaryArtist?: string;

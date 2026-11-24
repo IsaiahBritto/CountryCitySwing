@@ -9,10 +9,13 @@ import EventRegistrantEditDialog from "@/components/comps/admin/EventRegistrantE
 import EventStaffSection from "@/components/comps/admin/EventStaffSection";
 import {
   canAccessCompEventOps,
+  canManageCompEvent,
   canManageCompEventStaff,
+  compEventBackHref,
   isCompAdminRole,
   type MeResponse,
 } from "@/lib/comps/compAccessClient";
+import EventCompetitionNav from "@/components/comps/host/EventCompetitionNav";
 import {
   DEFAULT_TIME_ZONE,
   formatEventScheduleSubtitle,
@@ -25,9 +28,14 @@ interface EventInfo {
   ends_at?: string | null;
   time_zone?: string | null;
   type?: string | null;
+  host_kind?: string | null;
 }
 
 const AUTO_SAVE_MS = 700;
+
+function competingInLabels(person: EventRegistrantPerson): string[] {
+  return person.competingIn ?? formatRegistrantCompLabels(person.roles);
+}
 
 export default function EventBibsPage({
   params,
@@ -48,6 +56,10 @@ export default function EventBibsPage({
   const [editOpen, setEditOpen] = useState(false);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [savedKeys, setSavedKeys] = useState<Set<string>>(new Set());
+  const [markingPaidKey, setMarkingPaidKey] = useState<string | null>(null);
+  const [eventCompetitions, setEventCompetitions] = useState<
+    { id: string; name: string; comp_type: string }[]
+  >([]);
   const savedDraftRef = useRef<Record<string, string>>({});
   const debounceTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>(
     {}
@@ -56,6 +68,71 @@ export default function EventBibsPage({
   const draftRef = useRef(draft);
   rosterRef.current = roster;
   draftRef.current = draft;
+
+  const isCommunityEvent = event?.host_kind === "community";
+
+  const applyRoster = useCallback((rows: EventRegistrantPerson[]) => {
+    setRoster(rows);
+    const next: Record<string, string> = {};
+    for (const r of rows) {
+      next[r.personKey] = r.bibNumber != null ? String(r.bibNumber) : "";
+    }
+    setDraft(next);
+    savedDraftRef.current = { ...next };
+  }, []);
+
+  const markPersonPaid = useCallback(
+    async (person: EventRegistrantPerson) => {
+      if (!person.compSignupId || person.paid) return;
+      setMarkingPaidKey(person.personKey);
+      setError(null);
+      const res = await authedFetch(
+        `/api/admin/comps/events/${eventId}/registrants`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            personKey: person.personKey,
+            compSignupId: person.compSignupId,
+            markPaid: true,
+          }),
+        }
+      );
+      setMarkingPaidKey(null);
+      if (!res.ok) {
+        setError(await apiError(res));
+        return;
+      }
+      const data = await res.json();
+      applyRoster((data.roster ?? []) as EventRegistrantPerson[]);
+    },
+    [eventId, applyRoster]
+  );
+
+  const renderPaymentCell = (person: EventRegistrantPerson) => {
+    if (!isCommunityEvent || !person.compSignupId) {
+      return <span className="text-neutral-600">—</span>;
+    }
+    if (person.paid) {
+      return (
+        <span className="text-green-400">
+          Paid
+          {person.selectedPaymentMethodLabel
+            ? ` (${person.selectedPaymentMethodLabel})`
+            : ""}
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        disabled={markingPaidKey === person.personKey}
+        onClick={() => void markPersonPaid(person)}
+        className="text-sm text-primary hover:underline disabled:opacity-50"
+      >
+        {markingPaidKey === person.personKey ? "Saving…" : "Mark paid"}
+      </button>
+    );
+  };
 
   const hasDuplicate = useCallback((personKey: string, trimmed: string) => {
     const n = Number(trimmed);
@@ -66,16 +143,6 @@ export default function EventBibsPage({
       if (other && Number(other) === n) return true;
     }
     return false;
-  }, []);
-
-  const applyRoster = useCallback((rows: EventRegistrantPerson[]) => {
-    setRoster(rows);
-    const next: Record<string, string> = {};
-    for (const r of rows) {
-      next[r.personKey] = r.bibNumber != null ? String(r.bibNumber) : "";
-    }
-    setDraft(next);
-    savedDraftRef.current = { ...next };
   }, []);
 
   const load = useCallback(async () => {
@@ -105,10 +172,21 @@ export default function EventBibsPage({
       setMe(meData);
       const allowed = canAccessCompEventOps(meData, eventId);
       setCanAccess(allowed);
-      if (allowed) await load();
+      if (allowed) {
+        await load();
+        if (canManageCompEvent(meData, eventId)) {
+          const summaryRes = await authedFetch(
+            `/api/non-ccs-events/${eventId}/operate-summary`
+          );
+          if (summaryRes.ok) {
+            const summary = await summaryRes.json();
+            setEventCompetitions(summary.competitions ?? []);
+          }
+        }
+      }
       setLoading(false);
     })();
-  }, [load]);
+  }, [eventId, load]);
 
   useEffect(() => {
     return () => {
@@ -303,18 +381,29 @@ export default function EventBibsPage({
   }
 
   const isAdmin = isCompAdminRole(me?.profile?.role);
-  const showStaffMgmt = canManageCompEventStaff(me);
+  const showStaffMgmt = canManageCompEventStaff(me, eventId);
+  const back = compEventBackHref(me, eventId, event?.host_kind);
+  const hubHref = `/host/comps/${eventId}/operate`;
 
   const anySaving = savingKeys.size > 0;
 
   return (
     <main className="w-full py-10">
       <Link
-        href={isAdmin ? "/admin/comps" : `/admin/comps/events/${eventId}/ops`}
+        href={back.href}
         className="mb-4 inline-block text-sm text-neutral-400 hover:text-white"
       >
-        ← Back
+        ← {back.label}
       </Link>
+
+      {isCommunityEvent && eventCompetitions.length > 0 && (
+        <EventCompetitionNav
+          eventId={eventId}
+          competitions={eventCompetitions}
+          hubHref={hubHref}
+          activeSection="bibs"
+        />
+      )}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Link
@@ -371,7 +460,7 @@ export default function EventBibsPage({
         <>
           <div className="mt-6 md:hidden space-y-3">
             {roster.map((person) => {
-              const compLabels = formatRegistrantCompLabels(person.roles);
+              const compLabels = competingInLabels(person);
               return (
               <div
                 key={person.personKey}
@@ -394,6 +483,14 @@ export default function EventBibsPage({
                   </label>
                   {renderBibField(person)}
                 </div>
+                {isCommunityEvent && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium uppercase text-neutral-500">
+                      Payment
+                    </label>
+                    {renderPaymentCell(person)}
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -416,6 +513,7 @@ export default function EventBibsPage({
                   <th className="py-2 pr-4">Name</th>
                   <th className="py-2 pr-4">Competing in</th>
                   <th className="py-2 pr-4">Bib #</th>
+                  {isCommunityEvent && <th className="py-2 pr-4">Payment</th>}
                   <th className="py-2"></th>
                 </tr>
               </thead>
@@ -426,9 +524,12 @@ export default function EventBibsPage({
                       {person.firstName} {person.lastName}
                     </td>
                     <td className="py-2.5 pr-4 text-neutral-300">
-                      {formatRegistrantCompLabels(person.roles).join(", ")}
+                      {competingInLabels(person).join(", ")}
                     </td>
                     <td className="py-2.5">{renderBibField(person)}</td>
+                    {isCommunityEvent && (
+                      <td className="py-2.5 pr-4">{renderPaymentCell(person)}</td>
+                    )}
                     <td className="py-2.5 text-right">
                       <button
                         type="button"
@@ -458,6 +559,7 @@ export default function EventBibsPage({
       <EventRegistrantEditDialog
         eventId={eventId}
         person={editPerson}
+        isCommunityEvent={isCommunityEvent}
         open={editOpen}
         onClose={() => {
           setEditOpen(false);

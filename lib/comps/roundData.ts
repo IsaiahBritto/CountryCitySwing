@@ -103,16 +103,20 @@ export async function loadRoundContext(roundId: string): Promise<RoundContext> {
     email: row.profile?.email ?? null,
   }));
 
+  const competitionRow = competitionRes.data as CompetitionRow;
   const roundEntries = sortByBib(
     (entriesRes.data ?? []) as RoundEntryWithEntry[],
-    (re) => entryDisplay(re).bibNumber,
+    (re) => {
+      const d = entryDisplay(re, { competition: competitionRow });
+      return d.lineupSortBibNumber ?? d.bibNumber;
+    },
     (re) => re.dance_order,
     (re) => re.id
   );
 
   return {
     round: round as CompRoundRow,
-    competition: competitionRes.data as CompetitionRow,
+    competition: competitionRow,
     judges,
     sheets: (sheetsRes.data ?? []) as CompJudgeSheetRow[],
     roundEntries,
@@ -124,24 +128,37 @@ function personName(first: string, last: string): string {
   return [first, last].filter(Boolean).join(" ").trim() || "Unknown";
 }
 
+export interface EntryDisplayOptions {
+  competition?: Pick<CompetitionRow, "comp_type"> | null;
+}
+
 /** Judge-and-public-facing display for a round entry. */
-export function entryDisplay(re: RoundEntryWithEntry): EntryDisplay {
+export function entryDisplay(
+  re: RoundEntryWithEntry,
+  options?: EntryDisplayOptions
+): EntryDisplay {
   const e = re.entry;
+  const compType = options?.competition?.comp_type;
   let displayName: string;
   let bibNumber: number | null;
   if (e.entry_kind === "couple") {
     const leadName = personName(e.lead_first_name, e.lead_last_name);
     const followName = personName(e.follow_first_name, e.follow_last_name);
     displayName = `${leadName} & ${followName}`;
-    bibNumber = e.lead_bib?.bib_number ?? null;
+    const leadBib = e.lead_bib?.bib_number ?? null;
+    const followBib = e.follow_bib?.bib_number ?? null;
+    const useFollowPrimary =
+      compType === "all_american" && e.judge_primary_bib_role === "follow";
+    bibNumber = useFollowPrimary ? followBib : leadBib;
     return {
       roundEntryId: re.id,
       entryId: re.entry_id,
       bibNumber,
+      lineupSortBibNumber: leadBib,
       displayName,
       role: null,
       leadDisplayName: leadName,
-      followBibNumber: e.follow_bib?.bib_number ?? null,
+      followBibNumber: followBib,
       followDisplayName: followName,
     };
   } else if (e.role === "follow") {
@@ -265,7 +282,9 @@ export async function tabulateRound(
     );
   }
 
-  const displays = new Map(active.map((re) => [re.id, entryDisplay(re)]));
+  const displays = new Map(
+    active.map((re) => [re.id, entryDisplay(re, { competition })])
+  );
   const judgeLabels = panel.map((j, i) => ({
     assignmentId: j.id,
     label: `J${i + 1}`,
@@ -572,7 +591,9 @@ function buildCallbackTabulateContext(
   const manualTieUsedCjScores = options.manualTieUsedCjScores ?? [];
   const panel = panelJudges(ctx);
   const active = activeRoundEntries(ctx);
-  const displays = new Map(active.map((re) => [re.id, entryDisplay(re)]));
+  const displays = new Map(
+    active.map((re) => [re.id, entryDisplay(re, { competition: ctx.competition })])
+  );
   const judgeLabels = panel.map((j, i) => ({
     assignmentId: j.id,
     label: `J${i + 1}`,

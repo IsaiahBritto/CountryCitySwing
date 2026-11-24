@@ -34,7 +34,10 @@ export function sortByBib<T>(
 export interface RoundEntryBibSortable {
   id: string;
   dance_order?: number | null;
-  display: { bibNumber: number | null };
+  display: {
+    bibNumber: number | null;
+    lineupSortBibNumber?: number | null;
+  };
 }
 
 export function sortRoundEntriesByBib<T extends RoundEntryBibSortable>(
@@ -42,7 +45,7 @@ export function sortRoundEntriesByBib<T extends RoundEntryBibSortable>(
 ): T[] {
   return sortByBib(
     entries,
-    (e) => e.display.bibNumber,
+    (e) => e.display.lineupSortBibNumber ?? e.display.bibNumber,
     (e) => e.dance_order ?? null,
     (e) => e.id
   );

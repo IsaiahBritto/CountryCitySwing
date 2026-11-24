@@ -920,6 +920,38 @@ export function shouldPlayQueueNext(state: DjDeckState, deck: DeckId): boolean {
   return true;
 }
 
+export function isPlayingLastQueueTrack(
+  state: DjDeckState,
+  deck: DeckId
+): boolean {
+  const d = getDeckState(state, deck);
+  if (d.playbackSource !== "queue") return false;
+  if (!d.track) return false;
+  // Current queue item was consumed into `track`; no rows left = last queue song.
+  return d.playQueue.length === 0;
+}
+
+/** Queue set to continue on the other deck while the last queue track is playing. */
+export function isQueueDerivedHandoffToOtherDeck(
+  state: DjDeckState,
+  deck: DeckId
+): boolean {
+  if (!state.secondDeckEnabled) return false;
+  const d = getDeckState(state, deck);
+  if (d.afterQueueBehavior !== "continue") return false;
+  if (d.afterQueueContinueDeck === deck) return false;
+  return isPlayingLastQueueTrack(state, deck);
+}
+
+export function shouldShowHandoffToOtherDeckAfterSong(
+  state: DjDeckState,
+  deck: DeckId
+): boolean {
+  const d = getDeckState(state, deck);
+  if (d.handoffToOtherDeckAfterSong) return true;
+  return isQueueDerivedHandoffToOtherDeck(state, deck);
+}
+
 export type QueueRowStatus = "played" | "current" | "upcoming";
 
 export function playQueueRowStatus(

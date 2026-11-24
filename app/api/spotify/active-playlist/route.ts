@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminAuth } from "@/lib/adminAuth";
+import { isServerAppleMusic } from "@/lib/music/serverProvider";
 import {
+  activateAppleSocialPlaylist,
   activateSocialPlaylist,
   deactivateSocialPlaylist,
   getActivePlaylistStatus,
@@ -37,6 +39,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as {
       action?: string;
       playlistIdOrUrl?: string;
+      playlistName?: string;
       requestLimits?: unknown;
       requestRefreshMinutes?: unknown;
       structure?: unknown;
@@ -124,13 +127,26 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-      const status = await activateSocialPlaylist({
-        playlistIdOrUrl: body.playlistIdOrUrl.trim(),
-        activatedBy: auth.userId,
-        requestLimits: requestLimits ?? undefined,
-        requestRefreshMinutes: requestRefreshMinutes ?? undefined,
-        structure,
-      });
+      const playlistIdOrUrl = body.playlistIdOrUrl.trim();
+      const status = (await isServerAppleMusic())
+        ? await activateAppleSocialPlaylist({
+            playlistId: playlistIdOrUrl,
+            playlistName:
+              typeof body.playlistName === "string"
+                ? body.playlistName
+                : undefined,
+            activatedBy: auth.userId,
+            requestLimits: requestLimits ?? undefined,
+            requestRefreshMinutes: requestRefreshMinutes ?? undefined,
+            structure,
+          })
+        : await activateSocialPlaylist({
+            playlistIdOrUrl,
+            activatedBy: auth.userId,
+            requestLimits: requestLimits ?? undefined,
+            requestRefreshMinutes: requestRefreshMinutes ?? undefined,
+            structure,
+          });
       return NextResponse.json(status);
     }
 

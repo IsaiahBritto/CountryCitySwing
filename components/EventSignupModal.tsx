@@ -15,6 +15,8 @@ import {
   resolveSignupListPrice,
 } from "@/lib/utils/workshopPricing";
 import SignupModalShell from "@/components/SignupModalShell";
+import PromoGiftCardCollapsible from "@/components/giftCards/PromoGiftCardCollapsible";
+import { type GiftCardApplyState } from "@/components/giftCards/GiftCardApplyFields";
 import ChoiceCards from "@/components/ChoiceCards";
 import { profileHasCompleteName } from "@/lib/profileUtils";
 import {
@@ -57,6 +59,9 @@ const baseSchema = z.object({
     errorMap: () => ({ message: REQUIRED_FIELD }),
   }),
   acceptLiability: z.literal(true, {
+    errorMap: () => ({ message: REQUIRED_FIELD }),
+  }),
+  acceptPhotoRelease: z.literal(true, {
     errorMap: () => ({ message: REQUIRED_FIELD }),
   }),
   acceptPayment: z.literal(true, {
@@ -177,6 +182,9 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string; discountedSubtotal?: number } | null>(null);
   const [promoError, setPromoError] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
+  const [appliedGiftCard, setAppliedGiftCard] = useState<GiftCardApplyState | null>(
+    null
+  );
   const [upperLevelAvailability, setUpperLevelAvailability] = useState<{
     lead: { registered: number; capacity: number | null; remaining: number | null; full: boolean };
     follow: { registered: number; capacity: number | null; remaining: number | null; full: boolean };
@@ -187,6 +195,7 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   const plannedClassLevel = watch("plannedClassLevel");
   const plannedDanceRole = watch("plannedDanceRole");
   const acceptLiability = watch("acceptLiability");
+  const acceptPhotoRelease = watch("acceptPhotoRelease");
   const acceptPayment = watch("acceptPayment");
   const acceptRefund = watch("acceptRefund");
 
@@ -457,6 +466,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             ? appliedPromo.discountedSubtotal
             : undefined;
       }
+      if (appliedGiftCard) {
+        body.giftCardCode = appliedGiftCard.code;
+        body.giftCardAmount = appliedGiftCard.amountToApply;
+      }
       // When discount brings total to $0, payment method was not required; set to Cash for server
       const amountDue = appliedPromo?.discountedSubtotal != null ? appliedPromo.discountedSubtotal : effectivePrice;
       if (amountDue != null && amountDue <= 0.5 && appliedPromo) {
@@ -523,7 +536,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${token}`,
               },
-              body: JSON.stringify({ newsletter_opt_in: true }),
+              body: JSON.stringify({
+                newsletter_opt_in: true,
+                newsletter_consent_source: "event_signup",
+              }),
             }).catch(() => {});
           }
         });
@@ -678,6 +694,13 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               placeholder="Email"
               className={`w-full px-3 py-2 rounded bg-neutral-800 border ${fieldErrorClass(!!errors.email)}`}
             />
+            <p className="text-xs text-gray-400 -mt-1">
+              We&apos;ll email your registration confirmation and related event messages to this address. See our{" "}
+              <a href="/privacy" className="text-primary underline" target="_blank" rel="noopener noreferrer">
+                Privacy Policy
+              </a>
+              .
+            </p>
 
             {requiresPlannedClass && (
               <div>
@@ -775,7 +798,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                   onChange={(e) => setNewsletterOptIn(e.target.checked)}
                   className="w-4 h-4 accent-yellow-400"
                 />
-                Add me to the weekly newsletter (schedule + workshop highlights, Sundays)
+                Add me to the weekly newsletter (schedule + workshop highlights, Sundays).{" "}
+                <a href="/privacy" className="text-primary underline" target="_blank" rel="noopener noreferrer">
+                  Privacy Policy
+                </a>
               </label>
             )}
 
@@ -842,66 +868,37 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               </div>
             )}
 
-            {/* Promotion code — always above Payment Method when there is a price */}
             {effectivePrice != null && effectivePrice > 0 && (
-              <div>
-                <p className="font-medium mb-1">Promotion code</p>
-                {appliedPromo ? (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-green-400 text-sm">
-                        Applied: {appliedPromo.code}
-                        {appliedPromo.discountedSubtotal != null && (
-                          <span className="text-gray-300 ml-1">
-                            — Amount due: ${appliedPromo.discountedSubtotal.toFixed(2)}
-                          </span>
-                        )}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={removePromo}
-                        className="text-sm text-gray-400 hover:text-white underline"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    {appliedPromo.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5 && (
-                      <p className="text-green-400 text-sm">
-                        Your total after discount is $0. No payment required.
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex gap-2 flex-wrap">
-                    <input
-                      type="text"
-                      value={promoCodeInput}
-                      onChange={(e) => {
-                        setPromoCodeInput(e.target.value);
-                        setPromoError("");
-                      }}
-                      placeholder="Enter code"
-                      className="flex-1 min-w-[120px] px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
-                      disabled={promoLoading}
-                    />
-                    <button
-                      type="button"
-                      onClick={applyPromo}
-                      disabled={promoLoading}
-                      className="px-3 py-2 rounded bg-neutral-700 hover:bg-neutral-600 text-sm font-medium disabled:opacity-50"
-                    >
-                      {promoLoading ? "Checking…" : "Apply"}
-                    </button>
-                  </div>
-                )}
-                {promoError && (
-                  <p className="text-red-400 text-sm mt-1">{promoError}</p>
-                )}
-              </div>
+              <PromoGiftCardCollapsible
+                orderTotal={
+                  appliedPromo?.discountedSubtotal != null
+                    ? appliedPromo.discountedSubtotal
+                    : effectivePrice
+                }
+                promoCodeInput={promoCodeInput}
+                onPromoCodeInputChange={(v) => {
+                  setPromoCodeInput(v);
+                  setPromoError("");
+                }}
+                appliedPromo={appliedPromo}
+                promoError={promoError}
+                promoLoading={promoLoading}
+                onApplyPromo={applyPromo}
+                onRemovePromo={removePromo}
+                appliedGiftCard={appliedGiftCard}
+                promoFullyCoversOrder={
+                  appliedPromo?.discountedSubtotal != null &&
+                  appliedPromo.discountedSubtotal <= 0.5
+                }
+                onGiftCardApplied={(gc) => {
+                  setAppliedGiftCard(gc);
+                  if (gc) removePromo();
+                }}
+              />
             )}
 
             {/* Payment Method — hidden for instructors when CCS team price is $0; hidden when promo brings total to $0 */}
-            {!(isInstructor && effectivePrice === 0) && !(appliedPromo?.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5) && (
+            {!(isInstructor && effectivePrice === 0) && !(appliedPromo?.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5) && !(appliedGiftCard && appliedGiftCard.amountToApply >= (appliedPromo?.discountedSubtotal ?? effectivePrice ?? 0) - 0.01) && (
               <div>
                 <p className="font-medium mb-2">
                   Payment Method
@@ -995,11 +992,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
                 <strong> Medical Information: </strong>
                 I certify that I am physically fit to participate in the dance class. In case of injury or medical
                 emergency, I authorize Country City Swing and its members to obtain necessary medical treatment for me.
-                <strong> Email Subscription: </strong>
-                I understand I will be subscribed to the email list to receive non-spammy emails.
-                <strong> Photography and Publicity: </strong>
-                I grant permission to Country City Swing and their members to use photographs or videos of me taken during
-                the dance class for promotional or educational purposes.
+                <strong> Email about this registration: </strong>
+                I understand Country City Swing may email me about this event and related registration matters
+                (for example confirmation, payment, or important event updates). Optional weekly schedule emails are
+                separate and require an explicit opt-in where offered.
               </p>
             </div>
 
@@ -1023,6 +1019,40 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
             </button>
             {errors.acceptLiability && (
               <p className="text-red-400 text-sm mt-1">{String(errors.acceptLiability.message)}</p>
+            )}
+
+            <div
+              className={`bg-neutral-800 p-3 rounded text-sm max-h-32 overflow-y-auto mt-3 ${
+                errors.acceptPhotoRelease ? "ring-2 ring-red-500" : ""
+              }`}
+            >
+              <p>
+                <strong>Photography and video:</strong> I grant permission to Country City Swing and their
+                members to use photographs or videos of me taken during the dance class for promotional or
+                educational purposes.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              aria-pressed={acceptPhotoRelease === true}
+              onClick={() =>
+                setValue(
+                  "acceptPhotoRelease",
+                  acceptPhotoRelease === true ? (undefined as unknown as true) : true,
+                  { shouldValidate: true, shouldDirty: true }
+                )
+              }
+              className={`mt-2 w-full rounded-lg border px-4 py-3.5 text-left text-base font-semibold transition-colors ${
+                acceptPhotoRelease === true
+                  ? "border-green-500 bg-green-500/10 text-green-300 ring-1 ring-green-500"
+                  : "border-red-500 bg-red-500/10 text-red-200 ring-1 ring-red-500 hover:bg-red-500/15"
+              }`}
+            >
+              {acceptPhotoRelease === true ? "Photo release agreed" : "I agree to photo/video release"}
+            </button>
+            {errors.acceptPhotoRelease && (
+              <p className="text-red-400 text-sm mt-1">{String(errors.acceptPhotoRelease.message)}</p>
             )}
 
             <button

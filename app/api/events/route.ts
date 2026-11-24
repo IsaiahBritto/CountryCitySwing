@@ -19,8 +19,9 @@ export async function GET() {
     const { data, error } = await supabaseServer
       .from("events")
       .select(
-        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,strictly_level,jnj_level,type,refund_statement,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity,schedule_opens_at,class_week_override"
+        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,strictly_level,jnj_level,type,refund_statement,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity,schedule_opens_at,class_week_override,host_kind,approval_status"
       )
+      .or("host_kind.eq.ccs,host_kind.is.null")
       .order("starts_at", { ascending: true });
 
     if (error) {

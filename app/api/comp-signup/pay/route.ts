@@ -28,12 +28,24 @@ export async function GET(req: NextRequest) {
 
     const { data: signup, error: fetchError } = await supabaseServer
       .from("comp_signups")
-      .select(COMP_SIGNUP_SELECT)
+      .select(`${COMP_SIGNUP_SELECT}, event_id`)
       .eq("id", compSignupId)
       .single();
 
     if (fetchError || !signup) {
       return NextResponse.json({ error: "Comp signup not found" }, { status: 404 });
+    }
+
+    const { data: eventRow } = await supabaseServer
+      .from("events")
+      .select("host_kind")
+      .eq("id", (signup as { event_id?: string }).event_id)
+      .maybeSingle();
+    if ((eventRow?.host_kind ?? "ccs") === "community") {
+      return NextResponse.json(
+        { error: "Online payment is not available for this event" },
+        { status: 400 }
+      );
     }
 
     if (signup.paid) {

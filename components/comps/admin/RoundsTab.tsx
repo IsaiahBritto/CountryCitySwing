@@ -24,7 +24,7 @@ export default function RoundsTab({
   onChanged,
 }: {
   competitionId: string;
-  compType: "jack_and_jill" | "strictly";
+  compType: "jack_and_jill" | "strictly" | "all_american";
   entryCount: number;
   testComp?: boolean;
   cjInPanel?: boolean;
@@ -32,6 +32,7 @@ export default function RoundsTab({
   onChanged: () => void;
 }) {
   const isJnJ = compType === "jack_and_jill";
+  const isAllAmerican = compType === "all_american";
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [expandedSlot, setExpandedSlot] = useState<RoundType | null>(null);
@@ -65,6 +66,14 @@ export default function RoundsTab({
               {" "}
               JnJ finals advancers are seeded automatically when you begin
               check-in on Final.
+            </>
+          )}
+          {isAllAmerican && (
+            <>
+              {" "}
+              All American: enable Prelims as one callback (both roles), check in
+              leads and follows, confirm pairings, then enable later rounds for
+              strictly-style couple scoring.
             </>
           )}
         </p>

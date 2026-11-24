@@ -10,6 +10,10 @@ import {
 import HoodiePreorderSummary from "@/components/merch/HoodiePreorderSummary";
 import BaseMerchSizePlanner from "@/components/merch/BaseMerchSizePlanner";
 import { baseCcsMerchProductNameSet } from "@/lib/merchBaseProductNames";
+import AdminGiftCardsPanel from "@/components/admin/AdminGiftCardsPanel";
+import MerchAdminSectionToggle, {
+  type MerchAdminSection,
+} from "@/components/admin/MerchAdminSectionToggle";
 
 interface Product {
   id: string;
@@ -62,6 +66,7 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [baseMerchTargetQty, setBaseMerchTargetQty] = useState(0);
+  const [adminSection, setAdminSection] = useState<MerchAdminSection>("merch");
 
   const eligibleOrders = useMemo(
     () => allOrders.filter(isMerchOrderEligibleForStats),
@@ -456,8 +461,14 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
         Back to Merch
       </button>
 
-      <h2 className="text-3xl font-bold text-primary mb-6">Admin Dashboard</h2>
+      <h2 className="text-3xl font-bold text-primary mb-2">Admin Dashboard</h2>
 
+      <MerchAdminSectionToggle value={adminSection} onChange={setAdminSection} />
+
+      {adminSection === "gift_cards" ? (
+        <AdminGiftCardsPanel />
+      ) : (
+        <>
       {/* Inventory Management */}
       <div className="bg-neutral-800 rounded-lg p-6 mb-6">
         <h3 className="text-2xl font-semibold text-white mb-4">
@@ -781,9 +792,11 @@ export default function AdminDashboard({ onBack, products }: AdminDashboardProps
         targetTotal={baseMerchTargetQty}
         onTargetTotalChange={setBaseMerchTargetQty}
       />
+        </>
+      )}
 
       {/* Order Detail Modal */}
-      {selectedOrder && (
+      {adminSection === "merch" && selectedOrder && (
         <OrderDetailModal
           order={selectedOrder}
           onClose={() => setSelectedOrder(null)}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { extractBearerToken } from "@/lib/adminAuth";
+import { isUserOrganizerForCompetition } from "@/lib/compEventAccess";
 
 export interface JudgeAssignment {
   id: string;
@@ -89,7 +90,15 @@ export async function requireJudgeAuth(
     };
   }
 
-  if ((assignments ?? []).length === 0 && !isAdmin) {
+  let isOrganizer = false;
+  if (options.competitionId) {
+    isOrganizer = await isUserOrganizerForCompetition(
+      user.id,
+      options.competitionId
+    );
+  }
+
+  if ((assignments ?? []).length === 0 && !isAdmin && !isOrganizer) {
     return {
       ok: false,
       response: forbidden("Forbidden: Judge assignment required"),
@@ -135,7 +144,11 @@ export async function requireChiefJudgeAuth(
   const isChief = auth.assignments.some(
     (a) => a.judge_role === "chief_judge" && a.competition_id === competitionId
   );
-  if (!isChief && !auth.isAdmin) {
+  const isOrganizer = await isUserOrganizerForCompetition(
+    auth.userId,
+    competitionId
+  );
+  if (!isChief && !auth.isAdmin && !isOrganizer) {
     return {
       ok: false,
       response: forbidden("Forbidden: Chief judge access required"),

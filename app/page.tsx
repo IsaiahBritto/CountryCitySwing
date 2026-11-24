@@ -5,7 +5,6 @@ import HomeHero from "@/components/home/HomeHero";
 import FindInstructorsCta from "@/components/home/FindInstructorsCta";
 import UpcomingEventsSection from "@/components/home/UpcomingEventsSection";
 import dayjs from "dayjs";
-import { supabase } from "@/lib/supabaseClient";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import Calendar from "@/components/Calendar";
 import WorkshopSpotlight from "@/components/WorkshopSpotlight";
@@ -13,6 +12,7 @@ import EventCarousel from "@/components/EventCarousel";
 import EventSignupModal from "@/components/EventSignupModal";
 import CompSignupModal from "@/components/CompSignupModal";
 import CompsHubBanner from "@/components/CompsHubBanner";
+import MusicAdminHomeLink from "@/components/MusicAdminHomeLink";
 import EventFormModal from "@/components/EventFormModal";
 import TheSocialLinksEditorModal from "@/components/TheSocialLinksEditorModal";
 import EventsListSkeleton from "@/components/EventsListSkeleton";
@@ -115,24 +115,18 @@ export default function Home() {
   }, []);
 
   const loadEvents = async () => {
-    const { data, error } = await supabase
-      .from("events")
-      .select(
-        "id,title,starts_at,ends_at,location,description,signup_link,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,strictly_price,jnj_price,strictly_level,jnj_level,type,refund_statement,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity,schedule_opens_at,class_week_override"
-      )
-      .order("starts_at", { ascending: true });
-
-    if (error) {
-      console.error("Supabase error:", error);
-      setEvents([]);
-    } else {
-      // Normalize snake_case to camelCase for frontend components
-      const normalizedEvents = (data || []).map((event: any) => ({
+    try {
+      const res = await fetch("/api/events");
+      const json = res.ok ? await res.json() : { events: [] };
+      const normalizedEvents = (json.events || []).map((event: any) => ({
         ...event,
         signupLink: event.signup_link || event.signupLink || "",
         time: undefined,
       }));
       setEvents(normalizedEvents);
+    } catch (err) {
+      console.error("Error loading events:", err);
+      setEvents([]);
     }
     setLoading(false);
   };
@@ -201,6 +195,7 @@ export default function Home() {
                 onEditEvent={handleEditEvent}
               />
               <CompsHubBanner />
+              {isAdmin && <MusicAdminHomeLink className="mt-3" />}
             </section>
             <EventCarousel
               events={upcomingEvents}
@@ -208,11 +203,20 @@ export default function Home() {
               isInstructor={isInstructor}
               onEditEvent={handleEditEvent}
             />
+            <div className="mt-6 flex justify-center">
+              <Link
+                href="/non-ccs-events"
+                className="btn-signup px-6 py-2.5 text-sm font-semibold"
+              >
+                Non-CCS Events
+              </Link>
+            </div>
           </div>
         }
         listView={
           <>
             <CompsHubBanner className="mb-6" />
+            {isAdmin && <MusicAdminHomeLink className="mb-6" />}
             <div className="max-w-3xl mx-auto text-left ccs-card shadow-[0_0_20px_rgba(187,134,252,0.4)] divide-y divide-neutral-700">
               {upcomingEvents.map((event) => (
                 <div key={event.id} className="p-5 hover:bg-neutral-700/40">
@@ -276,6 +280,14 @@ export default function Home() {
                   </div>
                 </div>
               ))}
+            </div>
+            <div className="mt-6 flex justify-center">
+              <Link
+                href="/non-ccs-events"
+                className="btn-signup px-6 py-2.5 text-sm font-semibold"
+              >
+                Non-CCS Events
+              </Link>
             </div>
           </>
         }

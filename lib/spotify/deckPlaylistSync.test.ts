@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   applyDeckPlaylistPatch,
   mergePlaylistPreservingPlayback,
+  playlistTrackIdsFingerprint,
+  playlistsNeedSnapshotSync,
   remapIndexAfterSwap,
   remapPlayedIndicesAfterSwap,
 } from "@/lib/spotify/deckPlaylistSync";
@@ -236,5 +238,38 @@ describe("djDeckReducer APPLY_PLAYLIST_PATCH and MERGE_PLAYLIST", () => {
 describe("remapPlayedIndicesAfterSwap", () => {
   it("remaps played slot indices", () => {
     expect(remapPlayedIndicesAfterSwap([6, 28, 29], 6, 29)).toEqual([6, 28, 29]);
+  });
+});
+
+describe("playlist snapshot fingerprint", () => {
+  it("fingerprints ordered ids", () => {
+    const a = [track(0), track(1)];
+    expect(playlistTrackIdsFingerprint(a)).toBe("id-0\nid-1");
+  });
+
+  it("detects equal playlists", () => {
+    const local = [track(0), track(1), track(2)];
+    const remote = [track(0), track(1), track(2)];
+    expect(playlistsNeedSnapshotSync(local, remote)).toBe(false);
+  });
+
+  it("detects length mismatch", () => {
+    expect(playlistsNeedSnapshotSync([track(0)], [track(0), track(1)])).toBe(
+      true
+    );
+  });
+
+  it("detects tail replace (Teddy vs Whiskey)", () => {
+    const local = [track(0), track(1), track(2)];
+    const remote = [
+      track(0),
+      track(1),
+      {
+        ...track(2),
+        id: "whiskey-id",
+        name: "WHISKEY WHISKEY",
+      },
+    ];
+    expect(playlistsNeedSnapshotSync(local, remote)).toBe(true);
   });
 });

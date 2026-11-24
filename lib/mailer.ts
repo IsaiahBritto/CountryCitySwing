@@ -67,7 +67,8 @@ export const sendHtmlEmail = async (
   from?: string,
   text?: string,
   attachments?: ResendAttachment[],
-  replyTo?: string | string[]
+  replyTo?: string | string[],
+  headers?: Record<string, string>
 ) => {
   try {
     // Validate Resend API key
@@ -90,6 +91,7 @@ export const sendHtmlEmail = async (
       text?: string;
       attachments?: ResendAttachment[];
       replyTo?: string | string[];
+      headers?: Record<string, string>;
     } = {
       from: fromEmail,
       to,
@@ -101,6 +103,7 @@ export const sendHtmlEmail = async (
     if (replyTo != null && (Array.isArray(replyTo) ? replyTo.length > 0 : replyTo !== "")) {
       payload.replyTo = replyTo;
     }
+    if (headers && Object.keys(headers).length > 0) payload.headers = headers;
 
     const { data, error } = await resend.emails.send(payload);
 
@@ -124,6 +127,7 @@ export const sendHtmlEmail = async (
           html: string;
           text?: string;
           replyTo?: string | string[];
+          headers?: Record<string, string>;
         } = {
           from: FROM_EMAIL,
           to,
@@ -134,6 +138,7 @@ export const sendHtmlEmail = async (
         if (replyTo != null && (Array.isArray(replyTo) ? replyTo.length > 0 : replyTo !== "")) {
           fallbackPayload.replyTo = replyTo;
         }
+        if (headers && Object.keys(headers).length > 0) fallbackPayload.headers = headers;
         const fallbackResult = await resend.emails.send(fallbackPayload);
         if (fallbackResult.error) {
           console.error("Resend fallback error:", {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { extractPodium } from "@/lib/comps/podium";
 import { includeTestFixtures } from "@/lib/comps/testCompAccess";
+import { isCcsHubLiveCompetition } from "@/lib/comps/hubCommunityExclusion";
 
 /**
  * GET: public comps hub payload — upcoming events, live competitions, and
@@ -18,6 +19,7 @@ export async function GET(req: NextRequest) {
       "id, title, starts_at, location, strictly_price, jnj_price, strictly_level, jnj_level, signup_link, refund_statement, test_event"
     )
     .eq("type", "Comp")
+    .eq("host_kind", "ccs")
     .gte("starts_at", nowIso)
     .order("starts_at", { ascending: true });
   if (!includeTest) {
@@ -27,7 +29,7 @@ export async function GET(req: NextRequest) {
   let liveQuery = supabaseServer
     .from("competitions")
     .select(
-      "id, name, comp_type, status, test_comp, event:events(id, title, starts_at, location, test_event), rounds:comp_rounds(id, round_type, judged_role, status, scoring_mode, round_order, published_at)"
+      "id, name, comp_type, status, test_comp, event:events(id, title, starts_at, location, test_event, host_kind), rounds:comp_rounds(id, round_type, judged_role, status, scoring_mode, round_order, published_at)"
     )
     .eq("status", "in_progress");
   if (!includeTest) {
@@ -37,7 +39,7 @@ export async function GET(req: NextRequest) {
   let publishedQuery = supabaseServer
     .from("comp_rounds")
     .select(
-      "id, competition_id, round_type, judged_role, status, scoring_mode, tabulation, published_at, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at, location, test_event, strictly_level, jnj_level))"
+      "id, competition_id, round_type, judged_role, status, scoring_mode, tabulation, published_at, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at, location, test_event, strictly_level, jnj_level, host_kind))"
     )
     .eq("status", "published")
     .order("published_at", { ascending: false });
@@ -79,7 +81,10 @@ export async function GET(req: NextRequest) {
   }));
 
   const live = ((liveRes.data ?? []) as any[])
-    .filter((c) => includeTest || !c.test_comp)
+    .filter((c) => {
+      if (!isCcsHubLiveCompetition(c.event?.host_kind)) return false;
+      return includeTest || !c.test_comp;
+    })
     .map((c) => {
     const published = ((c.rounds ?? []) as any[]).filter(
       (r) => r.status === "published"
@@ -136,6 +141,9 @@ export async function GET(req: NextRequest) {
     const comp = round.competition;
     if (!comp?.id || !comp.event?.id) continue;
     if (!includeTest && comp.test_comp) continue;
+    if ((comp.event as { host_kind?: string })?.host_kind === "community") {
+      continue;
+    }
     const event = comp.event as {
       id: string;
       title: string;

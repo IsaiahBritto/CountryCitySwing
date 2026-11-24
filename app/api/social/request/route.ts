@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       lineDanceName?: string;
       lineDanceLevel?: string;
       durationMs?: number;
+      requestIsrc?: string | null;
       turnstileToken?: string;
     };
 
@@ -100,12 +101,18 @@ export async function POST(req: NextRequest) {
         ? Math.round(body.durationMs)
         : undefined;
 
+    const requestIsrc =
+      typeof body.requestIsrc === "string" && body.requestIsrc.trim()
+        ? body.requestIsrc.trim()
+        : null;
+
     const result = await submitSocialSongRequest({
       trackId: body.trackId.trim(),
       uri: body.uri.trim(),
       name: body.name.trim(),
       primaryArtist: body.primaryArtist.trim(),
       durationMs,
+      requestIsrc,
       genre,
       lineDanceName:
         typeof body.lineDanceName === "string" ? body.lineDanceName : null,

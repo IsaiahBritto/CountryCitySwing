@@ -3,6 +3,7 @@ import { requireAdminAuth } from "@/lib/adminAuth";
 import { createSession } from "@/lib/spotify/djSessionServer";
 import {
   createEmptyPlaybackSnapshot,
+  parsePlaybackSnapshot,
   toSessionResponse,
 } from "@/lib/spotify/djSession";
 import {
@@ -18,6 +19,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as {
       hostClientId?: string;
       deckState?: unknown;
+      playbackSnapshot?: unknown;
     };
 
     if (typeof body.hostClientId !== "string" || !body.hostClientId.trim()) {
@@ -31,11 +33,16 @@ export async function POST(req: NextRequest) {
       ? deserializeDjDeckState(body.deckState)
       : INITIAL_DJ_DECK_STATE;
 
+    const playbackSnapshot =
+      body.playbackSnapshot != null
+        ? parsePlaybackSnapshot(body.playbackSnapshot)
+        : createEmptyPlaybackSnapshot(deckState.activeDeck);
+
     const session = await createSession({
       startedBy: auth.userId,
       hostClientId: body.hostClientId.trim(),
       deckState,
-      playbackSnapshot: createEmptyPlaybackSnapshot(deckState.activeDeck),
+      playbackSnapshot,
     });
 
     return NextResponse.json(toSessionResponse(session), { status: 201 });

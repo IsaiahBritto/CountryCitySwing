@@ -8,9 +8,15 @@ import { authedFetch } from "@/lib/comps/clientAuth";
 import { profileDisplayName, profileHasCompleteName } from "@/lib/profileUtils";
 import { DEFAULT_TIME_ZONE, formatEventDate, formatEventTime, getTimeZoneAbbreviation } from "@/lib/utils/dateHelpers";
 import SignupModalShell from "@/components/SignupModalShell";
+import PromoGiftCardCollapsible from "@/components/giftCards/PromoGiftCardCollapsible";
+import { type GiftCardApplyState } from "@/components/giftCards/GiftCardApplyFields";
 import ChoiceCards from "@/components/ChoiceCards";
 import ProfileSearchPicker, { type ProfileResult } from "@/components/ProfileSearchPicker";
 import CompLevelBadge from "@/components/CompLevelBadge";
+import CompDivisionRadioList, {
+  type CompDivisionOption,
+} from "@/components/comps/CompDivisionRadioList";
+import { applyCompDivisionsToState } from "@/lib/comps/applyCompDivisionsToState";
 
 type CompEvent = {
   id: string | number;
@@ -65,6 +71,9 @@ export default function CompSignupModal({
   const [jnjRole, setJnJRole] = useState<"lead" | "follow" | "">("");
   const [strictlyPartner, setStrictlyPartner] = useState<ProfileResult | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Stripe");
+  const [appliedGiftCard, setAppliedGiftCard] = useState<GiftCardApplyState | null>(
+    null
+  );
 
   const [acceptLiability, setAcceptLiability] = useState(false);
   const [acceptPayment, setAcceptPayment] = useState(false);
@@ -74,14 +83,35 @@ export default function CompSignupModal({
   const [submitSuccess, setSubmitSuccess] = useState("");
   const [profileFirstName, setProfileFirstName] = useState("");
   const [profileLastName, setProfileLastName] = useState("");
+  const [compDivisions, setCompDivisions] = useState<CompDivisionOption[]>([]);
+  const [divisionsLoadError, setDivisionsLoadError] = useState<string | null>(
+    null
+  );
+  const [jnjDivisionId, setJnJDivisionId] = useState("");
+  const [jnjSecondDivisionId, setJnJSecondDivisionId] = useState("");
+  const [strictlyDivisionId, setStrictlyDivisionId] = useState("");
+  const [allAmericanDivisionId, setAllAmericanDivisionId] = useState("");
+  const [allAmericanSelected, setAllAmericanSelected] = useState(false);
+
+  const jnjDivisionOptions = compDivisions.filter((c) => c.comp_type === "jack_and_jill");
+  const strictlyDivisionOptions = compDivisions.filter((c) => c.comp_type === "strictly");
+  const allAmericanDivisionOptions = compDivisions.filter(
+    (c) => c.comp_type === "all_american"
+  );
+  const hasAllAmerican = allAmericanDivisionOptions.length > 0;
+
   const [alreadyRegistered, setAlreadyRegistered] = useState<{
     eventTitle: string;
     eventDate: string;
   } | null>(null);
 
+  const jnjDivisionCount =
+    jnjSelected && hasJnJ ? (jnjSecondDivisionId ? 2 : 1) : 0;
   const total =
     (strictlySelected && hasStrictly ? Number(event!.strictly_price) || 0 : 0) +
-    (jnjSelected && hasJnJ ? Number(event!.jnj_price) || 0 : 0);
+    (jnjSelected && hasJnJ
+      ? (Number(event!.jnj_price) || 0) * jnjDivisionCount
+      : 0);
 
   useEffect(() => {
     if (!event || (!open && !embedded)) return;
@@ -122,6 +152,40 @@ export default function CompSignupModal({
   }, [open, embedded, event?.id]);
 
   useEffect(() => {
+    if (!event?.id || (!open && !embedded)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/events/${event.id}/comp-divisions`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setDivisionsLoadError(
+            data.error || "Could not load competition divisions."
+          );
+          return;
+        }
+        setDivisionsLoadError(null);
+        const list = (data.competitions ?? []) as CompDivisionOption[];
+        applyCompDivisionsToState(list, {
+          setCompDivisions,
+          setJnJDivisionId,
+          setStrictlyDivisionId,
+          setAllAmericanDivisionId,
+        });
+      } catch {
+        if (!cancelled) {
+          setDivisionsLoadError("Could not load competition divisions.");
+          setCompDivisions([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [event?.id, open, embedded]);
+
+  useEffect(() => {
     if (!open && !embedded) {
       setStrictlySelected(false);
       setJnJSelected(false);
@@ -137,6 +201,12 @@ export default function CompSignupModal({
       setProfileFirstName("");
       setProfileLastName("");
       setAlreadyRegistered(null);
+      setJnJDivisionId("");
+      setStrictlyDivisionId("");
+      setAllAmericanDivisionId("");
+      setAllAmericanSelected(false);
+      setCompDivisions([]);
+      setDivisionsLoadError(null);
     }
   }, [open, embedded]);
 
@@ -161,13 +231,35 @@ export default function CompSignupModal({
       if (!profileFirstName.trim()) return "First name is required on your account.";
       if (!profileLastName.trim()) return "Last name is required on your account.";
     }
-    if (!strictlySelected && !jnjSelected) return "Please select at least one: Strictly or JnJ.";
+    if (!strictlySelected && !jnjSelected && !allAmericanSelected) {
+      return "Please select at least one: Strictly, JnJ, or All American.";
+    }
     if (strictlySelected && hasStrictly) {
       if (!strictlyRole) return "Strictly: select whether you are Lead or Follow.";
       if (!strictlyPartner) return "Strictly: search for and select your partner.";
     }
     if (jnjSelected && hasJnJ) {
       if (!jnjRole) return "JnJ: select whether you are Lead or Follow.";
+      const firstDiv =
+        jnjDivisionId ||
+        (jnjDivisionOptions.length === 1 ? jnjDivisionOptions[0]!.id : "");
+      if (jnjDivisionOptions.length > 1 && !firstDiv) {
+        return "JnJ: choose which division you are entering.";
+      }
+      if (jnjSecondDivisionId) {
+        if (jnjSecondDivisionId === firstDiv) {
+          return "JnJ: second division must differ from the first.";
+        }
+      }
+    }
+    if (strictlySelected && hasStrictly && strictlyDivisionOptions.length > 1 && !strictlyDivisionId) {
+      return "Strictly: choose which division you are entering.";
+    }
+    if (allAmericanSelected && allAmericanDivisionOptions.length > 1 && !allAmericanDivisionId) {
+      return "All American: choose which division you are entering.";
+    }
+    if (allAmericanSelected) {
+      if (!jnjRole) return "All American: select whether you are Lead or Follow.";
     }
     if (!acceptLiability) return "The above is a required field.";
     if (!acceptPayment) return "The above is a required field.";
@@ -192,8 +284,11 @@ export default function CompSignupModal({
       }
     }
 
-    if (jnjSelected && jnjRole) {
-      if (jnjRole === ROLE_LEAD) jnjLeadId = registrantId;
+    if ((jnjSelected || allAmericanSelected) && jnjRole) {
+      if (jnjSecondDivisionId && jnjSelected) {
+        jnjLeadId = registrantId;
+        jnjFollowId = registrantId;
+      } else if (jnjRole === ROLE_LEAD) jnjLeadId = registrantId;
       else jnjFollowId = registrantId;
     }
 
@@ -241,6 +336,24 @@ export default function CompSignupModal({
         });
       }
 
+      const firstJnJDiv =
+        jnjDivisionId ||
+        (jnjDivisionOptions.length === 1 ? jnjDivisionOptions[0]!.id : "");
+      const jnjAssignments =
+        jnjSelected && jnjRole && firstJnJDiv
+          ? [
+              { competition_id: firstJnJDiv, role: jnjRole },
+              ...(jnjSecondDivisionId
+                ? [
+                    {
+                      competition_id: jnjSecondDivisionId,
+                      role: jnjRole === ROLE_LEAD ? ROLE_FOLLOW : ROLE_LEAD,
+                    },
+                  ]
+                : []),
+            ]
+          : [];
+
       const body = {
         event: {
           id: event!.id,
@@ -254,11 +367,24 @@ export default function CompSignupModal({
         strictly_price: hasStrictly ? event!.strictly_price : null,
         jnj_selected: jnjSelected,
         jnj_price: hasJnJ ? event!.jnj_price : null,
+        all_american_selected: allAmericanSelected,
+        jnj_competition_id: jnjSelected ? firstJnJDiv || null : null,
+        jnj_assignments: jnjAssignments,
+        strictly_competition_id: strictlySelected ? strictlyDivisionId || null : null,
+        all_american_competition_id: allAmericanSelected
+          ? allAmericanDivisionId || null
+          : null,
         ...buildProfilePayload(),
         profile_first_name: profileNeedsName ? profileFirstName.trim() : undefined,
         profile_last_name: profileNeedsName ? profileLastName.trim() : undefined,
         payment_method: paymentMethod,
         amount_owed: total,
+        ...(appliedGiftCard
+          ? {
+              giftCardCode: appliedGiftCard.code,
+              giftCardAmount: appliedGiftCard.amountToApply,
+            }
+          : {}),
         accept_liability: acceptLiability,
         accept_payment: acceptPayment,
         accept_refund: hasRefundStatement ? acceptRefund : true,
@@ -383,6 +509,11 @@ export default function CompSignupModal({
   const formBlock = authState === "ready" ? (
     <form id="comp-signup-form" onSubmit={onSubmit} className="space-y-4">
       <p className="font-medium text-gray-200">Comp registration — at least one division required</p>
+      {divisionsLoadError && (
+        <p className="text-sm text-amber-300" role="alert">
+          {divisionsLoadError}
+        </p>
+      )}
       {selfCard}
 
       {profileNeedsName && (
@@ -428,6 +559,13 @@ export default function CompSignupModal({
           </label>
           {strictlySelected && (
             <div className="ml-6 space-y-4">
+              <CompDivisionRadioList
+                label="Division"
+                name="strictly-division"
+                divisions={strictlyDivisionOptions}
+                value={strictlyDivisionId}
+                onChange={setStrictlyDivisionId}
+              />
               <div>
                 <p className="text-sm text-gray-300 mb-2">I am the</p>
                 <select
@@ -453,6 +591,45 @@ export default function CompSignupModal({
         </div>
       )}
 
+      {hasAllAmerican && (
+        <div className="space-y-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={allAmericanSelected}
+              onChange={(e) => setAllAmericanSelected(e.target.checked)}
+              className="rounded"
+            />
+            <span>All American</span>
+          </label>
+          {allAmericanSelected && (
+            <div className="ml-6 space-y-3">
+              <CompDivisionRadioList
+                label="Division"
+                name="aa-division"
+                divisions={allAmericanDivisionOptions}
+                value={allAmericanDivisionId}
+                onChange={setAllAmericanDivisionId}
+              />
+              {!jnjSelected && (
+                <>
+                  <p className="text-sm text-gray-300">I am a</p>
+                  <select
+                    value={jnjRole}
+                    onChange={(e) => setJnJRole(e.target.value as "lead" | "follow")}
+                    className="w-full px-3 py-2 rounded bg-neutral-800 border border-neutral-700 text-white"
+                  >
+                    <option value="">— Select —</option>
+                    <option value="lead">Lead</option>
+                    <option value="follow">Follow</option>
+                  </select>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {hasJnJ && (
         <div className="space-y-3">
           <label className="flex items-center gap-2">
@@ -469,6 +646,13 @@ export default function CompSignupModal({
           </label>
           {jnjSelected && (
             <div className="ml-6 space-y-3">
+              <CompDivisionRadioList
+                label="Division"
+                name="jnj-division"
+                divisions={jnjDivisionOptions}
+                value={jnjDivisionId}
+                onChange={setJnJDivisionId}
+              />
               <p className="text-sm text-gray-300">I am a</p>
               <select
                 value={jnjRole}
@@ -479,9 +663,58 @@ export default function CompSignupModal({
                 <option value="lead">Lead</option>
                 <option value="follow">Follow</option>
               </select>
+              {jnjDivisionOptions.length > 1 && jnjRole && (
+                <div className="space-y-2 border-t border-neutral-700 pt-3">
+                  <label className="flex items-center gap-2 text-sm text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={!!jnjSecondDivisionId}
+                      onChange={(e) =>
+                        setJnJSecondDivisionId(
+                          e.target.checked ? "__pick__" : ""
+                        )
+                      }
+                      className="rounded"
+                    />
+                    Add a second JnJ division (opposite role, 2× fee)
+                  </label>
+                  {jnjSecondDivisionId && (
+                    <CompDivisionRadioList
+                      label="Second division"
+                      name="jnj-division-2"
+                      divisions={jnjDivisionOptions.filter(
+                        (c) => c.id !== jnjDivisionId
+                      )}
+                      value={
+                        jnjSecondDivisionId === "__pick__"
+                          ? ""
+                          : jnjSecondDivisionId
+                      }
+                      onChange={(id) => setJnJSecondDivisionId(id)}
+                    />
+                  )}
+                  {jnjSecondDivisionId && jnjSecondDivisionId !== "__pick__" && (
+                    <p className="text-xs text-neutral-400">
+                      You will register as{" "}
+                      {jnjRole === ROLE_LEAD ? "Follow" : "Lead"} in the second
+                      division.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
+      )}
+
+      {total > 0 && (
+        <PromoGiftCardCollapsible
+          showPromo={false}
+          orderTotal={total}
+          appliedGiftCard={appliedGiftCard}
+          mutuallyExclusiveWithPromo={false}
+          onGiftCardApplied={(gc) => setAppliedGiftCard(gc)}
+        />
       )}
 
       <div>

@@ -269,16 +269,15 @@ export default function RegistrationPage() {
   const loadEvents = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabaseBrowser
-        .from("events")
-        .select("id,title,starts_at,ends_at,location,type,time_zone,strictly_price,jnj_price,strictly_level,jnj_level,all_three_classes")
-        .order("starts_at", { ascending: true });
-
-      if (error) {
-        console.error("Error loading events:", error);
+      const res = await fetch("/api/events");
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        console.error("Error loading events:", payload.error);
         setEvents([]);
       } else {
-        const allEvents = (data || []) as Event[];
+        const allEvents = ((payload.events || []) as Event[]).slice().sort((a, b) =>
+          a.starts_at.localeCompare(b.starts_at)
+        );
         let list: Event[];
 
         if ((isAdmin || isSocialViewer) && eventsView === "past") {

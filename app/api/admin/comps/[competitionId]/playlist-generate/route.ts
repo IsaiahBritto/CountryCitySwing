@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
+import { rejectCommunityCompPlaylistApi } from "@/lib/compEventAccess";
 import {
   assertCompetitionInEvent,
   loadCompPlaylistConfig,
@@ -14,10 +15,9 @@ export async function POST(
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
   try {
-    const auth = await requireAdminAuth(req);
-    if (!auth.ok) return auth.response;
-
     const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
     const body = (await req.json().catch(() => ({}))) as {
       event_id?: string;
       lookupFeatures?: boolean;
@@ -34,6 +34,9 @@ export async function POST(
     if (!belongs.ok) {
       return NextResponse.json({ error: belongs.error }, { status: 404 });
     }
+
+    const playlistBlocked = await rejectCommunityCompPlaylistApi(eventId);
+    if (playlistBlocked) return playlistBlocked;
 
     let config;
     if (body.config !== undefined) {

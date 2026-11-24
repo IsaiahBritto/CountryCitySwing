@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   findPreviousEnabledRound,
@@ -33,9 +33,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
 
   const { data: competition } = await supabaseServer
@@ -64,6 +64,19 @@ export async function POST(
   ) {
     return NextResponse.json(
       { error: "JnJ callback rounds require judged_role (lead or follow)" },
+      { status: 400 }
+    );
+  }
+  if (
+    competition.comp_type === "all_american" &&
+    roundType === "prelims" &&
+    judgedRole
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          "All American Prelims is a single callback round (do not set judged_role; pair leads/follows here first)",
+      },
       { status: 400 }
     );
   }
@@ -228,9 +241,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
 
   const roundType = req.nextUrl.searchParams.get("round_type");
   const judgedRole = req.nextUrl.searchParams.get("judged_role");

@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   const { data: signups, error: signupError } = await supabaseServer
     .from("comp_signups")
     .select(
-      "id, event_id, strictly_selected, jnj_selected, registrant_profile_id, strictly_lead_profile_id, strictly_follow_profile_id, jnj_lead_profile_id, jnj_follow_profile_id, event:events(id, title, starts_at, location, type, test_event)"
+      "id, event_id, strictly_selected, jnj_selected, registrant_profile_id, strictly_lead_profile_id, strictly_follow_profile_id, jnj_lead_profile_id, jnj_follow_profile_id, event:events(id, title, starts_at, location, type, test_event, host_kind)"
     )
     .or(
       `registrant_profile_id.eq.${profileId},strictly_lead_profile_id.eq.${profileId},strictly_follow_profile_id.eq.${profileId},jnj_lead_profile_id.eq.${profileId},jnj_follow_profile_id.eq.${profileId}`
@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
 
   const upcomingSignups = ((signups ?? []) as any[]).filter((s) => {
     if (s.event?.test_event) return false;
+    if ((s.event?.host_kind ?? "ccs") === "community") return false;
     const starts = s.event?.starts_at;
     if (!starts) return false;
     return new Date(starts).getTime() >= new Date(nowIso).getTime();
@@ -110,7 +111,7 @@ export async function GET(req: NextRequest) {
   const { data: entries, error: entriesError } = await supabaseServer
     .from("comp_entries")
     .select(
-      "id, competition_id, lead_profile_id, follow_profile_id, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at))"
+      "id, competition_id, lead_profile_id, follow_profile_id, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at, host_kind))"
     )
     .or(`lead_profile_id.eq.${profileId},follow_profile_id.eq.${profileId}`);
 
@@ -122,6 +123,7 @@ export async function GET(req: NextRequest) {
   const pastEntryInputs: CompHistoryEntryInput[] = [];
   for (const entry of (entries ?? []) as any[]) {
     if (entry.competition?.test_comp) continue;
+    if ((entry.competition?.event?.host_kind ?? "ccs") === "community") continue;
     const eventStartsAt = entry.competition?.event?.starts_at ?? null;
     if (!isPastEvent(eventStartsAt, nowIso)) continue;
 

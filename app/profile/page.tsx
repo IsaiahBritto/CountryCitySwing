@@ -468,7 +468,10 @@ export default function ProfilePage() {
             </div>
             <div className="flex items-center justify-between max-w-md gap-4">
               <label className="text-gray-300 font-medium text-sm">
-                Weekly schedule email (Sundays)
+                Weekly schedule email (Sundays).{" "}
+                <a href="/privacy" className="text-primary underline font-normal">
+                  Privacy Policy
+                </a>
               </label>
               <input
                 type="checkbox"

@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  djDeckReducer,
-  getNowPlaying,
-  INITIAL_DJ_DECK_STATE,
-} from "@/lib/spotify/djDeckState";
+import { djDeckReducer, INITIAL_DJ_DECK_STATE } from "@/lib/spotify/djDeckState";
 import type { GenrePool } from "@/lib/spotify/playlistIds";
 import {
   findRequestInsertTarget,
@@ -206,6 +202,7 @@ function mockSocialDeckView(input: {
   playlistIds: string[];
   playlistIndex: number;
   extraPlayedIndices?: number[];
+  simulateActiveDeckB?: boolean;
 }): LivePlaylistView {
   const playlist = input.playlistIds.map((id, i) => ({
     id,
@@ -238,10 +235,39 @@ function mockSocialDeckView(input: {
       index: idx,
     });
   }
+  if (input.simulateActiveDeckB) {
+    state = djDeckReducer(state, {
+      type: "SELECT_PLAYLIST",
+      deck: "B",
+      playlistId: "other-pl",
+      playlistName: "Other",
+    });
+    state = djDeckReducer(state, {
+      type: "SET_PLAYLIST",
+      deck: "B",
+      playlist: [
+        {
+          id: "b-playing",
+          uri: "spotify:track:b-playing",
+          name: "B Side",
+          primaryArtist: "Artist",
+          durationMs: 180000,
+        },
+      ],
+      playlistTotalDurationMs: 180000,
+    });
+    state = djDeckReducer(state, {
+      type: "SET_PLAYLIST_INDEX",
+      deck: "B",
+      index: 0,
+    });
+    state = djDeckReducer(state, { type: "SET_ACTIVE_DECK", deck: "B" });
+  }
   return {
     deckAuthority: "social_deck",
-    currentTrackId: getNowPlaying(state)?.id ?? null,
-    activeDeck: "A",
+    currentTrackId: playlist[input.playlistIndex]?.id ?? null,
+    socialDeck: "A",
+    activeDeck: input.simulateActiveDeckB ? "B" : "A",
     deckState: state,
   };
 }
@@ -261,6 +287,16 @@ describe("resolveInsertPlayheadIndex", () => {
     expect(
       resolveInsertPlayheadIndex(tracks, createEmptyLivePlaylistView(), 12)
     ).toBe(12);
+  });
+
+  it("uses social deck playhead when another deck is active", () => {
+    const tracks = buildCycles(4);
+    const liveView = mockSocialDeckView({
+      playlistIds: tracks.map((t) => t.spotifyTrackId),
+      playlistIndex: 20,
+      simulateActiveDeckB: true,
+    });
+    expect(resolveInsertPlayheadIndex(tracks, liveView, 99)).toBe(20);
   });
 });
 

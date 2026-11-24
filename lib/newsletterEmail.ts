@@ -1,4 +1,8 @@
 import {
+  buildMarketingEmailFooterHtml,
+  buildMarketingEmailFooterText,
+} from "@/lib/email/legalFooter";
+import {
   formatEventDateInChicago,
   formatEventTimeInChicago,
 } from "@/lib/utils/dateHelpers";
@@ -81,11 +85,8 @@ export function buildNewsletterHtml(
     workshopSection +
     "<h3 style=\"margin:0 0 12px 0;font-size:18px;color:#F2C94C;\">This week's schedule</h3>" +
     eventsSection +
-    "<div style=\"margin-top:24px;padding-top:24px;border-top:1px solid #2A2A2A;text-align:center;background-color:#0D0D0D;\">" +
-    "<p style=\"color:#737373;font-size:14px;margin:0;\">See you on the dance floor.</p>" +
-    "<p style=\"color:#737373;font-size:14px;margin:8px 0 0 0;\"><a href=\"" + siteUrl + "\" style=\"color:#F2C94C;text-decoration:none;\">countrycityswing.dance</a></p>" +
-    "<p style=\"margin:16px 0 0 0;font-size:12px;color:#525252;\"><a href=\"" + safeUnsubscribe + "\" style=\"color:#737373;text-decoration:underline;\">Unsubscribe from weekly emails</a></p>" +
-    "</div></div></td></tr></table></body></html>";
+    buildMarketingEmailFooterHtml({ unsubscribeUrl: unsubscribeUrl }) +
+    "</div></td></tr></table></body></html>";
   return html;
 }
 
@@ -119,9 +120,6 @@ export function buildNewsletterText(
   } else {
     lines.push("No events this week.");
   }
-  lines.push("");
-  lines.push("See you on the dance floor.");
-  lines.push(siteUrl);
-  lines.push("Unsubscribe: " + unsubscribeUrl);
+  lines.push(...buildMarketingEmailFooterText({ unsubscribeUrl }));
   return lines.join("\n");
 }

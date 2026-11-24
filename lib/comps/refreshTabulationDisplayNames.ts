@@ -10,7 +10,10 @@ export async function refreshTabulationDisplayNamesForRound(
   if (!ctx.round.tabulation) return false;
 
   const displays = new Map(
-    ctx.roundEntries.map((re) => [re.id, entryDisplay(re)])
+    ctx.roundEntries.map((re) => [
+      re.id,
+      entryDisplay(re, { competition: ctx.competition }),
+    ])
   );
 
   const patched = patchTabulationEntries(

@@ -15,7 +15,7 @@ import {
 } from "@/lib/comps/checkinRole";
 import { patchEntryCheckinStatus } from "@/lib/comps/checkinOptimistic";
 import { checkinSync, type CheckinReloadOptions } from "@/lib/comps/checkinSync";
-import type { CheckinStatus } from "@/lib/comps/types";
+import type { CheckinStatus, CompType } from "@/lib/comps/types";
 import { lookupPlaybookEntry } from "@/lib/comps/scoringTest/playbook";
 import RelativePlacementGrid from "@/components/comps/RelativePlacementGrid";
 import CallbackResultsTable from "@/components/comps/CallbackResultsTable";
@@ -233,6 +233,23 @@ export default function RoundPanel({
       setPairingFollows([]);
     }
   }, [detail?.finalsMeta, roundId]);
+
+  /** All American: manual pairing requires one row per max(L,F); use rotation when counts differ. */
+  useEffect(() => {
+    const comp = detail?.competition?.comp_type;
+    if (comp !== "all_american" || !detail?.finalsMeta?.prePairing) return;
+    const leads = (detail.entries ?? []).filter(
+      (e) => !e.scratched && isLeadCheckinEntry(e)
+    );
+    const follows = (detail.entries ?? []).filter(
+      (e) => !e.scratched && isFollowCheckinEntry(e)
+    );
+    const lp = leads.filter((e) => e.checkin_status === "checked_in").length;
+    const fp = follows.filter((e) => e.checkin_status === "checked_in").length;
+    if (lp > 0 && fp > 0 && lp !== fp && pairingMode === "manual") {
+      setPairingMode("rotation");
+    }
+  }, [detail?.entries, detail?.competition?.comp_type, detail?.finalsMeta?.prePairing, pairingMode]);
 
   // Live judge progress: poll while check-in/scoring is active, and listen on
   // the round's broadcast channel for instant updates from judge devices.
@@ -708,16 +725,15 @@ export default function RoundPanel({
 
   const { round, judges, heats, heatSizes, heatSlotSizes, heatPreview, finalsMeta, competition } = detail;
   const status = round.status;
-  const isJnJFinalsPrePairing =
-    competition.comp_type === "jack_and_jill" &&
-    round.round_type === "final" &&
-    finalsMeta?.prePairing === true;
+  const compType = competition.comp_type as CompType;
+  const isPrePairingCheckin =
+    finalsMeta?.prePairing === true && finalsMeta?.pairings_confirmed_at == null;
 
   const activeEntries = entries.filter((e) => !e.scratched);
-  const leadEntries = isJnJFinalsPrePairing
+  const leadEntries = isPrePairingCheckin
     ? activeEntries.filter(isLeadCheckinEntry)
     : [];
-  const followEntries = isJnJFinalsPrePairing
+  const followEntries = isPrePairingCheckin
     ? activeEntries.filter(isFollowCheckinEntry)
     : [];
 
@@ -740,19 +756,34 @@ export default function RoundPanel({
   const followPresent = followEntries.filter(
     (e) => e.checkin_status === "checked_in"
   ).length;
+  const allAmericanManualDisabled =
+    compType === "all_american" &&
+    isPrePairingCheckin &&
+    leadPresent > 0 &&
+    followPresent > 0 &&
+    leadPresent !== followPresent;
   const rotationReady =
-    isJnJFinalsPrePairing &&
+    isPrePairingCheckin &&
     leadUnresolved === 0 &&
     followUnresolved === 0 &&
     leadPresent > 0 &&
     followPresent > 0 &&
-    leadPresent === followPresent;
+    (compType === "all_american" || leadPresent === followPresent);
   const pairingsConfirmed = finalsMeta?.pairings_confirmed_at != null;
-  const rotationMax = Math.max(0, leadPresent - 1);
+  const rotationMax =
+    compType === "all_american"
+      ? followPresent <= 1
+        ? 0
+        : followPresent - 1
+      : Math.max(0, leadPresent - 1);
+  const nManualPairSlots =
+    compType === "all_american"
+      ? Math.max(leadPresent, followPresent)
+      : leadPresent;
   const pairingsDraftReady =
     pairingMode === "manual"
-      ? (finalsMeta?.manual_pairings?.length ?? 0) === leadPresent &&
-        leadPresent > 0
+      ? (finalsMeta?.manual_pairings?.length ?? 0) === nManualPairSlots &&
+        nManualPairSlots > 0
       : finalsMeta?.rotation_offset != null;
   const manualLeads =
     pairingLeads.length > 0
@@ -772,6 +803,17 @@ export default function RoundPanel({
         }));
   const heatNumber = (heatId: string | null) =>
     heats.find((h) => h.id === heatId)?.heat_number ?? null;
+
+  const prePairingLeadHeading =
+    compType === "all_american"
+      ? "Prelims check-in — leads"
+      : "Finals check-in — leads";
+  const prePairingFollowHeading =
+    compType === "all_american"
+      ? "Prelims check-in — follows"
+      : "Finals check-in — follows";
+  const prePairingSectionTitle =
+    compType === "all_american" ? "Prelims pairing" : "Finals pairing";
 
   const renderCheckinRow = (e: (typeof entries)[0]) => (
     <div
@@ -950,7 +992,7 @@ export default function RoundPanel({
             <button onClick={() => transition("pending")} disabled={busy} className={compBtnSecondary}>
               Back
             </button>
-            {round.source_round_id && !isJnJFinalsPrePairing && (
+            {round.source_round_id && !isPrePairingCheckin && (
               <button onClick={() => promoteAlternate()} disabled={busy} className={compBtnSecondary}>
                 Promote next alternate
               </button>
@@ -960,11 +1002,11 @@ export default function RoundPanel({
               disabled={
                 busy ||
                 unresolvedCheckin > 0 ||
-                (isJnJFinalsPrePairing && !pairingsConfirmed)
+                (isPrePairingCheckin && !pairingsConfirmed)
               }
               className={`round-action-primary ${compBtnOutline}`}
               title={
-                isJnJFinalsPrePairing && !pairingsConfirmed
+                isPrePairingCheckin && !pairingsConfirmed
                   ? "Confirm pairings before opening scoring"
                   : unresolvedCheckin > 0
                     ? `${unresolvedCheckin} entries still unresolved`
@@ -973,7 +1015,7 @@ export default function RoundPanel({
             >
               Open scoring ({presentCount} dancing)
             </button>
-            {isJnJFinalsPrePairing && pairingsConfirmed && (
+            {isPrePairingCheckin && pairingsConfirmed && (
               <span className="text-xs text-primary">Pairings confirmed</span>
             )}
           </>
@@ -1206,7 +1248,7 @@ export default function RoundPanel({
       {/* Check-in list */}
       {status === "checkin" && (
         <div className="mb-4">
-          {isJnJFinalsPrePairing ? (
+          {isPrePairingCheckin ? (
             <>
               <div className="mb-3 flex flex-wrap gap-2">
                 <button
@@ -1225,14 +1267,14 @@ export default function RoundPanel({
                 </button>
               </div>
               <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
-                Finals check-in — leads ({leadPresent} in / {leadUnresolved}{" "}
+                {prePairingLeadHeading} ({leadPresent} in / {leadUnresolved}{" "}
                 pending)
               </h4>
               <div className="mb-4 flex flex-col gap-2 lg:grid lg:grid-cols-2 lg:gap-2">
                 {leadEntries.map(renderCheckinRow)}
               </div>
               <h4 className="mb-2 text-sm font-semibold uppercase tracking-wide text-neutral-400">
-                Finals check-in — follows ({followPresent} in /{" "}
+                {prePairingFollowHeading} ({followPresent} in /{" "}
                 {followUnresolved} pending)
               </h4>
               <div className="mb-4 flex flex-col gap-2 lg:grid lg:grid-cols-2 lg:gap-2">
@@ -1242,15 +1284,25 @@ export default function RoundPanel({
               {rotationReady && (
                 <div className="rounded-xl border border-primary/40 bg-neutral-800/60 p-4">
                   <h4 className="mb-2 font-semibold text-white">
-                    Finals pairing
+                    {prePairingSectionTitle}
                   </h4>
+                  {allAmericanManualDisabled && (
+                    <p className="mb-3 text-sm text-amber-200/90">
+                      Lead and follow counts differ — use rotation pairing (manual
+                      needs equal counts so each slot can pick a lead and a follow).
+                    </p>
+                  )}
                   <div className="mb-3 flex flex-wrap gap-2">
                     {(["rotation", "manual"] as const).map((mode) => (
                       <button
                         key={mode}
                         type="button"
                         onClick={() => switchPairingMode(mode)}
-                        disabled={busy || pairingsConfirmed}
+                        disabled={
+                          busy ||
+                          pairingsConfirmed ||
+                          (mode === "manual" && allAmericanManualDisabled)
+                        }
                         className={
                           "rounded-md px-3 py-1.5 text-sm min-h-11 " +
                           (pairingMode === mode
@@ -1266,28 +1318,49 @@ export default function RoundPanel({
                   {pairingMode === "rotation" ? (
                     <>
                       <p className="mb-3 text-sm text-neutral-400">
-                        Enter a rotation from 1 to {rotationMax}. Lead bib order
-                        pairs with follows shifted by that amount.
+                        {compType === "all_american" ? (
+                          <>
+                            Enter a rotation offset from 0 to {rotationMax}. Couples
+                            are ordered by lead bib; follows shift on the follow list
+                            (imbalanced counts are allowed).
+                          </>
+                        ) : (
+                          <>
+                            Enter a rotation from 1 to {rotationMax}. Lead bib order
+                            pairs with follows shifted by that amount.
+                          </>
+                        )}
                       </p>
                       <div className="mb-3 flex flex-wrap items-center gap-2">
                         <input
                           type="number"
-                          min={1}
-                          max={rotationMax || 1}
+                          min={compType === "all_american" ? 0 : 1}
+                          max={rotationMax <= 0 ? 0 : rotationMax}
                           value={rotationInput}
                           onChange={(e) => setRotationInput(e.target.value)}
                           className="w-20 rounded-md border border-neutral-600 bg-neutral-900 px-2 py-2 text-sm text-white"
                         />
                         <button
                           onClick={generateRandomRotation}
-                          disabled={busy || rotationMax < 1}
+                          disabled={
+                            busy ||
+                            (compType === "all_american"
+                              ? followPresent < 1
+                              : rotationMax < 1)
+                          }
                           className={compBtnSecondary}
                         >
                           Generate random
                         </button>
                         <button
                           onClick={submitRotation}
-                          disabled={busy || !rotationInput || rotationMax < 1}
+                          disabled={
+                            busy ||
+                            !rotationInput ||
+                            (compType === "all_american"
+                              ? followPresent < 1
+                              : rotationMax < 1)
+                          }
                           className={compBtnOutline}
                         >
                           Submit rotation

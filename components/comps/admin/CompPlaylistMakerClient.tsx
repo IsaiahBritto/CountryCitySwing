@@ -248,6 +248,10 @@ export default function CompPlaylistMakerClient({
   const [generateResult, setGenerateResult] = useState<GenerateResult | null>(
     null
   );
+  const [playlistGenerationDisabled, setPlaylistGenerationDisabled] =
+    useState(false);
+  const [playlistGenerationDisabledReason, setPlaylistGenerationDisabledReason] =
+    useState<string | null>(null);
 
   const isAdmin = isCompAdminRole(me?.profile?.role);
 
@@ -282,6 +286,12 @@ export default function CompPlaylistMakerClient({
     const list = (data.competitions ?? []) as CompetitionOption[];
     setCompetitions(list);
     setSpotifyConnected(Boolean(data.spotifyConnected));
+    setPlaylistGenerationDisabled(Boolean(data.playlistGenerationDisabled));
+    setPlaylistGenerationDisabledReason(
+      typeof data.playlistGenerationDisabledReason === "string"
+        ? data.playlistGenerationDisabledReason
+        : null
+    );
     setSelectedCompetitionId((prev) => {
       if (prev && list.some((c) => c.id === prev)) return prev;
       return list[0]?.id ?? "";
@@ -548,6 +558,16 @@ export default function CompPlaylistMakerClient({
         Configure rounds, heats, and per-song BPM/energy criteria, then generate.
       </p>
 
+      {playlistGenerationDisabled && (
+        <div
+          className="mt-6 rounded-lg border border-amber-500/50 bg-amber-950/40 p-4 text-sm text-amber-100"
+          role="status"
+        >
+          {playlistGenerationDisabledReason ??
+            "Competition playlist generation is not available for this event."}
+        </div>
+      )}
+
       {error && (
         <div className="mt-4 rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
           {error}
@@ -559,6 +579,8 @@ export default function CompPlaylistMakerClient({
         </div>
       )}
 
+      {!playlistGenerationDisabled && (
+      <>
       <section className="mt-6 space-y-3 rounded-xl border border-neutral-700 bg-neutral-800/40 p-5">
         <h2 className="text-lg font-semibold text-white">Spotify account</h2>
         {spotifyConnected ? (
@@ -936,6 +958,8 @@ export default function CompPlaylistMakerClient({
             )}
           </section>
         </>
+      )}
+      </>
       )}
     </main>
   );

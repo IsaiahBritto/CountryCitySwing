@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
 import { deleteCompetitionFully } from "@/lib/comps/deleteCompetition";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
@@ -13,13 +13,13 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
 
   const { data: competition, error } = await supabaseServer
     .from("competitions")
-    .select("*, event:events(id, title, starts_at, location)")
+    .select("*, event:events(id, title, starts_at, location, host_kind)")
     .eq("id", competitionId)
     .maybeSingle();
   if (error) {
@@ -64,11 +64,23 @@ export async function GET(
     );
   }
 
+  const eventId = competition.event_id as string | null;
+  let eventCompetitions: { id: string; name: string; comp_type: string }[] = [];
+  if (eventId) {
+    const { data: siblings } = await supabaseServer
+      .from("competitions")
+      .select("id, name, comp_type")
+      .eq("event_id", eventId)
+      .order("created_at", { ascending: true });
+    eventCompetitions = (siblings ?? []) as typeof eventCompetitions;
+  }
+
   return NextResponse.json({
     competition,
     entries: entriesRes.data ?? [],
     judges: judgesRes.data ?? [],
     rounds: roundsRes.data ?? [],
+    eventCompetitions,
   });
 }
 
@@ -77,9 +89,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
 
   const update: Record<string, unknown> = {
@@ -202,9 +214,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
 
   try {
     await deleteCompetitionFully(competitionId);

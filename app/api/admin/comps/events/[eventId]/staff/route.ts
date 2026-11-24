@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCompAdminAuth } from "@/lib/compStaffAuth";
+import { requireCompEventStaffManagementAuth } from "@/lib/compEventAccess";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   filterProfilesForStaffSearch,
@@ -49,9 +49,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
-  const auth = await requireCompAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { eventId } = await params;
+  const auth = await requireCompEventStaffManagementAuth(req, eventId);
+  if (!auth.ok) return auth.response;
 
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
   if (q.length >= 2) {
@@ -81,9 +81,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
-  const auth = await requireCompAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { eventId } = await params;
+  const auth = await requireCompEventStaffManagementAuth(req, eventId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
   const profileId = body.profile_id;
   if (!profileId || typeof profileId !== "string") {
@@ -118,9 +118,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ eventId: string }> }
 ) {
-  const auth = await requireCompAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { eventId } = await params;
+  const auth = await requireCompEventStaffManagementAuth(req, eventId);
+  if (!auth.ok) return auth.response;
   const profileId = req.nextUrl.searchParams.get("profile_id");
   if (!profileId) {
     return NextResponse.json({ error: "profile_id is required" }, { status: 400 });

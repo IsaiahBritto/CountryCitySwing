@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authRoundManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import {
   computeRotatedPairs,
+  isFixedCouplePrePairingRound,
   pairingsReady,
   randomRotationOffset,
   resolveFinalsPairs,
   validateManualPairings,
 } from "@/lib/comps/finalsPairing";
+import {
+  randomAllAmericanRotationOffset,
+  validateAllAmericanManualPairings,
+} from "@/lib/comps/allAmericanPairing";
+import type { CompType } from "@/lib/comps/types";
 import {
   activeRoundEntries,
   entryDisplay,
@@ -23,7 +29,7 @@ function finalsPairEntries(ctx: Awaited<ReturnType<typeof loadRoundContext>>) {
   const leads = active
     .filter((re) => effectiveCheckinRole(re) === "lead")
     .map((re) => {
-      const d = entryDisplay(re);
+      const d = entryDisplay(re, { competition: ctx.competition });
       return {
         id: re.id,
         bibNumber: d.bibNumber,
@@ -35,7 +41,7 @@ function finalsPairEntries(ctx: Awaited<ReturnType<typeof loadRoundContext>>) {
   const follows = active
     .filter((re) => effectiveCheckinRole(re) === "follow")
     .map((re) => {
-      const d = entryDisplay(re);
+      const d = entryDisplay(re, { competition: ctx.competition });
       return {
         id: re.id,
         bibNumber: d.bibNumber,
@@ -63,7 +69,12 @@ function pairingPayload(ctx: Awaited<ReturnType<typeof loadRoundContext>>) {
   let preview: { leadBib: number | null; followBib: number | null }[] = [];
   if (pairingsReady(round)) {
     try {
-      const pairs = resolveFinalsPairs(leads, follows, round);
+      const pairs = resolveFinalsPairs(
+        leads,
+        follows,
+        round,
+        ctx.competition.comp_type as CompType
+      );
       preview = previewFromPairs(pairs);
     } catch {
       preview = [];
@@ -90,13 +101,15 @@ function pairingPayload(ctx: Awaited<ReturnType<typeof loadRoundContext>>) {
 async function assertPrePairingRound(roundId: string) {
   const ctx = await loadRoundContext(roundId);
   if (
-    ctx.competition.comp_type !== "jack_and_jill" ||
-    ctx.round.round_type !== "final" ||
+    !isFixedCouplePrePairingRound(
+      ctx.competition.comp_type as CompType,
+      ctx.round
+    ) ||
     ctx.round.pairings_confirmed_at
   ) {
     return {
       error: NextResponse.json(
-        { error: "Pairings apply to unconfirmed JnJ finals only" },
+        { error: "Pairings apply only before partner confirmation on this round" },
         { status: 409 }
       ),
     };
@@ -117,9 +130,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ roundId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { roundId } = await params;
+  const auth = await authRoundManage(req, roundId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
 
   try {
@@ -128,8 +141,16 @@ export async function POST(
     if ("error" in gate) return gate.error;
     const { ctx } = gate;
     const { leads, follows } = finalsPairEntries(ctx);
-    const n = leads.length;
-    if (n === 0 || n !== follows.length) {
+    const compType = ctx.competition.comp_type as CompType;
+    const isAllAmerican = compType === "all_american";
+
+    if (leads.length === 0 || follows.length === 0) {
+      return NextResponse.json(
+        { error: "Need at least one checked-in lead and one follow before pairing" },
+        { status: 409 }
+      );
+    }
+    if (!isAllAmerican && leads.length !== follows.length) {
       return NextResponse.json(
         { error: "Checked-in lead and follow counts must match before pairing" },
         { status: 409 }
@@ -169,7 +190,9 @@ export async function POST(
 
     if (body.action === "save_manual") {
       const pairs = (body.pairs ?? []) as ManualPairingRow[];
-      const validation = validateManualPairings(leads, follows, pairs);
+      const validation = isAllAmerican
+        ? validateAllAmericanManualPairings(leads, follows, pairs)
+        : validateManualPairings(leads, follows, pairs);
       if (!validation.ok) {
         return NextResponse.json({ error: validation.error }, { status: 400 });
       }
@@ -192,7 +215,7 @@ export async function POST(
         pairing_mode: "manual",
         rotation_offset: null,
         manual_pairings: pairs,
-      });
+      }, compType);
       return NextResponse.json({
         pairing_mode: "manual",
         manual_pairings: pairs,
@@ -201,16 +224,45 @@ export async function POST(
     }
 
     if (body.action === "random") {
+      if (isAllAmerican) {
+        const offset = randomAllAmericanRotationOffset(leads.length, follows.length);
+        const f = follows.length;
+        return NextResponse.json({
+          rotation_offset: offset,
+          max: f <= 1 ? 0 : f - 1,
+        });
+      }
+      const n = leads.length;
       const offset = randomRotationOffset(n);
       return NextResponse.json({ rotation_offset: offset, max: n - 1 });
     }
 
     const offset = Number(body.rotation_offset);
-    if (!Number.isInteger(offset) || offset < 1 || offset > n - 1) {
-      return NextResponse.json(
-        { error: `Rotation must be an integer from 1 to ${n - 1}` },
-        { status: 400 }
-      );
+    if (isAllAmerican) {
+      const f = follows.length;
+      if (f === 1 && offset !== 0) {
+        return NextResponse.json(
+          { error: "Rotation must be 0 when there is only one follow" },
+          { status: 400 }
+        );
+      }
+      if (
+        f > 1 &&
+        (!Number.isInteger(offset) || offset < 0 || offset > f - 1)
+      ) {
+        return NextResponse.json(
+          { error: `Rotation must be an integer from 0 to ${f - 1}` },
+          { status: 400 }
+        );
+      }
+    } else {
+      const n = leads.length;
+      if (!Number.isInteger(offset) || offset < 1 || offset > n - 1) {
+        return NextResponse.json(
+          { error: `Rotation must be an integer from 1 to ${n - 1}` },
+          { status: 400 }
+        );
+      }
     }
 
     const { error } = await supabaseServer
@@ -230,7 +282,13 @@ export async function POST(
       );
     }
 
-    const pairs = computeRotatedPairs(leads, follows, offset);
+    const pairs = isAllAmerican
+      ? resolveFinalsPairs(leads, follows, {
+          pairing_mode: "rotation",
+          rotation_offset: offset,
+          manual_pairings: null,
+        }, compType)
+      : computeRotatedPairs(leads, follows, offset);
     return NextResponse.json({
       pairing_mode: "rotation",
       rotation_offset: offset,
@@ -249,9 +307,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ roundId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { roundId } = await params;
+  const auth = await authRoundManage(req, roundId);
+  if (!auth.ok) return auth.response;
 
   try {
     await repairPromotedAlternateRoles(roundId);

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
 import { buildSlotJudgeProgress } from "@/lib/comps/judgeProgress";
 import { loadRoundContext, RoundDataError } from "@/lib/comps/roundData";
 import type { RoundType } from "@/lib/comps/types";
@@ -16,9 +16,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const roundType = req.nextUrl.searchParams.get("round_type") as RoundType | null;
 
   if (!roundType || !SLOT_TYPES.includes(roundType)) {

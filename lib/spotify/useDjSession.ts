@@ -35,6 +35,7 @@ import {
   shouldFullRestoreOnJoin,
   shouldIgnoreOwnPersistEcho,
   shouldPersistAsPlaybackHost,
+  shouldRestoreDeckOnPersistConflict,
   shouldSkipDeckRestore,
 } from "@/lib/spotify/djSessionSync";
 import { isOtherHostTabActive } from "@/lib/spotify/djHostTabLeader";
@@ -70,6 +71,12 @@ export type UseDjSessionOptions = {
   deckState: DjDeckState;
   dispatch: Dispatch<DjDeckAction>;
   onSessionRestored?: () => void;
+  /** Page refresh / first join only — not Realtime session updates. */
+  onJoinRestored?: () => void;
+  getHostPlaybackContext?: () => {
+    isSdkPlaying: boolean;
+    sdkTrackUri: string | null;
+  };
   onError?: (message: string) => void;
   getPlaybackSnapshot: () => DjPlaybackSnapshot;
   hostDeviceIdRef?: RefObject<string | null>;
@@ -104,6 +111,8 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
     deckState,
     dispatch,
     onSessionRestored,
+    onJoinRestored,
+    getHostPlaybackContext,
     onError,
     getPlaybackSnapshot,
     hostDeviceIdRef,
@@ -127,6 +136,8 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
   const lastAppliedVersionRef = useRef(0);
   const lastPersistedDeckHashRef = useRef<string | null>(null);
   const lastOwnPersistVersionRef = useRef(0);
+  const persistInFlightRef = useRef(false);
+  const persistAgainRef = useRef(false);
   const shouldApplyDeckStateRef = useRef(shouldApplyDeckState);
   shouldApplyDeckStateRef.current = shouldApplyDeckState;
 
@@ -134,8 +145,24 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
   onErrorRef.current = onError;
   const onSessionRestoredRef = useRef(onSessionRestored);
   onSessionRestoredRef.current = onSessionRestored;
+  const onJoinRestoredRef = useRef(onJoinRestored);
+  onJoinRestoredRef.current = onJoinRestored;
+  const getHostPlaybackContextRef = useRef(getHostPlaybackContext);
+  getHostPlaybackContextRef.current = getHostPlaybackContext;
   const onHostSessionLoadedRef = useRef(onHostSessionLoaded);
   onHostSessionLoadedRef.current = onHostSessionLoaded;
+
+  const getHostPlaybackForRestore = useCallback(
+    (isPlaybackHost: boolean) => {
+      const ctx = getHostPlaybackContextRef.current?.();
+      return {
+        isPlaybackHost,
+        isSdkPlaying: ctx?.isSdkPlaying ?? false,
+        sdkTrackUri: ctx?.sdkTrackUri ?? null,
+      };
+    },
+    []
+  );
 
   const deckStateHash = deckStateContentHash(deckState);
 
@@ -174,7 +201,8 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
           next,
           deckStateRef.current,
           isPlaybackHost ? shouldApplyDeckStateRef.current : undefined,
-          current
+          current,
+          isPlaybackHost ? getHostPlaybackForRestore(true) : null
         )
       ) {
         mergeSession(next);
@@ -186,9 +214,8 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
       lastPersistedDeckHashRef.current = deckStateContentHash(next.deckState);
       dispatch({ type: "RESTORE_SESSION", state: next.deckState });
       setSession(next);
-      onSessionRestoredRef.current?.();
     },
-    [dispatch, mergeSession]
+    [dispatch, getHostPlaybackForRestore, mergeSession]
   );
 
   const joinSession = useCallback(async () => {
@@ -241,7 +268,6 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
         applyingRemoteRef.current = true;
         dispatch({ type: "RESTORE_SESSION", state: body.deckState });
         setSession(body);
-        onSessionRestoredRef.current?.();
         if (
           canActAsPlaybackHost(
             nextRole,
@@ -251,6 +277,8 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
         ) {
           onHostSessionLoadedRef.current?.(body);
         }
+        onSessionRestoredRef.current?.();
+        onJoinRestoredRef.current?.();
       } else {
         mergeSession(body);
       }
@@ -349,67 +377,118 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
     };
   }, [applyRemoteSession, enabled, mergeSession, session?.id]);
 
-  const persistNow = useCallback(async () => {
-    const currentSession = sessionRef.current;
-    if (!currentSession || currentSession.status !== "active") return;
-    if (applyingRemoteRef.current) return;
-    if (
-      !shouldPersistAsPlaybackHost(
-        roleRef.current,
-        currentSession.status === "active",
-        isOtherHostTabActive()
-      )
-    ) {
-      return;
-    }
+  const sendPersistPatch = useCallback(
+    async (
+      sessionForPatch: DjSessionResponse,
+      hashAtStart: string
+    ): Promise<
+      | { outcome: "ok" }
+      | { outcome: "fail" }
+      | { outcome: "conflict"; latest: DjSessionResponse | null }
+    > => {
+      const isHost = sessionForPatch.hostClientId === clientIdRef.current;
+      const body: Record<string, unknown> = {
+        sessionId: sessionForPatch.id,
+        stateVersion: sessionForPatch.stateVersion,
+        deckState: serializeDjDeckState(deckStateRef.current),
+        clientId: clientIdRef.current,
+      };
 
-    const hashAtStart = deckStateContentHash(deckStateRef.current);
-    if (hashAtStart === lastPersistedDeckHashRef.current) return;
-
-    const isHost = currentSession.hostClientId === clientIdRef.current;
-    const body: Record<string, unknown> = {
-      sessionId: currentSession.id,
-      stateVersion: currentSession.stateVersion,
-      deckState: serializeDjDeckState(deckStateRef.current),
-      clientId: clientIdRef.current,
-    };
-
-    if (isHost) {
-      body.playbackSnapshot = getPlaybackSnapshot();
-    }
-
-    const res = await authedFetchWithRetry("/api/dj/session/state", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    if (res.status === 409) {
-      const conflict = await res.json().catch(() => ({}));
-      const latest = (conflict as { session?: DjSessionResponse }).session;
-      if (
-        latest &&
-        shouldApplyPersistResponse(hashAtStart, deckStateRef.current)
-      ) {
-        applyRemoteSession(latest);
+      if (isHost) {
+        body.playbackSnapshot = getPlaybackSnapshot();
       }
+
+      const res = await authedFetchWithRetry("/api/dj/session/state", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (res.status === 409) {
+        const conflict = await res.json().catch(() => ({}));
+        const latest =
+          (conflict as { session?: DjSessionResponse | null }).session ?? null;
+        return { outcome: "conflict", latest };
+      }
+
+      if (!res.ok) return { outcome: "fail" };
+
+      const updated = (await res.json()) as DjSessionResponse;
+      if (!shouldApplyPersistResponse(hashAtStart, deckStateRef.current)) {
+        return { outcome: "ok" };
+      }
+
+      lastAppliedVersionRef.current = updated.stateVersion;
+      lastPersistedDeckHashRef.current = hashAtStart;
+      if (isHost) {
+        lastOwnPersistVersionRef.current = updated.stateVersion;
+      }
+      mergeSession(updated);
+      return { outcome: "ok" };
+    },
+    [getPlaybackSnapshot, mergeSession]
+  );
+
+  const persistNow = useCallback(async () => {
+    if (persistInFlightRef.current) {
+      persistAgainRef.current = true;
       return;
     }
+    persistInFlightRef.current = true;
+    try {
+      do {
+        persistAgainRef.current = false;
 
-    if (!res.ok) return;
+        const currentSession = sessionRef.current;
+        if (!currentSession || currentSession.status !== "active") continue;
+        if (applyingRemoteRef.current) continue;
+        if (
+          !shouldPersistAsPlaybackHost(
+            roleRef.current,
+            currentSession.status === "active",
+            isOtherHostTabActive()
+          )
+        ) {
+          continue;
+        }
 
-    const updated = (await res.json()) as DjSessionResponse;
-    if (!shouldApplyPersistResponse(hashAtStart, deckStateRef.current)) {
-      return;
+        const hashAtStart = deckStateContentHash(deckStateRef.current);
+        if (hashAtStart === lastPersistedDeckHashRef.current) continue;
+
+        let sessionForPatch = currentSession;
+        let patchResult = await sendPersistPatch(sessionForPatch, hashAtStart);
+
+        if (patchResult.outcome === "conflict") {
+          const latest = patchResult.latest;
+
+          if (
+            latest &&
+            shouldApplyPersistResponse(hashAtStart, deckStateRef.current)
+          ) {
+            if (
+              shouldRestoreDeckOnPersistConflict(
+                deckStateRef.current,
+                latest.deckState
+              )
+            ) {
+              applyRemoteSession(latest);
+            } else {
+              const merged = mergeSessionMetadata(
+                sessionRef.current ?? latest,
+                latest
+              );
+              sessionRef.current = merged;
+              setSession(merged);
+              sessionForPatch = merged;
+              await sendPersistPatch(sessionForPatch, hashAtStart);
+            }
+          }
+        }
+      } while (persistAgainRef.current);
+    } finally {
+      persistInFlightRef.current = false;
     }
-
-    lastAppliedVersionRef.current = updated.stateVersion;
-    lastPersistedDeckHashRef.current = hashAtStart;
-    if (isHost) {
-      lastOwnPersistVersionRef.current = updated.stateVersion;
-    }
-    mergeSession(updated);
-  }, [applyRemoteSession, getPlaybackSnapshot, mergeSession]);
+  }, [applyRemoteSession, sendPersistPatch]);
 
   const flushPersist = useCallback(async () => {
     if (persistTimerRef.current) {
@@ -532,6 +611,7 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
         body: JSON.stringify({
           hostClientId: clientIdRef.current,
           deckState: serializeDjDeckState(deckStateRef.current),
+          playbackSnapshot: getPlaybackSnapshot(),
         }),
       });
 
@@ -549,6 +629,7 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
       lastOwnPersistVersionRef.current = created.stateVersion;
       setSession(created);
       setRole("host");
+      await flushPersist();
       return true;
     } catch (err) {
       onErrorRef.current?.(
@@ -556,7 +637,7 @@ export function useDjSession(options: UseDjSessionOptions): UseDjSessionReturn {
       );
       return false;
     }
-  }, []);
+  }, [flushPersist, getPlaybackSnapshot]);
 
   const endSession = useCallback(async () => {
     const currentSession = sessionRef.current;

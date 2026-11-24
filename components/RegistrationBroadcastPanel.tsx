@@ -144,6 +144,11 @@ export default function RegistrationBroadcastPanel({
         Send a styled update to people registered for this event. Your message
         appears in the body; the email includes the event name, date, and location.
       </p>
+      <p className="mt-2 text-xs text-amber-200/90 border border-amber-500/30 rounded-md bg-amber-500/10 px-3 py-2 leading-relaxed">
+        <strong>Compliance:</strong> Use this only for logistics about this event (time, venue, parking,
+        check-in). Do not send unrelated promotions or newsletters here—those require marketing opt-in and
+        unsubscribe. Recipients cannot opt out of essential registration updates from this panel.
+      </p>
 
       <div className="mt-4 space-y-4">
         <fieldset>

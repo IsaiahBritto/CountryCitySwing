@@ -2,9 +2,15 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import {
+  canManageCompEvent,
+  compEventBackHref,
+  type MeResponse,
+} from "@/lib/comps/compAccessClient";
+import EventCompetitionNav from "@/components/comps/host/EventCompetitionNav";
 import { judgeDisplayCount } from "@/lib/comps/judgeDisplayCount";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import EntriesTab from "@/components/comps/admin/EntriesTab";
@@ -17,6 +23,7 @@ type Tab = "entries" | "judges" | "rounds" | "prizes";
 const TYPE_LABEL: Record<string, string> = {
   jack_and_jill: "Jack & Jill",
   strictly: "Strictly",
+  all_american: "All American",
 };
 
 export default function CompetitionConsolePage({
@@ -26,8 +33,11 @@ export default function CompetitionConsolePage({
 }) {
   const { competitionId } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const autoOpenImport = searchParams.get("import") === "1";
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [me, setMe] = useState<MeResponse | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("entries");
@@ -38,6 +48,9 @@ export default function CompetitionConsolePage({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [eventCompetitions, setEventCompetitions] = useState<
+    { id: string; name: string; comp_type: string }[]
+  >([]);
 
   const load = useCallback(async () => {
     const res = await authedFetch(`/api/admin/comps/${competitionId}`);
@@ -45,7 +58,9 @@ export default function CompetitionConsolePage({
       setError(await apiError(res));
       return;
     }
-    setDetail(await res.json());
+    const data = await res.json();
+    setDetail(data);
+    setEventCompetitions(data.eventCompetitions ?? []);
   }, [competitionId]);
 
   useEffect(() => {
@@ -55,6 +70,10 @@ export default function CompetitionConsolePage({
       setMaxFloorCouples("");
     }
   }, [detail?.competition?.max_floor_couples]);
+
+  useEffect(() => {
+    if (autoOpenImport) setTab("entries");
+  }, [autoOpenImport]);
 
   useEffect(() => {
     (async () => {
@@ -68,10 +87,11 @@ export default function CompetitionConsolePage({
       const res = await fetch("/api/me", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
-      const me = res.ok ? await res.json() : null;
-      const admin = (me?.profile?.role ?? "").toLowerCase() === "admin";
+      const meData = res.ok ? await res.json() : null;
+      setMe(meData);
+      const admin = (meData?.profile?.role ?? "").toLowerCase() === "admin";
       setIsAdmin(admin);
-      if (admin) await load();
+      await load();
       setLoading(false);
     })();
   }, [load]);
@@ -155,7 +175,13 @@ export default function CompetitionConsolePage({
       return;
     }
     setShowDeleteConfirm(false);
-    router.push("/admin/comps");
+    const hostKind = detail?.competition?.event?.host_kind;
+    const eid = detail?.competition?.event_id ?? detail?.competition?.event?.id;
+    if (hostKind === "community" && eid) {
+      router.push(`/host/comps/${eid}/operate`);
+    } else {
+      router.push("/admin/comps");
+    }
   };
 
   if (loading) {
@@ -165,15 +191,13 @@ export default function CompetitionConsolePage({
       </div>
     );
   }
-  if (!isAdmin) {
-    return (
-      <div className="mx-auto mt-12 max-w-2xl rounded-xl border border-neutral-700 bg-neutral-800/50 p-8 text-center">
-        <h1 className="mb-2 text-xl font-semibold text-primary">Access denied</h1>
-        <p className="text-neutral-400">This page is for administrators only.</p>
-      </div>
-    );
-  }
-  if (!detail) {
+  const eventId = detail?.competition?.event_id ?? detail?.competition?.event?.id;
+  const allowed =
+    detail &&
+    eventId &&
+    canManageCompEvent(me, String(eventId));
+
+  if (!detail || !allowed) {
     return (
       <div className="py-12">
         <p className="text-center text-red-300">{error ?? "Loading…"}</p>
@@ -182,6 +206,11 @@ export default function CompetitionConsolePage({
   }
 
   const { competition, entries, judges, rounds } = detail;
+  const eventIdStr = String(eventId);
+  const hostKind = competition.event?.host_kind;
+  const isCommunity = hostKind === "community";
+  const back = compEventBackHref(me, eventIdStr, hostKind);
+  const hubHref = `/host/comps/${eventIdStr}/operate`;
 
   const tabs: [Tab, string][] = [
     ["entries", `Entries (${entries.length})`],
@@ -191,9 +220,19 @@ export default function CompetitionConsolePage({
   ];
   return (
     <div className="w-full py-8">
-      <Link href="/admin/comps" className="text-sm text-neutral-400 hover:text-primary">
-        ← All competitions
+      <Link href={back.href} className="text-sm text-neutral-400 hover:text-primary">
+        ← {back.label}
       </Link>
+      {isCommunity && eventCompetitions.length > 0 && (
+        <div className="mt-4">
+          <EventCompetitionNav
+            eventId={eventIdStr}
+            competitions={eventCompetitions}
+            hubHref={hubHref}
+            activeSection={competitionId}
+          />
+        </div>
+      )}
       <div className="mb-6 mt-2 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-primary">{competition.name}</h1>
@@ -325,6 +364,8 @@ export default function CompetitionConsolePage({
           compType={competition.comp_type}
           entries={entries}
           onChanged={load}
+          autoOpenImport={autoOpenImport}
+          isCommunityEvent={isCommunity}
         />
       )}
       {tab === "judges" && (

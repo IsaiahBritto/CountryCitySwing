@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import type { RoundSlotRef } from "@/lib/comps/roundChain";
 import {
@@ -16,9 +16,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const body = await req.json().catch(() => ({}));
   const leadRoundId = body.lead_round_id as string | undefined;
   const followRoundId = body.follow_round_id as string | undefined;

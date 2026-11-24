@@ -19,6 +19,21 @@ export function isJnJFinalsRound(
   );
 }
 
+/** All American: Prelims is lead+follow check-in then rotation; before confirm, individuals only. */
+export function isAllAmericanPrelimsPrePairing(
+  compType: CompType,
+  roundType: RoundType,
+  judgedRole: DanceRole | null,
+  pairingsConfirmedAt: string | null
+): boolean {
+  return (
+    compType === "all_american" &&
+    roundType === "prelims" &&
+    judgedRole == null &&
+    pairingsConfirmedAt == null
+  );
+}
+
 export function needsJnJFinalsReseed(
   roundEntries: { checkin_role: string | null }[]
 ): boolean {

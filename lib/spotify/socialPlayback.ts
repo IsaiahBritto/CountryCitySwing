@@ -2,6 +2,7 @@ import {
   getActivePlaylistStatus,
   loadSnapshotTracks,
 } from "@/lib/spotify/activePlaylist";
+import { activeCatalogPlaylistId } from "@/lib/spotify/activeCatalogPlaylist";
 import {
   getDeckState,
   getNowPlaying,
@@ -124,7 +125,7 @@ export async function getSocialPlayback(): Promise<SocialPlaybackResponse> {
     console.warn("Could not load playlist snapshot for genres:", err);
   }
 
-  const socialPlaylistId = activeStatus.spotifyPlaylistId;
+  const socialPlaylistId = activeCatalogPlaylistId(activeStatus);
   const positionFallbackForDeck = allowPositionFallbackForEntry(
     activeDeckState,
     socialPlaylistId,

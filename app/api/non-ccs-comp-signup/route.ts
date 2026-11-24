@@ -1,0 +1,338 @@
+import { NextRequest, NextResponse } from "next/server";
+import {
+  COMMUNITY_OFFLINE_PAYMENT_METHOD,
+  isApprovedCommunityEvent,
+  parseCommunityPaymentMethods,
+} from "@/lib/communityEvents";
+import {
+  checkDuplicateCommunityCompSignupByEmailFromRows,
+  resolveGuestCommunityCompSignup,
+  type GuestCommunityCompSignupBody,
+} from "@/lib/communityCompSignupGuest";
+import { buildSignupSummaryFromGuestPayload } from "@/lib/email/communityCompSignupConfirmationEmail";
+import { sendCommunityCompSignupConfirmations } from "@/lib/email/sendCommunityCompSignupConfirmations";
+import { supabaseServer } from "@/lib/supabaseServer";
+import { clientIpFromRequest, rateLimit } from "@/lib/spotify/rateLimit";
+import { resolveSignupDivisionIds } from "@/lib/comps/signupDivision";
+import {
+  assignmentsFromSingleLegacy,
+  computeExpectedCompSignupTotal,
+  parseJnJAssignmentsFromBody,
+  primaryJnJCompetitionId,
+  validateJnJAssignments,
+} from "@/lib/comps/jnjAssignments";
+import {
+  checkJnJDuplicateAssignmentsForEvent,
+  insertJnJAssignmentsAfterSignupCreate,
+} from "@/lib/comps/jnjAssignmentsStore";
+
+export async function POST(req: NextRequest) {
+  const ip = clientIpFromRequest(req);
+  const limited = rateLimit({
+    key: `non-ccs-comp-signup:${ip}`,
+    limit: 20,
+    windowMs: 60 * 60_000,
+  });
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "Too many signup attempts. Try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(limited.retryAfterSec) },
+      }
+    );
+  }
+
+  const data = (await req.json()) as GuestCommunityCompSignupBody & {
+    event?: { id?: string; title?: string };
+    accept_liability?: boolean;
+    accept_payment?: boolean | string;
+    accept_refund?: boolean | string;
+    selected_payment_method_id?: string;
+    all_american_selected?: boolean;
+    jnj_competition_id?: string | null;
+    strictly_competition_id?: string | null;
+    all_american_competition_id?: string | null;
+  };
+
+  const event = data.event ?? {};
+  const eventId = event.id;
+  const eventTitle = event.title ?? "Comp Event";
+  const strictlySelected = !!data.strictly_selected;
+  const jnjSelected = !!data.jnj_selected;
+  const allAmericanSelected = !!data.all_american_selected;
+  const acceptLiability = !!data.accept_liability;
+  const acceptPayment =
+    data.accept_payment === true || data.accept_payment === "true";
+  const acceptRefundExplicit =
+    data.accept_refund === true || data.accept_refund === "true";
+  const paymentMethodId =
+    typeof data.selected_payment_method_id === "string"
+      ? data.selected_payment_method_id.trim()
+      : "";
+
+  if (!eventId) {
+    return NextResponse.json({ error: "Missing event id" }, { status: 400 });
+  }
+  if (!strictlySelected && !jnjSelected && !allAmericanSelected) {
+    return NextResponse.json(
+      { error: "Select at least one division" },
+      { status: 400 }
+    );
+  }
+  if (!acceptLiability) {
+    return NextResponse.json(
+      { error: "You must accept the liability release" },
+      { status: 400 }
+    );
+  }
+  if (!acceptPayment) {
+    return NextResponse.json(
+      { error: "You must acknowledge offline payment terms" },
+      { status: 400 }
+    );
+  }
+  if (!paymentMethodId) {
+    return NextResponse.json(
+      { error: "Select a payment method" },
+      { status: 400 }
+    );
+  }
+
+  const { data: eventRow, error: eventErr } = await supabaseServer
+    .from("events")
+    .select(
+      "host_kind, approval_status, community_payment_methods, strictly_price, jnj_price, refund_statement, title, starts_at, location, time_zone"
+    )
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (eventErr || !eventRow || !isApprovedCommunityEvent(eventRow)) {
+    return NextResponse.json({ error: "Event not available for signup" }, { status: 404 });
+  }
+
+  const refundStatement =
+    eventRow.refund_statement && String(eventRow.refund_statement).trim()
+      ? String(eventRow.refund_statement).trim()
+      : "";
+  if (refundStatement && !acceptRefundExplicit) {
+    return NextResponse.json(
+      { error: "You must acknowledge the refund policy for this event." },
+      { status: 400 }
+    );
+  }
+
+  const methods = parseCommunityPaymentMethods(eventRow.community_payment_methods);
+  const chosen = methods.find((m) => m.id === paymentMethodId);
+  if (!chosen) {
+    return NextResponse.json({ error: "Invalid payment method" }, { status: 400 });
+  }
+
+  const { data: eventCompetitions, error: compDivErr } = await supabaseServer
+    .from("competitions")
+    .select("id, name, comp_type, test_comp")
+    .eq("event_id", eventId);
+
+  if (compDivErr) {
+    return NextResponse.json(
+      { error: "Failed to load competition divisions" },
+      { status: 500 }
+    );
+  }
+
+  const divisionIds = resolveSignupDivisionIds(
+    {
+      strictlySelected,
+      jnjSelected,
+      allAmericanSelected,
+      strictlyCompetitionId:
+        typeof data.strictly_competition_id === "string"
+          ? data.strictly_competition_id
+          : null,
+      jnjCompetitionId:
+        typeof data.jnj_competition_id === "string" ? data.jnj_competition_id : null,
+      allAmericanCompetitionId:
+        typeof data.all_american_competition_id === "string"
+          ? data.all_american_competition_id
+          : null,
+    },
+    (eventCompetitions ?? []) as {
+      id: string;
+      name: string;
+      comp_type: string;
+      test_comp?: boolean | null;
+    }[]
+  );
+  if ("error" in divisionIds) {
+    return NextResponse.json(
+      { error: divisionIds.error },
+      { status: divisionIds.status }
+    );
+  }
+
+  const compRows = (eventCompetitions ?? []) as {
+    id: string;
+    name: string;
+    comp_type: string;
+    test_comp?: boolean | null;
+  }[];
+
+  const parsedJnJ =
+    parseJnJAssignmentsFromBody(data as Record<string, unknown>) ??
+    assignmentsFromSingleLegacy(
+      divisionIds.jnj_competition_id,
+      data.jnj_role === "lead" || data.jnj_role === "follow"
+        ? data.jnj_role
+        : null
+    );
+
+  const jnjValidated = validateJnJAssignments(
+    parsedJnJ,
+    compRows,
+    jnjSelected
+  );
+  if ("error" in jnjValidated) {
+    return NextResponse.json(
+      { error: jnjValidated.error },
+      { status: jnjValidated.status }
+    );
+  }
+
+  if (jnjSelected && jnjValidated.length > 0) {
+    divisionIds.jnj_competition_id = primaryJnJCompetitionId(jnjValidated);
+  }
+
+  const resolved = resolveGuestCommunityCompSignup(data, {
+    strictlySelected,
+    jnjSelected,
+    jnjAssignments: jnjValidated,
+  });
+  if ("error" in resolved) {
+    return NextResponse.json({ error: resolved.error }, { status: resolved.status });
+  }
+
+  const { data: existingSignups } = await supabaseServer
+    .from("comp_signups")
+    .select(
+      "strictly_selected, strictly_lead_email, strictly_follow_email, jnj_selected, jnj_lead_email, jnj_follow_email"
+    )
+    .eq("event_id", eventId)
+    .neq("refunded_or_cancelled", "cancelled");
+
+  let isDuplicate = false;
+  if (strictlySelected) {
+    isDuplicate = checkDuplicateCommunityCompSignupByEmailFromRows(
+      existingSignups ?? [],
+      resolved,
+      { strictlySelected: true, jnjSelected: false }
+    );
+  }
+  if (!isDuplicate && jnjSelected) {
+    if (jnjValidated.length > 0) {
+      isDuplicate = await checkJnJDuplicateAssignmentsForEvent(eventId, {
+        registrantProfileId: "",
+        leadEmail: resolved.jnj_lead_email,
+        followEmail: resolved.jnj_follow_email,
+        leadProfileId: null,
+        followProfileId: null,
+        newAssignments: jnjValidated,
+      });
+    } else {
+      isDuplicate = checkDuplicateCommunityCompSignupByEmailFromRows(
+        existingSignups ?? [],
+        resolved,
+        { strictlySelected: false, jnjSelected: true }
+      );
+    }
+  }
+  if (isDuplicate) {
+    return NextResponse.json(
+      { error: "Already registered", alreadyRegistered: true, eventTitle },
+      { status: 409 }
+    );
+  }
+
+  const amountOwed = computeExpectedCompSignupTotal({
+    strictlySelected,
+    strictlyPrice: eventRow.strictly_price,
+    jnjSelected,
+    jnjPrice: eventRow.jnj_price,
+    jnjAssignmentCount: jnjSelected ? jnjValidated.length : 0,
+  });
+
+  const insertRow: Record<string, unknown> = {
+    event_id: eventId,
+    event_title: eventTitle,
+    registrant_profile_id: null,
+    strictly_selected: strictlySelected,
+    strictly_price: eventRow.strictly_price ?? null,
+    strictly_lead_profile_id: null,
+    strictly_follow_profile_id: null,
+    strictly_lead_first_name: resolved.strictly_lead_first_name,
+    strictly_lead_last_name: resolved.strictly_lead_last_name,
+    strictly_lead_email: resolved.strictly_lead_email,
+    strictly_follow_first_name: resolved.strictly_follow_first_name,
+    strictly_follow_last_name: resolved.strictly_follow_last_name,
+    strictly_follow_email: resolved.strictly_follow_email,
+    jnj_selected: jnjSelected,
+    jnj_price: eventRow.jnj_price ?? null,
+    jnj_lead_profile_id: null,
+    jnj_follow_profile_id: null,
+    jnj_lead_first_name: resolved.jnj_lead_first_name,
+    jnj_lead_last_name: resolved.jnj_lead_last_name,
+    jnj_lead_email: resolved.jnj_lead_email,
+    jnj_follow_first_name: resolved.jnj_follow_first_name,
+    jnj_follow_last_name: resolved.jnj_follow_last_name,
+    jnj_follow_email: resolved.jnj_follow_email,
+    jnj_competition_id: divisionIds.jnj_competition_id,
+    strictly_competition_id: divisionIds.strictly_competition_id,
+    all_american_competition_id: divisionIds.all_american_competition_id,
+    all_american_selected: allAmericanSelected,
+    payment_method: COMMUNITY_OFFLINE_PAYMENT_METHOD,
+    amount_owed: amountOwed,
+    paid: false,
+    accept_liability: acceptLiability,
+    accept_payment: acceptPayment,
+    selected_payment_method_id: paymentMethodId,
+    selected_payment_method_label: chosen.label,
+  };
+
+  const { data: inserted, error: insertError } = await supabaseServer
+    .from("comp_signups")
+    .insert([insertRow])
+    .select("id")
+    .single();
+
+  if (insertError) {
+    console.error("[non-ccs-comp-signup]", insertError);
+    return NextResponse.json({ error: "Failed to save registration" }, { status: 500 });
+  }
+
+  if (jnjValidated.length > 0) {
+    await insertJnJAssignmentsAfterSignupCreate(inserted.id, jnjValidated);
+  }
+
+  const summary = buildSignupSummaryFromGuestPayload(data, resolved, {
+    strictlySelected,
+    jnjSelected,
+    amountOwed,
+    paymentMethodLabel: chosen.label,
+  });
+  if (summary) {
+    const displayTitle =
+      (eventRow.title && String(eventRow.title).trim()) || eventTitle;
+    void sendCommunityCompSignupConfirmations({
+      event: {
+        title: displayTitle,
+        starts_at: eventRow.starts_at as string | null,
+        location: eventRow.location as string | null,
+        time_zone: eventRow.time_zone as string | null,
+      },
+      summary,
+      resolved,
+      strictlySelected,
+    });
+  }
+
+  return NextResponse.json({ success: true, compSignupId: inserted.id });
+}

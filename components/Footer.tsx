@@ -1,6 +1,25 @@
+import Link from "next/link";
+
 export default function Footer() {
   return (
     <footer className="bg-bg-nav border-t border-neutral-700 py-6 text-center text-text-muted">
+      <p className="text-sm mb-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+        <Link href="/privacy" className="text-text-muted hover:text-primary hover:underline">
+          Privacy
+        </Link>
+        <span className="text-neutral-600" aria-hidden>
+          ·
+        </span>
+        <Link href="/terms" className="text-text-muted hover:text-primary hover:underline">
+          Terms
+        </Link>
+        <span className="text-neutral-600" aria-hidden>
+          ·
+        </span>
+        <Link href="/cookies" className="text-text-muted hover:text-primary hover:underline">
+          Cookies
+        </Link>
+      </p>
       <p className="text-sm mb-1">
         Questions?{" "}
         <a

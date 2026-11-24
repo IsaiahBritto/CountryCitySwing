@@ -1,46 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabaseServer";
-import { includeTestFixtures } from "@/lib/comps/testCompAccess";
+import { loadPublicCompetitionResults } from "@/lib/comps/loadPublicCompetitionResults";
+import { publicSlugForCommunityEventId } from "@/lib/nonCcsEventService";
 
 /**
- * GET: public results for one competition — published rounds only, rendered
- * from the stored tabulation snapshot (never a live recompute).
+ * GET: public results for one CCS competition — published rounds only.
+ * Community (non-CCS) competitions use /api/non-ccs-events/competitions/:id/results.
  */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
   const { competitionId } = await params;
-  const includeTest = await includeTestFixtures(req);
-
-  const { data: competition, error } = await supabaseServer
-    .from("competitions")
-    .select(
-      "id, name, comp_type, status, test_comp, event:events(id, title, starts_at, location)"
-    )
-    .eq("id", competitionId)
-    .maybeSingle();
-  if (error) {
-    return NextResponse.json({ error: "Failed to load competition" }, { status: 500 });
-  }
-  if (!competition) {
-    return NextResponse.json({ error: "Competition not found" }, { status: 404 });
-  }
-  if (competition.test_comp && !includeTest) {
-    return NextResponse.json({ error: "Competition not found" }, { status: 404 });
+  const result = await loadPublicCompetitionResults(req, competitionId);
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
-  const { data: rounds, error: roundsError } = await supabaseServer
-    .from("comp_rounds")
-    .select(
-      "id, round_type, judged_role, scoring_mode, callback_count, alternate_count, round_order, tabulation, published_at"
-    )
-    .eq("competition_id", competitionId)
-    .eq("status", "published")
-    .order("round_order", { ascending: true });
-  if (roundsError) {
-    return NextResponse.json({ error: "Failed to load rounds" }, { status: 500 });
+  const host = result.data.competition.event?.host_kind ?? "ccs";
+  if (host === "community") {
+    const eventId = result.data.competition.event?.id;
+    const slug = eventId ? await publicSlugForCommunityEventId(eventId) : null;
+    return NextResponse.json(
+      {
+        error: "Competition not found",
+        nonCcsRedirect:
+          slug != null
+            ? `/non-ccs-events/${encodeURIComponent(slug)}/competitions/${competitionId}`
+            : null,
+      },
+      { status: 404 }
+    );
   }
 
-  return NextResponse.json({ competition, rounds: rounds ?? [] });
+  return NextResponse.json(result.data);
 }

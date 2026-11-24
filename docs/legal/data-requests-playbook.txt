@@ -1,0 +1,24 @@
+Data subject requests — internal playbook (Country City Swing)
+
+Contact: contact.us@countrycityswing.dance (privacy requests)
+
+SELF-SERVICE
+- Profile edit: /profile (name, newsletter opt-out, instructor fields)
+- Newsletter: profile toggle or one-click unsubscribe link in weekly email
+- Account deletion: /settings → Delete my account (auth user + profile cascade per FKs)
+
+ADMIN / SUPABASE (service role)
+- Find profile by email: profiles where email ilike ...
+- Event signups: signups where email ilike ...
+- Comp signups: comp_signups (partner emails in columns)
+- Merch: merch_orders or equivalent table by email
+- Lesson bookings: private_lesson_bookings by student_email
+
+EXPORT
+- Run selective SELECT and provide CSV to requester after identity verification (reply from same email).
+
+DELETE / ANONYMIZE
+- Account delete API removes auth user.
+- Guest signups/orders may remain for tax/comp records; counsel guides whether to redact name while keeping transaction row.
+
+Document each request: date, requester email, action taken, admin initials.

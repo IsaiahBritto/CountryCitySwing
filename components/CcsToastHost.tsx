@@ -12,6 +12,7 @@ import {
 type ToastState = {
   message: string;
   variant: "success" | "warning";
+  durationMs?: number;
 } | null;
 
 export default function CcsToastHost() {
@@ -21,7 +22,11 @@ export default function CcsToastHost() {
     const onSuccess = (e: Event) => {
       if (!isCcsSuccessToastEvent(e)) return;
       const msg = e.detail?.message?.trim();
-      if (msg) setToast({ message: msg, variant: "success" });
+      if (msg) {
+        const durationMs =
+          typeof e.detail?.durationMs === "number" ? e.detail.durationMs : undefined;
+        setToast({ message: msg, variant: "success", durationMs });
+      }
     };
     const onWarning = (e: Event) => {
       if (!isCcsWarningToastEvent(e)) return;
@@ -41,7 +46,9 @@ export default function CcsToastHost() {
       open={!!toast}
       message={toast?.message || ""}
       variant={toast?.variant || "success"}
-      durationMs={toast?.variant === "warning" ? 8000 : 5000}
+      durationMs={
+        toast?.durationMs ?? (toast?.variant === "warning" ? 8000 : 5000)
+      }
       onClose={() => setToast(null)}
     />
   );

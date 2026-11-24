@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { resolveFinanceAccess } from "@/lib/financeAuth";
 import { loadCompStaffEventsForUser } from "@/lib/compStaffAuth";
+import { loadOrganizedEventsForUser } from "@/lib/compEventAccess";
 import {
   resolveRegistrationAccess,
   showRegistrationForEvents,
@@ -119,6 +120,8 @@ export async function GET(req: NextRequest) {
         ? []
         : await loadCompStaffEventsForUser(profile.id);
 
+    const organized_events = await loadOrganizedEventsForUser(profile.id);
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -135,6 +138,7 @@ export async function GET(req: NextRequest) {
       registration_access: registrationAccess,
       show_registration: showRegistration,
       comp_staff_events: compStaffEvents,
+      organized_events,
       ...(events_near_today !== undefined && { events_near_today }),
     });
   } catch (err) {

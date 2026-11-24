@@ -1,0 +1,12 @@
+Email authentication — countrycityswing.dance (operations checklist)
+
+Sender: Resend (RESEND_FROM_EMAIL, e.g. confirmation@countrycityswing.dance)
+
+In Resend domain settings and DNS host, verify:
+1. SPF — include Resend's SPF per their dashboard
+2. DKIM — publish provided TXT/CNAME records
+3. DMARC — start with p=none monitoring, move to quarantine/reject when aligned
+
+Test with mail-tester or Resend deliverability tools after changes.
+
+Marketing mail must include valid physical postal address once NEXT_PUBLIC_LEGAL_MAILING_ADDRESS is set.

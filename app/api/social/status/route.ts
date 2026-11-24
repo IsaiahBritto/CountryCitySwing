@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getServerMusicProvider } from "@/lib/music/serverProvider";
 import { getActivePlaylistStatus } from "@/lib/spotify/activePlaylist";
 
 export async function GET() {
@@ -11,6 +12,7 @@ export async function GET() {
       trackCount: status.isActive ? status.trackCount : 0,
       activatedAt: status.isActive ? status.activatedAt : null,
       availableGenres: status.isActive ? status.availableGenres : [],
+      musicProvider: await getServerMusicProvider(),
     });
   } catch (error: unknown) {
     console.error("Social status error:", error);

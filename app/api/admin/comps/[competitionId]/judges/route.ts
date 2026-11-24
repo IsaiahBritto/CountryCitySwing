@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminAuth } from "@/lib/adminAuth";
+import { authCompetitionManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { parseScoringScope } from "@/lib/comps/judgeScope";
 import {
@@ -13,9 +13,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
+  const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
   if (!auth.ok) return auth.response;
-  await params;
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
   if (q.length < 2) return NextResponse.json({ profiles: [] });
 
@@ -73,9 +73,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
   const profileId = body.profile_id;
   const judgeRole = body.judge_role === "chief_judge" ? "chief_judge" : "judge";
@@ -169,9 +169,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const body = await req.json();
   const assignmentId = body.assignment_id;
   if (!assignmentId) {
@@ -249,9 +249,9 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ competitionId: string }> }
 ) {
-  const auth = await requireAdminAuth(req);
-  if (!auth.ok) return auth.response;
   const { competitionId } = await params;
+  const auth = await authCompetitionManage(req, competitionId);
+  if (!auth.ok) return auth.response;
   const assignmentId = req.nextUrl.searchParams.get("assignment_id");
   if (!assignmentId) {
     return NextResponse.json(

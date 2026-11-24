@@ -1,15 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { INITIAL_DJ_DECK_STATE } from "@/lib/spotify/djDeckState";
 import {
   createEmptyPlaybackSnapshot,
   toSessionResponse,
   type DjSessionRow,
 } from "@/lib/spotify/djSession";
 import {
+  djDeckReducer,
+  INITIAL_DJ_DECK_STATE,
+  type DeckTrack,
+} from "@/lib/spotify/djDeckState";
+import {
   deckStateContentHash,
   deckStatesEqual,
   mergeSessionMetadata,
   shouldSkipDeckRestore,
+  shouldSkipDeckRestoreForPlaybackHost,
 } from "@/lib/spotify/djSessionSync";
 
 function makeSessionRow(overrides: Partial<DjSessionRow> = {}): DjSessionRow {
@@ -135,6 +140,63 @@ describe("djSessionSync", () => {
         () => false,
         toSessionResponse(makeSessionRow())
       )
+    ).toBe(true);
+  });
+});
+
+describe("shouldSkipDeckRestoreForPlaybackHost", () => {
+  const track = (id: string, uri: string): DeckTrack => ({
+    id,
+    uri,
+    name: id,
+    primaryArtist: "A",
+    durationMs: 180000,
+  });
+
+  function playlistState(ids: string[]) {
+    const playlist = ids.map((id) => track(id, `spotify:track:${id}`));
+    return djDeckReducer(INITIAL_DJ_DECK_STATE, {
+      type: "SET_PLAYLIST",
+      deck: "A",
+      playlist,
+      playlistTotalDurationMs: playlist.length * 180000,
+    });
+  }
+
+  it("skips restore while SDK is playing the current deck track", () => {
+    let local = playlistState(["a", "b"]);
+    local = djDeckReducer(local, {
+      type: "SET_PLAYLIST_INDEX",
+      deck: "A",
+      index: 1,
+    });
+    const remote = playlistState(["a", "b", "c"]);
+    expect(
+      shouldSkipDeckRestoreForPlaybackHost(local, remote, {
+        isSdkPlaying: true,
+        sdkTrackUri: "spotify:track:b",
+      })
+    ).toBe(true);
+  });
+
+  it("skips restore when playlist differs but current track id matches", () => {
+    let local = playlistState(["a", "b", "whiskey"]);
+    local = djDeckReducer(local, {
+      type: "SET_PLAYLIST_INDEX",
+      deck: "A",
+      index: 1,
+    });
+    let remote = playlistState(["a", "b", "teddy"]);
+    remote = djDeckReducer(remote, {
+      type: "SET_PLAYLIST_INDEX",
+      deck: "A",
+      index: 1,
+    });
+    expect(
+      shouldSkipDeckRestoreForPlaybackHost(local, remote, {
+        isSdkPlaying: false,
+        sdkTrackUri: null,
+      })
     ).toBe(true);
   });
 });

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiError, authedFetchWithRetry } from "@/lib/clientAuth";
+import { musicApiExtraHeaders } from "@/lib/clientMusicApi";
+import { useMusicPlatform } from "@/components/music/MusicPlatformProvider";
 
 export type OwnedPlaylist = {
   id: string;
@@ -9,7 +11,7 @@ export type OwnedPlaylist = {
   trackCount: number | null;
 };
 
-const SESSION_CACHE_KEY = "dj-owned-playlists-cache-v1";
+const SESSION_CACHE_KEY = "dj-owned-playlists-cache-v2";
 
 type SessionCache = {
   playlists: OwnedPlaylist[];
@@ -31,7 +33,11 @@ function writeSessionCache(data: SessionCache): void {
   sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(data));
 }
 
-export function useOwnedPlaylists(enabled: boolean) {
+export function useOwnedPlaylists(
+  enabled: boolean,
+  input?: { musicUserToken?: string | null; storefrontId?: string | null }
+) {
+  const { isAppleMusic, apiPaths } = useMusicPlatform();
   const [playlists, setPlaylists] = useState<OwnedPlaylist[]>(() => {
     return readSessionCache()?.playlists ?? [];
   });
@@ -55,7 +61,15 @@ export function useOwnedPlaylists(enabled: boolean) {
         setLoading(true);
         setError(null);
         try {
-          const res = await authedFetchWithRetry("/api/spotify/playlists");
+          const res = await authedFetchWithRetry(
+            apiPaths.musicPlaylistsPath({ force: options?.force === true }),
+            {
+            headers: musicApiExtraHeaders({
+              appleMusic: isAppleMusic,
+              musicUserToken: input?.musicUserToken,
+              storefrontId: input?.storefrontId,
+            }),
+          });
           const body = await res.json().catch(() => ({}));
           if (!res.ok) {
             const cached = readSessionCache();
@@ -65,7 +79,7 @@ export function useOwnedPlaylists(enabled: boolean) {
               setQuotaBlockedUntil(cached.quotaBlockedUntil ?? null);
               setError(
                 (body as { error?: string }).error ??
-                  "Spotify sync unavailable — showing cached library"
+                  "Music library sync unavailable — showing cached library"
               );
               return;
             }
@@ -115,7 +129,7 @@ export function useOwnedPlaylists(enabled: boolean) {
         fetchInFlight.current = null;
       }
     },
-    [enabled]
+    [enabled, input?.musicUserToken, input?.storefrontId]
   );
 
   useEffect(() => {

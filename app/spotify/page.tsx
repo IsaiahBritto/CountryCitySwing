@@ -1,16 +1,10 @@
-import { Suspense } from "react";
-import SpotifyPageClient from "./SpotifyPageClient";
+import { redirect } from "next/navigation";
+import { getEffectiveMusicProvider } from "@/lib/music/platformSettings";
+import { providerToUrlSegment } from "@/lib/music/providerSegments";
 
-export default function SpotifyRoutePage() {
-  return (
-    <Suspense
-      fallback={
-        <section className="max-w-xl mx-auto text-center">
-          <p className="text-gray-400">Loading…</p>
-        </section>
-      }
-    >
-      <SpotifyPageClient />
-    </Suspense>
-  );
+export const dynamic = "force-dynamic";
+
+export default async function LegacySpotifyAdminRedirect() {
+  const { provider } = await getEffectiveMusicProvider();
+  redirect(`/admin/music/${providerToUrlSegment(provider)}`);
 }

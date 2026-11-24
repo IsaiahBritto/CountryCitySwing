@@ -49,14 +49,18 @@ export default function EntriesTab({
   compType,
   entries,
   onChanged,
+  autoOpenImport = false,
+  isCommunityEvent = false,
 }: {
   competitionId: string;
   eventId?: string | null;
-  compType: "jack_and_jill" | "strictly";
+  compType: "jack_and_jill" | "strictly" | "all_american";
   entries: EntryRow[];
   onChanged: () => void;
+  autoOpenImport?: boolean;
+  isCommunityEvent?: boolean;
 }) {
-  const isJnJ = compType === "jack_and_jill";
+  const isJnJ = compType === "jack_and_jill" || compType === "all_american";
   const [error, setError] = useState<string | null>(null);
 
   // Import flow
@@ -152,6 +156,10 @@ export default function EntriesTab({
       setSelected(new Set(importableSignupIdsFromRows(rows)));
     })();
   }, [importOpen, competitionId]);
+
+  useEffect(() => {
+    if (autoOpenImport) setImportOpen(true);
+  }, [autoOpenImport]);
 
   const runImport = async (signupIds: string[]) => {
     if (signupIds.length === 0) return;
@@ -297,6 +305,13 @@ export default function EntriesTab({
         <div className="mb-4 rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
           {error}
         </div>
+      )}
+
+      {isCommunityEvent && (
+        <p className="mb-3 rounded-md border border-neutral-700 bg-neutral-800/40 p-3 text-sm text-neutral-400">
+          Competitors sign up once for the whole event. Import brings their registration into
+          this division.
+        </p>
       )}
 
       <div className="mb-4 flex flex-wrap gap-2">

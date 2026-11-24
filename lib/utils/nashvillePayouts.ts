@@ -8,6 +8,8 @@
 export interface NashvillePayoutInput {
   cashTotal: number;
   stripeTotal: number;
+  /** Gift card value redeemed this event week (counts toward revenue and teacher pay capacity). */
+  giftCardTotal?: number;
   venueCost: number;
   /** Number of Beginner Teacher slots in use (2, 3, or 4). Default 2. */
   activeBtCount?: 2 | 3 | 4;
@@ -52,6 +54,7 @@ export function computeNashvillePayouts(input: NashvillePayoutInput): NashvilleP
   const {
     cashTotal,
     stripeTotal,
+    giftCardTotal = 0,
     venueCost,
     activeBtCount: count = 2,
     bt1Override,
@@ -60,9 +63,9 @@ export function computeNashvillePayouts(input: NashvillePayoutInput): NashvilleP
     bt4Override,
     malissaOverride,
   } = input;
-  const totalRevenue = cashTotal + stripeTotal;
+  const totalRevenue = cashTotal + stripeTotal + giftCardTotal;
   const profit = Math.max(0, totalRevenue - venueCost);
-  const cashAvailableForTeachers = Math.max(0, cashTotal);
+  const cashAvailableForTeachers = Math.max(0, cashTotal + giftCardTotal);
 
   const teacherPctTotal = MALISSA_PCT + count * BT_PCT;
   let bt1Payout: number;

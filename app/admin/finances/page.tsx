@@ -362,6 +362,7 @@ interface EventFinanceMetrics {
   free_via_promo_count: number;
   revenue_from_coupons: number;
   coupon_discount_total: number;
+  gift_card_redemption_total?: number;
   is_comp_event: boolean;
   refreshed_at: string;
 }
@@ -1161,6 +1162,7 @@ export default function AdminFinancesPage() {
               freeViaPromoCount: Number(m?.free_via_promo_count ?? 0),
               revenueFromCoupons: Number(m?.revenue_from_coupons ?? 0),
               couponDiscountTotal: Number(m?.coupon_discount_total ?? 0),
+              giftCardRedemptionTotal: Number(m?.gift_card_redemption_total ?? 0),
             };
 
             let nashvilleFinances: NashvilleFinances | null = null;
@@ -1266,6 +1268,7 @@ export default function AdminFinancesPage() {
             const payouts = computeNashvillePayouts({
               cashTotal: cash,
               stripeTotal: stripe,
+              giftCardTotal: Number(r.stats.giftCardRedemptionTotal) || 0,
               venueCost,
               activeBtCount,
               bt1Override: nf.bt1_payout_override ?? null,
@@ -1296,6 +1299,7 @@ export default function AdminFinancesPage() {
             const classSplit = computeClassEventFinances({
               cashTotal: cash,
               stripeTotal: stripe,
+              giftCardTotal: Number(r.stats.giftCardRedemptionTotal) || 0,
               venueCost,
               payoutAmounts,
             });
@@ -1538,6 +1542,7 @@ export default function AdminFinancesPage() {
               freeViaPromoCount: Number(m?.free_via_promo_count ?? 0),
               revenueFromCoupons: Number(m?.revenue_from_coupons ?? 0),
               couponDiscountTotal: Number(m?.coupon_discount_total ?? 0),
+              giftCardRedemptionTotal: Number(m?.gift_card_redemption_total ?? 0),
             };
 
             let socialFinancesOverview: TheSocialFinances | null = null;
@@ -2374,6 +2379,8 @@ export default function AdminFinancesPage() {
             freeViaPromoCount: Number(eventMetrics.free_via_promo_count) || 0,
             revenueFromCoupons: Number(eventMetrics.revenue_from_coupons) || 0,
             couponDiscountTotal: Number(eventMetrics.coupon_discount_total) || 0,
+            giftCardRedemptionTotal:
+              Number(eventMetrics.gift_card_redemption_total) || 0,
           }
         : isCompEvent
           ? computeStatsComp(compSignups)
@@ -2388,6 +2395,9 @@ export default function AdminFinancesPage() {
     stats.couponDiscountTotal ??
     workshopSignupTotals?.totalCouponDiscount ??
     0;
+
+  const effectiveGiftCard =
+    (stats as { giftCardRedemptionTotal?: number }).giftCardRedemptionTotal ?? 0;
 
   const effectiveDefaultCcsDiscount = defaultCcsDiscountTotalFrom(stats);
 
@@ -2407,7 +2417,7 @@ export default function AdminFinancesPage() {
     : netCollectedRegistrationTotal(stats);
 
   const combinedTotal = isClassEvent
-    ? netCollectedTotal + effectiveCouponDiscount
+    ? netCollectedTotal + effectiveCouponDiscount + effectiveGiftCard
     : combinedRegistrationTotal({
         ...stats,
         couponDiscountTotal: effectiveCouponDiscount,
@@ -3871,6 +3881,9 @@ export default function AdminFinancesPage() {
                             {effectiveCouponDiscount > 0
                               ? ` + coupon discounts $${effectiveCouponDiscount.toFixed(2)}`
                               : ""}
+                            {effectiveGiftCard > 0
+                              ? ` + gift card redemptions $${effectiveGiftCard.toFixed(2)}`
+                              : ""}
                             {effectiveDefaultCcsDiscount > 0
                               ? ` + CCS team discount $${effectiveDefaultCcsDiscount.toFixed(2)}`
                               : ""}{" "}
@@ -3884,6 +3897,7 @@ export default function AdminFinancesPage() {
                       <NashvilleBreakdown
                         effectiveCash={effectiveCash}
                         effectiveStripe={effectiveStripe}
+                        effectiveGiftCard={effectiveGiftCard}
                         stripeTaxesFees={stripeTaxesFees}
                         isClassEvent={isClassEvent}
                         instructorOptions={Array.from(
@@ -5451,6 +5465,7 @@ function CompBreakdown({
 function NashvilleBreakdown({
   effectiveCash,
   effectiveStripe,
+  effectiveGiftCard = 0,
   stripeTaxesFees,
   isClassEvent,
   instructorOptions,
@@ -5464,6 +5479,7 @@ function NashvilleBreakdown({
 }: {
   effectiveCash: number;
   effectiveStripe: number;
+  effectiveGiftCard?: number;
   stripeTaxesFees: number;
   isClassEvent: boolean;
   instructorOptions: string[];
@@ -5495,7 +5511,7 @@ function NashvilleBreakdown({
   }) => Promise<void>;
 }) {
   const venueCost = nashville?.venue_cost ?? 0;
-  const totalRevenue = effectiveCash + effectiveStripe;
+  const totalRevenue = effectiveCash + effectiveStripe + effectiveGiftCard;
   const activeBtCount =
     nashville?.bt4_name != null && nashville.bt4_name.trim() !== ""
       ? 4
@@ -5508,10 +5524,11 @@ function NashvilleBreakdown({
       computeNashvillePayouts({
         cashTotal: effectiveCash,
         stripeTotal: effectiveStripe,
+        giftCardTotal: effectiveGiftCard,
         venueCost,
         activeBtCount,
       }),
-    [effectiveCash, effectiveStripe, venueCost, activeBtCount]
+    [effectiveCash, effectiveStripe, effectiveGiftCard, venueCost, activeBtCount]
   );
 
   const effectivePayouts = useMemo(
@@ -5519,6 +5536,7 @@ function NashvilleBreakdown({
       computeNashvillePayouts({
         cashTotal: effectiveCash,
         stripeTotal: effectiveStripe,
+        giftCardTotal: effectiveGiftCard,
         venueCost,
         activeBtCount,
         bt1Override: nashville?.bt1_payout_override ?? null,
@@ -5530,6 +5548,7 @@ function NashvilleBreakdown({
     [
       effectiveCash,
       effectiveStripe,
+      effectiveGiftCard,
       venueCost,
       activeBtCount,
       nashville?.bt1_payout_override,

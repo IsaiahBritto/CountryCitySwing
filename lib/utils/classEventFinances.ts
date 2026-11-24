@@ -6,6 +6,7 @@
 export interface ClassEventFinancesInput {
   cashTotal: number;
   stripeTotal: number;
+  giftCardTotal?: number;
   venueCost: number;
   payoutAmounts: number[];
 }
@@ -26,12 +27,15 @@ function roundToCents(x: number): number {
 export function computeClassEventFinances(
   input: ClassEventFinancesInput
 ): ClassEventFinancesResult {
-  const { cashTotal, stripeTotal, venueCost, payoutAmounts } = input;
-  const totalRevenue = roundToCents(cashTotal + stripeTotal);
+  const { cashTotal, stripeTotal, giftCardTotal = 0, venueCost, payoutAmounts } =
+    input;
+  const totalRevenue = roundToCents(cashTotal + stripeTotal + giftCardTotal);
   const payoutTotal = roundToCents(
     payoutAmounts.reduce((sum, a) => sum + (Number.isFinite(a) ? Math.max(0, a) : 0), 0)
   );
-  const isaiahPayout = roundToCents(Math.max(0, cashTotal - payoutTotal));
+  const isaiahPayout = roundToCents(
+    Math.max(0, cashTotal + giftCardTotal - payoutTotal)
+  );
   const ccsElectronic = roundToCents(stripeTotal - venueCost);
   const allocationsTotal = roundToCents(venueCost + payoutTotal + isaiahPayout + ccsElectronic);
   const reconciliationDiff = roundToCents(totalRevenue - allocationsTotal);

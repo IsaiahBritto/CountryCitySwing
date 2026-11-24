@@ -9,6 +9,8 @@ import {
   loadMerchProductsForOrder,
   merchProductMetaById,
 } from "@/lib/merchOrderValidation";
+import { resolveGiftCardApplication } from "@/lib/giftCards/applyAtCheckout";
+import { redeemGiftCard } from "@/lib/giftCards/redeem";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -80,7 +82,15 @@ export async function POST(request: NextRequest) {
     }
 
     const orderTotalForDiscount = orderData.subtotal + (orderData.shipping || 0);
+    const giftCardCode =
+      typeof orderData.giftCardCode === "string" ? orderData.giftCardCode.trim() : "";
     const promotionCodeId = orderData.promotionCodeId;
+    if (giftCardCode && promotionCodeId) {
+      return NextResponse.json(
+        { error: "Use either a promotion code or a gift card, not both." },
+        { status: 400 }
+      );
+    }
     const clientDiscountedSubtotal =
       typeof orderData.discountedSubtotal === "number"
         ? orderData.discountedSubtotal
@@ -90,6 +100,38 @@ export async function POST(request: NextRequest) {
     let paid = false;
     let amountOwed = orderTotalForDiscount;
     let effectivePaymentMethod = paymentMethod;
+    let giftCardMeta: {
+      giftCardId: string;
+      giftCardCode: string;
+      giftCardAmountApplied: number;
+    } | null = null;
+
+    if (giftCardCode) {
+      const giftRes = await resolveGiftCardApplication({
+        giftCardCode,
+        giftCardAmount:
+          typeof orderData.giftCardAmount === "number"
+            ? orderData.giftCardAmount
+            : null,
+        orderTotal: amountOwed,
+        basePaymentMethod: paymentMethod,
+      });
+      if (!giftRes.ok) {
+        return NextResponse.json({ error: giftRes.error }, { status: 400 });
+      }
+      if (!giftRes.none) {
+        giftCardMeta = {
+          giftCardId: giftRes.resolved.giftCardId,
+          giftCardCode: giftRes.resolved.giftCardCode,
+          giftCardAmountApplied: giftRes.resolved.amountApplied,
+        };
+        amountOwed = giftRes.resolved.remainder;
+        paid = giftRes.resolved.paid;
+        effectivePaymentMethod = giftRes.resolved.paymentMethod.toLowerCase() as
+          | "cash"
+          | "stripe";
+      }
+    }
 
     if (clientDiscountedSubtotal != null && Number.isFinite(clientDiscountedSubtotal)) {
       amountOwed = roundCurrency(Math.max(0, clientDiscountedSubtotal));
@@ -255,6 +297,13 @@ export async function POST(request: NextRequest) {
         status: "pending",
         paid,
         payment_method: effectivePaymentMethod,
+        ...(giftCardMeta
+          ? {
+              gift_card_id: giftCardMeta.giftCardId,
+              gift_card_code: giftCardMeta.giftCardCode,
+              gift_card_amount_applied: giftCardMeta.giftCardAmountApplied,
+            }
+          : {}),
       })
       .select()
       .single();
@@ -265,6 +314,15 @@ export async function POST(request: NextRequest) {
         { error: "Failed to create order", details: orderError.message },
         { status: 500 }
       );
+    }
+
+    if (giftCardMeta && paid && giftCardMeta.giftCardAmountApplied > 0) {
+      await redeemGiftCard({
+        code: giftCardMeta.giftCardCode,
+        amount: giftCardMeta.giftCardAmountApplied,
+        referenceType: "merch_order",
+        referenceId: String(order.id),
+      });
     }
 
     // Cash: send "Cash payment needed" emails

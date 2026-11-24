@@ -23,6 +23,9 @@ import {
   validateJnJAssignments,
 } from "@/lib/comps/jnjAssignments";
 import { insertJnJAssignmentsAfterSignupCreate } from "@/lib/comps/jnjAssignmentsStore";
+import { resolveGiftCardApplication } from "@/lib/giftCards/applyAtCheckout";
+import type { ResolvedGiftCardApplication } from "@/lib/giftCards/applyAtCheckout";
+import { redeemGiftCard } from "@/lib/giftCards/redeem";
 
 async function ensureAuthProfileNames(
   profile: CompSignupProfile,
@@ -282,8 +285,35 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const effectivePayment =
+  const giftCardCode =
+    typeof data.giftCardCode === "string" ? data.giftCardCode.trim() : "";
+  let giftCardApplied: ResolvedGiftCardApplication | null = null;
+  let compAmountOwed = amountOwed;
+  let compPaid = false;
+  let compPaymentMethod: string =
     paymentMethod.toLowerCase() === "cash" ? "Cash" : "Stripe";
+
+  if (giftCardCode && compAmountOwed > 0) {
+    const giftRes = await resolveGiftCardApplication({
+      giftCardCode,
+      giftCardAmount:
+        typeof data.giftCardAmount === "number" ? data.giftCardAmount : null,
+      orderTotal: compAmountOwed,
+      basePaymentMethod:
+        paymentMethod.toLowerCase() === "cash" ? "Cash" : "Stripe",
+    });
+    if (!giftRes.ok) {
+      return NextResponse.json({ error: giftRes.error }, { status: 400 });
+    }
+    if (!giftRes.none) {
+      giftCardApplied = giftRes.resolved;
+      compAmountOwed = giftRes.resolved.remainder;
+      compPaid = giftRes.resolved.paid;
+      compPaymentMethod = giftRes.resolved.paymentMethod;
+    }
+  }
+
+  const effectivePayment = compPaymentMethod;
 
   const insertRow: Record<string, unknown> = {
     event_id: eventId,
@@ -314,8 +344,15 @@ export async function POST(req: NextRequest) {
     all_american_competition_id: divisionIds.all_american_competition_id,
     all_american_selected: allAmericanSelected,
     payment_method: effectivePayment,
-    amount_owed: amountOwed,
-    paid: false,
+    amount_owed: compAmountOwed,
+    paid: compPaid,
+    ...(giftCardApplied
+      ? {
+          gift_card_id: giftCardApplied.giftCardId,
+          gift_card_code: giftCardApplied.giftCardCode,
+          gift_card_amount_applied: giftCardApplied.amountApplied,
+        }
+      : {}),
     accept_liability: acceptLiability,
     accept_payment: acceptPayment,
   };
@@ -329,8 +366,8 @@ export async function POST(req: NextRequest) {
   };
 
   // Stripe path: do NOT create record here; webhook creates it when payment completes
-  if (effectivePayment === "Stripe" && amountOwed > 0.5) {
-    const processingFee = roundCurrency(calculateProcessingFee(amountOwed));
+  if (effectivePayment === "Stripe" && compAmountOwed > 0.5) {
+    const processingFee = roundCurrency(calculateProcessingFee(compAmountOwed));
     const compSignupId = randomUUID();
     const base = getBaseUrl(req);
     const lineItems: {
@@ -349,7 +386,7 @@ export async function POST(req: NextRequest) {
             description: `Comp signup (Strictly${strictlySelected ? " + " : ""}${jnjSelected ? "JnJ" : ""})`,
             tax_code: getEventTaxCode(),
           },
-          unit_amount: Math.round(amountOwed * 100),
+          unit_amount: Math.round(compAmountOwed * 100),
         },
         quantity: 1,
       },
@@ -459,6 +496,15 @@ export async function POST(req: NextRequest) {
       { error: "Failed to save comp signup", details: insertError.message },
       { status: 500 }
     );
+  }
+
+  if (giftCardApplied && compPaid && giftCardApplied.amountApplied > 0) {
+    await redeemGiftCard({
+      code: giftCardApplied.giftCardCode,
+      amount: giftCardApplied.amountApplied,
+      referenceType: "comp_signup",
+      referenceId: String(inserted.id),
+    });
   }
 
   if (jnjValidated.length > 0) {

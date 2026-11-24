@@ -10,6 +10,7 @@ import {
   type RefundBreakdownPrior,
 } from "@/lib/utils/signupRefundAmounts";
 import { isCommunityCompEventId } from "@/lib/compEventAccess";
+import { reverseGiftCardRedemption } from "@/lib/giftCards/refund";
 
 type RefundMode = "full" | "partial" | "cancel_unpaid";
 
@@ -43,7 +44,7 @@ async function loadSignupRow(signupId: string, isComp: boolean) {
   return supabaseServer
     .from("signups")
     .select(
-      "id,event_id,event_title,first_name,last_name,email,payment_method,paid,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_total_paid,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code"
+      "id,event_id,event_title,first_name,last_name,email,payment_method,paid,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_total_paid,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code,gift_card_id,gift_card_code,gift_card_amount_applied"
     )
     .eq("id", signupId)
     .single();
@@ -123,6 +124,25 @@ async function updateSignupStatus(
     })
     .eq("id", id);
   if (error) throw new Error(error.message);
+
+  if (status === "cancelled") {
+    const { data: row } = await supabaseServer
+      .from(table)
+      .select("id,gift_card_id,gift_card_amount_applied")
+      .eq("id", id)
+      .single();
+    const giftId = row?.gift_card_id;
+    const giftAmt = Number(row?.gift_card_amount_applied) || 0;
+    if (giftId && giftAmt > 0) {
+      await reverseGiftCardRedemption({
+        giftCardId: giftId,
+        amount: giftAmt,
+        referenceType: table === "comp_signups" ? "comp_signup" : "signup",
+        referenceId: String(id),
+        note: "Registration cancelled — gift card balance restored",
+      });
+    }
+  }
 }
 
 function refundEmailHtml(opts: {

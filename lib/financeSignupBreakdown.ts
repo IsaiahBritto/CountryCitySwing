@@ -41,6 +41,7 @@ export interface FinanceSignupInput {
   stripe_processing_fee?: number | null;
   free_via_promotion_code?: boolean | null;
   used_promotion_code?: boolean | null;
+  gift_card_amount_applied?: number | null;
 }
 
 export interface WorkshopSignupBreakdownRow {
@@ -52,6 +53,7 @@ export interface WorkshopSignupBreakdownRow {
   refunded: number;
   netRevenue: number;
   couponDiscount: number;
+  giftCardApplied: number;
   stripeTax: number;
   stripeFee: number;
   promoLabel: "free" | "used" | "none";
@@ -275,6 +277,7 @@ export function buildWorkshopSignupBreakdownRow(
     refunded,
     netRevenue: classified.netRevenue,
     couponDiscount,
+    giftCardApplied: round2(Number(signup.gift_card_amount_applied) || 0),
     stripeTax: round2(classified.stripeTax),
     stripeFee: round2(classified.stripeFee),
     promoLabel,

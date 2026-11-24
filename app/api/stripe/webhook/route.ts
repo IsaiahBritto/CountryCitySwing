@@ -10,6 +10,7 @@ import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
 import { CanonicalEventError, resolveCanonicalEventById } from "@/lib/utils/canonicalEvent";
 import { plannedClassLevelLabel } from "@/lib/classLevels";
 import { compSignupBelongsToCommunityEvent } from "@/lib/compEventAccess";
+import { handleGiftCardPurchaseWebhook } from "@/lib/giftCards/stripeWebhook";
 
 function getWebhookBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
@@ -227,6 +228,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true });
     }
     
+    if (session.metadata?.payment_type === "gift_card_purchase") {
+      const giftResult = await handleGiftCardPurchaseWebhook(session);
+      if (!giftResult.ok) {
+        return NextResponse.json({ error: giftResult.error }, { status: giftResult.status });
+      }
+      return NextResponse.json({ received: true });
+    }
+
     // Check if this is a merch order FIRST (before checking client_reference_id)
     // Merch orders don't require client_reference_id, so handle them separately
     const isMerchOrder = session.metadata?.payment_type === "merch_order";

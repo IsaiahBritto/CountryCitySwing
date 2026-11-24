@@ -8,6 +8,8 @@ import { authedFetch } from "@/lib/comps/clientAuth";
 import { profileDisplayName, profileHasCompleteName } from "@/lib/profileUtils";
 import { DEFAULT_TIME_ZONE, formatEventDate, formatEventTime, getTimeZoneAbbreviation } from "@/lib/utils/dateHelpers";
 import SignupModalShell from "@/components/SignupModalShell";
+import PromoGiftCardCollapsible from "@/components/giftCards/PromoGiftCardCollapsible";
+import { type GiftCardApplyState } from "@/components/giftCards/GiftCardApplyFields";
 import ChoiceCards from "@/components/ChoiceCards";
 import ProfileSearchPicker, { type ProfileResult } from "@/components/ProfileSearchPicker";
 import CompLevelBadge from "@/components/CompLevelBadge";
@@ -69,6 +71,9 @@ export default function CompSignupModal({
   const [jnjRole, setJnJRole] = useState<"lead" | "follow" | "">("");
   const [strictlyPartner, setStrictlyPartner] = useState<ProfileResult | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Stripe");
+  const [appliedGiftCard, setAppliedGiftCard] = useState<GiftCardApplyState | null>(
+    null
+  );
 
   const [acceptLiability, setAcceptLiability] = useState(false);
   const [acceptPayment, setAcceptPayment] = useState(false);
@@ -374,6 +379,12 @@ export default function CompSignupModal({
         profile_last_name: profileNeedsName ? profileLastName.trim() : undefined,
         payment_method: paymentMethod,
         amount_owed: total,
+        ...(appliedGiftCard
+          ? {
+              giftCardCode: appliedGiftCard.code,
+              giftCardAmount: appliedGiftCard.amountToApply,
+            }
+          : {}),
         accept_liability: acceptLiability,
         accept_payment: acceptPayment,
         accept_refund: hasRefundStatement ? acceptRefund : true,
@@ -694,6 +705,16 @@ export default function CompSignupModal({
             </div>
           )}
         </div>
+      )}
+
+      {total > 0 && (
+        <PromoGiftCardCollapsible
+          showPromo={false}
+          orderTotal={total}
+          appliedGiftCard={appliedGiftCard}
+          mutuallyExclusiveWithPromo={false}
+          onGiftCardApplied={(gc) => setAppliedGiftCard(gc)}
+        />
       )}
 
       <div>

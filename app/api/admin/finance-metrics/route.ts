@@ -14,7 +14,7 @@ import {
 } from "@/lib/utils/signupNetPaid";
 
 const METRICS_SELECT_COLS =
-  "event_id,total_signups,checked_in_count,cash_total,stripe_total,other_total,ccs_team_cash_total,ccs_team_stripe_total,ccs_team_total,stripe_taxes_fees_total,free_via_promo_count,revenue_from_coupons,coupon_discount_total,is_comp_event,refreshed_at,updated_at";
+  "event_id,total_signups,checked_in_count,cash_total,stripe_total,other_total,ccs_team_cash_total,ccs_team_stripe_total,ccs_team_total,stripe_taxes_fees_total,free_via_promo_count,revenue_from_coupons,coupon_discount_total,gift_card_redemption_total,is_comp_event,refreshed_at,updated_at";
 
 interface SignupRow {
   id: string;
@@ -31,6 +31,7 @@ interface SignupRow {
   stripe_processing_fee: number | null;
   free_via_promotion_code: boolean | null;
   used_promotion_code: boolean | null;
+  gift_card_amount_applied?: number | null;
   refunded_or_cancelled?: string | null;
 }
 
@@ -58,6 +59,7 @@ type Metrics = {
   free_via_promo_count: number;
   revenue_from_coupons: number;
   coupon_discount_total: number;
+  gift_card_redemption_total: number;
   is_comp_event: boolean;
 };
 
@@ -79,6 +81,7 @@ function computeStats(
   let stripeTaxesFees = 0;
   let freeViaPromoCount = 0;
   let revenueFromCoupons = 0;
+  let giftCardRedemptionTotal = 0;
 
   for (const s of signups) {
     const pm = (s.payment_method || "").toLowerCase().trim();
@@ -92,6 +95,11 @@ function computeStats(
 
     // A1: prefer amount_paid, else amount_owed, else event price
     const amount = resolveCollectedTicketAmount(s, price);
+    const giftApplied = round2(Number(s.gift_card_amount_applied) || 0);
+    if (paid && giftApplied > 0) {
+      giftCardRedemptionTotal += giftApplied;
+    }
+    const netCollected = round2(Math.max(0, amount - giftApplied));
 
     if (isCcsTeam) {
       // B: cash/team cash on Paid (not only check-in)
@@ -104,7 +112,19 @@ function computeStats(
       }
     } else {
       if (freeViaPromo) continue;
-      if (pm === "cash" && paid) {
+      if (pm.includes("gift card") && !pm.includes("cash") && !pm.includes("stripe")) {
+        if (paid) {
+          /* gift-only signup: value counted in giftCardRedemptionTotal */
+        }
+      } else if (pm.includes("gift card") && pm.includes("cash") && paid) {
+        cashTotal += netCollected;
+        if (usedPromo) revenueFromCoupons += netCollected;
+      } else if (pm.includes("gift card") && pm.includes("stripe") && paid) {
+        stripeTotal += netCollected;
+        stripeTaxesFees +=
+          (s.stripe_tax_amount ?? 0) + (s.stripe_processing_fee ?? 0);
+        if (usedPromo) revenueFromCoupons += netCollected;
+      } else if (pm === "cash" && paid) {
         cashTotal += amount;
         if (usedPromo) revenueFromCoupons += amount;
       } else if (pm === "stripe" && paid) {
@@ -133,6 +153,7 @@ function computeStats(
     free_via_promo_count: freeViaPromoCount,
     revenue_from_coupons: round2(revenueFromCoupons),
     coupon_discount_total: 0,
+    gift_card_redemption_total: round2(giftCardRedemptionTotal),
     is_comp_event: false,
   };
 }
@@ -179,6 +200,7 @@ function computeStatsComp(compSignups: CompSignupRow[]): Metrics {
     free_via_promo_count: 0,
     revenue_from_coupons: 0,
     coupon_discount_total: 0,
+    gift_card_redemption_total: 0,
     is_comp_event: true,
   };
 }
@@ -221,7 +243,7 @@ async function computeAndPersistMetrics(eventId: string) {
     const { data, error } = await supabaseServer
       .from("signups")
       .select(
-        "id,payment_method,paid,checked_in,is_ccs_team,created_at,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code,refunded_or_cancelled"
+        "id,payment_method,paid,checked_in,is_ccs_team,created_at,amount_owed,amount_paid,stripe_tax_amount,stripe_processing_fee,free_via_promotion_code,used_promotion_code,gift_card_amount_applied,refunded_or_cancelled"
       )
       .eq("event_id", eventId)
       .neq("refunded_or_cancelled", "cancelled");
@@ -310,6 +332,7 @@ async function computeAndPersistMetrics(eventId: string) {
     free_via_promo_count: metrics.free_via_promo_count,
     revenue_from_coupons: metrics.revenue_from_coupons,
     coupon_discount_total: metrics.coupon_discount_total,
+    gift_card_redemption_total: metrics.gift_card_redemption_total,
     is_comp_event: metrics.is_comp_event,
     refreshed_at: now,
     updated_at: now,

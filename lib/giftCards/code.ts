@@ -30,6 +30,4 @@ export async function generateGiftCardCode(maxAttempts = 8): Promise<string> {
   throw new Error("Could not generate unique gift card code");
 }
 
-export function normalizeGiftCardCodeInput(raw: string): string {
-  return raw.trim().toUpperCase().replace(/\s+/g, "");
-}
+export { normalizeGiftCardCodeInput } from "@/lib/giftCards/codeFormat";

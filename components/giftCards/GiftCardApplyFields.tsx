@@ -1,6 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import {
+  GIFT_CARD_CODE_PREFIX,
+  formatGiftCardCodeBody,
+  isCompleteGiftCardCodeBody,
+} from "@/lib/giftCards/codeFormat";
 
 type Props = {
   orderTotal: number;
@@ -28,7 +33,9 @@ export default function GiftCardApplyFields({
   mutuallyExclusiveWithPromo,
   promoActive,
 }: Props) {
-  const [codeInput, setCodeInput] = useState("");
+  const [codeBody, setCodeBody] = useState("");
+  const codeInput = `${GIFT_CARD_CODE_PREFIX}${codeBody}`;
+  const codeComplete = isCompleteGiftCardCodeBody(codeBody);
   const [balance, setBalance] = useState<number | null>(null);
   const [giftCardId, setGiftCardId] = useState<string | null>(null);
   const [mode, setMode] = useState<"full" | "custom">("full");
@@ -118,17 +125,32 @@ export default function GiftCardApplyFields({
     >
       <p className="text-sm font-medium text-neutral-200">Gift card</p>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <input
-          type="text"
-          className="flex-1 rounded-md border border-neutral-600 bg-neutral-950 px-3 py-2 text-sm text-white"
-          placeholder="CCS-XXXX-XXXX"
-          value={codeInput}
-          disabled={disabled || loading}
-          onChange={(e) => setCodeInput(e.target.value)}
-        />
+        <div className="flex flex-1 items-center rounded-md border border-neutral-600 bg-neutral-950 text-sm text-white focus-within:ring-2 focus-within:ring-yellow-400">
+          <span className="select-none pl-3 font-mono text-neutral-400" aria-hidden="true">
+            {GIFT_CARD_CODE_PREFIX}
+          </span>
+          <input
+            type="text"
+            aria-label="Gift card code"
+            className="w-full min-w-0 bg-transparent py-2 pl-0.5 pr-3 font-mono uppercase tracking-wider text-white placeholder:text-neutral-600 focus:outline-none"
+            placeholder="XXXX-XXXX"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            value={codeBody}
+            disabled={disabled || loading}
+            onChange={(e) => setCodeBody(formatGiftCardCodeBody(e.target.value))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (codeComplete && !disabled && !loading) void apply();
+              }
+            }}
+          />
+        </div>
         <button
           type="button"
-          disabled={disabled || loading || !codeInput.trim()}
+          disabled={disabled || loading || !codeComplete}
           onClick={() => void apply()}
           className="shrink-0 rounded-md border border-yellow-400 bg-yellow-400 px-5 py-2 text-sm font-semibold text-neutral-900 shadow-[0_0_12px_rgba(242,201,76,0.35)] transition-colors hover:bg-yellow-300 disabled:border-neutral-600 disabled:bg-neutral-700 disabled:text-neutral-300 disabled:shadow-none disabled:hover:bg-neutral-700"
         >

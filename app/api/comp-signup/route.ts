@@ -15,6 +15,18 @@ import {
 } from "@/lib/compSignupPayload";
 import { profileHasCompleteName } from "@/lib/profileUtils";
 import { COMP_LIABILITY_WAIVER_VERSION } from "@/lib/legal/waiverVersions";
+import { resolveSignupDivisionIds } from "@/lib/comps/signupDivision";
+import {
+  assignmentsFromSingleLegacy,
+  computeExpectedCompSignupTotal,
+  parseJnJAssignmentsFromBody,
+  primaryJnJCompetitionId,
+  validateJnJAssignments,
+} from "@/lib/comps/jnjAssignments";
+import { insertJnJAssignmentsAfterSignupCreate } from "@/lib/comps/jnjAssignmentsStore";
+import { resolveGiftCardApplication } from "@/lib/giftCards/applyAtCheckout";
+import type { ResolvedGiftCardApplication } from "@/lib/giftCards/applyAtCheckout";
+import { redeemGiftCard } from "@/lib/giftCards/redeem";
 
 async function ensureAuthProfileNames(
   profile: CompSignupProfile,
@@ -84,6 +96,7 @@ export async function POST(req: NextRequest) {
   const eventTitle = event.title ?? "Comp Event";
   const strictlySelected = !!data.strictly_selected;
   const jnjSelected = !!data.jnj_selected;
+  const allAmericanSelected = !!data.all_american_selected;
   const paymentMethod = (data.payment_method ?? "Stripe").trim();
   const amountOwed = roundCurrency(Number(data.amount_owed) || 0);
   const acceptLiability = !!data.accept_liability;
@@ -99,9 +112,9 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (!strictlySelected && !jnjSelected) {
+  if (!strictlySelected && !jnjSelected && !allAmericanSelected) {
     return NextResponse.json(
-      { error: "Select at least one division: Strictly or JnJ" },
+      { error: "Select at least one division: Strictly, JnJ, or All American" },
       { status: 400 }
     );
   }
@@ -158,17 +171,107 @@ export async function POST(req: NextRequest) {
   }
   const authProfile = nameResult.profile;
 
+  const { data: eventCompetitions, error: compDivErr } = await supabaseServer
+    .from("competitions")
+    .select("id, name, comp_type, test_comp")
+    .eq("event_id", eventId);
+
+  if (compDivErr) {
+    return NextResponse.json(
+      { error: "Failed to load competition divisions" },
+      { status: 500 }
+    );
+  }
+
+  const divisionIds = resolveSignupDivisionIds(
+    {
+      strictlySelected,
+      jnjSelected,
+      allAmericanSelected,
+      strictlyCompetitionId:
+        typeof data.strictly_competition_id === "string"
+          ? data.strictly_competition_id
+          : null,
+      jnjCompetitionId:
+        typeof data.jnj_competition_id === "string" ? data.jnj_competition_id : null,
+      allAmericanCompetitionId:
+        typeof data.all_american_competition_id === "string"
+          ? data.all_american_competition_id
+          : null,
+    },
+    (eventCompetitions ?? []) as {
+      id: string;
+      name: string;
+      comp_type: string;
+      test_comp?: boolean | null;
+    }[]
+  );
+  if ("error" in divisionIds) {
+    return NextResponse.json(
+      { error: divisionIds.error },
+      { status: divisionIds.status }
+    );
+  }
+
+  const compRows = (eventCompetitions ?? []) as {
+    id: string;
+    name: string;
+    comp_type: string;
+    test_comp?: boolean | null;
+  }[];
+
+  const parsedJnJ =
+    parseJnJAssignmentsFromBody(data as Record<string, unknown>) ??
+    assignmentsFromSingleLegacy(
+      divisionIds.jnj_competition_id,
+      data.jnj_role === "lead" || data.jnj_role === "follow"
+        ? data.jnj_role
+        : null
+    );
+
+  const jnjValidated = validateJnJAssignments(
+    parsedJnJ,
+    compRows,
+    jnjSelected
+  );
+  if ("error" in jnjValidated) {
+    return NextResponse.json(
+      { error: jnjValidated.error },
+      { status: jnjValidated.status }
+    );
+  }
+
+  if (jnjSelected && jnjValidated.length > 0) {
+    divisionIds.jnj_competition_id = primaryJnJCompetitionId(jnjValidated);
+  }
+
   const resolved = await resolveCompSignupProfiles(authProfile, data, {
     strictlySelected,
     jnjSelected,
+    jnjAssignments: jnjValidated,
   });
   if ("error" in resolved) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status });
   }
 
+  const expectedTotal = computeExpectedCompSignupTotal({
+    strictlySelected,
+    strictlyPrice: data.strictly_price,
+    jnjSelected,
+    jnjPrice: data.jnj_price,
+    jnjAssignmentCount: jnjSelected ? jnjValidated.length : 0,
+  });
+  if (Math.abs(amountOwed - expectedTotal) > 0.02) {
+    return NextResponse.json(
+      { error: "Registration amount does not match selected divisions" },
+      { status: 400 }
+    );
+  }
+
   const isDuplicate = await checkDuplicateCompSignup(eventId, resolved, {
     strictlySelected,
     jnjSelected,
+    jnjAssignments: jnjValidated,
   });
   if (isDuplicate) {
     const eventDate = event.starts_at ? formatEventDateInChicago(event.starts_at) : "";
@@ -183,8 +286,35 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const effectivePayment =
+  const giftCardCode =
+    typeof data.giftCardCode === "string" ? data.giftCardCode.trim() : "";
+  let giftCardApplied: ResolvedGiftCardApplication | null = null;
+  let compAmountOwed = amountOwed;
+  let compPaid = false;
+  let compPaymentMethod: string =
     paymentMethod.toLowerCase() === "cash" ? "Cash" : "Stripe";
+
+  if (giftCardCode && compAmountOwed > 0) {
+    const giftRes = await resolveGiftCardApplication({
+      giftCardCode,
+      giftCardAmount:
+        typeof data.giftCardAmount === "number" ? data.giftCardAmount : null,
+      orderTotal: compAmountOwed,
+      basePaymentMethod:
+        paymentMethod.toLowerCase() === "cash" ? "Cash" : "Stripe",
+    });
+    if (!giftRes.ok) {
+      return NextResponse.json({ error: giftRes.error }, { status: 400 });
+    }
+    if (!giftRes.none) {
+      giftCardApplied = giftRes.resolved;
+      compAmountOwed = giftRes.resolved.remainder;
+      compPaid = giftRes.resolved.paid;
+      compPaymentMethod = giftRes.resolved.paymentMethod;
+    }
+  }
+
+  const effectivePayment = compPaymentMethod;
 
   const insertRow: Record<string, unknown> = {
     event_id: eventId,
@@ -210,9 +340,20 @@ export async function POST(req: NextRequest) {
     jnj_follow_first_name: resolved.jnj_follow_first_name,
     jnj_follow_last_name: resolved.jnj_follow_last_name,
     jnj_follow_email: resolved.jnj_follow_email,
+    jnj_competition_id: divisionIds.jnj_competition_id,
+    strictly_competition_id: divisionIds.strictly_competition_id,
+    all_american_competition_id: divisionIds.all_american_competition_id,
+    all_american_selected: allAmericanSelected,
     payment_method: effectivePayment,
-    amount_owed: amountOwed,
-    paid: false,
+    amount_owed: compAmountOwed,
+    paid: compPaid,
+    ...(giftCardApplied
+      ? {
+          gift_card_id: giftCardApplied.giftCardId,
+          gift_card_code: giftCardApplied.giftCardCode,
+          gift_card_amount_applied: giftCardApplied.amountApplied,
+        }
+      : {}),
     accept_liability: acceptLiability,
     accept_payment: acceptPayment,
     ...(acceptLiability
@@ -234,8 +375,8 @@ export async function POST(req: NextRequest) {
   };
 
   // Stripe path: do NOT create record here; webhook creates it when payment completes
-  if (effectivePayment === "Stripe" && amountOwed > 0.5) {
-    const processingFee = roundCurrency(calculateProcessingFee(amountOwed));
+  if (effectivePayment === "Stripe" && compAmountOwed > 0.5) {
+    const processingFee = roundCurrency(calculateProcessingFee(compAmountOwed));
     const compSignupId = randomUUID();
     const base = getBaseUrl(req);
     const lineItems: {
@@ -254,7 +395,7 @@ export async function POST(req: NextRequest) {
             description: `Comp signup (Strictly${strictlySelected ? " + " : ""}${jnjSelected ? "JnJ" : ""})`,
             tax_code: getEventTaxCode(),
           },
-          unit_amount: Math.round(amountOwed * 100),
+          unit_amount: Math.round(compAmountOwed * 100),
         },
         quantity: 1,
       },
@@ -312,6 +453,18 @@ export async function POST(req: NextRequest) {
           jnj_follow_first_name: resolved.jnj_follow_first_name ?? "",
           jnj_follow_last_name: resolved.jnj_follow_last_name ?? "",
           jnj_follow_email: resolved.jnj_follow_email ?? "",
+          all_american_selected: String(allAmericanSelected),
+          jnj_competition_id: divisionIds.jnj_competition_id ?? "",
+          strictly_competition_id: divisionIds.strictly_competition_id ?? "",
+          all_american_competition_id:
+            divisionIds.all_american_competition_id ?? "",
+          jnj_assignments: JSON.stringify(
+            jnjValidated.map((a) => ({
+              competition_id: a.competitionId,
+              role: a.role,
+              sort_order: a.sortOrder ?? 0,
+            }))
+          ),
           ...Object.fromEntries(
             Object.entries(profileMetadata).map(([k, v]) => [k, v ?? ""])
           ),
@@ -352,6 +505,19 @@ export async function POST(req: NextRequest) {
       { error: "Failed to save comp signup", details: insertError.message },
       { status: 500 }
     );
+  }
+
+  if (giftCardApplied && compPaid && giftCardApplied.amountApplied > 0) {
+    await redeemGiftCard({
+      code: giftCardApplied.giftCardCode,
+      amount: giftCardApplied.amountApplied,
+      referenceType: "comp_signup",
+      referenceId: String(inserted.id),
+    });
+  }
+
+  if (jnjValidated.length > 0) {
+    await insertJnJAssignmentsAfterSignupCreate(inserted.id, jnjValidated);
   }
 
   const base = getBaseUrl(req);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { extractPodium } from "@/lib/comps/podium";
 import { includeTestFixtures } from "@/lib/comps/testCompAccess";
+import { isCcsHubLiveCompetition } from "@/lib/comps/hubCommunityExclusion";
 
 /**
  * GET: public comps hub payload — upcoming events, live competitions, and
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
   let publishedQuery = supabaseServer
     .from("comp_rounds")
     .select(
-      "id, competition_id, round_type, judged_role, status, scoring_mode, tabulation, published_at, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at, location, test_event, strictly_level, jnj_level))"
+      "id, competition_id, round_type, judged_role, status, scoring_mode, tabulation, published_at, competition:competitions(id, name, comp_type, test_comp, event:events(id, title, starts_at, location, test_event, strictly_level, jnj_level, host_kind))"
     )
     .eq("status", "published")
     .order("published_at", { ascending: false });
@@ -81,8 +82,7 @@ export async function GET(req: NextRequest) {
 
   const live = ((liveRes.data ?? []) as any[])
     .filter((c) => {
-      const host = c.event?.host_kind ?? "ccs";
-      if (host === "community") return false;
+      if (!isCcsHubLiveCompetition(c.event?.host_kind)) return false;
       return includeTest || !c.test_comp;
     })
     .map((c) => {

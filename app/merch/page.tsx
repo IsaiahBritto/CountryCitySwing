@@ -214,45 +214,69 @@ export default function MerchPage() {
 
       {loading ? (
         <MerchGridSkeleton />
-      ) : gridProducts.length === 0 ? (
-        <p className="text-center text-gray-400 py-12">
-          No products available at this time.
-        </p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {gridProducts.map((product) => {
-            const ended =
-              isAdmin && isMerchPreorderClosed(product.preorderEndAt);
-            return (
-            <div
-              key={product.id}
-              onClick={() => handleProductClick(product)}
-              className={`bg-neutral-800 rounded-lg overflow-hidden cursor-pointer hover:shadow-[0_0_20px_rgba(242,201,76,0.3)] transition-all duration-200 ${ended ? "opacity-75 ring-1 ring-neutral-600" : ""}`}
+        <>
+          {gridProducts.length === 0 && (
+            <p className="text-center text-gray-400 py-6">
+              No products available at this time.
+            </p>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {gridProducts.map((product) => {
+              const ended =
+                isAdmin && isMerchPreorderClosed(product.preorderEndAt);
+              return (
+                <div
+                  key={product.id}
+                  onClick={() => handleProductClick(product)}
+                  className={`bg-neutral-800 rounded-lg overflow-hidden cursor-pointer hover:shadow-[0_0_20px_rgba(242,201,76,0.3)] transition-all duration-200 ${ended ? "opacity-75 ring-1 ring-neutral-600" : ""}`}
+                >
+                  <div className="aspect-square relative overflow-hidden">
+                    <img
+                      src={product.mainImageUrl}
+                      alt={product.name}
+                      className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                    />
+                    {ended && (
+                      <span className="absolute top-2 left-2 bg-neutral-900/90 text-yellow-500 text-xs font-semibold px-2 py-1 rounded">
+                        Preorder ended
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <h3 className="text-xl font-semibold text-white mb-2">
+                      {product.name}
+                    </h3>
+                    <p className="text-primary text-lg font-bold">
+                      ${product.price.toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+            <Link
+              href="/merch/gift-cards"
+              className="bg-neutral-800 rounded-lg overflow-hidden cursor-pointer hover:shadow-[0_0_20px_rgba(242,201,76,0.3)] transition-all duration-200 block"
             >
-              <div className="aspect-square relative overflow-hidden">
+              <div className="aspect-square relative overflow-hidden bg-neutral-900 flex items-center justify-center p-10">
                 <img
-                  src={product.mainImageUrl}
-                  alt={product.name}
-                  className="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
+                  src="/media/logo-dark.PNG"
+                  alt="Country City Swing"
+                  className="w-full h-full object-contain"
                 />
-                {ended && (
-                  <span className="absolute top-2 left-2 bg-neutral-900/90 text-yellow-500 text-xs font-semibold px-2 py-1 rounded">
-                    Preorder ended
-                  </span>
-                )}
               </div>
               <div className="p-4">
                 <h3 className="text-xl font-semibold text-white mb-2">
-                  {product.name}
+                  Gift Card
                 </h3>
-                <p className="text-primary text-lg font-bold">
-                  ${product.price.toFixed(2)}
+                <p className="text-primary text-lg font-bold">From $5</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  Classes, events, merch &amp; more
                 </p>
               </div>
-            </div>
-            );
-          })}
-        </div>
+            </Link>
+          </div>
+        </>
       )}
 
       {selectedProduct && (

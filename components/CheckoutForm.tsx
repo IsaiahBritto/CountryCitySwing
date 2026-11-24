@@ -6,6 +6,8 @@ import { ArrowLeftIcon, ExclamationTriangleIcon } from "@heroicons/react/24/outl
 import { useCart } from "./CartContext";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import ChoiceCards from "@/components/ChoiceCards";
+import PromoGiftCardCollapsible from "@/components/giftCards/PromoGiftCardCollapsible";
+import { type GiftCardApplyState } from "@/components/giftCards/GiftCardApplyFields";
 import {
   formatMerchPreorderEnd,
   isLegacy8ccPreorderProductName,
@@ -37,6 +39,9 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
   const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string; discountedSubtotal?: number } | null>(null);
   const [promoError, setPromoError] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
+  const [appliedGiftCard, setAppliedGiftCard] = useState<GiftCardApplyState | null>(
+    null
+  );
 
   // Auto-fill from user profile if logged in
   useEffect(() => {
@@ -228,6 +233,10 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
       if (appliedPromo) {
         orderData.promotionCodeId = appliedPromo.promotionCodeId;
         orderData.discountedSubtotal = amountDue;
+      }
+      if (appliedGiftCard) {
+        orderData.giftCardCode = appliedGiftCard.code;
+        orderData.giftCardAmount = appliedGiftCard.amountToApply;
       }
       if (stripeDisabled && paymentMethod === "stripe") {
         orderData.paymentMethod = "cash";
@@ -508,45 +517,25 @@ export default function CheckoutForm({ onBack, onComplete }: CheckoutFormProps) 
           </div>
         )}
 
-        {/* Promo code */}
-        <div className="bg-neutral-800 rounded-lg p-6">
-          <h3 className="text-xl font-semibold text-white mb-2">Promotion code</h3>
-          {appliedPromo ? (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-green-400 text-sm">Applied: {appliedPromo.code}</span>
-              <button
-                type="button"
-                onClick={removePromo}
-                className="text-sm text-gray-400 hover:text-white underline"
-              >
-                Remove
-              </button>
-            </div>
-          ) : (
-            <div className="flex gap-2 flex-wrap">
-              <input
-                type="text"
-                value={promoCodeInput}
-                onChange={(e) => {
-                  setPromoCodeInput(e.target.value);
-                  setPromoError("");
-                }}
-                placeholder="Enter code"
-                className="flex-1 min-w-[120px] px-4 py-2 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-primary"
-                disabled={promoLoading}
-              />
-              <button
-                type="button"
-                onClick={applyPromo}
-                disabled={promoLoading}
-                className="px-4 py-2 rounded-md bg-neutral-600 hover:bg-neutral-500 text-sm font-medium disabled:opacity-50 text-white"
-              >
-                {promoLoading ? "Checking…" : "Apply"}
-              </button>
-            </div>
-          )}
-          {promoError && <p className="text-red-400 text-sm mt-1">{promoError}</p>}
-        </div>
+        <PromoGiftCardCollapsible
+          orderTotal={amountDue}
+          promoCodeInput={promoCodeInput}
+          onPromoCodeInputChange={(v) => {
+            setPromoCodeInput(v);
+            setPromoError("");
+          }}
+          appliedPromo={appliedPromo}
+          promoError={promoError}
+          promoLoading={promoLoading}
+          onApplyPromo={applyPromo}
+          onRemovePromo={removePromo}
+          appliedGiftCard={appliedGiftCard}
+          promoFullyCoversOrder={amountDueIsZero && !!appliedPromo}
+          onGiftCardApplied={(gc) => {
+            setAppliedGiftCard(gc);
+            if (gc) removePromo();
+          }}
+        />
 
         {/* Payment Method */}
         <div className="bg-neutral-800 rounded-lg p-6">

@@ -15,6 +15,7 @@ import {
 } from "@/lib/utils/workshopPricing";
 import { DEFAULT_TIME_ZONE } from "@/lib/utils/dateHelpers";
 import { roundCurrency } from "@/lib/utils/paymentHelpers";
+import { redeemPendingGiftOnSignupPaid } from "@/lib/giftCards/applyAtCheckout";
 import {
   buildPrincipalRefundedMap,
   withNetPaidAmount,
@@ -37,7 +38,7 @@ const COMP_SIGNUPS_SELECT =
   "id,event_id,event_title,strictly_selected,strictly_lead_first_name,strictly_lead_last_name,strictly_lead_email,strictly_follow_first_name,strictly_follow_last_name,strictly_follow_email,jnj_selected,jnj_lead_profile_id,jnj_follow_profile_id,jnj_lead_first_name,jnj_lead_last_name,jnj_lead_email,jnj_follow_first_name,jnj_follow_last_name,jnj_follow_email,payment_method,amount_owed,paid,checked_in,checked_in_at,created_at,is_ccs_team,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled";
 
 const SIGNUPS_SELECT =
-  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code,planned_class_level,planned_dance_role";
+  "id,event_id,event_title,first_name,last_name,email,payment_method,paid,checked_in,checked_in_at,created_at,is_ccs_team,amount_owed,amount_due,amount_paid,stripe_tax_amount,stripe_processing_fee,stripe_session_id,stripe_payment_intent_id,refunded_or_cancelled,free_via_promotion_code,used_promotion_code,gift_card_id,gift_card_code,gift_card_amount_applied,planned_class_level,planned_dance_role";
 
 const EVENT_PRICING_SELECT =
   "id,type,starts_at,ends_at,time_zone,price,price_changes,ccs_team_price,ccs_team_price_changes,all_three_classes,upper_level_lead_capacity,upper_level_follow_capacity";
@@ -647,6 +648,14 @@ export async function PATCH(req: NextRequest) {
         { error: "Failed to update signup", details: error.message },
         { status: 500 }
       );
+    }
+
+    if (
+      (field === "paid" || field === "checked_in") &&
+      value === true &&
+      data?.paid
+    ) {
+      await redeemPendingGiftOnSignupPaid(String(signupId));
     }
 
     const dueNow = resolveDueNowForSignup(pricing, {

@@ -3,6 +3,18 @@ import { authCompetitionManage } from "@/lib/compApiAuth";
 import { supabaseServer } from "@/lib/supabaseServer";
 import { findOrCreateBibRecord } from "@/lib/comps/bibs";
 import { usesJnSignupColumns } from "@/lib/comps/competitionKind";
+import {
+  signupDivisionLegacyWarning,
+  signupMatchesCompetition,
+  signupSelectedColumn,
+} from "@/lib/comps/signupDivision";
+import {
+  signupHasJnJAssignmentForCompetition,
+  synthesizeJnJAssignmentsFromSignup,
+} from "@/lib/comps/jnjAssignments";
+import { loadJnJAssignmentsForSignupIds } from "@/lib/comps/jnjAssignmentsStore";
+import { attachCompEntriesToOpenRounds } from "@/lib/comps/roundEntryAttach";
+import type { CompSignupRow, CompType } from "@/lib/comps/types";
 
 const norm = (v: unknown) =>
   typeof v === "string" ? v.trim().toLowerCase() : "";
@@ -19,7 +31,11 @@ interface PreviewRow {
 
 async function buildPreview(competitionId: string): Promise<
   | { error: string; status: number }
-  | { competition: { id: string; event_id: string; comp_type: string }; rows: PreviewRow[] }
+  | {
+      competition: { id: string; event_id: string; comp_type: string };
+      rows: PreviewRow[];
+      assignmentsBySignup: Map<string, import("@/lib/comps/jnjAssignments").JnJAssignment[]>;
+    }
 > {
   const { data: competition } = await supabaseServer
     .from("competitions")
@@ -30,13 +46,18 @@ async function buildPreview(competitionId: string): Promise<
 
   const useIndividualJnColumns = usesJnSignupColumns(competition.comp_type);
   const prefix = useIndividualJnColumns ? "jnj" : "strictly";
+  const selectedColumn = signupSelectedColumn(competition.comp_type);
 
-  const [signupsRes, entriesRes, judgesRes] = await Promise.all([
+  const [signupsRes, compsRes, entriesRes, judgesRes] = await Promise.all([
     supabaseServer
       .from("comp_signups")
       .select("*")
       .eq("event_id", competition.event_id)
-      .eq(`${prefix}_selected`, true),
+      .eq(selectedColumn, true),
+    supabaseServer
+      .from("competitions")
+      .select("id, name, comp_type, test_comp")
+      .eq("event_id", competition.event_id),
     supabaseServer
       .from("comp_entries")
       .select("comp_signup_id, lead_email, follow_email, lead_profile_id, follow_profile_id")
@@ -69,8 +90,32 @@ async function buildPreview(competitionId: string): Promise<
     if (row.profile_id) judgeProfileIds.add(row.profile_id);
   }
 
-  const rows: PreviewRow[] = (signupsRes.data ?? []).map((s: Record<string, unknown>) => {
-    const leadFirst = String(s[`${prefix}_lead_first_name`] ?? "");
+  const eventCompetitions = (compsRes.data ?? []) as {
+    id: string;
+    name: string;
+    comp_type: string;
+    test_comp?: boolean | null;
+  }[];
+
+  const signupList = (signupsRes.data ?? []) as CompSignupRow[];
+  const assignmentsBySignup = await loadJnJAssignmentsForSignupIds(
+    signupList.map((s) => s.id)
+  );
+
+  const matchingSignups = signupList.filter((s) => {
+    const jnj =
+      assignmentsBySignup.get(s.id) ??
+      synthesizeJnJAssignmentsFromSignup(s);
+    return signupMatchesCompetition(
+      s,
+      competition,
+      eventCompetitions,
+      jnj
+    );
+  });
+
+  const rows: PreviewRow[] = matchingSignups.map((s: CompSignupRow) => {
+    const leadFirst = String(s[`${prefix}_lead_first_name` as keyof CompSignupRow] ?? "");
     const leadLast = String(s[`${prefix}_lead_last_name`] ?? "");
     const leadEmail = (s[`${prefix}_lead_email`] as string | null) ?? null;
     const followFirst = String(s[`${prefix}_follow_first_name`] ?? "");
@@ -80,8 +125,15 @@ async function buildPreview(competitionId: string): Promise<
     const followProfileId = (s[`${prefix}_follow_profile_id`] as string | null) ?? null;
 
     const warnings: string[] = [];
-    if (s.refunded_or_cancelled) {
-      warnings.push(`Signup is ${s.refunded_or_cancelled}`);
+    const legacyWarn = signupDivisionLegacyWarning(
+      s as unknown as CompSignupRow,
+      competition.comp_type as CompType,
+      eventCompetitions
+    );
+    if (legacyWarn) warnings.push(legacyWarn);
+    const sr = s as CompSignupRow & { refunded_or_cancelled?: string };
+    if (sr.refunded_or_cancelled) {
+      warnings.push(`Signup is ${sr.refunded_or_cancelled}`);
     }
     if (!s.paid) warnings.push("Not paid");
     const hasLead = !!(leadFirst || leadLast || leadEmail || leadProfileId);
@@ -113,7 +165,7 @@ async function buildPreview(competitionId: string): Promise<
     }
 
     return {
-      signupId: String(s.id),
+      signupId: s.id,
       leadName: `${leadFirst} ${leadLast}`.trim(),
       leadEmail,
       followName: `${followFirst} ${followLast}`.trim(),
@@ -123,7 +175,7 @@ async function buildPreview(competitionId: string): Promise<
     };
   });
 
-  return { competition, rows };
+  return { competition, rows, assignmentsBySignup };
 }
 
 /** Signups that can still be imported (skips already imported and judges). */
@@ -213,8 +265,15 @@ export async function POST(
     preview.rows.filter((r) => r.alreadyImported).map((r) => r.signupId)
   );
 
+  const assignmentsBySignup =
+    "assignmentsBySignup" in preview && preview.assignmentsBySignup
+      ? (preview.assignmentsBySignup as Map<string, import("@/lib/comps/jnjAssignments").JnJAssignment[]>)
+      : await loadJnJAssignmentsForSignupIds(
+          ((signups ?? []) as CompSignupRow[]).map((s) => s.id)
+        );
+
   const inserts: Record<string, unknown>[] = [];
-  for (const s of (signups ?? []) as Record<string, unknown>[]) {
+  for (const s of (signups ?? []) as CompSignupRow[]) {
     if (alreadyImported.has(String(s.id))) continue;
     const leadFirst = String(s[`${prefix}_lead_first_name`] ?? "");
     const leadLast = String(s[`${prefix}_lead_last_name`] ?? "");
@@ -228,51 +287,98 @@ export async function POST(
     const hasFollow = !!(followFirst || followLast || followEmail || followProfileId);
 
     if (useIndividualJnColumns) {
-      if (hasLead) {
+      const signupAssignments =
+        assignmentsBySignup.get(s.id) ?? synthesizeJnJAssignmentsFromSignup(s);
+      const forThisComp = signupHasJnJAssignmentForCompetition(
+        s,
+        signupAssignments,
+        competitionId
+      );
+      if (forThisComp) {
+        const role = forThisComp.role;
+        const isLead = role === "lead";
+        const first = isLead ? leadFirst : followFirst;
+        const last = isLead ? leadLast : followLast;
+        const email = isLead ? leadEmail : followEmail;
+        const profileId = isLead ? leadProfileId : followProfileId;
+        if (!(first || last || email || profileId)) continue;
         inserts.push({
           competition_id: competitionId,
           entry_kind: "individual",
-          role: "lead",
-          lead_first_name: leadFirst,
-          lead_last_name: leadLast,
-          lead_email: leadEmail,
-          lead_profile_id: leadProfileId,
-          follow_first_name: "",
-          follow_last_name: "",
-          follow_email: null,
-          follow_profile_id: null,
-          lead_bib_id: await findOrCreateBibRecord(competition.event_id, {
-            firstName: leadFirst,
-            lastName: leadLast,
-            email: leadEmail,
-            profileId: leadProfileId,
-          }),
-          follow_bib_id: null,
+          role,
+          lead_first_name: isLead ? first : "",
+          lead_last_name: isLead ? last : "",
+          lead_email: isLead ? email : null,
+          lead_profile_id: isLead ? profileId : null,
+          follow_first_name: isLead ? "" : first,
+          follow_last_name: isLead ? "" : last,
+          follow_email: isLead ? null : email,
+          follow_profile_id: isLead ? null : profileId,
+          lead_bib_id: isLead
+            ? await findOrCreateBibRecord(competition.event_id, {
+                firstName: first,
+                lastName: last,
+                email,
+                profileId,
+              })
+            : null,
+          follow_bib_id: isLead
+            ? null
+            : await findOrCreateBibRecord(competition.event_id, {
+                firstName: first,
+                lastName: last,
+                email,
+                profileId,
+              }),
           comp_signup_id: s.id,
         });
-      }
-      if (hasFollow) {
-        inserts.push({
-          competition_id: competitionId,
-          entry_kind: "individual",
-          role: "follow",
-          lead_first_name: "",
-          lead_last_name: "",
-          lead_email: null,
-          lead_profile_id: null,
-          follow_first_name: followFirst,
-          follow_last_name: followLast,
-          follow_email: followEmail,
-          follow_profile_id: followProfileId,
-          lead_bib_id: null,
-          follow_bib_id: await findOrCreateBibRecord(competition.event_id, {
-            firstName: followFirst,
-            lastName: followLast,
-            email: followEmail,
-            profileId: followProfileId,
-          }),
-          comp_signup_id: s.id,
-        });
+      } else if (signupAssignments.length === 0) {
+        if (hasLead) {
+          inserts.push({
+            competition_id: competitionId,
+            entry_kind: "individual",
+            role: "lead",
+            lead_first_name: leadFirst,
+            lead_last_name: leadLast,
+            lead_email: leadEmail,
+            lead_profile_id: leadProfileId,
+            follow_first_name: "",
+            follow_last_name: "",
+            follow_email: null,
+            follow_profile_id: null,
+            lead_bib_id: await findOrCreateBibRecord(competition.event_id, {
+              firstName: leadFirst,
+              lastName: leadLast,
+              email: leadEmail,
+              profileId: leadProfileId,
+            }),
+            follow_bib_id: null,
+            comp_signup_id: s.id,
+          });
+        }
+        if (hasFollow) {
+          inserts.push({
+            competition_id: competitionId,
+            entry_kind: "individual",
+            role: "follow",
+            lead_first_name: "",
+            lead_last_name: "",
+            lead_email: null,
+            lead_profile_id: null,
+            follow_first_name: followFirst,
+            follow_last_name: followLast,
+            follow_email: followEmail,
+            follow_profile_id: followProfileId,
+            lead_bib_id: null,
+            follow_bib_id: await findOrCreateBibRecord(competition.event_id, {
+              firstName: followFirst,
+              lastName: followLast,
+              email: followEmail,
+              profileId: followProfileId,
+            }),
+            comp_signup_id: s.id,
+          });
+        }
       }
     } else {
       inserts.push({
@@ -304,12 +410,27 @@ export async function POST(
     return NextResponse.json({ imported: 0 });
   }
 
-  const { error: insertError } = await supabaseServer
+  const { data: insertedRows, error: insertError } = await supabaseServer
     .from("comp_entries")
-    .insert(inserts);
+    .insert(inserts)
+    .select("id");
   if (insertError) {
     console.error("[admin/comps/import] insert failed", insertError);
     return NextResponse.json({ error: "Failed to import entries" }, { status: 500 });
   }
-  return NextResponse.json({ imported: inserts.length });
+
+  const newEntryIds = (insertedRows ?? []).map((r) => r.id as string);
+  let roundSyncWarning: string | undefined;
+  try {
+    await attachCompEntriesToOpenRounds(competitionId, newEntryIds);
+  } catch (attachErr) {
+    console.error("[admin/comps/import] open-round attach failed", attachErr);
+    roundSyncWarning =
+      "Import succeeded but some entries may be missing from check-in; run Sync open rounds.";
+  }
+
+  return NextResponse.json({
+    imported: inserts.length,
+    roundSyncWarning,
+  });
 }

@@ -15,6 +15,8 @@ import {
   resolveSignupListPrice,
 } from "@/lib/utils/workshopPricing";
 import SignupModalShell from "@/components/SignupModalShell";
+import PromoGiftCardCollapsible from "@/components/giftCards/PromoGiftCardCollapsible";
+import { type GiftCardApplyState } from "@/components/giftCards/GiftCardApplyFields";
 import ChoiceCards from "@/components/ChoiceCards";
 import { profileHasCompleteName } from "@/lib/profileUtils";
 import {
@@ -180,6 +182,9 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
   const [appliedPromo, setAppliedPromo] = useState<{ promotionCodeId: string; code: string; discountedSubtotal?: number } | null>(null);
   const [promoError, setPromoError] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
+  const [appliedGiftCard, setAppliedGiftCard] = useState<GiftCardApplyState | null>(
+    null
+  );
   const [upperLevelAvailability, setUpperLevelAvailability] = useState<{
     lead: { registered: number; capacity: number | null; remaining: number | null; full: boolean };
     follow: { registered: number; capacity: number | null; remaining: number | null; full: boolean };
@@ -460,6 +465,10 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
           appliedPromo.discountedSubtotal !== undefined && appliedPromo.discountedSubtotal !== null
             ? appliedPromo.discountedSubtotal
             : undefined;
+      }
+      if (appliedGiftCard) {
+        body.giftCardCode = appliedGiftCard.code;
+        body.giftCardAmount = appliedGiftCard.amountToApply;
       }
       // When discount brings total to $0, payment method was not required; set to Cash for server
       const amountDue = appliedPromo?.discountedSubtotal != null ? appliedPromo.discountedSubtotal : effectivePrice;
@@ -859,66 +868,37 @@ export default function EventSignupModal({ event, open, onClose, isInstructor: i
               </div>
             )}
 
-            {/* Promotion code — always above Payment Method when there is a price */}
             {effectivePrice != null && effectivePrice > 0 && (
-              <div>
-                <p className="font-medium mb-1">Promotion code</p>
-                {appliedPromo ? (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-green-400 text-sm">
-                        Applied: {appliedPromo.code}
-                        {appliedPromo.discountedSubtotal != null && (
-                          <span className="text-gray-300 ml-1">
-                            — Amount due: ${appliedPromo.discountedSubtotal.toFixed(2)}
-                          </span>
-                        )}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={removePromo}
-                        className="text-sm text-gray-400 hover:text-white underline"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    {appliedPromo.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5 && (
-                      <p className="text-green-400 text-sm">
-                        Your total after discount is $0. No payment required.
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex gap-2 flex-wrap">
-                    <input
-                      type="text"
-                      value={promoCodeInput}
-                      onChange={(e) => {
-                        setPromoCodeInput(e.target.value);
-                        setPromoError("");
-                      }}
-                      placeholder="Enter code"
-                      className="flex-1 min-w-[120px] px-3 py-2 rounded bg-neutral-800 border border-neutral-700"
-                      disabled={promoLoading}
-                    />
-                    <button
-                      type="button"
-                      onClick={applyPromo}
-                      disabled={promoLoading}
-                      className="px-3 py-2 rounded bg-neutral-700 hover:bg-neutral-600 text-sm font-medium disabled:opacity-50"
-                    >
-                      {promoLoading ? "Checking…" : "Apply"}
-                    </button>
-                  </div>
-                )}
-                {promoError && (
-                  <p className="text-red-400 text-sm mt-1">{promoError}</p>
-                )}
-              </div>
+              <PromoGiftCardCollapsible
+                orderTotal={
+                  appliedPromo?.discountedSubtotal != null
+                    ? appliedPromo.discountedSubtotal
+                    : effectivePrice
+                }
+                promoCodeInput={promoCodeInput}
+                onPromoCodeInputChange={(v) => {
+                  setPromoCodeInput(v);
+                  setPromoError("");
+                }}
+                appliedPromo={appliedPromo}
+                promoError={promoError}
+                promoLoading={promoLoading}
+                onApplyPromo={applyPromo}
+                onRemovePromo={removePromo}
+                appliedGiftCard={appliedGiftCard}
+                promoFullyCoversOrder={
+                  appliedPromo?.discountedSubtotal != null &&
+                  appliedPromo.discountedSubtotal <= 0.5
+                }
+                onGiftCardApplied={(gc) => {
+                  setAppliedGiftCard(gc);
+                  if (gc) removePromo();
+                }}
+              />
             )}
 
             {/* Payment Method — hidden for instructors when CCS team price is $0; hidden when promo brings total to $0 */}
-            {!(isInstructor && effectivePrice === 0) && !(appliedPromo?.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5) && (
+            {!(isInstructor && effectivePrice === 0) && !(appliedPromo?.discountedSubtotal != null && appliedPromo.discountedSubtotal <= 0.5) && !(appliedGiftCard && appliedGiftCard.amountToApply >= (appliedPromo?.discountedSubtotal ?? effectivePrice ?? 0) - 0.01) && (
               <div>
                 <p className="font-medium mb-2">
                   Payment Method

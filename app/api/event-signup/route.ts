@@ -31,6 +31,11 @@ import {
   EVENT_LIABILITY_WAIVER_VERSION,
   EVENT_PHOTO_RELEASE_WAIVER_VERSION,
 } from "@/lib/legal/waiverVersions";
+import {
+  commitGiftCardRedemptionForSignup,
+  resolveGiftCardApplication,
+} from "@/lib/giftCards/applyAtCheckout";
+import type { ResolvedGiftCardApplication } from "@/lib/giftCards/applyAtCheckout";
 
 function getBaseUrl(request: NextRequest): string {
   const env = process.env.NEXT_PUBLIC_APP_URL;
@@ -230,6 +235,20 @@ export async function POST(req: NextRequest) {
             ? parseFloat(data.discounted_subtotal)
             : undefined;
 
+  const giftCardCode =
+    typeof data.giftCardCode === "string" ? data.giftCardCode.trim() : "";
+  const giftCardAmountParsed =
+    typeof data.giftCardAmount === "number"
+      ? data.giftCardAmount
+      : parseFloat(String(data.giftCardAmount ?? ""));
+
+  if (giftCardCode && promotionCodeId) {
+    return NextResponse.json(
+      { error: "Use either a promotion code or a gift card, not both." },
+      { status: 400 }
+    );
+  }
+
   let paid = false;
   let amountOwed = eventPrice;
   // Normalize so "Cash" / "cash" etc. are treated as cash path
@@ -237,16 +256,38 @@ export async function POST(req: NextRequest) {
   let effectivePaymentMethod =
     paymentMethodNorm.toLowerCase() === "cash" ? "Cash" : paymentMethod;
 
+  let giftCardApplied: ResolvedGiftCardApplication | null = null;
+  if (giftCardCode && eventPrice > 0) {
+    const giftRes = await resolveGiftCardApplication({
+      giftCardCode,
+      giftCardAmount: Number.isFinite(giftCardAmountParsed)
+        ? giftCardAmountParsed
+        : null,
+      orderTotal: eventPrice,
+      basePaymentMethod: effectivePaymentMethod,
+    });
+    if (!giftRes.ok) {
+      return NextResponse.json({ error: giftRes.error }, { status: 400 });
+    }
+    if (!giftRes.none) {
+      giftCardApplied = giftRes.resolved;
+      amountOwed = giftRes.resolved.remainder;
+      paid = giftRes.resolved.paid;
+      effectivePaymentMethod = giftRes.resolved.paymentMethod;
+    }
+  }
+
   // 1️⃣ Stripe path: if event cost after promo (no processing fee, no tax) is ≤$0.50, treat as Cash with no payment
   if (effectivePaymentMethod === "Stripe" && eventPrice > 0) {
-    const processingFee = roundCurrency(calculateProcessingFee(eventPrice));
-    let discountedEventOnly = eventPrice;
+    const stripeChargeBase = giftCardApplied ? giftCardApplied.remainder : eventPrice;
+    const processingFee = roundCurrency(calculateProcessingFee(stripeChargeBase));
+    let discountedEventOnly = stripeChargeBase;
     if (promotionCodeId) {
-      const discounted = await getDiscountedAmountForPromotion(promotionCodeId, eventPrice);
+      const discounted = await getDiscountedAmountForPromotion(promotionCodeId, stripeChargeBase);
       if (discounted !== null) discountedEventOnly = discounted;
     }
     if (discountedEventOnly <= 0.5) {
-      effectivePaymentMethod = "Cash";
+      effectivePaymentMethod = giftCardApplied ? giftCardApplied.paymentMethod : "Cash";
       paid = true;
       amountOwed = 0;
     } else {
@@ -262,7 +303,7 @@ export async function POST(req: NextRequest) {
                 description: `Event on ${formatEventDateInChicago(canonicalEvent.starts_at || "")} at ${canonicalEvent.location || ""}`,
                 tax_code: getEventTaxCode(),
               },
-              unit_amount: Math.round(eventPrice * 100),
+              unit_amount: Math.round(stripeChargeBase * 100),
             },
             quantity: 1,
           },
@@ -311,6 +352,13 @@ export async function POST(req: NextRequest) {
             subtotal: String(eventPrice),
             processing_fee: String(processingFee),
             used_promotion_code: promotionCodeId ? "true" : "false",
+            ...(giftCardApplied
+              ? {
+                  gift_card_id: giftCardApplied.giftCardId,
+                  gift_card_code: giftCardApplied.giftCardCode,
+                  gift_card_amount: String(giftCardApplied.amountApplied),
+                }
+              : {}),
             ...(plannedClassLevel
               ? { planned_class_level: plannedClassLevel }
               : {}),
@@ -345,7 +393,7 @@ export async function POST(req: NextRequest) {
     clientDiscountedSubtotal: clientDiscountedSubtotal ?? null,
   }));
 
-  if (isCashPath && (eventPrice > 0 || promotionCodeId != null)) {
+  if (isCashPath && !giftCardApplied && (eventPrice > 0 || promotionCodeId != null)) {
     let resolvedAmount: number | null = null;
     if (promotionCodeId) {
       resolvedAmount = await getDiscountedAmountForPromotion(promotionCodeId, eventPrice);
@@ -401,6 +449,13 @@ export async function POST(req: NextRequest) {
         ...(plannedDanceRole ? { planned_dance_role: plannedDanceRole } : {}),
         ...(freeViaPromo ? { free_via_promotion_code: true } : {}),
         ...(usedPromo ? { used_promotion_code: true } : {}),
+        ...(giftCardApplied
+          ? {
+              gift_card_id: giftCardApplied.giftCardId,
+              gift_card_code: giftCardApplied.giftCardCode,
+              gift_card_amount_applied: giftCardApplied.amountApplied,
+            }
+          : {}),
       },
     ])
     .select()
@@ -415,6 +470,21 @@ export async function POST(req: NextRequest) {
       },
       { status: 500 }
     );
+  }
+
+  if (
+    giftCardApplied &&
+    paid &&
+    giftCardApplied.amountApplied > 0
+  ) {
+    const redeemResult = await commitGiftCardRedemptionForSignup({
+      giftCardCode: giftCardApplied.giftCardCode,
+      amount: giftCardApplied.amountApplied,
+      signupId: String(insertedSignup.id),
+    });
+    if (!redeemResult.ok) {
+      console.error("[event-signup] gift card redeem failed", redeemResult.error);
+    }
   }
 
   const signupId = insertedSignup.id;

@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 import { authedFetch, apiError } from "@/lib/comps/clientAuth";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { emitCcsSuccessToast } from "@/lib/ccsSuccessToastBus";
 
 const SIGN_IN_REQUIRED_MESSAGE =
   "You must be signed in to a Country City Swing account to create or manage a Non-CCS comp event.";
@@ -16,6 +18,7 @@ type HostEvent = {
   approval_status: string;
   approval_rejection_reason?: string | null;
   competitions?: { id: string; name: string; comp_type?: string }[];
+  canDelete?: boolean;
 };
 
 const COMP_TYPE_SHORT: Record<string, string> = {
@@ -41,6 +44,8 @@ export default function HostCompsPage() {
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<HostEvent | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(async () => {
     const res = await authedFetch("/api/non-ccs-events/mine");
@@ -70,6 +75,23 @@ export default function HostCompsPage() {
       setLoading(false);
     })();
   }, [load]);
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    setError(null);
+    const res = await authedFetch(`/api/non-ccs-events/${deleteTarget.id}`, {
+      method: "DELETE",
+    });
+    setDeleteBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    setDeleteTarget(null);
+    emitCcsSuccessToast("The event has been deleted.", 3000);
+    await load();
+  };
 
   const createDraft = async () => {
     const { data: { session } } = await supabaseBrowser.auth.getSession();
@@ -163,6 +185,15 @@ export default function HostCompsPage() {
                     Operate event
                   </Link>
                 )}
+                {e.canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(e)}
+                    className="rounded-md border border-red-500/40 px-3 py-1 text-sm text-red-300 hover:border-red-400"
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
             {e.approval_status === "approved" && (
@@ -193,6 +224,19 @@ export default function HostCompsPage() {
           </li>
         ))}
       </ul>
+
+      <ConfirmDialog
+        open={deleteTarget != null}
+        title="Delete event?"
+        message={`Permanently delete "${deleteTarget?.title ?? "this event"}"? All divisions, roster data, and competition setup will be removed. This cannot be undone.`}
+        confirmLabel="Delete event"
+        destructive
+        busy={deleteBusy}
+        onConfirm={confirmDelete}
+        onCancel={() => {
+          if (!deleteBusy) setDeleteTarget(null);
+        }}
+      />
     </main>
   );
 }

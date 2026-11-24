@@ -10,6 +10,7 @@ import { makeQrCodeInlineAttachment } from "@/lib/qrCodeAttachment";
 import { CanonicalEventError, resolveCanonicalEventById } from "@/lib/utils/canonicalEvent";
 import { plannedClassLevelLabel } from "@/lib/classLevels";
 import { compSignupBelongsToCommunityEvent } from "@/lib/compEventAccess";
+import { handleGiftCardPurchaseWebhook } from "@/lib/giftCards/stripeWebhook";
 
 function getWebhookBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL || "https://countrycityswing.dance").replace(/\/$/, "");
@@ -227,6 +228,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ received: true });
     }
     
+    if (session.metadata?.payment_type === "gift_card_purchase") {
+      const giftResult = await handleGiftCardPurchaseWebhook(session);
+      if (!giftResult.ok) {
+        return NextResponse.json({ error: giftResult.error }, { status: giftResult.status });
+      }
+      return NextResponse.json({ received: true });
+    }
+
     // Check if this is a merch order FIRST (before checking client_reference_id)
     // Merch orders don't require client_reference_id, so handle them separately
     const isMerchOrder = session.metadata?.payment_type === "merch_order";
@@ -349,6 +358,12 @@ export async function POST(request: NextRequest) {
               jnj_follow_first_name: metadata.jnj_follow_first_name || null,
               jnj_follow_last_name: metadata.jnj_follow_last_name || null,
               jnj_follow_email: metadata.jnj_follow_email || null,
+              all_american_selected: metadata.all_american_selected === "true",
+              jnj_competition_id: metadata.jnj_competition_id?.trim() || null,
+              strictly_competition_id:
+                metadata.strictly_competition_id?.trim() || null,
+              all_american_competition_id:
+                metadata.all_american_competition_id?.trim() || null,
               payment_method: "Stripe",
               amount_owed: Number(metadata.amount_owed || 0),
               paid: true,
@@ -367,6 +382,35 @@ export async function POST(request: NextRequest) {
             { error: "Failed to create comp signup", details: compInsertError.message },
             { status: 500 }
           );
+        }
+        try {
+          const raw = metadata.jnj_assignments;
+          if (typeof raw === "string" && raw.trim()) {
+            const parsed = JSON.parse(raw) as {
+              competition_id?: string;
+              role?: string;
+              sort_order?: number;
+            }[];
+            const assignments = parsed
+              .filter(
+                (a) =>
+                  typeof a.competition_id === "string" &&
+                  (a.role === "lead" || a.role === "follow")
+              )
+              .map((a, i) => ({
+                competitionId: a.competition_id!.trim(),
+                role: a.role as "lead" | "follow",
+                sortOrder: a.sort_order ?? i,
+              }));
+            const { insertJnJAssignmentsAfterSignupCreate } = await import(
+              "@/lib/comps/jnjAssignmentsStore"
+            );
+            if (assignments.length > 0) {
+              await insertJnJAssignmentsAfterSignupCreate(compSignupId, assignments);
+            }
+          }
+        } catch (assignErr) {
+          console.error("Webhook: jnj_assignments persist failed", assignErr);
         }
         await sendCompStripeConfirmationEmail(compSignupId);
         console.log("Webhook: Comp signup created and marked paid", compSignupId);

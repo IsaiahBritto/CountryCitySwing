@@ -26,6 +26,7 @@ import {
   DEFAULT_TIME_ZONE,
   formatEventScheduleSubtitle,
 } from "@/lib/utils/dateHelpers";
+import { compBtnOutline } from "@/lib/comps/buttonStyles";
 
 interface CheckinRound {
   roundId: string;
@@ -68,6 +69,8 @@ export default function EventCheckinPage({
   const [divisions, setDivisions] = useState<CheckinDivision[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyRound, setBusyRound] = useState<string | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
 
   const guardedLoad = useCallback(
     async (options?: CheckinReloadOptions) => {
@@ -168,6 +171,36 @@ export default function EventCheckinPage({
     });
   };
 
+  const syncEntriesToCheckin = async () => {
+    if (
+      !window.confirm(
+        "Sync division Entries (including walk-ups) to open check-in rounds? Existing check-in statuses are kept."
+      )
+    ) {
+      return;
+    }
+    setSyncBusy(true);
+    setError(null);
+    setSyncNotice(null);
+    const res = await authedFetch(
+      `/api/admin/comps/events/${eventId}/checkin/sync-entries`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+    setSyncBusy(false);
+    if (!res.ok) {
+      setError(await apiError(res));
+      return;
+    }
+    const data = await res.json();
+    const n = typeof data.attachedCount === "number" ? data.attachedCount : 0;
+    setSyncNotice(
+      n === 0
+        ? "Everyone on Entries is already on the check-in roster."
+        : `Added ${n} competitor${n === 1 ? "" : "s"} to check-in round rosters.`
+    );
+    await guardedLoad({ force: true });
+  };
+
   const promoteAlternate = async (roundId: string, role?: "lead" | "follow") => {
     setBusyRound(roundId);
     setError(null);
@@ -238,6 +271,29 @@ export default function EventCheckinPage({
       {error && (
         <div className="mt-4 rounded-md border border-red-500/50 bg-red-500/10 p-3 text-sm text-red-300">
           {error}
+        </div>
+      )}
+
+      {syncNotice && (
+        <div className="mt-4 rounded-md border border-green-500/40 bg-green-500/10 p-3 text-sm text-green-200">
+          {syncNotice}
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="mt-4 rounded-xl border border-neutral-700 bg-neutral-800/40 p-4">
+          <p className="text-sm text-neutral-300">
+            Walk-ups or imports on the division Entries tab after check-in started
+            may be missing here until synced.
+          </p>
+          <button
+            type="button"
+            onClick={() => void syncEntriesToCheckin()}
+            disabled={syncBusy}
+            className={compBtnOutline + " mt-3 text-sm"}
+          >
+            {syncBusy ? "Syncing…" : "Sync Entries to check-in"}
+          </button>
         </div>
       )}
 

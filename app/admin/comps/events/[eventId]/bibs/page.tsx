@@ -33,6 +33,10 @@ interface EventInfo {
 
 const AUTO_SAVE_MS = 700;
 
+function competingInLabels(person: EventRegistrantPerson): string[] {
+  return person.competingIn ?? formatRegistrantCompLabels(person.roles);
+}
+
 export default function EventBibsPage({
   params,
 }: {
@@ -456,7 +460,7 @@ export default function EventBibsPage({
         <>
           <div className="mt-6 md:hidden space-y-3">
             {roster.map((person) => {
-              const compLabels = formatRegistrantCompLabels(person.roles);
+              const compLabels = competingInLabels(person);
               return (
               <div
                 key={person.personKey}
@@ -520,7 +524,7 @@ export default function EventBibsPage({
                       {person.firstName} {person.lastName}
                     </td>
                     <td className="py-2.5 pr-4 text-neutral-300">
-                      {formatRegistrantCompLabels(person.roles).join(", ")}
+                      {competingInLabels(person).join(", ")}
                     </td>
                     <td className="py-2.5">{renderBibField(person)}</td>
                     {isCommunityEvent && (
